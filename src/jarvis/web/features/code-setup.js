@@ -39,6 +39,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = { features: {}, last: null, body: null, output: [], done: null, out: null, run: null };
   /* global deckProject */
   const project = () => (typeof deckProject === 'string' ? deckProject : '');
@@ -61,7 +64,7 @@
     const wrap = el('div', 'jcx-setup');
     if (!ev) {
       wrap.append(el('p', 'jc-dim', project() ? 'Reading the project…' : 'Open a project first.'));
-      body.replaceChildren(wrap);
+      keepFocus(body, () => body.replaceChildren(wrap));
       return;
     }
     const name = ev.project;
@@ -82,7 +85,9 @@
     }
     if (ev.setup && ev.problem) wrap.append(el('p', 'jcx-setup-warn', ev.problem));
     if (ev.copy) {
-      const out = el('pre', 'jcx-setup-out', (state.output.length ? state.output : ev.output || []).join('\n') || t('No setup has run in this copy yet.'));
+      const out = el('pre', 'jcx-setup-out');
+      const shown = state.output.length ? state.output : ev.output || [];
+      if (shown.length) putLines(out, shown); else out.textContent = t('No setup has run in this copy yet.');
       out.dataset.noI18n = '';
       out.setAttribute('role', 'log');
       out.setAttribute('aria-live', 'polite');
@@ -141,18 +146,28 @@
     // What's being typed in the image's field outlives a redraw (the backend's answer).
     const typing = document.activeElement && body.contains(document.activeElement) && document.activeElement.id === input.id ? document.activeElement.value : null;
     if (typing !== null) input.value = typing;
-    body.replaceChildren(wrap);
+    keepFocus(body, () => body.replaceChildren(wrap));
     if (typing !== null) input.focus();
   }
 
   // Setup's output as it comes: its lines go on the end of the output already shown, so the
   // pane isn't drawn anew for each line (that wiped what was being typed in it, and made the
   // output's live region anew, read from the top); the whole pane is drawn once it's done.
-  function addOutput(lines, wasEmpty, trimmed) {
+  // One text node a line, and past the last LINES the oldest nodes go (round 2, U6): the
+  // whole log written again on every line once it was full, the live region read out some
+  // 400 lines each time.
+  const LINES = 400;
+  function putLines(out, lines) {
+    for (const line of lines) out.append(document.createTextNode(out.childNodes.length ? `\n${line}` : line));
+    while (out.childNodes.length > LINES) out.firstChild.remove();
+    const first = out.firstChild;
+    if (first && first.data.startsWith('\n')) first.data = first.data.slice(1);
+  }
+
+  function addOutput(lines, wasEmpty) {
     const out = state.out;
     if (!out || !out.isConnected || !paneShown()) return false;
-    if (wasEmpty || trimmed) out.textContent = state.output.join('\n');
-    else if (lines.length) out.append(document.createTextNode(`\n${lines.join('\n')}`));
+    if (wasEmpty) { out.replaceChildren(); putLines(out, state.output); } else putLines(out, lines);
     if (state.run) {
       state.run.textContent = t(state.done === false ? 'Running…' : 'Run setup again');
       state.run.disabled = state.done === false || !(state.last && state.last.setup);
@@ -176,9 +191,9 @@
     const lines = ev.lines || [];
     const wasEmpty = !state.output.length;
     const all = [...state.output, ...lines];
-    state.output = all.slice(-400);
+    state.output = all.slice(-LINES);
     if (ev.done) { state.done = true; ask(); } else state.done = false;
-    if (!addOutput(lines, wasEmpty, all.length > 400)) render();
+    if (!addOutput(lines, wasEmpty)) render();
   });
   const fromPrefs = (prefs) => { if (prefs && prefs.features) state.features = prefs.features; };
   F.on('hello', (ev) => fromPrefs(ev.prefs), { replay: true });

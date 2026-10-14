@@ -33,6 +33,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   // starting: a code_multi_start is out (the form waits, its picks and request kept, until
   // code_multi_started says it took); why: the last refusal, said under the form.
   const state = { groups: [], most: 8, body: null, picked: new Set(), prompt: '', prFor: '', starting: false, why: '' };
@@ -192,7 +195,7 @@
       list.append(...state.groups.map(groupCard));
       wrap.append(list);
     }
-    body.replaceChildren(wrap);
+    keepFocus(body, () => body.replaceChildren(wrap));
   }
 
   F.registerPane('multirepo', {

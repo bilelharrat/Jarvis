@@ -415,7 +415,7 @@
     F.$('shell-service').disabled = serviceState.taken;
     const note = F.$('shell-service-note');
     const problem = serviceState.taken
-      ? en('There’s already a Quick Action named “Ask JARVIS” in ~/Library/Services. Rename or remove it first.')
+      ? en('There’s already a Quick Action named “Ask Eden Secretary” in ~/Library/Services. Rename or remove it first.')
       : serviceState.error ? en('That didn’t work. Try again.') : '';
     note.hidden = !problem || !serviceState.available;
     note.textContent = problem;

@@ -7,7 +7,9 @@
 // the window's bridge (jarvisApp.feature, 'feature:boot-sound'; true/false sets it, nothing asks).
 // In Eden Code's window it takes the place of Eden Secretary's "Boot-up sound" row (boot_sound in
 // the backend's prefs, which Eden Secretary's own loading page plays by), so there is one switch,
-// and the one that counts. In a browser tab, Eden Secretary's window or the split pane there's no
+// and the one that counts. It lives in Eden Code's own settings (the sheet ⌘, opens there),
+// General › "When it opens", above the shortcuts line (round 2, U8: it was only in the shared
+// Settings sheet, which ⌘, no longer opens in Eden Code); with no such sheet, in the shared one. In a browser tab, Eden Secretary's window or the split pane there's no
 // such bridge or no Eden Code body, and nothing changes. No model is called; nothing is sent.
 // Window commands/events: none (the app's IPC only).
 (function (root) {
@@ -24,17 +26,19 @@
     const shared = doc.getElementById('sw-boot-sound');
     const sharedRow = shared && shared.closest ? shared.closest('.row') : null;
 
+    // Eden Code's settings sheet (#jcs-general) when there is one: its own row and switch look.
+    const general = doc.getElementById('jcs-general');
     const row = doc.createElement('div');
-    row.className = 'row';
+    row.className = general ? 'jcs-row' : 'row';
     const text = doc.createElement('span');
-    const strong = doc.createElement('strong');
+    const strong = doc.createElement(general ? 'span' : 'strong');
     strong.textContent = LABEL;
     const small = doc.createElement('small');
     small.textContent = NOTE;
     text.append(strong, small);
     const sw = doc.createElement('button');
     sw.type = 'button';
-    sw.className = 'switch';
+    sw.className = general ? 'jcs-switch' : 'switch';
     sw.id = 'sw-code-boot-sound';
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-checked', 'true'); // on by default, until the app says otherwise
@@ -49,7 +53,17 @@
     });
     Promise.resolve(bridge.invoke('feature:boot-sound')).then(show, () => {});
 
-    if (sharedRow && sharedRow.parentNode) {
+    if (general) {
+      const label = doc.createElement('p');
+      label.className = 'jcs-label';
+      label.textContent = 'When it opens';
+      const group = doc.createElement('div');
+      group.className = 'jcs-group';
+      group.append(row);
+      const foot = general.querySelector('.jcs-foot');
+      if (foot) { general.insertBefore(label, foot); general.insertBefore(group, foot); } else general.append(label, group);
+      if (sharedRow) sharedRow.hidden = true;
+    } else if (sharedRow && sharedRow.parentNode) {
       sharedRow.parentNode.insertBefore(row, sharedRow);
       sharedRow.hidden = true;
     } else {

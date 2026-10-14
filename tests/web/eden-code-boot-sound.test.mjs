@@ -123,7 +123,8 @@ test('Windows: PowerShell, hidden, the path in the environment and never in the 
   assert.equal(cmd, 'powershell.exe');
   assert.ok(!args.join(' ').includes(tmpDir));
   assert.equal(opts.windowsHide, true);
-  assert.equal(opts.env.EDEN_BOOT_SOUND, path.join(tmpDir, 'eden-code-boot-sound.wav'));
+  assert.equal(path.basename(opts.env.EDEN_BOOT_SOUND), 'eden-code-boot-sound.wav');
+  assert.equal(path.dirname(path.dirname(opts.env.EDEN_BOOT_SOUND)), tmpDir, 'in a fresh folder of its own there');
   const linux = sound.createBootSound({ userData: tmp('u'), fs, spawn, platform: 'linux', tmpDir });
   assert.equal(linux.play(), '');
   assert.equal(runs.length, 1);
@@ -220,3 +221,78 @@ function fakeDocument(app = 'eden-code') {
     querySelector: () => general,
   };
 }
+
+// Round 2, U8: ⌘, in Eden Code opened both settings sheets (the shared one, app.js's
+// inEdenCode handler, and Eden Code's own, its deck's keys), and the start-up sound row was only
+// in the shared one. Now ⌘, opens Eden Code's own sheet alone while its deck is up, and the
+// row is in that sheet's General, above the shortcuts line.
+test('⌘, in Eden Code opens one sheet: the shared one only when Eden Code’s deck is hidden', () => {
+  const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  const block = app.match(/\nif \(inEdenCode\) \{\n([\s\S]*?)\n\}\n/)[1];
+  const listeners = [];
+  const cc = { hidden: false };
+  let toggled = 0;
+  const run = new Function('document', '$', 'cmd', 'toggleSettings', block);
+  run({ addEventListener: (type, fn) => listeners.push([type, fn]) }, (id) => (id === 'cc' ? cc : { hidden: true }), (e) => e.metaKey, () => { toggled += 1; });
+  const keydown = listeners.find(([type]) => type === 'keydown')[1];
+  const press = () => keydown({ metaKey: true, shiftKey: false, altKey: false, key: ',', preventDefault() {} });
+  press();
+  assert.equal(toggled, 0, 'the deck is up: its own sheet (openJcSettings), not this one too');
+  cc.hidden = true;
+  press();
+  assert.equal(toggled, 1);
+  // …and the deck's own keys open Eden Code's settings on ⌘,
+  assert.match(app, /if \(key === ',' && !e\.shiftKey\) \{ e\.preventDefault\(\); openJcSettings\('general'\); return; \}/);
+});
+
+test('the start-up sound row is in Eden Code’s settings › General, above the shortcuts', async () => {
+  const { makeDocument } = await import('./fixtures/stand-dom.mjs');
+  const doc = makeDocument();
+  doc.body.dataset.app = 'eden-code';
+  const settings = doc.createElement('section');
+  const sharedRow = doc.createElement('div');
+  sharedRow.className = 'row';
+  const shared = doc.createElement('button');
+  shared.id = 'sw-boot-sound';
+  sharedRow.append(shared);
+  settings.append(sharedRow);
+  const general = doc.createElement('div');
+  general.id = 'jcs-general';
+  const foot = doc.createElement('p');
+  foot.className = 'jcs-foot';
+  general.append(doc.createElement('div'), foot);
+  doc.body.append(settings, general);
+  const sw = web.mount(doc, { invoke: () => Promise.resolve(true) });
+  assert.ok(sw && general.contains(sw), 'in #jcs-general');
+  assert.equal(sw.className, 'jcs-switch');
+  assert.equal(sw.getAttribute('role'), 'switch');
+  assert.equal(sw.closest('.jcs-row').parentNode.className, 'jcs-group');
+  const kids = [...general.children];
+  assert.equal(kids.at(-1), foot, 'the shortcuts line stays last');
+  assert.equal(kids.at(-3).textContent, 'When it opens');
+  assert.equal(sharedRow.hidden, true, 'one switch');
+  const zh = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n', 'boot-sound.json'), 'utf8')).strings;
+  assert.ok(zh['When it opens']);
+});
+
+// Round 2, B1 (break-r2/boot/boot-sound-symlink.test.mjs): the copy went to a fixed name in the
+// temp folder with copyFileSync, which follows a link planted there; anything that could write
+// the temp folder could make the next launch overwrite an owner file with the WAV.
+test('a link planted in the temp folder never makes it overwrite another file', () => {
+  const root = tmp('link');
+  const tmpDir = path.join(root, 'T');
+  fs.mkdirSync(tmpDir);
+  const victim = path.join(root, 'victim-zshrc');
+  fs.writeFileSync(victim, 'export PATH=owner\n');
+  fs.symlinkSync(victim, path.join(tmpDir, 'eden-code-boot-sound.wav'));
+  const { runs, spawn } = fakeSpawn();
+  const b = sound.createBootSound({ userData: tmp('u'), fs, spawn, platform: 'darwin', tmpDir });
+  assert.equal(b.play(), 'afplay');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'export PATH=owner\n', 'the owner file is untouched');
+  const played = runs[0].args.at(-1);
+  assert.notEqual(played, path.join(tmpDir, 'eden-code-boot-sound.wav'));
+  assert.equal(fs.lstatSync(played).isSymbolicLink(), false);
+  assert.deepEqual(fs.readFileSync(played), fs.readFileSync(sound.SOUND));
+  assert.equal(fs.statSync(path.dirname(played)).mode & 0o077, 0, 'its folder is the app’s own (0700)');
+  fs.rmSync(root, { recursive: true, force: true });
+});

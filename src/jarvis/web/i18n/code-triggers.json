@@ -30,7 +30,7 @@
     "Its commands run in a sandbox. Turn it off if its tests need the network.": "它的命令在沙盒里运行。如果它的测试需要联网就关掉。",
     "Turn it on…": "开启…",
     "On": "开",
-    "Off": "关",
+    "Off": "关闭",
     "Turn off": "关闭",
     "The hook’s address": "钩子地址",
     "New token": "新令牌",

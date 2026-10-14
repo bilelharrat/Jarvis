@@ -1,7 +1,8 @@
 {
   "strings": {
     "Play the start-up sound": "播放启动音效",
-    "A short sound as Eden Code opens. It follows your volume and mute.": "Eden Code 打开时播放一段简短的音效，跟随你的音量和静音设置。"
+    "A short sound as Eden Code opens. It follows your volume and mute.": "Eden Code 打开时播放一段简短的音效，跟随你的音量和静音设置。",
+    "When it opens": "打开时"
   },
   "patterns": []
 }

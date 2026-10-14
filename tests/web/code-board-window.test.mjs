@@ -124,3 +124,31 @@ test('every list on the board holds only list items, the to-do lane’s too', ()
   assert.equal(todo.children.length, 0);
   assert.ok(todo.parentNode.querySelector('.cs-lane-empty'));
 });
+
+// Round 2, U3: the board's header is made anew on every draw; its Close and "Show archived"
+// had nothing to be found again by, so the keys fell to the page on the next redraw (about
+// every second while a session works).
+test('a redraw keeps the keys on the header’s Close and on “Show archived”', () => {
+  const session = { ...SESSION };
+  const archivedOne = { ...SESSION, id: 4, title: 'Old one' };
+  const w = standBoard({ tasks: [session, archivedOne], cards: [] });
+  w.F.codeSessions = { meta: new Map([[4, { archived: true }]]), unread: new Set() };  // (code-sessions.js's)
+  w.F.codeBoard.open();
+  w.flush();
+  const x = w.board.querySelector('.cs-board-close');
+  x.focus();
+  session.busy = true;
+  session.last_action = 'Reading a file';
+  w.fire('tasks', {});
+  w.flush();
+  let a = w.document.activeElement;
+  assert.ok(a !== w.document.body && a.classList.contains('cs-board-close'), 'Close still has the keys');
+  const arch = w.board.querySelectorAll('button').find((b) => /Show archived/.test(b.textContent));
+  assert.ok(arch, 'the archived toggle is shown');
+  arch.focus();
+  session.last_action = 'Editing a file';
+  w.fire('tasks', {});
+  w.flush();
+  a = w.document.activeElement;
+  assert.match(a.textContent, /Show archived/, 'the archived toggle still has the keys');
+});

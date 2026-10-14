@@ -8,6 +8,9 @@
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (window.jarvisFocus ? window.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = {
     runs: [],
     jobs: [],
@@ -232,7 +235,7 @@
       list.append(...state.jobs.map(jobRow));
       wrap.append(list);
     }
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   F.registerPane('unattended', {

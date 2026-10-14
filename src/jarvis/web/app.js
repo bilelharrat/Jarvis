@@ -2694,7 +2694,8 @@ $('jc-eden-settings').addEventListener('click', () => toggleSettings($('settings
 if (inEdenCode) {
   $('offline').textContent = 'Reconnecting…';
   document.addEventListener('keydown', (e) => {
-    if (cmd(e) && !e.shiftKey && !e.altKey && e.key === ',') { e.preventDefault(); toggleSettings($('settings').hidden); }
+    // (Eden Code's own sheet when its deck is up, below: one sheet for ⌘, never both.)
+    if (cmd(e) && !e.shiftKey && !e.altKey && e.key === ',' && $('cc').hidden) { e.preventDefault(); toggleSettings($('settings').hidden); }
   });
 }
 

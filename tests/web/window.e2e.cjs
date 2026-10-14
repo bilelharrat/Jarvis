@@ -16,7 +16,19 @@ const path = require('path');
 const WEB = process.env.JARVIS_WEB_DIR || path.join(__dirname, '..', '..', 'src', 'jarvis', 'web');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
-const USER_DATA = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jarvis-window-test-'));
+// Each run's own profile. Chromium still holds it as the run ends (it writes as it quits), so
+// the removal at the end can leave it behind: the profiles earlier runs left are removed here,
+// once they're an hour old (never one a run going on beside this one is using).
+const TEMP = process.env.TMPDIR || os.tmpdir();
+for (const name of (() => { try { return fs.readdirSync(TEMP); } catch (_) { return []; } })()) {
+  if (!name.startsWith('jarvis-window-test-')) continue;
+  const dir = path.join(TEMP, name);
+  try {
+    const st = fs.lstatSync(dir);
+    if (st.isDirectory() && !st.isSymbolicLink() && Date.now() - st.mtimeMs > 3600e3) fs.rmSync(dir, { recursive: true, force: true });
+  } catch (_) { /* another run's, going */ }
+}
+const USER_DATA = fs.mkdtempSync(path.join(TEMP, 'jarvis-window-test-'));
 app.setPath('userData', USER_DATA);
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1');
 
@@ -402,10 +414,14 @@ test('Notices never cover the Settings sheet, Tools & Accounts or Eden Code’s 
   assert(await covered('#accounts button, #accounts input, #accounts select') === 0, 'a Tools & Accounts control is under a notice');
   await js('toggleAccounts(false)');
   await open(1);
-  await js('openPane("diff"); diffFiles = [{ path: "src/a.py", added: 2, removed: 1, hunks: [{ line: 3, where: "parse", removed: ["x"], added: ["y", "z"] }] }]; renderPaneBody()');
+  // (The Changes pane is a feature's now, code_changes.js drawing with code_diff.js: loaded
+  // and fed its event as the socket would, so there is a pane to be covered.)
+  await loadFeatures('code_diff.js', 'code_changes.js', 'code_changes.css');
+  await js('openPane("diff")');
+  await js(`__ev(${HUNK_VIEW()})`);
   await frames(2);
-  assert(await js('document.querySelectorAll("#jc-pane summary").length') === 1 && await up() === 6, 'the Changes pane or the notices are not up');
-  assert(await covered('#jc-pane summary, #jc-pane pre, #jc-pane button, #cc-scroll li') === 0, 'Eden Code is under a notice');
+  assert(await js('document.querySelectorAll("#jc-pane .jcx-num").length') === 2 && await up() === 6, 'the Changes pane or the notices are not up');
+  assert(await covered('#jc-pane .jcx-num, #jc-pane .jcx-lines, #jc-pane button, #cc-scroll li') === 0, 'Eden Code is under a notice');
 });
 
 test('Two or more notices can be dismissed at once; approvals stay', async () => {
@@ -694,7 +710,10 @@ test('In the smallest window (760 × 620), Eden Code uses the whole width and it
     await frames(3);
     const r = await js(`(() => { const box = (id) => $(id).getBoundingClientRect();
       return { main: Math.round(document.querySelector('.jc-main').getBoundingClientRect().left), side: $('jc-side').checkVisibility(), close: Math.round(box('cc-close').right), more: Math.round(box('jc-more').right), title: Math.round(box('jc-title').width), vw: innerWidth }; })()`);
-    assert(!r.side && r.main === 0 && r.close <= r.vw && r.more <= r.vw && r.title > 40, JSON.stringify(r));
+    // (Eden's look floats the main column 12px in from the window's edge: eden-code.css's
+    // @media (max-width: 760px) .jc-main { left: 12px }, the sidebar's 284px given back.)
+    const gutter = await js('document.body.hasAttribute("data-skin") ? 0 : 12');
+    assert(!r.side && r.main === gutter && r.close <= r.vw && r.more <= r.vw && r.title > 40, JSON.stringify(r));
   } finally {
     await cdp('Emulation.clearDeviceMetricsOverride');
   }
@@ -1624,13 +1643,16 @@ test('The intro shows by itself on a fresh install, once; Continue, Back, Not no
   await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
   assert(await js('!$("intro").hidden'), 'the intro did not show');
   let r = await js('({ card: window.jarvisIntro.card(), title: $("intro-title").textContent, back: $("intro-back").hidden, next: $("intro-next").textContent, dots: document.querySelectorAll("#intro-dots li").length, on: document.querySelector("#intro-dots li.on").dataset.section })');
-  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 12 && r.on === 'welcome', JSON.stringify(r));
+  // (13 sections: the Boot-up sound card came in after Language.)
+  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 13 && r.on === 'welcome', JSON.stringify(r));
   await introNext();
   await js('document.querySelector("#intro-card [data-lang=zh]").click(); true');
+  await introNext();  // the boot-up sound: Next leaves it as it is
+  assert((await introCard()) === 'sound', await introCard());
   await introNext();  // the microphone
   assert((await introCard()) === 'mic', await introCard());
   await js('$("intro-back").click(); true');
-  assert((await introCard()) === 'language', 'Back went nowhere');
+  assert((await introCard()) === 'sound', 'Back went nowhere');
   await introNext();
   await js('$("intro-later").click(); true');  // Not now: the next card
   assert((await introCard()) === 'permissions', await introCard());
@@ -2158,7 +2180,7 @@ test('A project’s new sessions start in Bypass permissions only once that’s 
   await js('__finger = null; __confirmAnswer = false; true');
   await pick('auto');
   await sleep(60);
-  assert(!(await sentOf('feature_prefs')).length && (await js('__confirms.length')) === 1, JSON.stringify(await js('__sent')));
+  assert(!(await sentOf('feature_prefs')).length && JSON.stringify(await js('__confirms')) === JSON.stringify(['app:bypass-default']), JSON.stringify(await js('__confirms')));
   await js('__confirmAnswer = true; true');
   await pick('auto');
   await sleep(60);
@@ -2745,7 +2767,10 @@ test('Isolated copy: the switch goes with a new session, and is on when another 
   news = await js('__sent.filter((m) => m.type === "task_new")');
   assert(news.length === 1 && news[0].isolated === true, JSON.stringify(news));
   // The owner's own choice wins for the next session, then it's back to the default.
-  await js('__sent.length = 0');
+  // (The switch is in the composer's control row, folded away until the orb opens it: a
+  // click on the folded row lands on the composer.)
+  await js('__sent.length = 0; setComposerExpanded(true, { focus: false }); true');
+  await sleep(350);
   await clickIn('#jcx-iso-switch');
   await js('$("cc-start-typed").click()');
   news = await js('__sent.filter((m) => m.type === "task_new")');
@@ -3799,11 +3824,12 @@ test('Listening sits after Voice, asks for its state and switches the detector',
 test('Wake words: each has Remove (not the last), a name is added, the hint follows', async () => {
   await loadVoiceFeature('voice');
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); true`);
-  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Jarvis", "Friday"], wake_error: "" }); true`);
+  // (The wake word is Eden since the rename: the hint names Eden while it's one of them.)
+  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Eden", "Friday"], wake_error: "" }); true`);
   let r = await js(`({ names: [...$('voice-wake-list').querySelectorAll('.fact')].map((n) => n.textContent),
     disabled: [...$('voice-wake-list').querySelectorAll('button')].map((b) => b.disabled), hint: $('hint').firstChild.nodeValue })`);
-  assert(JSON.stringify(r.names) === '["Jarvis","Friday"]' && JSON.stringify(r.disabled) === '[false,false]', JSON.stringify(r));
-  assert(r.hint === 'Say “Hey Eden Secretary” · ', r.hint);
+  assert(JSON.stringify(r.names) === '["Eden","Friday"]' && JSON.stringify(r.disabled) === '[false,false]', JSON.stringify(r));
+  assert(r.hint === 'Say “Hey Eden” · ', r.hint);
   await js('__sent.length = 0; true');
   await clickText('#voice-wake-list li:nth-child(2)', 'Remove');
   await js(`$('voice-wake-input').value = '  Computer '; $('voice-wake-form').requestSubmit(); true`);
@@ -3816,7 +3842,7 @@ test('Wake words: each has Remove (not the last), a name is added, the hint foll
   assert(JSON.stringify(r.disabled) === '[true]' && r.hint === 'Say “Hey Friday” · ' && /at least one/.test(r.error), JSON.stringify(r));
   // app.js writes the hint afresh on a settings change: it's named again straight after.
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); featureEvent({ type: 'prefs' }); true`);
-  assert(await js(`$('hint').firstChild.nodeValue === 'Say “Hey Friday” · '`), 'the hint went back to Eden Secretary');
+  assert(await js(`$('hint').firstChild.nodeValue === 'Say “Hey Friday” · '`), 'the hint went back to Eden');
 });
 
 test('Speaking: .env is the default, a key goes once and never stays, voices are picked and previewed', async () => {
@@ -3906,7 +3932,7 @@ test('Talk over Eden Secretary: the switch, why it can’t run, and the hands-fr
   assert(r.checked === 'true' && /echo cancellation keeps my own voice out/.test(r.note) && /talk over me to interrupt/.test(r.row), JSON.stringify(r));
   await voice(true, { state: 'unavailable', why: 'the Mac’s input is AirPods Pro, not its own microphone' });
   r = await js(`({ note: $('voice-talk-over-note').textContent, why: $('voice-talk-over-note').querySelector('.voice-why').textContent, row: ${handsFree} })`);
-  assert(/couldn’t start here/.test(r.note) && r.why === 'the Mac’s input is AirPods Pro, not its own microphone' && /“Eden Secretary, stop” to interrupt me/.test(r.row), JSON.stringify(r));
+  assert(/couldn’t start here/.test(r.note) && r.why === 'the Mac’s input is AirPods Pro, not its own microphone' && /“Eden, stop” to interrupt me/.test(r.row), JSON.stringify(r));
   await js('__sent.length = 0; true');
   await js(`$('voice-talk-over').click(); true`);
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_talk_over: false } }]), 'no switch');
@@ -5194,11 +5220,21 @@ test('The Permissions pane’s Sandbox section: the switch, this session’s own
 // ── Touch ID for Bypass and risky steps (web/features/code-touchid.js) ──
 
 // The app's Touch ID, faked: what it was asked, and what the finger says (true, false, or
-// null for a Mac without Touch ID).
+// null for a Mac without Touch ID). Without Touch ID the app asks with its own dialog
+// (feature:touchid:confirm, since S30), answered by __confirmAnswer; an app too old for that
+// dialog says {unsupported: true} (__confirmUnsupported) and the page's confirm() asks. Both
+// questions are written down in __confirms (the dialog's as "app:<kind>").
 const fakeTouchId = (answer) => js(`window.__touch = []; window.__finger = ${JSON.stringify(answer)}; window.__confirms = [];
+  window.__confirmAnswer = true; window.__confirmUnsupported = false;
   window.confirm = (q) => { __confirms.push(q); return window.__confirmAnswer !== false; };
   window.jarvisApp = { feature: { invoke: async (channel, kind) => { __touch.push(kind || channel);
-    if (channel === 'feature:touchid:available') return __finger !== null; return { ok: __finger === true }; } } }; true`);
+    if (channel === 'feature:touchid:available') return __finger !== null;
+    if (channel === 'feature:touchid:confirm') {
+      if (__confirmUnsupported) return { unsupported: true };
+      __confirms.push('app:' + kind);
+      return { ok: __confirmAnswer !== false };
+    }
+    return { ok: __finger === true }; } } }; true`);
 
 test('Bypass and a risky step allowed from its card ask for Touch ID first, or the usual question without it', async () => {
   await featureScript('code-touchid.js');
@@ -5214,7 +5250,13 @@ test('Bypass and a risky step allowed from its card ask for Touch ID first, or t
   assert((await sentOf('task_mode')).length === 0, 'Bypass went on without the finger');
   await js('__finger = null; __confirmAnswer = false; $("jc-bypass").click(); true');
   await sleep(60);
-  assert((await sentOf('task_mode')).length === 0 && (await js('__confirms.length')) === 1, JSON.stringify(await js('__sent')));
+  assert((await sentOf('task_mode')).length === 0 && JSON.stringify(await js('__confirms')) === JSON.stringify(['app:bypass']), JSON.stringify(await js('__confirms')));
+  // An app without its own dialog: the page's question decides.
+  await js('__confirms.length = 0; __confirmUnsupported = true; __confirmAnswer = true; $("jc-bypass").click(); true');
+  await sleep(60);
+  assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
+  assert((await js('__confirms.length')) === 1 && !(await js('__confirms[0]')).startsWith('app:'), JSON.stringify(await js('__confirms')));
+  await js('__sent.length = 0; __confirmUnsupported = false; true');
   // A risky step waits for the finger; an ordinary one goes at once.
   await js('__finger = false; __touch.length = 0; true');
   await deliver({ ...(await js('__approval("r1", { detail: "$ rm -rf build" })')), task_id: 1 });
@@ -5260,11 +5302,18 @@ test('Eden Code settings has the Touch ID switch; off, Bypass asks the usual que
   await open(1);
   await js('openJcSettings(); selectJcsTab("general"); true');
   assert(await js('$("jcs-general").contains($("ct-touchid")) && $("ct-touchid").getAttribute("aria-checked") === "true"'), 'no Touch ID switch in General');
-  await js('__sent.length = 0; $("ct-touchid").click(); true');
+  // Off asks for the finger first (A3), and only then is the setting sent.
+  await js('__sent.length = 0; __touch.length = 0; __finger = false; $("ct-touchid").click(); true');
+  await sleep(60);
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['feature:touchid:available', 'touchid-off']), JSON.stringify(await js('__touch')));
+  assert((await sentOf('feature_prefs')).length === 0, 'turned off without the finger');
+  await js('__touch.length = 0; __finger = true; $("ct-touchid").click(); true');
+  await sleep(60);
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['feature:touchid:available', 'touchid-off']), JSON.stringify(await js('__touch')));
   assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { code_touchid: false } }]), JSON.stringify(await js('__sent')));
   await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_touchid: false } });
   assert(await js('$("ct-touchid").getAttribute("aria-checked") === "false"'), 'the switch didn’t follow the setting');
-  await js('closeJcSettings && closeJcSettings(); __sent.length = 0; $("jc-bypass").click(); true');
+  await js('closeJcSettings && closeJcSettings(); __sent.length = 0; __touch.length = 0; $("jc-bypass").click(); true');
   await sleep(60);
   assert((await js('__touch.length')) === 0 && (await js('__confirms.length')) === 1, JSON.stringify(await js('__touch')));
   assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
@@ -7345,7 +7394,8 @@ test('Tab search (its button or ⌘⇧A) finds an open tab by its words; Return 
   const open = await js(`({ hidden: $("bp-tabs").hidden, focused: document.activeElement === $("bp-tabs-search"), rows: [...$("bp-tabs-list").querySelectorAll(".bp-row")].map((r) => r.querySelector(".bd-lib-title").textContent + "|" + ((r.querySelector(".bp-badge") || {}).textContent || "")), on: $("bp-tabs-list").querySelector(".bp-row.on .bd-lib-title").textContent })`);
   assert(!open.hidden && open.focused && JSON.stringify(open.rows) === '["Quarterly results|Current tab","Pull requests|Pinned tab","Weather|"]' && open.on === 'Quarterly results', JSON.stringify(open));
   assert(JSON.stringify(await invokedOn('feature:browser:cover')) === '[{"on":true}]', 'the page did not step aside');
-  await js(`$("bp-tabs-search").value = "Eden Secretary pull"; $("bp-tabs-search").dispatchEvent(new Event("input")); true`);
+  // (Words from the address as well as the title: "jarvis" is in the tab's URL only.)
+  await js(`$("bp-tabs-search").value = "jarvis pull"; $("bp-tabs-search").dispatchEvent(new Event("input")); true`);
   assert(JSON.stringify(await js('[...$("bp-tabs-list").querySelectorAll(".bd-lib-title")].map((t) => t.textContent)')) === '["Pull requests"]', 'the words did not find it');
   await js(`$("bp-tabs-search").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); true`);
   await settle();
@@ -8033,7 +8083,7 @@ test('Agents: made in Settings under Personality with their persona, tools and c
   await loadFeatures('agents.js', 'agents.css');
   await js(AGENTS_EV());
   const shown = await js(`({ after: $('persona-group').closest('section').nextElementSibling.id, rows: [...document.querySelectorAll('.agent-item strong')].map((n) => n.textContent), badge: $('agent-badge').hidden, form: $('agent-form').hidden })`);
-  assert(shown.after === 'agents-group' && shown.rows.join() === 'Jarvis' && shown.badge && shown.form, JSON.stringify(shown));
+  assert(shown.after === 'agents-group' && shown.rows.join() === 'Eden Secretary' && shown.badge && shown.form, JSON.stringify(shown));
   await js(`$('agent-new').click(); true`);
   const editor = await js(`({ personas: [...$('agent-persona').options].map((o) => o.value), tools: [...document.querySelectorAll('#agent-tools input')].map((c) => c.value + ':' + c.checked), account: [...document.querySelectorAll('.agent-tool span')].pop().getAttribute('data-no-i18n') })`);
   assert(editor.personas.join() === 'jarvis,friday' && editor.tools.join() === 'calendar:false,mail:false,acct_work:false' && editor.account === '', JSON.stringify(editor));
@@ -8583,8 +8633,14 @@ app.whenReady().then(async () => {
   console.log(`\n${run.length - failed} passed, ${failed} failed`);
   server.close();
   win.destroy();
-  // The run's own profile (its caches and storage, some ten megabytes) goes with it instead
-  // of staying in the temp folder; only the few small files Electron writes as it quits stay.
-  try { fs.rmSync(USER_DATA, { recursive: true, force: true }); } catch (_) { /* still held: the OS clears temp */ }
+  // The run's own profile (its caches and storage, some ten megabytes) goes with it instead of
+  // staying in the temp folder: removed a few seconds after the app has gone (Chromium writes
+  // into it as it quits, so a removal from here is undone), by a detached shell of its own;
+  // else by the next run (above).
+  if (process.platform !== 'win32') {
+    try {
+      require('child_process').spawn('/bin/sh', ['-c', 'sleep 3; rm -rf -- "$1"', 'sh', USER_DATA], { detached: true, stdio: 'ignore' }).unref();
+    } catch (_) { /* the next run's */ }
+  }
   app.exit(failed ? 1 : 0);
 });

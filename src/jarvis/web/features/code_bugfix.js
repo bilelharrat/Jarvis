@@ -91,6 +91,15 @@
   const sessions = () => (typeof ccTasks !== 'undefined' ? ccTasks : []);
   const showing = () => body && body.isConnected && body.querySelector('.jcx-bf');
   const render = () => { if (showing()) draw(body); };
+  // What the sessions list changes here: the project, the session shown, and which runs'
+  // sessions are still there (Show session). The list arrives many times a second while a
+  // session works (round 2, U2); drawn anew each time, the focus moved under a screen reader
+  // ("Stop, button" over and over), so a tasks event redraws only when one of these changed.
+  const fromTasks = () => {
+    const task = F.currentTask();
+    return JSON.stringify([project(), task ? task.id : null, state.runs.map((r) => sessions().some((s) => s.id === r.task_id && s.kind === 'code'))]);
+  };
+  let tasksShown = '';
 
   function mine(text, tag = 'span', cls = '') {
     const node = el(tag, cls, text);
@@ -105,6 +114,19 @@
     b.addEventListener('click', (e) => { e.preventDefault(); run(b); });
     return b;
   }
+
+  // Marked so a redraw never moves the keys onto it in a gone control's place (code-focus.js).
+  const spender = (b) => { b.dataset.spends = ''; return b; };
+
+  // A word that means something of its own here (a finding still Open, the Fix step, the step
+  // Now): one dictionary serves the whole window and the last file's Chinese wins, so "Open"
+  // came out 打开 and "Fix" 修改 (round 2, U4). Its Chinese is under its own key,
+  // "Exterminator Mode · <word>" (i18n/code_bugfix.json), else the window's for the word.
+  const own = (word) => {
+    const key = `Exterminator Mode · ${word}`;
+    const zh = t(key);
+    return zh !== key ? zh : t(word);
+  };
 
   // ── the composer's switch ──
 
@@ -150,25 +172,26 @@
     const run = task ? runFor(state.runs, state.active, task.id, '') : null;
     badge.hidden = !run;
     if (!run) return;
-    const step = run.step === 'ship' || run.step === 'land' ? t(STEP_LABELS[run.step]) : `${t('Round')} ${run.round} · ${t(STEP_LABELS[run.step] || run.step)}`;
+    const step = run.step === 'ship' || run.step === 'land' ? own(STEP_LABELS[run.step]) : `${t('Round')} ${run.round} · ${own(STEP_LABELS[run.step] || run.step)}`;
     badge.replaceChildren(el('span', 'jcx-bf-dot'), el('span', '', 'Exterminator Mode'), mine(` · ${step}`));
     badge.setAttribute('aria-label', `${t('Exterminator Mode')}: ${step}. ${money(run.spent)} / ${money(run.spend_cap)}`);
   }
 
-  function redraw() { drawSwitch(); drawBadge(); }
+  function redraw() { tasksShown = fromTasks(); drawSwitch(); drawBadge(); }
 
   // ── the pane ──
 
   function chip(text, cls) { return el('span', `jcx-chip ${cls || ''}`.trim(), text); }
+  function ownChip(text, cls) { const c = chip(own(text), cls); c.dataset.noI18n = ''; return c; }
 
   function stepper(run) {
     const list = el('ol', 'jcx-bf-steps');
     list.setAttribute('aria-label', t('Progress'));
     for (const s of progress(run)) {
-      const label = s.step === 'ship' || s.step === 'land' ? t(STEP_LABELS[s.step]) : `R${s.round} ${t(STEP_LABELS[s.step])}`;
+      const label = s.step === 'ship' || s.step === 'land' ? own(STEP_LABELS[s.step]) : `R${s.round} ${own(STEP_LABELS[s.step])}`;
       const li = mine(label, 'li', `jcx-bf-step ${s.state}`);
       if (s.state === 'current') li.setAttribute('aria-current', 'step');
-      li.title = t({ done: 'Done', current: 'Now', halted: 'Stopped here', todo: 'To do' }[s.state]);
+      li.title = own({ done: 'Done', current: 'Now', halted: 'Stopped here', todo: 'To do' }[s.state]);
       list.append(li);
     }
     return list;
@@ -178,7 +201,7 @@
     const li = el('li', `jcx-bf-finding sev-${f.severity}`);
     const head = el('div', 'jcx-bf-fhead');
     head.append(chip(f.severity, `sev ${f.severity}`), mine(f.id, 'code'), mine(f.title, 'span', 'jcx-bf-ftitle'),
-      chip(STATUS[f.status] || f.status, ['verified', 'fixed'].includes(f.status) ? 'good' : ['failing', 'unproven'].includes(f.status) ? 'warn' : ''));
+      ownChip(STATUS[f.status] || f.status, ['verified', 'fixed'].includes(f.status) ? 'good' : ['failing', 'unproven'].includes(f.status) ? 'warn' : ''));
     li.append(head, mine(`${f.where} · ${f.lane}`, 'p', 'jc-dim jcx-bf-where'));
     li.title = f.scenario || '';
     // (A title is never read by a screen reader: the scenario is said in the item too.)
@@ -216,8 +239,9 @@
     const actions = el('div', 'jcx-bf-actions');
     if (sessions().some((s) => s.id === run.task_id && s.kind === 'code')) actions.append(button('Show session', '', () => F.selectTask(run.task_id)));
     if (canStop(run)) actions.append(button('Stop', 'danger', () => send({ type: 'code_bugfix_stop', run: run.id }), 'Ends the run where it is; its copy and reports are kept'));
-    if (canResume(run)) actions.append(button('Resume', 'filled', () => send({ type: 'code_bugfix_resume', run: run.id }), 'Carries on from the step it was on, in the same copy'));
-    if (canLand(run)) actions.append(button('Land the fixes…', '', () => send({ type: 'code_bugfix_land', run: run.id }), 'Asks first, with Touch ID'));
+    // (Resume spends: after Stop the keys go to a harmless control in the card, not here.)
+    if (canResume(run)) actions.append(spender(button('Resume', 'filled', () => send({ type: 'code_bugfix_resume', run: run.id }), 'Carries on from the step it was on, in the same copy')));
+    if (canLand(run)) actions.append(spender(button('Land the fixes…', '', () => send({ type: 'code_bugfix_land', run: run.id }), 'Asks first, with Touch ID')));
     if ((run.findings || []).length) {
       actions.append(button(state.open.has(run.id) ? 'Hide findings' : 'Findings', 'plain', () => {
         if (state.open.has(run.id)) state.open.delete(run.id); else state.open.add(run.id);
@@ -287,7 +311,11 @@
     render();
     redraw();
   }, { replay: true });
-  F.on('tasks', () => { redraw(); render(); });
+  F.on('tasks', () => {
+    if (fromTasks() === tasksShown) return;
+    redraw();
+    render();
+  });
   F.on('hello', () => send({ type: 'code_bugfix' }));
   redraw();
 })(typeof window === 'object' ? window : globalThis);

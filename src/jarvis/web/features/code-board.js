@@ -247,11 +247,14 @@
     if (archived) {
       const arch = el('button', 'jc-btn small', B.showArchived ? 'Hide archived' : `Show archived (${archived})`);
       arch.type = 'button';
+      // (The header is made anew each draw: a data-focus is how the keys find it again, U3.)
+      arch.dataset.focus = 'board-archived';
       arch.addEventListener('click', () => { B.showArchived = !B.showArchived; render(); });
       tools.append(arch);
     }
     const x = el('button', 'jc-icon cs-board-close');
     x.type = 'button';
+    x.dataset.focus = 'board-close';
     x.setAttribute('aria-label', 'Close the board');
     x.title = 'Close the board (Esc)';
     x.insertAdjacentHTML('beforeend', '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>');

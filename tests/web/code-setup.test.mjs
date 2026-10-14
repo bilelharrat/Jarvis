@@ -28,3 +28,39 @@ test('the container line says where commands run, or why not', () => {
   assert.match(containerLine({ on: true }, 'python:3.12'), /devcontainer\.json \(python:3\.12\)/);
   assert.match(containerLine({ on: true }), /there is no image/);
 });
+
+// Round 2, U6: once 400 lines were shown, every new line wrote the whole log into the output
+// again (its live region read out some 400 lines a line). Now each line is its own text node,
+// new ones go on the end and the oldest are taken off.
+test('setup output: a line past the last 400 adds one node and drops the oldest, nothing rewritten', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { elFor, load, makeDocument } = await import('./fixtures/stand-dom.mjs');
+  const document = makeDocument();
+  const body = document.createElement('div');
+  document.body.append(body);
+  const panes = new Map();
+  const handlers = {};
+  const F = {
+    el: elFor(document), t: (x) => x, send: () => true,
+    on: (type, fn) => { (handlers[type] ||= []).push(fn); },
+    registerPane: (id, pane) => panes.set(id, pane), registerMoreItem() {}, openPane() {},
+    currentTask: () => ({ id: 7, kind: 'code', folder: 'api' }),
+  };
+  const scope = { window: { jarvisFeatures: F }, document, deckProject: 'api', currentPane: 'setup' };
+  load(readFileSync(new URL('../../src/jarvis/web/features/code-setup.js', import.meta.url), 'utf8'), scope);
+  const fire = (type, ev) => { for (const fn of handlers[type] || []) fn(ev); };
+  panes.get('setup').render(body);
+  fire('code_setup', { id: 7, copy: '/c', setup: 'npm ci', source: '.jarvis/setup.sh', container: {} });
+  const out = body.querySelector('.jcx-setup-out');
+  assert.ok(out, 'the output is shown');
+  fire('code_setup_output', { id: 7, lines: Array.from({ length: 400 }, (_, i) => `line ${i}`) });
+  assert.equal(out.childNodes.length, 400);
+  const kept = out.childNodes.slice(1);
+  fire('code_setup_output', { id: 7, lines: ['line 400'] });
+  assert.ok(body.querySelector('.jcx-setup-out') === out, 'the same output, not drawn anew');
+  assert.equal(out.childNodes.length, 400);
+  assert.ok(kept.every((node, at) => out.childNodes[at] === node), 'the 399 lines kept are the same nodes');
+  assert.equal(out.textContent.split('\n')[0], 'line 1');
+  assert.equal(out.textContent.split('\n').at(-1), 'line 400');
+  assert.equal(out.textContent.split('\n').length, 400);
+});

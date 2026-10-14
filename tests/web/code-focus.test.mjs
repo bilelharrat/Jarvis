@@ -81,7 +81,7 @@ function standPane(name, paneId, scope = {}) {
   all.currentPane = paneId;
   panes.get(paneId).render(body, F.currentTask());
   const fire = (type, ev) => { for (const fn of handlers[type] || []) fn(ev); };
-  return { document, body, fire, sent };
+  return { document, body, fire, sent, all };
 }
 
 test('Exterminator Mode: after Stop, the keys are on what took its place, not the page', () => {
@@ -93,7 +93,60 @@ test('Exterminator Mode: after Stop, the keys are on what took its place, not th
   stop.click();
   assert.deepEqual(w.sent.at(-1), { type: 'code_bugfix_stop', run: 'r1' });
   w.fire('code_bugfix', { runs: [{ ...run, state: 'stopped' }], active: {} });
-  assert.equal(w.document.activeElement.textContent, 'Resume', 'Resume is where Stop was');
+  // (Round 2, U9: not Resume, which would spend again on the next Space; a harmless control
+  // in the same card.)
+  const now = w.document.activeElement;
+  assert.notEqual(now.textContent, 'Resume', 'never the spending control in Stop’s place');
+  assert.ok(w.body.contains(now) && now !== w.body, 'still in the pane');
+  assert.ok(now.closest('.jcx-bf-run'), 'in the run’s own card');
+});
+
+// Round 2, U1: two cards each with a Stop; after Stop on the first, the keys stay in the first
+// card, never on the second card's Stop (scratchpad ui2/focus-repro.mjs).
+function cards(document, box, list) {
+  const el = elFor(document);
+  box.replaceChildren(...list.map(([name, labels]) => {
+    const s = el('section', 'card');
+    s.setAttribute('aria-label', `Exterminator Mode: ${name}`);
+    s.append(...labels.map((l) => {
+      const [word, spends] = Array.isArray(l) ? l : [l, false];
+      const b = el('button', 'jc-btn', word);
+      b.type = 'button';
+      if (spends) b.dataset.spends = '';
+      return b;
+    }));
+    return s;
+  }));
+}
+
+test('keep: after Stop on one card the focus stays in that card, not on another card’s Stop', () => {
+  const document = makeDocument();
+  const box = document.createElement('div');
+  document.body.append(box);
+  cards(document, box, [['alpha', ['Show session', 'Stop', 'Findings']], ['beta', ['Show session', 'Stop', 'Findings']]]);
+  box.children[0].children[1].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', ['Show session', 'Resume', 'Findings']], ['beta', ['Show session', 'Stop', 'Findings']]]));
+  const a = document.activeElement;
+  assert.equal(a.parentNode.getAttribute('aria-label'), 'Exterminator Mode: alpha', 'the same card');
+  // The second card's Stop, redrawn the same: stays on it (the nth alike inside its own card).
+  box.children[1].children[1].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', ['Show session', 'Resume', 'Findings']], ['beta', ['Show session', 'Stop', 'Findings']]]));
+  assert.ok(document.activeElement === box.children[1].children[1]);
+});
+
+test('keep: a spending control (data-spends) never takes a gone one’s place; the card does when nothing else is left', () => {
+  const document = makeDocument();
+  const box = document.createElement('div');
+  document.body.append(box);
+  cards(document, box, [['alpha', ['Show session', 'Stop']]]);
+  box.children[0].children[1].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', ['Show session', ['Resume', true]]]]));
+  assert.equal(document.activeElement.textContent, 'Show session', 'a harmless control in the same card');
+  cards(document, box, [['alpha', ['Stop']]]);
+  box.children[0].children[0].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', [['Resume', true]]]]));
+  assert.ok(document.activeElement === box.children[0], 'the card itself, not Resume');
+  assert.equal(box.children[0].getAttribute('tabindex'), '-1');
 });
 
 test('Best of N: removing a variant leaves the keys in the form', () => {
@@ -137,4 +190,52 @@ test('Exterminator Mode: its button says what it does; a finding’s scenario is
   assert.equal(pill.getAttribute('aria-label'), 'Exterminator Mode is on: show its progress');
   const item = w.body.querySelector('.jcx-bf-finding');
   assert.match(item.querySelector('.sr-only').textContent, /Open it twice/);
+});
+
+// Round 2, U2: the sessions list arrives many times a second while a session works; the
+// Exterminator pane drew itself anew on each one (the focused Stop replaced 10 times a second,
+// a screen reader saying "Stop, button" each time). Unchanged lists leave the pane alone; a
+// change it shows (the run's session appearing: Show session) still redraws it.
+test('Exterminator Mode: an unchanged sessions list doesn’t redraw the pane', () => {
+  const w = standPane('code_bugfix.js', 'bugfix');
+  const run = { id: 'r1', project: 'api', state: 'running', round: 1, step: 'sweep', spent: 1, spend_cap: 10, findings: [], folder: '/f', slug: 's', task_id: 9 };
+  w.fire('code_bugfix', { runs: [run], active: {} });
+  const stop = w.body.querySelectorAll('button').find((b) => b.textContent === 'Stop');
+  const wrap = w.body.children[0];
+  stop.focus();
+  for (let i = 0; i < 10; i++) w.fire('tasks', {});
+  assert.ok(w.body.children[0] === wrap, 'the same drawing');
+  assert.ok(w.document.activeElement === stop, 'the same Stop, never replaced');
+  w.all.ccTasks.push({ id: 9, kind: 'code' });
+  w.fire('tasks', {});
+  assert.ok(w.body.children[0] !== wrap, 'its session appeared: drawn again');
+  assert.ok(w.body.querySelectorAll('button').some((b) => b.textContent === 'Show session'));
+  assert.equal(w.document.activeElement.textContent, 'Stop', 'the keys kept on Stop through it');
+});
+
+// Round 2, U5: the panes G5 didn't reach lost the focus after their own buttons (Without you's
+// Stop and refused-steps toggle, pairing, the isolated copy, multi-repo, setup, Git, the PR,
+// sharing): each draws through keep too.
+test('Without you: the refused-steps toggle and Stop leave the keys in the pane', () => {
+  const w = standPane('code_unattended.js', 'unattended');
+  const run = { id: 'u1', title: 'Night run', project: 'api', state: 'running', spend_cap: 5, hours: 2, started: 1000, denied: ['rm -rf build', 'git push'] };
+  w.fire('code_runs', { runs: [run], jobs: [], active: {} });
+  const toggle = w.body.querySelectorAll('button').find((b) => b.textContent === '2 steps refused');
+  toggle.focus();
+  toggle.click();
+  assert.equal(w.document.activeElement.textContent, 'Hide what it was refused', 'the toggle, in its new words');
+  const stop = w.body.querySelectorAll('button').find((b) => b.textContent === 'Stop');
+  stop.focus();
+  stop.click();
+  w.fire('code_runs', { runs: [{ ...run, state: 'done', why: 'owner', ended: 2000, cost: 1, files: 0 }], jobs: [], active: {} });
+  const now = w.document.activeElement;
+  assert.ok(w.body.contains(now) && now !== w.body, `still in the pane (${now.tagName})`);
+});
+
+test('every pane the round-2 audit found losing the focus draws through keep', () => {
+  for (const name of ['code_unattended.js', 'code-pairing.js', 'code_isolation.js', 'code-multirepo.js', 'code-setup.js', 'code_git.js', 'code_pr.js', 'code_share.js']) {
+    const text = source(name);
+    assert.match(text, /const keepFocus = \(box, drawIt\) => \((root|window)\.jarvisFocus \? \1\.jarvisFocus\.keep\(box, drawIt\) : drawIt\(\)\);/, name);
+    assert.ok(!/^\s+(target|body)\.replaceChildren\(wrap\);/m.test(text), `${name}: no bare redraw of the pane`);
+  }
 });
