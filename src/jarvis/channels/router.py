@@ -1224,9 +1224,7 @@ class Channels:
         chat = adapter.home_chat() if adapter is not None and group is not None else origin[1]
         if adapter is None or chat is None:
             return
-        question = " ".join(str(card.get("question") or "").split())[:300]
-        text = say(words.ON_THE_MAC, self.language, question=question)
-        self.spawn(self._reply(adapter, chat, text, False))
+        self.spawn(self._reply(adapter, chat, _on_the_mac_text(card, self.language), False))
 
     def _origin(self, card: dict[str, Any]) -> tuple[str, str] | None:
         """The chat a card belongs to: the one whose request raised it, or (an Eden Code
@@ -1340,8 +1338,7 @@ class Channels:
             await self._ack(msg, say(words.GONE, language))
             return
         if _mac_only(live, choice):
-            q = " ".join(str(live.get("question") or "").split())[:300]
-            await self._ack(msg, say(words.ON_THE_MAC, language, question=q))
+            await self._ack(msg, _on_the_mac_text(live, language))
             return
         tracked.answer = label
         ok = self.hub.resolve(approval_id, choice)
@@ -1417,10 +1414,7 @@ class Channels:
             return True
         label = _label(live, choice) or choice
         if _mac_only(live, choice):
-            q = " ".join(str(live.get("question") or "").split())[:300]
-            await self._reply(
-                adapter, msg.chat, say(words.ON_THE_MAC, self.language, question=q), False
-            )
+            await self._reply(adapter, msg.chat, _on_the_mac_text(live, self.language), False)
             return True
         tracked.answer = label
         if not self.hub.resolve(tracked.id, choice, feedback):
@@ -1764,6 +1758,12 @@ def _mac_only(card: Any, choice: str = "allow") -> bool:
     from ..features.code_touchid import ALLOWING, mac_only
 
     return choice in ALLOWING and mac_only(card)
+
+
+def _on_the_mac_text(card: dict[str, Any], language: str) -> str:
+    """What a chat is told of a card only the Mac answers: where to answer it, and its question."""
+    question = " ".join(str(card.get("question") or "").split())[:300]
+    return say(words.ON_THE_MAC, language, question=question)
 
 
 def _label(card: dict[str, Any] | None, choice: str) -> str | None:
