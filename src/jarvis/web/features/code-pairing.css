@@ -8,6 +8,8 @@
 .jcx-pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .jcx-pair-list li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; border-radius: 10px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
 .jcx-pair-list code { flex: 1; min-width: 0; font: 11.5px var(--mono); color: rgb(var(--c-ink-2)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-pair-list li:has(.jcx-pair-note) { flex-wrap: wrap; }
+.jcx-pair-note { flex-basis: 100%; font-size: 11px; color: rgb(var(--c-ink-2)); }
 .jcx-pair-keep { display: flex; flex: none; gap: 6px; }
 .deck.jc .jcx-pair .jc-btn { font-size: 12px; }
 .deck.jc .jcx-pair .jc-btn.tinted { color: rgb(var(--c-accent-ink)); margin-top: 8px; }

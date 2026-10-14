@@ -55,10 +55,11 @@ def gate_on(hub):
     assert hub.code_touchid.needed()
 
 
-def prove(hub, kind, nonce):
-    """A proof armed as the window sends one. (Each nonce works once per test run: they're
+def prove(hub, kind, nonce, subject=None):
+    """A proof armed as the window sends one, for subject (session 7 for Bypass when none is
+    named; "new" for sessions not started yet). (Each nonce works once per test run: they're
     this module's own, never test_code_touchid_proof's.)"""
-    hub.code_touchid.on_proof({"kind": kind, "proof": fresh(kind, nonce)})
+    hub.code_touchid.on_proof({"kind": kind, "proof": fresh(kind, nonce, subject=subject)})
 
 
 def errors(seen):
@@ -124,7 +125,7 @@ async def test_bestof_in_bypass_needs_one_proof_for_all(bestof_hub, projects):  
     assert await until_long(lambda: len(hub.tasks.tasks) >= 2, 30)
     modes = [t.mode for t in hub.tasks.tasks.values()]
     assert "auto" not in modes, "Best of N started sessions in Bypass with no Touch ID proof"
-    prove(hub, "bypass", "b2" * 16)
+    prove(hub, "bypass", "b2" * 16, subject="new")
     three = [{"model": "sonnet"}, {"model": "opus"}, {"model": "haiku"}]
     await hub.handle(dict(msg, variants=three))
 
@@ -149,7 +150,7 @@ async def test_multirepo_in_bypass_needs_the_proof(settings, quiet_speaker, isol
     assert hub.tasks.tasks and all(t.mode != "auto" for t in hub.tasks.tasks.values()), (
         "a multi-repo session started in Bypass with no Touch ID proof"
     )
-    prove(hub, "bypass", "b3" * 16)
+    prove(hub, "bypass", "b3" * 16, subject="new")
     await hub.code_multi.start(dict(msg, prompt="y"))
     assert [t.mode for t in hub.tasks.tasks.values()][-1] == "auto"
     await end_all(hub)

@@ -14,6 +14,7 @@ const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // w
 const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
 const { backendCommand, BackendLog, engineMissing } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
+const { pagePath } = require('./page-path'); // the app's own pages: outside app.asar in a build (round 3)
 const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
@@ -40,7 +41,7 @@ let TOKEN = crypto.randomBytes(24).toString('hex');
 // The key Touch ID's proofs are signed with (proof-pipe.js): this app's backend's alone, never
 // the page's; '' while the window is on the other app's backend (that app signs them then).
 let PROOF_KEY = '';
-let proofAsk = null; // (kind, lang) -> a Promise of a proof, or '' (features/touchid.js sets it)
+let proofAsk = null; // (kind, lang, subject) -> a Promise of a proof, or '' (features/touchid.js sets it)
 const SHORTCUT = process.platform === 'win32' ? 'Ctrl+Alt+J' : 'Alt+Space'; // (Alt+Space is Windows' window menu; J is the key a finger finds by touch)
 const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const plat = require('./platform-paths');
@@ -219,7 +220,7 @@ function startBackend() {
   backendTail.add(`--- ${new Date().toISOString()}\n`);
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: proofPipe.STDIO, windowsHide: true }); // (windowsHide: no console window for the engine)
   PROOF_KEY = keys.key;
-  proofPipe.attach(backend, keys, (kind, lang) => (proofAsk ? proofAsk(kind, lang) : ''));
+  proofPipe.attach(backend, keys, (kind, lang, subject) => (proofAsk ? proofAsk(kind, lang, subject) : ''));
   trace.write(`engine process ${backend.pid || 'not started'}`);
   backend.stdout.on('data', (chunk) => backendTail.add(chunk));
   backend.stderr.on('data', (chunk) => backendTail.add(chunk));
@@ -381,7 +382,7 @@ function sayWhileWaiting(text) {
 
 function showProblem(message, detail = '') {
   trace.write(`the window says: ${message}${detail ? `\n${detail}` : ''}`);
-  if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
+  if (win && !win.isDestroyed()) win.loadFile(pagePath(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
 }
 
 function appUrl() {
@@ -500,7 +501,7 @@ function createWindow() {
   windowTyped = guards.inputClock(win.webContents); // what the address bar sends right after a key or a press is typed (S29)
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
-  win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
+  win.loadFile(pagePath(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
 
   // The window only ever shows Eden Secretary; any other link opens in the browser.
   const external = (url) => {
@@ -1893,7 +1894,7 @@ function showHandHud(on) {
   hud.setAlwaysOnTop(true, 'screen-saver');
   hud.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   hud.setIgnoreMouseEvents(true);
-  hud.loadFile(path.join(__dirname, 'hand-hud.html'));
+  hud.loadFile(pagePath(__dirname, 'hand-hud.html'));
   hud.once('ready-to-show', () => hud && hud.showInactive());
 }
 ipcMain.on('jarvis:desktop-hands', (event, on) => {

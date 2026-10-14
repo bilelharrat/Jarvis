@@ -448,4 +448,21 @@ def when(days_ago: float) -> str:
     return formatdate(time.time() - days_ago * 86400, localtime=False)
 
 
-__all__ = ["TestMail", "make_raw", "when", "parsedate_to_datetime"]
+def earlier_today(days_ago: float, now: float | None = None) -> str:
+    """An RFC 2822 date this long ago, but never before today's local midnight (a sample
+    that has to read as "today": 1.2 hours ago is yesterday between midnight and 01:12,
+    when the mail tests used to fail). Too early in the day for days_ago, halfway since
+    midnight."""
+    from datetime import datetime
+    from email.utils import formatdate
+
+    now = time.time() if now is None else now
+    midnight = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = midnight.timestamp()
+    at = now - days_ago * 86400
+    if at < start:
+        at = start + (now - start) / 2
+    return formatdate(at, localtime=False)
+
+
+__all__ = ["TestMail", "make_raw", "when", "earlier_today", "parsedate_to_datetime"]

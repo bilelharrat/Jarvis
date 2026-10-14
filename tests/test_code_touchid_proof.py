@@ -29,41 +29,68 @@ TOKEN = "ab" * 24  # the launch token: the page has it (its URL)
 KEY = "5e" * 32  # the proof key: the app's main process and the backend alone
 
 
+# The subject a proof here is for when a test names none: Bypass for session 7 (the gated
+# fixture's), nothing for the kinds that name none. A risky step's names its card.
+SUBJECTS = {"bypass": "7"}
+
+
 def proof(
     kind="bypass",
     expires_ms=None,
     nonce="0123456789abcdef0123456789abcdef",
     token=TOKEN,
     now=1_800_000_000.0,
+    subject=None,
 ):
     expires_ms = int((now + 120) * 1000) if expires_ms is None else expires_ms
-    mac = hmac.new(
-        token.encode(), f"eden-touchid|v1|{kind}|{expires_ms}|{nonce}".encode(), hashlib.sha256
-    ).hexdigest()
-    return f"v1.{kind}.{expires_ms}.{nonce}.{mac}"
+    subject = SUBJECTS.get(kind, "") if subject is None else subject
+    signed = f"eden-touchid|v2|{kind}|{subject}|{expires_ms}|{nonce}"
+    mac = hmac.new(token.encode(), signed.encode(), hashlib.sha256).hexdigest()
+    return f"v2.{kind}.{subject}.{expires_ms}.{nonce}.{mac}"
 
 
 def test_a_proof_from_the_main_process_holds_once_for_its_kind_until_it_expires():
     now = 1_800_000_000.0
     good = proof(nonce="a" * 32, now=now)
-    assert code_touchid.check_proof(TOKEN, good, "bypass", now=now)
-    assert not code_touchid.check_proof(TOKEN, good, "bypass", now=now), "once only"
+    assert code_touchid.check_proof(TOKEN, good, "bypass", "7", now=now)
+    assert not code_touchid.check_proof(TOKEN, good, "bypass", "7", now=now), "once only"
     fresh = proof(nonce="b" * 32, now=now)
-    assert not code_touchid.check_proof(TOKEN, fresh, "approve", now=now), "another kind"
-    assert not code_touchid.check_proof("cd" * 24, fresh, "bypass", now=now), (
+    assert not code_touchid.check_proof(TOKEN, fresh, "approve", "7", now=now), "another kind"
+    assert not code_touchid.check_proof("cd" * 24, fresh, "bypass", "7", now=now), (
         "another backend's token"
     )
-    assert not code_touchid.check_proof(TOKEN, fresh, "bypass", now=now + 121), "expired"
+    assert not code_touchid.check_proof(TOKEN, fresh, "bypass", "7", now=now + 121), "expired"
     assert not code_touchid.check_proof(
         TOKEN,
         proof(nonce="c" * 32, expires_ms=int((now + 3600) * 1000), now=now),
         "bypass",
+        "7",
         now=now,
     ), "too far ahead"
-    assert not code_touchid.check_proof(TOKEN, fresh.replace("v1.", "v2."), "bypass", now=now)
-    assert not code_touchid.check_proof("", fresh, "bypass", now=now)
-    assert not code_touchid.check_proof(TOKEN, "yes", "bypass", now=now)
-    assert code_touchid.check_proof(TOKEN, fresh, "bypass", now=now)
+    assert not code_touchid.check_proof(TOKEN, fresh.replace("v2.", "v3."), "bypass", "7", now=now)
+    assert not code_touchid.check_proof("", fresh, "bypass", "7", now=now)
+    assert not code_touchid.check_proof(TOKEN, "yes", "bypass", "7", now=now)
+    assert code_touchid.check_proof(TOKEN, fresh, "bypass", "7", now=now)
+
+
+def test_a_proof_holds_only_for_the_card_or_session_it_was_signed_for():
+    """Round 3, R2-12: a yes for one card was good for any card of its kind for two
+    minutes (a second risky step that came up meanwhile took the first one's proof). Now
+    the subject is signed in: another card, another session, or none, and it's no proof."""
+    now = 1_800_000_000.0
+    for_a1 = proof("approve", nonce="d" * 32, now=now, subject="a1")
+    assert not code_touchid.check_proof(TOKEN, for_a1, "approve", "a2", now=now)
+    assert not code_touchid.check_proof(TOKEN, for_a1, "approve", "", now=now)
+    assert code_touchid.check_proof(TOKEN, for_a1, "approve", "a1", now=now)
+    # The subject written on it can't be changed: the mac is over it.
+    moved = proof("bypass", nonce="e" * 32, now=now, subject="7").replace(".7.", ".8.", 1)
+    assert not code_touchid.check_proof(TOKEN, moved, "bypass", "8", now=now)
+    # The old unbound v1 proofs are no proof at all.
+    expires = int((now + 120) * 1000)
+    signed = f"eden-touchid|v1|approve|{expires}|{'f' * 32}"
+    mac = hmac.new(TOKEN.encode(), signed.encode(), hashlib.sha256).hexdigest()
+    v1 = f"v1.approve.{expires}.{'f' * 32}.{mac}"
+    assert not code_touchid.check_proof(TOKEN, v1, "approve", "", now=now)
 
 
 # ── the backend's gate: the window's switches into Bypass and risky answers need a proof ──
@@ -84,8 +111,8 @@ def gated(settings, quiet_speaker, isolated, tmp_path):
     return hub, task, seen
 
 
-def fresh(kind, nonce, token=KEY):
-    return proof(kind, nonce=nonce, now=time.time(), token=token)
+def fresh(kind, nonce, token=KEY, subject=None):
+    return proof(kind, nonce=nonce, now=time.time(), token=token, subject=subject)
 
 
 async def test_bypass_from_the_window_needs_the_proof_of_a_yes(gated):
@@ -194,10 +221,34 @@ async def test_a_risky_step_allowed_from_the_window_needs_the_proof(gated):
     assert risky.result() == "deny"
     again = card("a3", "git push --force")
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "approve", "proof": fresh("approve", "4" * 32)}
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "4" * 32, subject="a3"),
+        }  # fmt: skip
     )
     await hub.handle({"type": "approve", "id": "a3", "choice": "allow"})
     assert again.result() == "allow"
+    # Round 3, R2-12: a yes for one card is no yes for another that came up meanwhile.
+    other = card("a4", "rm -rf dist")
+    await hub.handle(
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "5" * 32, subject="a3"),
+        }  # fmt: skip
+    )
+    await hub.handle({"type": "approve", "id": "a4", "choice": "allow"})
+    assert not other.done(), "a proof for card a3 let card a4 go"
+    await hub.handle(
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "6" * 32, subject="a4"),
+        }  # fmt: skip
+    )
+    await hub.handle({"type": "approve", "id": "a4", "choice": "allow"})
+    assert other.result() == "allow"
 
 
 @pytest.mark.skipif(not shutil.which(NODE), reason="needs Node")
@@ -226,11 +277,14 @@ def test_the_backend_finds_the_same_steps_risky_as_the_window():
 APP_TOUCHID = Path(__file__).parent.parent / "app/features/touchid.js"
 
 
-def make_proof_in_node(key, kind):
-    """A proof made by the real app/features/touchid.js makeProof, under key."""
+def make_proof_in_node(key, kind, subject=None):
+    """A proof made by the real app/features/touchid.js makeProof, under key, for subject
+    (as the window names it: session 7 for Bypass when a test names none)."""
+    subject = SUBJECTS.get(kind, "") if subject is None else subject
     js = (
         f"const t = require({json.dumps(str(APP_TOUCHID))});"
-        f"process.stdout.write(t.makeProof({json.dumps(key)}, {json.dumps(kind)}))"
+        f"process.stdout.write(t.makeProof({json.dumps(key)}, {json.dumps(kind)},"
+        f" {{ subject: {json.dumps(subject)} }}))"
     )
     out = subprocess.run([NODE, "-e", js], capture_output=True, text=True, timeout=30, check=True)
     return out.stdout
@@ -239,9 +293,12 @@ def make_proof_in_node(key, kind):
 @pytest.mark.skipif(not shutil.which(NODE), reason="needs Node")
 def test_the_apps_own_proof_is_what_the_backend_accepts():
     made = make_proof_in_node(KEY, "bypass")
-    assert code_touchid.check_proof(KEY, made, "bypass")
-    assert not code_touchid.check_proof(KEY, made, "bypass"), "once only"
-    assert not code_touchid.check_proof(KEY, make_proof_in_node(KEY, "bypass"), "approve")
+    assert code_touchid.check_proof(KEY, made, "bypass", "7")
+    assert not code_touchid.check_proof(KEY, made, "bypass", "7"), "once only"
+    assert not code_touchid.check_proof(KEY, make_proof_in_node(KEY, "bypass"), "approve", "7")
+    card = make_proof_in_node(KEY, "approve", "c0ffee12ab34")
+    assert not code_touchid.check_proof(KEY, card, "approve", "c0ffee12ab35"), "another card"
+    assert code_touchid.check_proof(KEY, card, "approve", "c0ffee12ab34")
 
 
 @pytest.mark.skipif(not shutil.which(NODE), reason="needs Node")
@@ -319,6 +376,13 @@ async def test_the_other_apps_window_asks_through_the_app_that_started_the_backe
     assert seen[-1] == ("code_touchid_answer", {"proof_kind": "bypass", "ok": True})
     await hub.handle({"type": "task_mode", "id": 7, "mode": "auto"})
     assert task.mode == "auto"
+    # The window names what the yes is for (R2-12): it goes into the ask, and so its proof.
+    await hub.handle(
+        {"type": "code_touchid_ask", "kind": "approve", "lang": "en", "subject": "c0ffee12ab34"}
+    )
+    assert asked[-1] == ("7a" * 16 + " ask approve en c0ffee12ab34\n").encode()
+    await hub.handle({"type": "code_touchid_ask", "kind": "approve", "subject": "a b\nproof"})
+    assert len(asked) == 2, "a subject that isn't one is never asked about"
     hub.proof_pipe = None
     await hub.handle({"type": "code_touchid_ask", "kind": "approve"})
     assert seen[-1] == (
@@ -348,7 +412,11 @@ async def test_a_card_the_backend_marks_for_touch_id_needs_the_proof_too(gated):
     await hub.handle({"type": "approve", "id": "b1", "choice": "allow"})
     assert not hub._futures["b1"].done()
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "approve", "proof": fresh("approve", "a1" * 16)}
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "a1" * 16, subject="b1"),
+        }
     )
     await hub.handle({"type": "approve", "id": "b1", "choice": "allow"})
     assert hub._futures["b1"].result() == "allow"
@@ -428,7 +496,11 @@ async def test_settings_cant_set_new_sessions_to_bypass_without_the_proof(gated,
 async def test_the_composers_bypass_moves_into_its_project_with_one_yes(gated, tmp_path):
     hub, _task, _seen = gated
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "bypass", "proof": fresh("bypass", "0c" * 16)}
+        {
+            "type": "code_touchid_proof",
+            "kind": "bypass",
+            "proof": fresh("bypass", "0c" * 16, subject="new"),
+        }
     )
     await hub.handle({"type": "code_defaults", "code_mode": "auto"})
     assert hub.prefs.code_mode == "auto"
@@ -447,7 +519,11 @@ async def test_an_acp_agent_in_bypass_needs_the_proof_too(gated, tmp_path):
     assert modes() == ["ask"]
     assert any(k == "error" and "fingerprint" in d["text"] for k, d in seen)
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "bypass", "proof": fresh("bypass", "0d" * 16)}
+        {
+            "type": "code_touchid_proof",
+            "kind": "bypass",
+            "proof": fresh("bypass", "0d" * 16, subject="new"),
+        }
     )
     await hub.handle(dict(msg))
     assert modes() == ["ask", "auto"]

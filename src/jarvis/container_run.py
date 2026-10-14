@@ -260,5 +260,25 @@ def line(socket_path: str, command: str, python: str | None = None) -> str:
     )
 
 
+def inner(command: str, sockets: object = (), python: str | None = None) -> str | None:
+    """The command a line made by line() runs in the container, or None when it isn't one
+    (exactly this program, run by this Python in isolated mode, with one of these relay
+    sockets): what a feature that judges commands (Exterminator Mode's allow list) looks at,
+    since the session's hook has put this line in the command's place by then."""
+    import shlex
+
+    try:
+        argv = shlex.split(str(command or ""))
+    except ValueError:
+        return None
+    if len(argv) != 6 or argv[1] != "-I" or argv[4] != "--" or not argv[5]:
+        return None
+    if argv[0] != (python or sys.executable) or argv[2] != str(Path(__file__).resolve()):
+        return None
+    if argv[3] not in {str(path) for path in sockets or ()}:  # type: ignore[union-attr]
+        return None
+    return argv[5]
+
+
 if __name__ == "__main__":
     sys.exit(run(sys.argv[1:]))

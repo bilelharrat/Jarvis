@@ -1,22 +1,20 @@
-"""Who has a named pipe open, and what they are: the check a secret's handoff makes before it
-writes (key_proxy.Handoffs).
+"""What a process is, and who started it: the check a run with the owner's secrets makes
+before it goes ahead (key_proxy.Handoffs), and who has a named pipe open.
 
-A command's secrets wait in a named pipe for that command's secret_run.py (see key_proxy).
-Its name is random, but not hidden from the session: the folder it's in belongs to the owner,
-as does every command a session runs, so `ls` lists it, and secret_run's own command line
-(in `ps`) names it. Any of the session's commands could open it first, a loop left running in
-the background for instance, and read the values as they are: never scrubbed, since only
-secret_run scrubs. So before a single byte is written, the backend looks at who has the pipe
-open (after its name is gone, so no one else can open it) and writes only when that is one
-process, and that process is the very command the owner let go: JARVIS's own Python, in
-isolated mode, running secret_run.py with this pipe and exactly the command on the owner's
-card, its executable the Python it names, nothing in its environment that loads code into
-it (DYLD_*, LD_*), and started from this backend (its parents lead here, where every session's
-Claude Code runs: a process started some other way, or one left over after its parent went,
-isn't a session's command). Anything else, and the pipe is closed unwritten: the reader gets
-nothing, the command says it couldn't have its secrets, and the log says why. What its shell
-might load on its own (BASH_ENV, ZDOTDIR, exported functions, a PATH of its own) secret_run
-itself takes out before the command runs.
+A command's run waits on a socket for that command's secret_run.py (see key_proxy). Its name
+is random, but not hidden from the session: the folder it's in belongs to the owner, as does
+every command a session runs, so `ls` lists it, and secret_run's own command line (in `ps`)
+names it. So before the backend runs the command for whoever connected, it looks at that
+process (the socket's peer) and goes ahead only when it is the very command the owner let
+go: JARVIS's own Python, in isolated mode, running secret_run.py with this socket and
+exactly the command on the owner's card, its executable the Python it names, nothing in its
+environment that loads code into it (DYLD_*, LD_*), and started from this backend (its
+parents lead here, where every session's Claude Code runs: a process started some other
+way, or one left over after its parent went, isn't a session's command). Anything else, and
+the socket is closed with nothing run: the command says it couldn't have its secrets, and
+the log says why. The values never cross the socket in any case (the backend runs the
+command, and sends back only its scrubbed output), so this check is what keeps another
+process from taking the run, not what keeps the values in.
 
 A process can rewrite the arguments KERN_PROCARGS2 shows, so the arguments alone are no proof
 it's secret_run: the parent check is what a process started outside the sessions can't fake.

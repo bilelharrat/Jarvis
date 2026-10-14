@@ -1,9 +1,11 @@
-"""A command's secrets go only to that command (key_proxy.Handoffs with handoff_check): the
-pipe they wait in can be found by any of the session's processes (its folder and secret_run's
-command line are the owner's), so another process that opens it first, one with the right
-arguments but something loaded into it, or two readers at once, get nothing, and the
-command the owner let go, run as code_secrets.wrap words it, gets its values and prints
-them scrubbed. (Before: the first reader got the values as they are, never scrubbed.)"""
+"""A command's secrets are used only for that command (key_proxy.Handoffs with handoff_check):
+the socket its run waits on can be found by any of the session's processes (its folder and
+secret_run's command line are the owner's), so another process that connects first, one with
+the right arguments but something loaded into it, or two at once, get nothing run, and the
+command the owner let go, run as code_secrets.wrap words it, prints its output scrubbed. And
+since round 3 (R2-4) the values never cross the socket at all: the backend runs the command
+itself, so even a process that gets past every check (arguments can be rewritten) reads only
+scrubbed output. (Before: the values were written into a named pipe, as they are.)"""
 
 import os
 import shlex
@@ -19,10 +21,21 @@ from jarvis.key_proxy import Handoffs
 
 VALUE = "hunter2-very-secret-9471"
 COMMAND = 'echo "got [$SECRET_X]"'
+# A process of the session's that finds the socket and takes the run, saying it's anywhere,
+# then reads all that comes back.
 RIVAL = (
-    "import sys\n"
-    "with open(sys.argv[1], 'rb') as pipe:\n"
-    "    sys.stdout.buffer.write(pipe.read())\n"
+    "import json, os, socket, sys\n"
+    "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+    "try:\n"
+    "    s.connect(sys.argv[1])\n"
+    "except OSError:\n"
+    "    sys.exit(0)\n"
+    "s.sendall(json.dumps({'cwd': os.getcwd(), 'env': dict(os.environ)}).encode() + b'\\n')\n"
+    "while True:\n"
+    "    chunk = s.recv(65536)\n"
+    "    if not chunk:\n"
+    "        break\n"
+    "    sys.stdout.buffer.write(chunk)\n"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -31,10 +44,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def offer(tmp_path, command=COMMAND):
+def offer(tmp_path, command=COMMAND, expect=True, path=None):
     offers = Handoffs(folder=tmp_path / "handoff", wait=10)
-    return offers.offer({"SECRET_X": VALUE}, [],
-                        expect=lambda pipe: shlex.split(code_secrets.wrap(command, pipe)))  # fmt: skip
+    wanted = (lambda pipe: shlex.split(code_secrets.wrap(command, pipe))) if expect else None
+    return offers.offer({"SECRET_X": VALUE}, [], expect=wanted, run_path=path,
+                        command=code_secrets.shell_argv(command))  # fmt: skip
 
 
 def run(argv, env=None, timeout=30):
@@ -54,7 +68,7 @@ def test_another_process_that_opens_the_pipe_first_gets_nothing(tmp_path):
     # A loop the session left running finds the name (ls of the folder, or ps) and opens it.
     rival = run([sys.executable, "-I", "-c", RIVAL, pipe])
     assert rival.returncode == 0 and rival.stdout == b""
-    # The command itself comes too late: the pipe is gone, so it doesn't run at all.
+    # The command itself comes too late: the socket is gone, so it doesn't run at all.
     late = run(shlex.split(code_secrets.wrap(COMMAND, pipe)))
     assert late.returncode == 2 and VALUE.encode() not in late.stdout + late.stderr
     assert b"couldn't hand this command its secrets" in late.stderr
@@ -95,9 +109,7 @@ def test_what_a_process_is_comes_from_the_system():
 
 
 def offer_with_path(tmp_path, command, path):
-    offers = Handoffs(folder=tmp_path / "handoff", wait=10)
-    return offers.offer({"SECRET_X": VALUE}, [], run_path=path,
-                        expect=lambda pipe: shlex.split(code_secrets.wrap(command, pipe)))  # fmt: skip
+    return offer(tmp_path, command, path=path)
 
 
 def test_startup_files_and_exported_functions_never_see_the_values(tmp_path):
@@ -164,3 +176,59 @@ def test_the_parent_of_a_process_comes_from_the_system():
     assert handoff_check.parent(os.getpid()) == os.getppid()
     assert handoff_check.started_by(os.getpid(), os.getppid())
     assert not handoff_check.started_by(os.getppid(), os.getpid())
+
+
+# ── round 3, R2-4: the values never cross the socket, whoever takes the run ──
+
+
+def test_a_process_that_gets_past_every_check_still_never_reads_a_value(tmp_path):
+    # The race round 2 left: a process the session starts with the exact approved
+    # arguments (they can be rewritten) passes the checks. Stood in for here by a run with
+    # no check at all: the first process to connect is let in, and it reads everything
+    # that comes back. Before, that was the values themselves, as JSON; now it's the
+    # command's output with $SECRET_X in the value's place.
+    sock = offer(tmp_path, expect=False)
+    rival = run([sys.executable, "-I", "-c", RIVAL, sock])
+    assert rival.returncode == 0
+    assert VALUE.encode() not in rival.stdout
+    assert b"got [$SECRET_X]" in rival.stdout
+
+
+def test_the_environment_a_rival_sends_never_runs_code_of_its_own(tmp_path):
+    # Whoever connects says what environment the command runs with: a BASH_ENV, a PATH of
+    # its own, exported functions, are taken out before the backend runs it.
+    leak = tmp_path / "leak"
+    evil = tmp_path / "evil.sh"
+    evil.write_text(f'printf "%s" "$SECRET_X" >> {shlex.quote(str(leak))}\n')
+    env = {**os.environ, "BASH_ENV": str(evil), "ENV": str(evil),
+           "BASH_FUNC_echo%%": f"() {{ . {shlex.quote(str(evil))}; }}"}  # fmt: skip
+    sock = offer(tmp_path, expect=False, path=os.environ["PATH"])
+    rival = run([sys.executable, "-I", "-c", RIVAL, sock], env=env)
+    assert not leak.exists() or VALUE not in leak.read_text()
+    assert VALUE.encode() not in rival.stdout
+
+
+def test_the_command_stops_when_its_secret_run_goes(tmp_path):
+    # Claude Code's own time limit (or a stop) ends secret_run: the command the backend
+    # started for it goes too, not left running on with the values.
+    marker = tmp_path / "still-running"
+    command = f'sleep 0.6; touch {shlex.quote(str(marker))}; echo "[$SECRET_X]"'
+    sock = offer(tmp_path, command)
+    proc = subprocess.Popen(shlex.split(code_secrets.wrap(command, sock)),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # fmt: skip
+    time.sleep(0.3)
+    proc.kill()
+    proc.wait(timeout=10)
+    time.sleep(1.5)
+    assert not marker.exists()
+
+
+def test_the_command_runs_where_secret_run_was(tmp_path):
+    here = tmp_path / "here"
+    here.mkdir()
+    sock = offer(tmp_path, 'pwd; echo "[$SECRET_X]"')
+    done = subprocess.run(shlex.split(code_secrets.wrap('pwd; echo "[$SECRET_X]"', sock)),
+                          capture_output=True, timeout=30, cwd=here)  # fmt: skip
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines()[0] == str(here.resolve()).encode()
+    assert done.stdout.splitlines()[1] == b"[$SECRET_X]"

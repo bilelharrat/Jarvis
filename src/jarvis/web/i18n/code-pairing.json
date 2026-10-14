@@ -6,6 +6,7 @@
     "Keep mine": "保留我的",
     "Keep Eden’s": "保留 Eden 的",
     "Changed on both sides": "两边都改了",
+    "A file on one side, a folder on the other: the side you keep wins, the other’s goes.": "一边是文件，另一边是同名文件夹：你保留的那一边留下，另一边的会被移除。",
     "Held for you": "为你暂留",
     "Bring them over": "同步过去",
     "Pairing is for a session in an isolated copy.": "结对模式只用于在独立副本里的会话。",

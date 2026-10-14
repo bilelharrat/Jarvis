@@ -222,3 +222,32 @@ def test_the_proxy_runs_on_its_own_and_answers_at_once():
     finally:
         proxy.close()
     assert proxy.address == ""
+
+
+def test_a_live_runs_pass_is_the_last_to_go_past_the_most_kept(monkeypatch):
+    """Round 3, E16: past MAX_GRANTS the pass unused longest went, a live session's too (one
+    left open, unused, lost it to a burst of new passes; its next request failed). A pass a
+    run is on (replace_pass) goes only once every pass is one."""
+    grants = key_proxy.Grants()
+    monkeypatch.setattr(key_proxy, "GRANTS", grants)
+    monkeypatch.setattr(key_proxy, "MAX_GRANTS", 3)
+    target = ("https://api.anthropic.com", "sk-ant-x")
+    live = grants.mint(DIRECT, lambda: target)
+    owner = {}
+    key_proxy.replace_pass(owner, 7, f"printf %s {live}")
+    burst = [grants.mint(DIRECT, lambda: target) for _ in range(5)]
+    assert grants.alive(live), "the live session's pass went"
+    assert sum(grants.alive(t) for t in burst) == 2
+    # Its next connect's pass takes its place: the old one is revoked, the new one held.
+    newer = grants.mint(DIRECT, lambda: target)
+    key_proxy.replace_pass(owner, 7, f"printf %s {newer}")
+    assert not grants.alive(live)
+    for _ in range(4):
+        grants.mint(DIRECT, lambda: target)
+    assert grants.alive(newer)
+    # Every pass held: the oldest goes all the same (the count stays bounded).
+    held = [grants.mint(DIRECT, lambda: target) for _ in range(3)]
+    for t in held:
+        grants.hold(t)
+    grants.mint(DIRECT, lambda: target)
+    assert len(grants._grants) == 3

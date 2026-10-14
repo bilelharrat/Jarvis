@@ -107,14 +107,14 @@ test('every string the Touch ID switch and question show has its Chinese', () =>
 test('a yes gives the window a proof the backend can check, signed in the main process under the proof key (S30, A1)', async () => {
   const prefs = { canPromptTouchID: () => true, promptTouchID: async () => {} };
   const token = 'ab'.repeat(24);
-  const got = await handlers({ systemPreferences: prefs, secret: () => token }).prompt('bypass', 'en');
+  const got = await handlers({ systemPreferences: prefs, secret: () => token }).prompt('bypass', 'en', '7');
   assert.equal(got.ok, true);
-  const [v, kind, expires, nonce, mac] = got.proof.split('.');
-  assert.deepEqual([v, kind], ['v1', 'bypass']);
+  const [v, kind, subject, expires, nonce, mac] = got.proof.split('.');
+  assert.deepEqual([v, kind, subject], ['v2', 'bypass', '7']);
   assert.ok(Number(expires) > Date.now() && Number(expires) <= Date.now() + 2 * 60 * 1000 + 50);
   assert.match(nonce, /^[0-9a-f]{32}$/);
   const crypto = await import('node:crypto');
-  assert.equal(mac, crypto.createHmac('sha256', token).update(`eden-touchid|v1|bypass|${expires}|${nonce}`).digest('hex'));
+  assert.equal(mac, crypto.createHmac('sha256', token).update(`eden-touchid|v2|bypass|7|${expires}|${nonce}`).digest('hex'));
   const fixed = await import('node:module').then(({ createRequire: r }) => r(import.meta.url)('../../app/features/touchid.js'));
   assert.equal(fixed.makeProof('', 'bypass'), '', 'no key: no proof');
   const no = { canPromptTouchID: () => true, promptTouchID: async () => { throw new Error('cancelled'); } };
@@ -135,7 +135,9 @@ test('without Touch ID the app asks with its own dialog, and signs that yes the 
   const h = handlers({ systemPreferences: none, secret: () => token, dialog });
   const got = await h.confirm('bypass', 'en');
   assert.equal(got.ok, true);
-  assert.match(got.proof, /^v1\.bypass\.\d{13}\.[0-9a-f]{32}\.[0-9a-f]{64}$/);
+  assert.match(got.proof, /^v2\.bypass\.\.\d{13}\.[0-9a-f]{32}\.[0-9a-f]{64}$/);
+  assert.match((await h.confirm('approve', 'en', 'a1')).proof, /^v2\.approve\.a1\.\d{13}\./, 'its card');
+  asked.pop();
   assert.equal(asked[0].message, 'Turn on Bypass permissions in Eden Code?', 'the app’s own words');
   assert.equal(asked[0].cancelId, 1);
   assert.equal(asked[0].defaultId, 1, 'Cancel is the default: Return never allows it');
@@ -190,7 +192,7 @@ test('the key goes to the backend it started on its stdin, and asks with its tag
   const { child, written } = fakeChild();
   const asked = [];
   const h = handlers({ systemPreferences: { canPromptTouchID: () => true, promptTouchID: async (r) => { asked.push(r); } }, secret: () => keys.key });
-  pipe.attach(child, keys, (kind, lang) => h.ask(kind, lang));
+  pipe.attach(child, keys, (kind, lang, subject) => h.ask(kind, lang, subject));
   assert.deepEqual(written, [`${keys.key} ${keys.tag}\n`], 'the first line: key and tag');
   // An ask comes split across chunks; one without this backend's tag (a child's stray output) is no ask.
   child.stdout.emit('data', Buffer.from(`log line\n${'0'.repeat(32)} ask bypass en\n${keys.tag} ask by`));
@@ -199,9 +201,16 @@ test('the key goes to the backend it started on its stdin, and asks with its tag
   assert.deepEqual(asked, [REASONS.zh.bypass]);
   const [, kind, proof] = written[1].trim().split(' ');
   assert.equal(kind, 'bypass');
-  const [, , expires, nonce, mac] = proof.split('.');
+  const [, , subject, expires, nonce, mac] = proof.split('.');
+  assert.equal(subject, '', 'an ask that names nothing is signed for nothing');
   const crypto = await import('node:crypto');
-  assert.equal(mac, crypto.createHmac('sha256', keys.key).update(`eden-touchid|v1|bypass|${expires}|${nonce}`).digest('hex'));
+  assert.equal(mac, crypto.createHmac('sha256', keys.key).update(`eden-touchid|v2|bypass||${expires}|${nonce}`).digest('hex'));
+  // An ask that names its card (R2-12) is signed for that card.
+  child.stdout.emit('data', Buffer.from(`${keys.tag} ask approve en c0ffee12ab34\n`));
+  await new Promise((r) => setTimeout(r, 10));
+  const [, kind2, proof2] = written[2].trim().split(' ');
+  assert.equal(kind2, 'approve');
+  assert.equal(proof2.split('.')[2], 'c0ffee12ab34');
   assert.equal(pipe.answer('bypass', ''), 'no bypass\n');
   assert.equal(pipe.answer('bypass', 'a b'), 'no bypass\n', 'never a line of its own');
   assert.equal(pipe.answer('<x>', 'p'), '');
@@ -267,9 +276,9 @@ function windowWith(answers) {
 
 test('the window asks the backend for the other app’s sheet, and goes ahead on its answer', async () => {
   const w = windowWith({ 'feature:touchid:available': true, 'feature:touchid:prompt': { ok: false, relay: true } });
-  const going = w.check('bypass', { text: 'Switch?' });
+  const going = w.check('bypass', { text: 'Switch?', subject: '7' });
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(w.sent, [{ type: 'code_touchid_ask', kind: 'bypass', lang: 'en' }]);
+  assert.deepEqual(w.sent, [{ type: 'code_touchid_ask', kind: 'bypass', lang: 'en', subject: '7' }]);
   w.listeners.code_touchid_answer({ proof_kind: 'approve', ok: true });  // (another kind's: not this one's)
   w.listeners.code_touchid_answer({ proof_kind: 'bypass', ok: true });
   assert.equal(await going, true);
@@ -338,4 +347,24 @@ test('the Touch ID switch asks once at a time and is busy while it asks', async 
   assert.equal(sw.getAttribute('aria-busy'), null);
   assert.equal(sw.disabled, false);
   assert.deepEqual(sent.map((m) => m.type), ['code_touchid_proof', 'feature_prefs']);
+});
+
+// Round 3, R2-12: what a yes is for goes into its proof, so it's good for that one card or
+// session only: a risky step's names its card, Bypass its session ('new' for one to start).
+test('a proof names the card or session its yes is for', async () => {
+  const ct = await import('node:module').then(({ createRequire: r }) => r(import.meta.url)('../../src/jarvis/web/features/code-touchid.js'));
+  assert.equal(ct.subject('approve', { approval: { id: 'c0ffee12ab34' }, choice: 'allow' }), 'c0ffee12ab34');
+  assert.equal(ct.subject('bypass', { text: 'Switch?', subject: '7' }), '7');
+  assert.equal(ct.subject('bypass', { text: 'Switch?', subject: 'new' }), 'new');
+  assert.equal(ct.subject('bypass-default', { subject: '7' }), '', 'a kind with no one thing to name');
+  assert.equal(ct.subject('approve', { approval: { id: 'a.b c' } }), '', 'never a subject that could break the proof');
+  const t = await import('node:module').then(({ createRequire: r }) => r(import.meta.url)('../../app/features/touchid.js'));
+  assert.equal(t.makeProof('k', 'approve', { subject: 'x.y' }), '', 'a subject that isn\'t one: no proof');
+  const a = t.makeProof('k', 'approve', { subject: 'a1', now: 1, nonce: '0'.repeat(32) });
+  const b = t.makeProof('k', 'approve', { subject: 'a2', now: 1, nonce: '0'.repeat(32) });
+  assert.notEqual(a.split('.').pop(), b.split('.').pop(), 'the subject is under the mac');
+  // The window names it: app.js passes the session (or 'new') to confirmBypass.
+  const app = readFileSync(new URL('../../src/jarvis/web/app.js', import.meta.url), 'utf8');
+  assert.match(app, /confirmBypass\('bypass', [^\n]*, go, null, target !== null \? target : 'new'\)/);
+  assert.match(app, /confirmBypass\('bypass', [^\n]*, start, null, 'new'\)/);
 });

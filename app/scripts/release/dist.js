@@ -37,10 +37,14 @@ const { verifyApp, buildMacStrings } = require('./verify');
 const { notarize, staple, zipApp } = require('./notarize');
 const { makeDmg, signDmg, writeChecksums } = require('./dmg');
 const { cleanFeedUrl, releaseFeed } = require('../../update-feed');
+const { PAGES } = require('../../page-path');
 
 const APP_DIR = path.resolve(__dirname, '..', '..');
 const REPO = path.resolve(APP_DIR, '..');
 const DIST = path.join(APP_DIR, 'dist');
+// What stays real files beside app.asar (packageApp): the terminal's and hand tracking's scripts,
+// and the app's own pages (page-path.js).
+const UNPACK = `{**/node_modules/{@xterm,@mediapipe}/**,${PAGES.join(',')}}`;
 const STAGE = path.join(DIST, 'stage');
 const PKG = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8'));
 // The apps this folder builds: what each is called, its id, its look in Finder and where its
@@ -198,8 +202,10 @@ async function packageWith(packager, electron, spec, out) {
     ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/, /^\/jarvis-home\.json$/],
     // The app is one app.asar, as npm run package makes it, but the backend serves the
     // terminal's and hand tracking's scripts to the window and can't read inside an asar:
-    // those two stay real files (app.asar.unpacked), where JARVIS_APP_DIR points.
-    asar: { unpack: '**/node_modules/{@xterm,@mediapipe}/**' },
+    // those two stay real files (app.asar.unpacked), where JARVIS_APP_DIR points. So do the
+    // app's own pages (page-path.js PAGES): with the file-protocol fuse off, Chromium's file
+    // handler can't read them inside an asar either (round 3).
+    asar: { unpack: UNPACK },
     quiet: true,
   });
   return path.join(folder, `${spec.name}.app`);

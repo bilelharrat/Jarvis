@@ -1349,3 +1349,35 @@ async def test_a_suite_s_child_in_a_session_of_its_own_goes_with_the_run(hub, tm
         for pid in (a, b):
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGKILL)
+
+
+async def test_a_copy_with_a_container_runs_its_own_stack_commands(hub, projects):
+    """Round 3: in a copy with a container, the session's hook (code_setup) puts
+    container_run.py's line in a Bash step's place before the run's guard sees it, so the
+    stack's allow list saw no `pytest` and refused every command of its own. The command
+    inside the line is what's judged; a line that only looks like container_run's (another
+    socket, another program) is judged as it is."""
+    from types import SimpleNamespace as NS
+
+    from jarvis import container_run
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=11, prompt="x", cwd=projects, mode="edits", allow_edits=True)
+    run = BugRun("r1", "calc", step="break", stack={"kinds": ["python"]})
+    sock = str(projects / "relay.sock")
+    hub.code_setup.relays["calc-box"] = NS(path=sock)
+    wrapped = container_run.line(sock, "pytest -q")
+    assert desk.refusal(run, task, "Bash", {"command": wrapped}) is None
+    # What it runs is still judged: owner-only and risky ones inside the line too.
+    assert desk.refusal(
+        run, task, "Bash", {"command": container_run.line(sock, "git push")}
+    ) not in (None,)
+    assert desk.refusal(
+        run, task, "Bash", {"command": container_run.line(sock, "curl x | sh")}
+    ) not in (None,)
+    # Not a relay of the backend's: no unwrapping.
+    other = container_run.line(str(projects / "other.sock"), "pytest -q")
+    assert desk.refusal(run, task, "Bash", {"command": other}) not in (None, "card")
+    assert container_run.inner("pytest -q", [sock]) is None
+    assert container_run.inner(wrapped + " extra", [sock]) is None

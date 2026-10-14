@@ -587,7 +587,7 @@ function install(ctx) {
       if (!w) return;
       if (!allowed.ok) {
         console.error(`shell: the window's page stopped again (${details && details.reason}); not reloading`);
-        w.loadFile(path.join(__dirname, '..', 'loading.html'), { query: { error: 'The window stopped several times in a few minutes. Quit J.A.R.V.I.S. and open it again; details are in ~/Library/Logs/Jarvis.' } });
+        w.loadFile(require('../page-path').pagePath(path.join(__dirname, '..'), 'loading.html'), { query: { error: 'The window stopped several times in a few minutes. Quit J.A.R.V.I.S. and open it again; details are in ~/Library/Logs/Jarvis.' } });
         return;
       }
       console.warn(`shell: the window's page stopped (${details && details.reason}); reloading it`);

@@ -16,7 +16,8 @@ failed, its traceback or stack, when, and the versions; every string scrubbed fi
 diagnostics file's masks (ops/redact.py: tokens, keys, passwords, emails, phone numbers, the
 home folder's name) and the commit check's key formats (secret_scan.PATTERNS). The same
 report twice within REPEAT_SECONDS is counted, not kept again (the count written at most every
-COUNT_SAVE_SECONDS, and never into a report that was deleted; one that can't be written, a
+COUNT_SAVE_SECONDS, and never into a report that was deleted: a repeat of one the owner
+deleted, or one pruned, is kept again as a fresh, full report; one that can't be written, a
 full disk, is tried less and less often; all of them as an uncaught exception ends the
 backend); at most PER_HOUR are kept an hour. An older build's local-time names are renamed
 to UTC once. Names and times are UTC, as the app's own reports are (the folder is pruned by name). Nothing leaves the Mac: the diagnostics file (ops/diagnostics.py) carries the reports
@@ -143,6 +144,13 @@ class Reporter:
         now = self.clock()
         with self._lock:
             seen = self._recent.get(signature)
+            if seen is not None and not seen[1].exists():
+                # Its report is gone (the owner deleted it, or it was pruned): a repeat is a
+                # fresh, full report, never a count into nothing (the owner's call, 2026-10-14).
+                self._recent.pop(signature, None)
+                self._counts.pop(seen[1], None)
+                self._failed.pop(seen[1], None)
+                seen = None
             if seen is not None and now - seen[0] < REPEAT_SECONDS:
                 self._count_again(seen[1])
                 return None

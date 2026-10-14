@@ -6,9 +6,12 @@
 //
 // A yes also gives the window a proof for the backend (audit S30): the window's own word that
 // the finger said yes is only as good as the page, so the main process, which saw macOS's
-// answer, signs it. "v1.<kind>.<expires ms>.<nonce>.<mac>", the mac an HMAC-SHA256 under the
-// proof key of "eden-touchid|v1|<kind>|<expires>|<nonce>"; it holds for PROOF_MS and once only
-// (features/code_touchid.py check_proof). The key is one this app gave the backend it started
+// answer, signs it. "v2.<kind>.<subject>.<expires ms>.<nonce>.<mac>", the mac an HMAC-SHA256
+// under the proof key of "eden-touchid|v2|<kind>|<subject>|<expires>|<nonce>"; it holds for
+// PROOF_MS, once only, and only for its subject (features/code_touchid.py check_proof): the
+// card a risky step's yes is for (its approval id), the session Bypass is for (its id, or
+// 'new'), '' for the kinds with no one thing to name (round 3, R2-12: a yes for one card was
+// good for any other of its kind that came up within the two minutes). The key is one this app gave the backend it started
 // on its stdin (proof-pipe.js, ctx.proofKey), never the backend's token: the page has the
 // token, so a script in the window could sign with it (round 1 A1).
 //
@@ -25,12 +28,15 @@ const crypto = require('crypto');
 
 const PROOF_MS = 2 * 60 * 1000;
 
-// The proof for kind, under key: '' without a key.
-function makeProof(key, kind, { now = Date.now(), nonce = crypto.randomBytes(16).toString('hex') } = {}) {
-  if (!key || !/^[a-z-]{1,32}$/.test(String(kind))) return '';
+const SUBJECT = /^[A-Za-z0-9_-]{0,40}$/;
+
+// The proof for kind and subject, under key: '' without a key (or with a subject that isn't one).
+function makeProof(key, kind, { subject = '', now = Date.now(), nonce = crypto.randomBytes(16).toString('hex') } = {}) {
+  subject = String(subject || '');
+  if (!key || !/^[a-z-]{1,32}$/.test(String(kind)) || !SUBJECT.test(subject)) return '';
   const expires = now + PROOF_MS;
-  const mac = crypto.createHmac('sha256', String(key)).update(`eden-touchid|v1|${kind}|${expires}|${nonce}`).digest('hex');
-  return `v1.${kind}.${expires}.${nonce}.${mac}`;
+  const mac = crypto.createHmac('sha256', String(key)).update(`eden-touchid|v2|${kind}|${subject}|${expires}|${nonce}`).digest('hex');
+  return `v2.${kind}.${subject}.${expires}.${nonce}.${mac}`;
 }
 
 const REASONS = {
@@ -65,7 +71,7 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
     // { ok } once the owner's finger says yes; { unavailable } where there's no Touch ID (the
     // window asks its usual question then), { busy } while another sheet is up, and
     // { cancelled } for a no, a cancel or a lockout (never a way round it).
-    async prompt(kind, lang) {
+    async prompt(kind, lang, subject = '') {
       const reason = (REASONS[lang] || REASONS.en)[kind];
       if (!reason) return { ok: false, error: 'unknown' };
       if (!secret()) return { ok: false, relay: true }; // (the app that started the backend asks)
@@ -74,7 +80,7 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
       busy = true;
       try {
         await systemPreferences.promptTouchID(reason);
-        const proof = makeProof(secret(), kind);
+        const proof = makeProof(secret(), kind, { subject });
         return proof ? { ok: true, proof } : { ok: true };
       } catch {
         return { ok: false, cancelled: true };
@@ -84,7 +90,7 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
     },
     // Without Touch ID: the app's own dialog, { ok, proof } for its Allow; { unsupported }
     // with no dialog to ask with, or while Touch ID could ask (prompt is the way then).
-    async confirm(kind, lang) {
+    async confirm(kind, lang, subject = '') {
       const words = REASONS[lang] ? lang : 'en';
       const reason = REASONS[words][kind];
       if (!reason) return { ok: false, error: 'unknown' };
@@ -101,7 +107,7 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
         const win = parent();
         const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
         if (response !== 0) return { ok: false, cancelled: true };
-        const proof = makeProof(secret(), kind);
+        const proof = makeProof(secret(), kind, { subject });
         return proof ? { ok: true, proof } : { ok: true };
       } catch {
         return { ok: false, cancelled: true };
@@ -111,8 +117,8 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
     },
     // The backend this app started, asking for the other app's window (proof-pipe.js): this
     // app's sheet, or its own dialog without Touch ID; the proof, or '' for anything else.
-    async ask(kind, lang) {
-      const got = available() ? await this.prompt(kind, lang) : await this.confirm(kind, lang);
+    async ask(kind, lang, subject = '') {
+      const got = available() ? await this.prompt(kind, lang, subject) : await this.confirm(kind, lang, subject);
       return got && got.ok && got.proof ? got.proof : '';
     },
   };
@@ -125,9 +131,10 @@ function install(ctx) {
     parent: () => (BrowserWindow && BrowserWindow.getFocusedWindow ? BrowserWindow.getFocusedWindow() : null),
   });
   ctx.ipcMain.handle('feature:touchid:available', (event) => (ctx.fromWindow(event) ? h.available() : false));
-  ctx.ipcMain.handle('feature:touchid:prompt', (event, kind, lang) => (ctx.fromWindow(event) ? h.prompt(String(kind), String(lang)) : { ok: false }));
-  ctx.ipcMain.handle('feature:touchid:confirm', (event, kind, lang) => (ctx.fromWindow(event) ? h.confirm(String(kind), String(lang)) : { ok: false }));
-  if (ctx.onProofAsk) ctx.onProofAsk((kind, lang) => h.ask(String(kind), String(lang)));
+  const subj = (subject) => String(subject == null ? '' : subject);
+  ctx.ipcMain.handle('feature:touchid:prompt', (event, kind, lang, subject) => (ctx.fromWindow(event) ? h.prompt(String(kind), String(lang), subj(subject)) : { ok: false }));
+  ctx.ipcMain.handle('feature:touchid:confirm', (event, kind, lang, subject) => (ctx.fromWindow(event) ? h.confirm(String(kind), String(lang), subj(subject)) : { ok: false }));
+  if (ctx.onProofAsk) ctx.onProofAsk((kind, lang, subject) => h.ask(String(kind), String(lang), subj(subject)));
 }
 
 module.exports = { install, handlers, makeProof, REASONS, CONFIRM, PROOF_MS };

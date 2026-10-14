@@ -22,15 +22,20 @@ Now nothing a run is given reads the Keychain:
   way out: Gemini's can't be spent at OpenRouter, nor an Anthropic key's at Google's relay.
   A pass that sits unused for a week is forgotten, as is every pass when the backend stops.
 - An Eden Code secret: the command runs through secret_run.py, which no longer reads the
-  Keychain at all. The backend reads the values, once the owner has let the command go on
-  its card, and offers them through a named pipe made for that one command (Handoffs.offer)
-  in a folder only the owner can open, named by a random nonce. The pipe is gone the moment
-  it's opened; unread, it goes after a minute. Re-running secret_run with a nonce already
-  used, or one guessed, gets nothing. Nor does any other process that opens it: the folder
-  and secret_run's command line are the owner's, so a session's own commands can find the
-  name, and the values are written only once the one process holding the pipe is that very
-  command (handoff_check: JARVIS's Python running secret_run with this pipe and the command
-  on the owner's card), which scrubs them from all it prints.
+  Keychain at all, nor ever holds a value. The backend reads the values, once the owner has
+  let the command go on its card, and makes a socket for that one run (Handoffs.offer) in a
+  folder only the owner can open, named by a random nonce. The first process to connect
+  (gone as a name the moment it has) gets the run: the backend starts the very command on
+  the owner's card itself, with the values in its environment, and sends back only what it
+  prints, scrubbed, and its exit status. Unused, the socket goes after a minute; re-running
+  secret_run with a nonce already used, or one guessed, gets nothing. The folder and
+  secret_run's command line are the owner's, so a session's own commands can find the
+  name, and the run goes ahead only when the process that connected is that very command
+  (handoff_check: JARVIS's Python running secret_run with this socket and the command on
+  the owner's card, started from this backend); and since the values never travel to it,
+  even a process the session made to look just like it (arguments can be rewritten) gets
+  only the scrubbed output secret_run would have had. (Round 2 wrote the values into a
+  named pipe for secret_run to read, which such a process could read first: R2-4.)
 
 What a pass still lets a command do, while the backend runs: send a request through the
 proxy to the owner's own provider, as the run itself does. It can't take the key away, use
@@ -60,19 +65,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import secret_run
+
 log = logging.getLogger(__name__)
 
 TOKEN_PREFIX = "eden-run-"
 GRANT_IDLE = 7 * 24 * 3600.0  # seconds a pass may sit unused before it's forgotten
-MAX_GRANTS = 4096  # passes kept at once; past it, the one unused longest goes
+MAX_GRANTS = 4096  # passes kept at once; past it, the one unused longest goes (a live run's last)
 MAX_BODY = 64 * 1024 * 1024  # bytes of a request Claude Code sends (pictures and all)
 MAX_PATH = 8 * 1024  # characters of a request's path
 REQUEST_SECONDS = 120.0  # for a run to send one whole request (an answer may take longer)
 PROXY_CONNECTIONS = 256  # open at once, every run together
 HEADER_BYTES = 64 * 1024  # a request's line and headers, at most
-HANDOFF_SECONDS = 60.0  # seconds a command's secrets wait for it to start
-HANDOFF_SETTLE = 0.05  # seconds for every open of the pipe under way to finish, once one has
-READER_SECONDS = 3.0  # seconds for the reader whose open let the writer in to show up
+HANDOFF_SECONDS = 60.0  # seconds a command's run waits for its secret_run to connect
 DIRECT = "direct"  # the route of a pass this proxy spends itself
 GEMINI = "gemini"  # spent by gemini_proxy
 OPENAI = "openai:"  # spent by openai_relay, for one provider: "openai:<id>"
@@ -127,14 +132,37 @@ class Grants:
         self.clock = clock
         self._lock = threading.Lock()
         self._grants: OrderedDict[str, Grant] = OrderedDict()
+        # The passes a live run is on (replace_pass: a session's, the conversation's): past
+        # MAX_GRANTS the one unused longest goes, but never one of these while there's
+        # another to let go (round 3, E16: a session left open a day, unused, lost its pass
+        # to a burst of new ones, and its next request failed until it reconnected).
+        self._held: set[str] = set()
 
     def mint(self, route: str, resolve: Resolve) -> str:
         token = TOKEN_PREFIX + secrets.token_hex(24)
         with self._lock:
             self._grants[token] = Grant(route, resolve, self.clock())
             while len(self._grants) > MAX_GRANTS:
-                self._grants.popitem(last=False)
+                self._evict()
         return token
+
+    def _evict(self) -> None:
+        """The pass unused longest, gone; a held one only when every pass is (caller holds
+        the lock)."""
+        for token in self._grants:
+            if token not in self._held:
+                del self._grants[token]
+                return
+        token, _grant = self._grants.popitem(last=False)
+        self._held.discard(token)
+
+    def hold(self, token: str, held: bool = True) -> None:
+        """A live run is on this pass (or, held False, no longer)."""
+        with self._lock:
+            if held and token in self._grants:
+                self._held.add(token)
+            else:
+                self._held.discard(token)
 
     def _live(self, token: str) -> Grant | None:
         """The pass, while it's still good (caller holds the lock)."""
@@ -143,6 +171,7 @@ class Grants:
             return None
         if self.clock() - grant.used > GRANT_IDLE:
             del self._grants[token]
+            self._held.discard(token)
             return None
         return grant
 
@@ -174,10 +203,12 @@ class Grants:
     def revoke(self, token: str) -> None:
         with self._lock:
             self._grants.pop(token, None)
+            self._held.discard(token)
 
     def clear(self) -> None:
         with self._lock:
             self._grants.clear()
+            self._held.clear()
 
 
 def is_token(value: Any) -> bool:
@@ -204,6 +235,7 @@ def replace_pass(owner: dict[Any, str], key: Any, settings: Any) -> None:
         GRANTS.revoke(old)
     if new:
         owner[key] = new
+        GRANTS.hold(new)  # (a live run's: the last to go past MAX_GRANTS)
 
 
 GRANTS = Grants()
@@ -434,19 +466,42 @@ class KeyProxy:
 PROXY = KeyProxy()
 
 
-# ── a command's secrets, handed over once ──
+# ── a command's secrets, used by the backend for it ──
+
+SOCKET_PATH_MAX = 100  # characters of a socket's path a Mac takes (104, less a margin)
+REQUEST_SECONDS_RUN = 10.0  # for secret_run to say where it runs, once connected
+KILL_GRACE = 2.0  # seconds a command has to end after its secret_run went, before KILL
+
+
+def peer_pid(sock: socket.socket) -> int | None:
+    """The process at the other end of a connected Unix socket; None when the system won't
+    say (then no one is known, and the run doesn't go ahead)."""
+    try:
+        if sys.platform == "darwin":
+            got = sock.getsockopt(0, 2, 4)  # SOL_LOCAL, LOCAL_PEERPID
+            return int.from_bytes(got, sys.byteorder) or None
+        if hasattr(socket, "SO_PEERCRED"):
+            import struct
+
+            got = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            return struct.unpack("3i", got)[0] or None
+    except OSError:
+        return None
+    return None
 
 
 class Handoffs:
-    """Eden Code secrets on their way to one command: a named pipe each, made when the
-    owner has let the command go, read by that command's secret_run and gone at once. The
-    values are in no file (a pipe holds what's written only until it's read), on no command
-    line and in no environment but the command's own."""
+    """Eden Code commands that use the owner's secrets, each run by the backend itself: a
+    socket each, made when the owner has let the command go, taken by the first process to
+    connect (that command's secret_run) and gone at once. The values are in no file, in no
+    pipe, on no command line and in no environment but the command's own, which this
+    process starts: what crosses the socket is the command's output, scrubbed."""
 
     def __init__(self, folder: Path | None = None, wait: float = HANDOFF_SECONDS) -> None:
         self._folder = folder
         self.wait = wait
         self._lock = threading.Lock()
+        self._short: Path | None = None
 
     def folder(self) -> Path:
         with self._lock:
@@ -457,89 +512,224 @@ class Handoffs:
                 os.chmod(self._folder, 0o700)
             return self._folder
 
+    def _socket_folder(self) -> Path:
+        """The folder, or, when its path is too long for a socket's (a Mac takes 104
+        characters), one of the same kind under /tmp."""
+        folder = self.folder()
+        if len(str(folder)) + 34 <= SOCKET_PATH_MAX:
+            return folder
+        with self._lock:
+            if self._short is None or not self._short.is_dir():
+                self._short = Path(tempfile.mkdtemp(prefix="eden-h-", dir="/tmp"))  # 0700
+            return self._short
+
     def offer(
         self,
         values: dict[str, str],
         missing: list[str] | None = None,
         expect: Callable[[str], list[str]] | None = None,
         run_path: str | None = None,
+        command: list[str] | None = None,
     ) -> str:
-        """The pipe's path, ready for one reader: the values follow when it opens it, and
-        only when it is the process expect(path) names (its exact arguments: the command the
-        owner let go, through secret_run with this pipe). Without expect, any first reader
-        (the tests' own). run_path: the PATH the command runs with (secret_run puts it in
-        place of whatever its starter had)."""
-        if not hasattr(os, "mkfifo"):
-            raise OSError("Secrets reach commands through a named pipe, which this system lacks.")
-        path = self.folder() / secrets.token_hex(16)
-        os.mkfifo(path, 0o600)
-        offered: dict[str, Any] = {"values": values, "missing": list(missing or [])}
-        if run_path:
-            offered["path"] = run_path
-        payload = json.dumps(offered).encode()
+        """The run's socket, ready for one process: when it connects (and only when it is the
+        process expect(path) names: its exact arguments, the command the owner let go through
+        secret_run with this socket; without expect, any first one, as the tests' own), the
+        backend runs command (its argv: the shell, its flags, -c and the owner's line) with
+        the values in its environment, and the PATH run_path (the session's; else this
+        process's own, never the connecting one's)."""
+        if not hasattr(socket, "AF_UNIX") or not command:
+            raise OSError("Secrets reach commands through a Unix socket, which this system lacks.")
+        path = self._socket_folder() / secrets.token_hex(16)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            listener.bind(str(path))
+            os.chmod(path, 0o600)
+            listener.listen(1)
+        except OSError:
+            listener.close()
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            raise
         wanted = expect(str(path)) if expect is not None else None
+        given = {k: v for k, v in values.items() if isinstance(v, str) and v}
         threading.Thread(
-            target=self._give, args=(path, payload, wanted), name="secret-handoff", daemon=True
+            target=self._serve,
+            args=(listener, path, given, list(missing or []), wanted, run_path, list(command)),
+            name="secret-run",
+            daemon=True,
         ).start()
         return str(path)
 
     @staticmethod
-    def reader_is(fd: int, wanted: list[str]) -> str:
-        """Nothing ("") when the one process holding the pipe (besides this one) is the command wanted
-        names; else why not. The name is gone by now, so no one new can open it: a reader
-        whose open let the writer in shows up within moments, any other open under way then
-        finishes within HANDOFF_SETTLE, and then the holders are what they'll be."""
+    def peer_is(conn: socket.socket, wanted: list[str]) -> str:
+        """Nothing ("") when the process that connected is the command wanted names; else why
+        not (for the log: no values)."""
         from . import handoff_check
 
-        deadline = time.monotonic() + READER_SECONDS
-        found = handoff_check.holders(fd)
-        while found is not None and not found and time.monotonic() < deadline:
-            time.sleep(0.01)
-            found = handoff_check.holders(fd)
-        if found is None:
-            return "this system won't say who has the pipe open"
-        time.sleep(HANDOFF_SETTLE)
-        found = handoff_check.holders(fd)
-        if found is None:
-            return "this system won't say who has the pipe open"
-        if len(found) != 1:
-            return f"{len(found)} processes have the pipe open"
-        return handoff_check.is_expected(found[0], wanted, root=os.getpid())
+        pid = peer_pid(conn)
+        if pid is None:
+            return "this system won't say who connected"
+        return handoff_check.is_expected(pid, wanted, root=os.getpid())
 
-    def _give(self, path: Path, payload: bytes, wanted: list[str] | None = None) -> None:
-        deadline = time.monotonic() + self.wait
-        fd = -1
+    def _serve(
+        self,
+        listener: socket.socket,
+        path: Path,
+        values: dict[str, str],
+        missing: list[str],
+        wanted: list[str] | None,
+        run_path: str | None,
+        command: list[str],
+    ) -> None:
+        listener.settimeout(self.wait)
         try:
-            while time.monotonic() < deadline:
-                try:
-                    fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
-                    break
-                except OSError:  # no reader yet (ENXIO)
-                    time.sleep(0.005)
+            conn, _ = listener.accept()
+        except OSError:  # (no one came in time)
+            conn = None
         finally:
-            # Opened or not, the name goes now: no second reader, no one late.
+            # Taken or not, the name goes now: no second process, no one late.
+            listener.close()
             with contextlib.suppress(OSError):
                 os.unlink(path)
-        if fd < 0:
+        if conn is None:
             return
-        if wanted is not None:
-            why = self.reader_is(fd, wanted)
-            if why:
-                # Closed unwritten: the reader gets nothing (and the command, if it was the
-                # one, says it couldn't have its secrets). Never a value in the log.
-                log.warning("a command's secrets weren't handed over: %s", why)
-                os.close(fd)
+        with conn:
+            if wanted is not None:
+                why = self.peer_is(conn, wanted)
+                if why:
+                    log.warning("a command's secrets weren't used for it: %s", why)
+                    return
+            asked = self._request(conn)
+            if asked is None:
                 return
+            self._run(conn, asked, values, missing, run_path, command)
+
+    @staticmethod
+    def _request(conn: socket.socket) -> dict[str, Any] | None:
+        """What secret_run said: {"cwd": its folder, "env": its environment}; None for
+        anything else."""
+        conn.settimeout(REQUEST_SECONDS_RUN)
+        data = b""
         try:
-            os.set_blocking(fd, True)
-            view = memoryview(payload)
-            while view:
-                written = os.write(fd, view)
-                view = view[written:]
-        except OSError:
-            pass
-        finally:
-            os.close(fd)
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(65536)
+                if not chunk:
+                    return None
+                data += chunk
+                if len(data) > secret_run.REQUEST_MAX:
+                    return None
+            asked = json.loads(data.decode("utf-8", "surrogateescape"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(asked, dict):
+            return None
+        env = asked.get("env")
+        cwd = asked.get("cwd")
+        if not isinstance(env, dict) or not isinstance(cwd, str) or not os.path.isdir(cwd):
+            return None
+        asked["env"] = {k: v for k, v in env.items() if isinstance(k, str) and isinstance(v, str)}
+        return asked
+
+    @staticmethod
+    def _run(
+        conn: socket.socket,
+        asked: dict[str, Any],
+        values: dict[str, str],
+        missing: list[str],
+        run_path: str | None,
+        command: list[str],
+    ) -> None:
+        """The command, run here with the values, its output scrubbed on its way back; it's
+        stopped when its secret_run goes (Claude Code's own time limit, a stop)."""
+        import signal
+        import subprocess
+
+        frame, sent = secret_run.frame, threading.Lock()
+
+        def send(kind: bytes, data: bytes) -> bool:
+            try:
+                with sent:
+                    conn.sendall(frame(kind, data))
+                return True
+            except OSError:
+                return False
+
+        env = secret_run.clean_env(asked["env"], run_path or os.environ.get("PATH", ""))
+        placeholders: dict[str, str] = {}
+        for name, value in values.items():
+            if name.isidentifier():
+                env[name] = value
+                placeholders[value] = f"${name}"
+        for name in missing:
+            if isinstance(name, str) and name.isidentifier():
+                env.pop(name, None)
+                send(
+                    secret_run.ERR,
+                    f"(Jarvis: no value is saved for ${name} any more; it's empty here.)\n".encode(),
+                )
+        conn.settimeout(None)
+        try:
+            proc = subprocess.Popen(
+                command,
+                cwd=asked["cwd"],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,  # (its whole group goes, should secret_run go)
+            )
+        except OSError as exc:
+            send(secret_run.ERR, f"Jarvis couldn't start the command: {exc.strerror}\n".encode())
+            send(secret_run.EXIT, b"127")
+            return
+
+        def pump(source: Any, kind: bytes) -> None:
+            scrubber = secret_run.Scrubber(placeholders)
+            try:
+                while True:
+                    chunk = os.read(source.fileno(), secret_run.CHUNK)
+                    if not chunk:
+                        break
+                    out = scrubber.feed(chunk)
+                    if out and not send(kind, out):
+                        break
+                rest = scrubber.end()
+                if rest:
+                    send(kind, rest)
+            except (OSError, ValueError):
+                pass
+
+        def stop() -> None:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                with contextlib.suppress(OSError):
+                    os.killpg(proc.pid, sig)
+                try:
+                    proc.wait(timeout=KILL_GRACE)
+                    return
+                except subprocess.TimeoutExpired:
+                    continue
+
+        def watch() -> None:
+            # secret_run sends nothing more: the end of its side is it gone.
+            try:
+                while conn.recv(4096):
+                    pass
+            except OSError:
+                pass
+            if proc.poll() is None:
+                stop()
+
+        pumps = [
+            threading.Thread(target=pump, args=(proc.stdout, secret_run.OUT), daemon=True),
+            threading.Thread(target=pump, args=(proc.stderr, secret_run.ERR), daemon=True),
+        ]
+        threading.Thread(target=watch, name="secret-run-watch", daemon=True).start()
+        for one in pumps:
+            one.start()
+        code = proc.wait()
+        for one in pumps:
+            one.join()
+        send(secret_run.EXIT, str(code if code >= 0 else 128 - code).encode())
 
 
 HANDOFFS = Handoffs()
