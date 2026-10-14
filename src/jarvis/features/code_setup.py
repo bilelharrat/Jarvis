@@ -39,6 +39,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import shlex
 import time
 from pathlib import Path
 from typing import Any
@@ -328,17 +329,36 @@ class SetupDesk:
     # ── a session's commands in its container ──
 
     def hook(self, task: Any) -> HookMatcher:
-        """PreToolUse on Bash: the step's command run in the copy's container instead."""
+        """PreToolUse on Bash: the step's command run in the copy's container instead.
+
+        A command is left as it is only when it already is, word for word, the line this
+        hook makes for this container (docker exec, this container, this folder, sh -c and
+        one command): the session's sandbox lets docker's socket through for that line, so
+        anything else that merely starts the same way ("<that line> true; rm -rf ~", or the
+        same words with another container or a docker flag after them) is wrapped like any
+        other command and runs in the container. The container this session connected with
+        gone (its copy landed or discarded under it, the tidy-up), its Bash steps are
+        refused rather than run on the Mac with docker's socket still open to them."""
+        connected = self.container_of(task)
+        name_then = str(connected["name"]) if connected else ""
 
         async def into_container(input_data: dict[str, Any], _id: Any, _ctx: Any) -> dict:
             info = self.container_of(task)
             tool_input = input_data.get("tool_input") or {}
             command = str(tool_input.get("command") or "")
-            if info is None or input_data.get("tool_name") != "Bash" or not command:
+            if input_data.get("tool_name") != "Bash" or not command:
                 return {}
-            prefix = self.docker.exec_line(str(info["name"]), Path(info["cwd"]), "")
-            prefix = prefix[: prefix.rfind(" ")]  # (all of it but the empty command)
-            if command.startswith(prefix):
+            if info is None or str(info.get("name")) != name_then:
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "This copy's container is gone, so its "
+                        "commands can't run: stop here and say so; a new session in it runs "
+                        "them on the Mac.",
+                    }
+                }
+            if self.is_own_line(info, command):
                 return {}
             line = self.docker.exec_line(str(info["name"]), Path(info["cwd"]), command)
             return {
@@ -349,6 +369,16 @@ class SetupDesk:
             }
 
         return HookMatcher(matcher="Bash", hooks=[into_container])
+
+    def is_own_line(self, info: dict[str, Any], command: str) -> bool:
+        """Whether a command is exactly a line the hook made: every word of docker exec's
+        own, for this container and folder, then a single command for sh -c."""
+        own = shlex.split(self.docker.exec_line(str(info["name"]), Path(info["cwd"]), ""))
+        try:
+            words = shlex.split(command)
+        except ValueError:
+            return False
+        return len(words) == len(own) and words[:-1] == own[:-1] and bool(words[-1])
 
     # ── setup ──
 
@@ -539,7 +569,11 @@ def _q(text: str) -> str:
 
 class _Options:
     """What a session's connection gets (TaskManager.option_hooks): the hook that runs its
-    commands in its copy's container, and the container's socket through the sandbox."""
+    commands in its copy's container, and the container's socket through the sandbox. The
+    socket is all of docker to whatever reaches it (docker run -v $HOME:/h), so it's let
+    through only because the hook leaves no Bash step on the Mac: every one becomes the
+    exact docker exec line for this container (SetupDesk.is_own_line), and with the
+    container gone they're refused."""
 
     def __init__(self, desk: SetupDesk) -> None:
         self.desk = desk

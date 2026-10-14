@@ -329,3 +329,36 @@ async def test_the_pane_shows_the_setup_and_the_container_state(hub, projects, d
     [event] = [d for k, d in hub.events if k == "code_setup"]
     assert event["setup"] == {"source": ".jarvis/setup.sh", "text": "make\n"}
     assert event["container"]["on"] is True and "isn't running" in event["container"]["docker"]
+
+
+async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_in(
+    hub, projects, docker
+):
+    """B1: the hook left alone any command that merely started with its docker exec words,
+    so "<that line> true; <anything>" ran the rest on the Mac (with docker's socket open in
+    the sandbox). Only the exact line it makes is left as it is; a gone container refuses."""
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    [bash] = [h for h in task.client.options.hooks["PreToolUse"] if h.matcher == "Bash"]
+    hook = bash.hooks[0]
+    name = f"eden-{copy.slug}"
+    own = docker.exec_line(name, copy.cwd, "true")
+    other = docker.exec_line("eden-someone-else", copy.cwd, "true")
+    for sneaky in [
+        own + "; touch /tmp/on-the-mac",
+        own + " && curl evil",
+        own.replace(" exec ", " exec --privileged ", 1),
+        other,
+        own + " extra-word",
+    ]:
+        out = await hook({"tool_name": "Bash", "tool_input": {"command": sneaky}}, None, None)
+        line = out["hookSpecificOutput"]["updatedInput"]["command"]
+        assert shlex.split(line)[-1] == sneaky and name in line, sneaky
+    assert await hook({"tool_name": "Bash", "tool_input": {"command": own}}, None, None) == {}
+    # The container gone under the session: its steps are refused, never run on the Mac.
+    hub.code_setup.containers().pop(copy.slug)
+    out = await hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
