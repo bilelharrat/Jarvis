@@ -26,6 +26,7 @@ the import path). It imports only the standard library, as Relay does.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import selectors
@@ -127,7 +128,11 @@ class Relay:
         self._closed = False
 
     def start(self) -> str:
-        """The socket's path, listening (made the first time)."""
+        """The socket's path, listening (made the first time). Raises OSError once closed:
+        a closed relay never listens again (REL3-11: its old path came back, with no one
+        accepting on it, so a session's every command waited for an answer forever)."""
+        if self._closed:
+            raise OSError(errno.EBADF, "this container's relay is closed")
         if self._server is not None:
             return self.path
         self._dir = tempfile.mkdtemp(prefix="edc-")  # (0700: only the owner can open it)
@@ -215,6 +220,9 @@ class Relay:
         except OSError as exc:
             conn.sendall(_frame(b"e", f"docker couldn't start: {exc.strerror or exc}\n".encode()))
             return 127
+        except ValueError:  # (a NUL byte in the command: Popen refuses it before running)
+            conn.sendall(_frame(b"e", b"That command can't be run: it has a NUL byte in it.\n"))
+            return 2
         with self._lock:
             self._procs.add(proc)
         assert proc.stdout is not None and proc.stderr is not None
@@ -236,7 +244,10 @@ class Relay:
                         open_pipes -= 1
                         continue
                     conn.sendall(_frame(key.data, chunk))
-            return proc.wait()
+            code = proc.wait()
+            # Killed by a signal: the shell's way, 128 + its number (137 for KILL), as
+            # key_proxy's runs say it; -9 sent as is came out as 247 (REL3-14).
+            return 128 - code if code < 0 else code
         except OSError:
             with contextlib.suppress(OSError):
                 proc.kill()

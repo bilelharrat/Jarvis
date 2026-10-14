@@ -792,7 +792,8 @@ def install(hub: Any) -> None:
     hub.tasks.option_hooks.append(_Options(desk))
 
     async def close_relays() -> None:  # (at quit: no relay's socket folder left behind)
-        for relay in list(desk.relays.values()):
+        for name, relay in list(desk.relays.items()):
+            desk.relays.pop(name, None)  # (a closed relay is never handed out again: REL3-11)
             relay.close()
 
     hub.tasks.before_close.append(close_relays)

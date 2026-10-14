@@ -428,6 +428,72 @@ async def test_the_relay_stops_a_command_when_the_session_s_end_goes(tmp_path):
     assert not Path(path).exists() and not Path(path).parent.exists()
 
 
+def _relay_ask(path, command):
+    """One command through a relay's socket, as container_run's client sends it: the
+    frames back ([(kind, data)]), or "TIMEOUT" when no answer comes."""
+    import socket as socketlib
+
+    s = socketlib.socket(socketlib.AF_UNIX)
+    s.settimeout(3)
+    try:
+        s.connect(path)
+        s.sendall(json.dumps({"command": command}).encode() + b"\n")
+        got, data = [], b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        while data:
+            kind, size = data[:1], int.from_bytes(data[1:5], "big")
+            got.append((kind, data[5 : 5 + size]))
+            data = data[5 + size :]
+        return got
+    except TimeoutError:
+        return "TIMEOUT"
+    finally:
+        s.close()
+
+
+def test_a_command_with_a_nul_byte_is_refused_never_a_crashed_thread():
+    """Round 3: Popen raises ValueError for a NUL byte, which _stream didn't catch: the
+    serve thread died with a traceback and the client was told only GONE (125). It's
+    answered as a refused command (2), said why."""
+    relay = container_run.Relay(lambda command: ["/bin/sh", "-c", command], dict)
+    path = relay.start()
+    try:
+        got = _relay_ask(path, "echo a\x00b")
+        assert got[-1] == (b"x", b"2") and b"NUL" in got[0][1]
+        assert _relay_ask(path, "echo fine")[-1] == (b"x", b"0")  # (its slot free)
+    finally:
+        relay.close()
+
+
+def test_a_closed_relay_never_listens_again_and_a_killed_command_says_137():
+    """REL3-11: start() after close() handed back the old path with no one accepting, so
+    every command through it waited forever; close_relays left the closed relay in
+    desk.relays to be handed out again. REL3-14: a command killed by a signal came back as
+    247 (-9 as a byte), not 128 + 9."""
+    relay = container_run.Relay(lambda command: ["/bin/sh", "-c", command], dict)
+    path = relay.start()
+    assert _relay_ask(path, "kill -9 $$")[-1] == (b"x", b"137")
+    relay.close()
+    with pytest.raises(OSError):
+        relay.start()
+
+
+async def test_quitting_lets_go_of_every_relay(hub, projects, docker):
+    """REL3-11: at quit the relays close and are gone from the desk, so none is reused."""
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    assert hub.code_setup.relays
+    for hook in hub.tasks.before_close:
+        await hook()
+    assert hub.code_setup.relays == {}
+
+
 async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projects, docker):
     """B2: Eden's own git in a container's copy runs on the git data read before the
     container started, recorded with it, and pinned again when the app starts; a record
