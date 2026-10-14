@@ -116,6 +116,8 @@ ZH = {
     "That's today's {n} sessions from {service}; the rest wait until tomorrow.": "今天已经由 {service} 开启了 {n} 个会话；其余的要等到明天。",
     "Started a session on {what} from {service}.": "已为来自 {service} 的 {what} 开了一个会话。",
     "{what} from {service} didn't start a session: {why}": "来自 {service} 的 {what} 没能开启会话：{why}",
+    "Port {port} on this Mac is taken by another app, so Linear and Slack can't reach Eden. Quit that app, or choose another port here (and point the tunnel at it).": "这台 Mac 的 {port} 端口被另一个应用占用了，所以 Linear 和 Slack 连不上 Eden。请退出那个应用，或在这里换一个端口（并让隧道指向它）。",
+    "Eden couldn't listen on port {port}.": "Eden 没能在 {port} 端口上监听。",
 }
 lang.add_texts(ZH)
 
@@ -326,7 +328,8 @@ class Triggers:
                 "hook": f"/hooks/{ROUTES[service]}?token={hook}" if hook else "",
             }
         lis = self.listener
-        state["listener"] = {"port": lis.port or self.port(), "on": lis.running, "error": lis.error}
+        state["listener"] = {"port": lis.port or self.port(), "on": lis.running,
+                             "error": self.tr(lis.error)}  # fmt: skip
         self.hub.emit("code_triggers", **state)
 
     # ── the listener ──
