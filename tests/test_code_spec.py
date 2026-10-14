@@ -10,9 +10,10 @@ from types import SimpleNamespace as NS
 
 import pytest
 import test_code_pr as pr
-from test_code_pr import fake_ai
+from test_code_pr import fake_ai, github_project, session
 
 from jarvis import code_ai, codetests
+from jarvis.features import code_receipts as cr
 from jarvis.features import code_spec as cs
 from jarvis.tasks import ClaudeTask
 
@@ -248,3 +249,107 @@ async def test_the_board_takes_the_tasks_when_it_has_a_to_do_column(spec_hub):
         {"spec": "add-a-login-page", "task": "T2"},
     ]
     assert len(hub.started) == 1  # only the spec's own session
+
+
+# ── the proof ──
+
+
+async def test_the_receipt_carries_requirements_met_with_the_video_and_screenshot(
+    spec_hub, monkeypatch
+):
+    hub, desk = spec_hub, spec_hub.code_spec
+    spec = await _running(hub, desk)
+
+    async def suite(_folder):
+        return results(("test_r1_1_a", "passed"), ("test_r1_2_b", "passed"))
+
+    monkeypatch.setattr(desk, "run_tests", suite)
+    hub.answers = ["stop"]
+    receipts = hub.code_receipts
+    monkeypatch.setattr(receipts, "checking", lambda _id: False)
+    task = hub.tasks.tasks[101]
+    writing = asyncio.ensure_future(
+        receipts.write(task, {"files": ["login.py"], "status": "done"}, 0)
+    )
+    await desk.after_task(spec, "T1", 101, {"id": 101, "status": "done"})
+    receipt = await asyncio.wait_for(writing, 2)
+    [row] = receipt["requirements"]
+    assert row["id"] == "R1" and row["status"] == "met"
+    entry = [e for e in task.transcript if e.get("receipt")][-1]
+    assert "requirements met 1 of 1" in entry["text"]
+
+    # A receipt with the video proof and the check's page: both become evidence.
+    rows = desk.attach_receipt(
+        101,
+        [],
+        {"video": {"id": "a" * 24, "seconds": 6}, "check": {"url": "http://localhost:3000"}},
+    )
+    assert "video proof of T1 (6 s)" in rows[0]["evidence"]
+    assert "screenshot of http://localhost:3000 after T1" in rows[0]["evidence"]
+
+
+async def test_a_receipt_waits_for_the_spec_check_and_says_how_many_are_met():
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+    logged = []
+    task = NS(id=7)
+    spec = NS(
+        covers=lambda _id: True,
+        proof_future=lambda _id: fut,
+        attach_receipt=lambda _id, rows, receipt: rows,
+    )
+    hub = NS(
+        code_spec=spec,
+        tasks=NS(
+            tasks={7: task},
+            _log=lambda t, r, text, **kw: logged.append((text, kw)),
+            _changed_soon=lambda: None,
+        ),
+    )
+    writing = asyncio.ensure_future(
+        cr.Receipts(hub).write(task, {"files": ["a.py"], "status": "done"}, 0)
+    )
+    await asyncio.sleep(0.01)
+    assert not writing.done()
+    fut.set_result([{"id": "R1", "status": "met"}, {"id": "R2", "status": "unmet"}])
+    receipt = await asyncio.wait_for(writing, 2)
+    assert receipt["requirements"][1]["status"] == "unmet"
+    assert "requirements met 1 of 2" in logged[0][0]
+
+
+async def test_the_pull_request_body_ends_with_the_proof_once(hub, tmp_path, projects, monkeypatch):
+    repo, _bare = github_project(tmp_path, projects)
+    task = session(hub, repo)
+    desk = hub.code_spec
+    spec = cs.Spec(
+        slug="login", directory="app", folder=str(repo), request="login", runs={"T1": task.id}
+    )
+    spec.root.mkdir(parents=True)
+    (spec.root / "requirements.md").write_text(REQUIREMENTS)
+    (spec.root / "tasks.md").write_text(TASKS)
+    spec.results = {
+        "R1.1": {"status": "met", "by": "test", "tests": ["test_r1_1_a"], "task": "T1"},
+        "R1.2": {"status": "met", "by": "review", "why": "error shown", "task": "T1"},
+    }
+    spec.media = {"T1": {"video": "a" * 24, "seconds": 5}}
+    desk.specs.append(spec)
+    hub.code_pr.ai, _asked = fake_ai("Sign in\n\nAdds the login.")
+    draft = (await hub.code_pr.draft(task))["draft"]
+    body = draft["body"]
+    assert body.startswith("Adds the login.") and cs.PROOF_MARK in body
+    assert "## Requirements met (1 of 2)" in body
+    assert "- [x] **R1** Sign in with email: met" in body
+    assert "R1.1: test_r1_1_a passed" in body and "video proof of T1 (5 s)" in body
+    assert "- [ ] **R2** Remember me: not checked" in body
+    assert hub.code_pr.with_spec_proof(task, body) == body  # never twice
+
+    hub.answers = ["push"]
+    said = await hub.code_pr.open(
+        task, {"title": "Sign in", "body": "Typed by the owner.", "base": "main"}
+    )
+    assert said == "Opened pull request #7."
+    import json
+
+    [created] = hub.fake.sent("POST", "/repos/acme/app/pulls")
+    sent_body = json.loads(created.content)["body"]
+    assert sent_body.startswith("Typed by the owner.") and "## Requirements met" in sent_body
