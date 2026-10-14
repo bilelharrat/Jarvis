@@ -220,3 +220,56 @@ function fakeDocument(app = 'eden-code') {
     querySelector: () => general,
   };
 }
+
+// Round 2, U8: ⌘, in Eden Code opened both settings sheets (the shared one, app.js's
+// inEdenCode handler, and Eden Code's own, its deck's keys), and the start-up sound row was only
+// in the shared one. Now ⌘, opens Eden Code's own sheet alone while its deck is up, and the
+// row is in that sheet's General, above the shortcuts line.
+test('⌘, in Eden Code opens one sheet: the shared one only when Eden Code’s deck is hidden', () => {
+  const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  const block = app.match(/\nif \(inEdenCode\) \{\n([\s\S]*?)\n\}\n/)[1];
+  const listeners = [];
+  const cc = { hidden: false };
+  let toggled = 0;
+  const run = new Function('document', '$', 'cmd', 'toggleSettings', block);
+  run({ addEventListener: (type, fn) => listeners.push([type, fn]) }, (id) => (id === 'cc' ? cc : { hidden: true }), (e) => e.metaKey, () => { toggled += 1; });
+  const keydown = listeners.find(([type]) => type === 'keydown')[1];
+  const press = () => keydown({ metaKey: true, shiftKey: false, altKey: false, key: ',', preventDefault() {} });
+  press();
+  assert.equal(toggled, 0, 'the deck is up: its own sheet (openJcSettings), not this one too');
+  cc.hidden = true;
+  press();
+  assert.equal(toggled, 1);
+  // …and the deck's own keys open Eden Code's settings on ⌘,
+  assert.match(app, /if \(key === ',' && !e\.shiftKey\) \{ e\.preventDefault\(\); openJcSettings\('general'\); return; \}/);
+});
+
+test('the start-up sound row is in Eden Code’s settings › General, above the shortcuts', async () => {
+  const { makeDocument } = await import('./fixtures/stand-dom.mjs');
+  const doc = makeDocument();
+  doc.body.dataset.app = 'eden-code';
+  const settings = doc.createElement('section');
+  const sharedRow = doc.createElement('div');
+  sharedRow.className = 'row';
+  const shared = doc.createElement('button');
+  shared.id = 'sw-boot-sound';
+  sharedRow.append(shared);
+  settings.append(sharedRow);
+  const general = doc.createElement('div');
+  general.id = 'jcs-general';
+  const foot = doc.createElement('p');
+  foot.className = 'jcs-foot';
+  general.append(doc.createElement('div'), foot);
+  doc.body.append(settings, general);
+  const sw = web.mount(doc, { invoke: () => Promise.resolve(true) });
+  assert.ok(sw && general.contains(sw), 'in #jcs-general');
+  assert.equal(sw.className, 'jcs-switch');
+  assert.equal(sw.getAttribute('role'), 'switch');
+  assert.equal(sw.closest('.jcs-row').parentNode.className, 'jcs-group');
+  const kids = [...general.children];
+  assert.equal(kids.at(-1), foot, 'the shortcuts line stays last');
+  assert.equal(kids.at(-3).textContent, 'When it opens');
+  assert.equal(sharedRow.hidden, true, 'one switch');
+  const zh = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n', 'boot-sound.json'), 'utf8')).strings;
+  assert.ok(zh['When it opens']);
+});
