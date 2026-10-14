@@ -512,6 +512,10 @@ class Desk:
         this one): its work committed and merged, its sessions ended, the copy removed."""
         inside = self.tasks_in(copy)
         message = f"Eden Code: {copy.title or copy.slug}"
+        # A turn may have started since the card went up (C5): it's stopped, and waited
+        # for, before the copy's work is committed, so nothing is half written in it.
+        if not await self.quiet(inside):
+            return "It's still working. Stop it first, then land."
         async with self.lock(copy.repo):
             landed = await asyncio.to_thread(worktrees.land, copy, message)
             if not landed.ok:
@@ -536,6 +540,18 @@ class Desk:
         if problem:
             log.warning("a landed copy left something behind: %s", problem)
         return landed.message
+
+    async def quiet(self, tasks: list[Any], seconds: float = 15.0) -> bool:
+        """The busy ones of these sessions interrupted, and waited for (their turn ends);
+        False when one is still busy after seconds."""
+        for task in tasks:
+            if task.busy:
+                await self.hub.tasks.interrupt(task.id)
+        loop = asyncio.get_running_loop()
+        until = loop.time() + seconds
+        while any(t.busy for t in tasks) and loop.time() < until:
+            await asyncio.sleep(0.1)
+        return not any(t.busy for t in tasks)
 
     async def _ended(self, tasks: list[Any]) -> None:
         handles = [t.handle for t in tasks if t.handle is not None and not t.handle.done()]

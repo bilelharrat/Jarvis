@@ -147,6 +147,56 @@ async def test_landing_lands_every_repository_and_ends_the_task(hub, tmp_path, p
     assert task.handle.done()
 
 
+async def test_a_turn_started_after_the_card_is_stopped_before_anything_lands(
+    hub, tmp_path, projects, monkeypatch
+):
+    """C5: the session may start a turn while the Land card is up; landing interrupts it
+    and waits for it to end before committing, and lands nothing while it won't."""
+    api, _web = repo(tmp_path, projects, "api"), repo(tmp_path, projects, "web")
+    group, task = await start(hub, "api", "web")
+    made = copies(hub, group)
+    (made["api"].cwd / "a.py").write_text("api = 2\n")
+    stopped = []
+
+    async def interrupt(task_id):
+        stopped.append(task_id)
+        if not hub.stubborn:
+            task.busy = False
+        return True
+
+    monkeypatch.setattr(hub.tasks, "interrupt", interrupt)
+    real_quiet = hub.code_desk.quiet
+    monkeypatch.setattr(hub.code_desk, "quiet", lambda tasks: real_quiet(tasks, seconds=0.5))
+
+    def busy_then_land(card):
+        task.busy = True  # (a turn begins while the card is up)
+        hub.resolve(card["id"], "land")
+
+    hub.add_approval_sink(busy_then_land)
+    hub.stubborn = True
+    assert await hub.code_multi.land(group.slug) == "It's still working. Stop it first, then land."
+    assert stopped == [task.id] and (api / "a.py").read_text() == "api = 1\n"
+    assert "api = 2" not in git(made["api"].cwd, "log", "-p", "-1")  # (nothing committed)
+    hub.stubborn, task.busy = False, False  # (that turn ended; another begins at the card)
+    said = await hub.code_multi.land(group.slug)
+    assert said.startswith("Landed") and (api / "a.py").read_text() == "api = 2\n"
+
+
+async def test_an_unreadable_groups_file_is_never_saved_over(hub, tmp_path, projects):
+    path = hub.feature_path("code_groups.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"x": {"slug": "x"}}))
+    path.chmod(0)
+    multi = hub.code_multi
+    multi._groups = None
+    try:
+        assert multi.groups() == {} and multi.unreadable
+        multi.save()
+    finally:
+        path.chmod(0o600)
+    assert json.loads(path.read_text()) == {"x": {"slug": "x"}}
+
+
 async def test_one_repository_that_cant_land_means_none_does(hub, tmp_path, projects):
     api, web = repo(tmp_path, projects, "api"), repo(tmp_path, projects, "web")
     group, _task = await start(hub, "api", "web")

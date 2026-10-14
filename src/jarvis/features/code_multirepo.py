@@ -201,6 +201,7 @@ class MultiDesk:
         self._groups: dict[str, Group] | None = None
         self.fresh: dict[int, list[str]] = {}  # session id -> copies whose setup is to run
         self.locks: dict[str, asyncio.Lock] = {}
+        self.unreadable = False  # code_groups.json couldn't be read: never saved over
 
     # ── plumbing ──
 
@@ -227,7 +228,9 @@ class MultiDesk:
         if self._groups is None:
             try:
                 data = jsonstore.load_json(self.hub.feature_path("code_groups.json"), dict) or {}
-            except jsonstore.Unreadable:
+            except jsonstore.Unreadable:  # (never saved over: C9)
+                log.warning("code_groups.json can't be read; multi-repo tasks aren't saved")
+                self.unreadable = True
                 data = {}
             self._groups = {
                 g.slug: g for raw in data.values() if (g := Group.from_json(raw)) is not None
@@ -235,6 +238,8 @@ class MultiDesk:
         return self._groups
 
     def save(self) -> None:
+        if self.unreadable:
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(
                 self.hub.feature_path("code_groups.json"),
@@ -440,6 +445,11 @@ class MultiDesk:
         return await self.land_now(group, copies)
 
     async def land_now(self, group: Group, copies: list[worktrees.Copy]) -> str:
+        # A turn may have started since the card went up (C5): stopped and waited for
+        # before anything is committed.
+        task = self.task_of(group)
+        if task is not None and not await self.desk.quiet([task]):
+            return "It's still working. Stop it first, then land."
         repos = sorted({c.repo for c in copies})
         async with contextlib.AsyncExitStack() as stack:
             for repo in repos:  # (in one order always: two landings never wait on each other)
