@@ -17,6 +17,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import proc_reaper
 from test_code_changes import git, make_repo, numbered
 
 from jarvis import handoff
@@ -154,11 +155,21 @@ def remotes(tmp_path):
     (root / "quiet" / ".no-perms").write_text("")
     executable(root / "quiet" / "bin" / "tmux", FAKE_TMUX)
     yield root
-    for pid_file in root.glob("*/.jarvis-handoff/*/claude.pid"):  # nothing outlives the test
-        try:
-            os.kill(int(pid_file.read_text().strip()), signal.SIGTERM)
-        except (ValueError, OSError):
-            pass
+    # Nothing outlives the test. Not by claude.pid alone: a run whose run.sh hadn't written
+    # it yet (or one started by the fake tmux a moment after) left `sh run.sh`, its
+    # `tail -f` and the fake claude running for good, 68 of them by 2026-10-13. Every
+    # process naming this test's folder goes, and what it started, for as long as more
+    # keep appearing (up to 5 s).
+    proc_reaper.reap(root)
+
+
+@pytest.fixture(autouse=True)
+def _nothing_outlives_the_test(tmp_path):
+    """The check behind remotes' teardown: once a test is done, no process names its
+    folder (one that does is killed here too, so a failure never leaks either)."""
+    yield
+    left = proc_reaper.reap(tmp_path)
+    assert not left, f"still running after the test: {left}"
 
 
 @pytest.fixture
