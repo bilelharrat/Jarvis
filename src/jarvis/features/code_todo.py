@@ -252,8 +252,10 @@ class Todo:
         """The card's settings from a message: "" when they're all right, else why not."""
         if "title" in msg:
             card["title"] = clean_text(str(msg.get("title") or "")).strip()[:TITLE_MAX]
-        if "prompt" in msg:
-            card["prompt"] = str(msg.get("prompt") or "").strip()[:PROMPT_MAX]
+        if "prompt" in msg:  # (words only: an object or a list isn't a prompt; no NULs)
+            prompt = msg.get("prompt")
+            prompt = prompt if isinstance(prompt, str) else ""
+            card["prompt"] = prompt.replace("\x00", "").strip()[:PROMPT_MAX]
         if "model" in msg:
             model = self._model(msg.get("model"))
             if model is None:
@@ -336,6 +338,9 @@ class Todo:
     def cmd_delete(self, msg: dict[str, Any]) -> None:
         card = self.board.get(msg.get("id"))
         if card is None:
+            return
+        if card["state"] == "running":  # (its session would run on outside the queue's limits)
+            self.error(self.tr("That card is already running."))
             return
         queue = getattr(self.hub, "code_queue", None)
         if queue is not None:

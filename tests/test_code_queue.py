@@ -310,3 +310,48 @@ async def test_stop_then_run_again_keeps_the_running_card_in_the_queue_s_limits(
     options = SimpleNamespace(max_budget_usd=None)
     _Budget(hub.code_queue).apply(hub.tasks.tasks[first["task"]], options)
     assert options.max_budget_usd == 0.5  # (its spend is the queue's)
+
+
+async def test_deleting_a_finished_card_keeps_its_spend_and_a_running_card_can_t_be_deleted(
+    hub, monkeypatch, tmp_path
+):
+    """Round 1's break: tidying the board made room under the ceiling (a finished card's
+    spend went with it), and deleting a running card freed its slot and its budget."""
+    hub.code_verify = Checks(["ok"] * 5)
+    started, _sent, finish = stub_sessions(hub, monkeypatch, tmp_path, costs=[0.1, 0.1, 0.1])
+    one, two, three = await add(hub, "one", "two", "three")
+    await hub._handle({"type": "todo_queue_run", "directory": "proj", "ceiling": 0.15})
+    assert await until(lambda: len(started) == 1)
+    seen = events_of(hub)
+    await hub._handle({"type": "todo_delete", "id": one["id"]})  # running: refused
+    assert [e["text"] for e in seen() if e["type"] == "todo_error"] == ["That card is already running."]
+    assert hub.code_todo.board.get(one["id"]) is not None
+    finish(one)
+    assert await until(lambda: len(started) == 2)
+    await hub._handle({"type": "todo_delete", "id": one["id"]})  # finished: its $0.10 stays
+    assert hub.code_queue.public()[str(tmp_path / "proj")]["spent"] >= 0.1
+    finish(two)
+    await asyncio.sleep(0.1)
+    assert len(started) == 2 and three["state"] != "running"
+
+
+@pytest.mark.parametrize("ceiling", [0, -5, 0.0001])
+async def test_a_ceiling_under_five_cents_is_refused(hub, monkeypatch, tmp_path, ceiling):
+    hub.code_verify = Checks([])
+    started, _sent, _finish = stub_sessions(hub, monkeypatch, tmp_path)
+    await add(hub, "one")
+    seen = events_of(hub)
+    await hub._handle({"type": "todo_queue_run", "directory": "proj", "ceiling": ceiling})
+    await asyncio.sleep(0.05)
+    assert not started
+    assert [e["text"] for e in seen() if e["type"] == "todo_error"] == [
+        "A queue's ceiling is at least $0.05."
+    ]
+
+
+async def test_a_400_digit_ceiling_is_the_default_not_a_crash(hub, monkeypatch, tmp_path):
+    hub.code_verify = Checks([])
+    stub_sessions(hub, monkeypatch, tmp_path)
+    await add(hub, "one")
+    hub.code_queue.cmd_run({"directory": "proj", "ceiling": 10**400})
+    assert hub.code_queue.runs[str(tmp_path / "proj")].ceiling == code_queue.CEILING_DEFAULT

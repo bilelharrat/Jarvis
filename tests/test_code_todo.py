@@ -253,3 +253,16 @@ async def test_after_a_restart_a_card_never_takes_another_session_s_id(hub, monk
     todo.on_task_event("tasks", {})
     assert todo.board.get(card["id"])["session"] == mine
     await end_all(hub)
+
+
+@pytest.mark.parametrize("prompt", [{"a": 1}, ["x"], 10**30])
+async def test_a_card_s_prompt_is_words_only(hub, prompt):
+    seen = events_of(hub)
+    await hub._handle({"type": "todo_add", "directory": "proj", "prompt": prompt})
+    assert hub.code_todo.board.cards == []
+    assert last(seen, "todo_error")["text"] == "Write what the session should do."
+
+
+async def test_a_card_s_prompt_loses_its_nuls(hub):
+    await hub._handle({"type": "todo_add", "directory": "proj", "prompt": "fix\x00 it\x00"})
+    assert hub.code_todo.board.cards[0]["prompt"] == "fix it"
