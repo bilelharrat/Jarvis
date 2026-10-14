@@ -1227,13 +1227,15 @@ class Hub:
         labels: dict[str, str] | None = None,
         quiet: tuple[str, ...] | list[str] = (),
         web: tuple[str, ...] | list[str] = (),
+        replace: bool = False,
     ) -> None:
         """A feature's tool server for the brain (built at each connect), what the brain is
         told about it, the Activity drawer's labels for its tools, and which of its tools
         return nothing private (quiet) or pages anyone can write (web). A name already
-        taken raises ValueError: the second server took the first's place without a word
+        taken raises ValueError unless replace says it's meant (winmail's "mail" on a PC,
+        in place of Mail.app's): the second server took the first's place without a word
         (REL3-9: two features named theirs "calls", and tell_call was gone)."""
-        if name in self._extra_servers:
+        if name in self._extra_servers and not replace:
             raise ValueError(f"a tool server named {name!r} is registered already")
         self._extra_servers[name] = build
         if prompt:
