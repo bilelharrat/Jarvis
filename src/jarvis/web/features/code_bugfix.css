@@ -1,4 +1,4 @@
-/* Eden Code's Bug Fix Mode: the composer's switch, the header's badge, and its pane. */
+/* Eden Code's Exterminator Mode: the composer's switch, the header's badge, and its pane. */
 
 .jcx-bf-switch svg { flex: none; opacity: 0.7; }
 /* (by its id: the composer's own pill rule, :is(.jc-pill, #jc-ctx, …), weighs an id) */

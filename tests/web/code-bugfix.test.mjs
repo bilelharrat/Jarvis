@@ -1,4 +1,4 @@
-// Bug Fix Mode's window helpers (web/features/code_bugfix.js): its steps and progress, the
+// Exterminator Mode's window helpers (web/features/code_bugfix.js): its steps and progress, the
 // findings worst first, when Stop, Resume and Land show, which run a session is; and the
 // Touch ID its landing card asks for (code-touchid.js). node --test tests/web/
 import assert from 'node:assert/strict';
@@ -60,7 +60,7 @@ test('the run a session is, else the one running in the project', () => {
 });
 
 test('the landing card asks for Touch ID, a no never does', () => {
-  const card = { tool: 'code_bugfix_land', touchid: true, tap_only: true, question: 'Land Bug Fix Mode’s fixes in main?' };
+  const card = { tool: 'code_bugfix_land', touchid: true, tap_only: true, question: 'Land Exterminator Mode’s fixes in main?' };
   assert.ok(ct.risky(card, 'allow'));
   assert.ok(!ct.risky(card, 'deny'));
   assert.ok(!ct.risky({ ...card, touchid: 'yes' }, 'allow'));  // (only the backend's own flag)

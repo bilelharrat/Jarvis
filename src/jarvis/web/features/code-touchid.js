@@ -1,7 +1,7 @@
 // Touch ID for Eden Code's riskiest moments (jarvisFeatures.registerCheck): a session
 // switched into Bypass permissions (on screen, or by voice: its card's tap), new sessions
 // set to start in it, and a step allowed from its card that deletes, pushes, publishes,
-// runs as root or edits outside the project, and a card the backend marks touchid (Bug Fix
+// runs as root or edits outside the project, and a card the backend marks touchid (Exterminator
 // Mode's landing). The app asks for the owner's fingerprint
 // (app/features/touchid.js: macOS's own sheet, with the app's own words); where there's no
 // Touch ID (or outside the app) the usual question asks instead. Its switch is in Eden Code
@@ -53,7 +53,7 @@
   function risky(approval, choice) {
     const a = approval || {};
     if (a.tool === BYPASS_BY_VOICE) return ALLOWING.has(choice);  // full auto, asked for aloud
-    // A card the backend marks for Touch ID itself (Bug Fix Mode's landing of its fixes).
+    // A card the backend marks for Touch ID itself (Exterminator Mode's landing of its fixes).
     if (a.touchid === true) return ALLOWING.has(choice);
     if (!a.task_id || !ALLOWING.has(choice)) return false;
     if (a.tool === 'Bash') return riskyCommand(String(a.detail || '').replace(/^\$\s*/, ''));

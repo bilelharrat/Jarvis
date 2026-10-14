@@ -1,6 +1,6 @@
 // The keyboard's place through a pane's redraw (web/features/code-focus.js, audit G5): the
 // same control in the new drawing, else the one in its place; and the panes that use it
-// (Bug Fix Mode, Best of N, Stacks, Triggers, PR reviews) in a stand-in window
+// (Exterminator Mode, Best of N, Stacks, Triggers, PR reviews) in a stand-in window
 // (tests/web/fixtures/stand-dom.mjs). node --test tests/web/
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -84,7 +84,7 @@ function standPane(name, paneId, scope = {}) {
   return { document, body, fire, sent };
 }
 
-test('Bug Fix Mode: after Stop, the keys are on what took its place, not the page', () => {
+test('Exterminator Mode: after Stop, the keys are on what took its place, not the page', () => {
   const w = standPane('code_bugfix.js', 'bugfix');
   const run = { id: 'r1', project: 'api', state: 'running', round: 1, step: 'sweep', spent: 1, spend_cap: 10, findings: [], folder: '/f', slug: 's' };
   w.fire('code_bugfix', { runs: [run], active: {} });
@@ -116,9 +116,9 @@ test('every pane the audit found losing the focus draws through keep', () => {
   }
 });
 
-// Audit G12: the composer's Bug Fix Mode button opens the run's pane when on, so it's a
+// Audit G12: the composer's Exterminator Mode button opens the run's pane when on, so it's a
 // button that says what it does, not a switch; a finding's scenario is read, not only a title.
-test('Bug Fix Mode: its button says what it does; a finding’s scenario is in its item', () => {
+test('Exterminator Mode: its button says what it does; a finding’s scenario is in its item', () => {
   const w = standPane('code_bugfix.js', 'bugfix');
   const row = w.document.createElement('div');
   row.id = 'deck-composer';
@@ -132,9 +132,9 @@ test('Bug Fix Mode: its button says what it does; a finding’s scenario is in i
   const pill = w.document.getElementById('jcx-bf-switch');
   assert.equal(pill.getAttribute('role'), null);
   assert.equal(pill.getAttribute('aria-checked'), null);
-  assert.equal(pill.getAttribute('aria-label'), 'Bug Fix Mode: turn it on for this project…');
+  assert.equal(pill.getAttribute('aria-label'), 'Exterminator Mode: turn it on for this project…');
   w.fire('code_bugfix', { runs: [run], active: {} });
-  assert.equal(pill.getAttribute('aria-label'), 'Bug Fix Mode is on: show its progress');
+  assert.equal(pill.getAttribute('aria-label'), 'Exterminator Mode is on: show its progress');
   const item = w.body.querySelector('.jcx-bf-finding');
   assert.match(item.querySelector('.sr-only').textContent, /Open it twice/);
 });

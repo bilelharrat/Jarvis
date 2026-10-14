@@ -1,7 +1,7 @@
-// Eden Code's Bug Fix Mode (features/code_bugfix.py): the owner's bug protocol behind one
-// switch. The composer's "Bug Fix Mode" switch turns it on for the project in front (the
+// Eden Code's Exterminator Mode (features/code_bugfix.py): the owner's bug protocol behind one
+// switch. The composer's "Exterminator Mode" switch turns it on for the project in front (the
 // backend puts the whole scope, spending ceiling included, on a card first); the session's
-// header says so while it runs. The Bug Fix Mode pane shows each run: its round and step
+// header says so while it runs. The Exterminator Mode pane shows each run: its round and step
 // (sweep, break, fix, efficiency; ship; land), what it has spent of its ceiling, its findings
 // with their severity and fix status, its reports and the steps left for the owner, with
 // Stop, Resume (a run the app quit during, or one stopped) and Land (a card with Touch ID).
@@ -114,7 +114,7 @@
   // A button, not a switch: on, it opens the run's pane (with Stop) rather than turning it
   // off, so its name says which it does (drawSwitch).
   pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><ellipse cx="8" cy="9" rx="3.2" ry="4.2"/><path d="M8 4.8V3M5.6 6.2 3.5 4.8M10.4 6.2l2.1-1.4M4.8 9H2.5M11.2 9h2.3M5.4 11.8l-1.9 1.4M10.6 11.8l1.9 1.4"/></svg>';
-  pill.append(el('span', '', 'Bug Fix Mode'));
+  pill.append(el('span', '', 'Exterminator Mode'));
   pill.addEventListener('click', () => {
     const name = project();
     if (!name) return;
@@ -129,10 +129,10 @@
     const name = project();
     pill.hidden = !name;
     const run = name ? runFor(state.runs, state.active, F.currentTask() && F.currentTask().id, name) : null;
-    pill.setAttribute('aria-label', t(run ? 'Bug Fix Mode is on: show its progress' : 'Bug Fix Mode: turn it on for this project…'));
+    pill.setAttribute('aria-label', t(run ? 'Exterminator Mode is on: show its progress' : 'Exterminator Mode: turn it on for this project…'));
     pill.classList.toggle('on', !!run);
     pill.title = t(run
-      ? 'Bug Fix Mode is on here. Click for its progress, and Stop.'
+      ? 'Exterminator Mode is on here. Click for its progress, and Stop.'
       : 'Run your bug protocol on this project: 3 rounds of sweep, break and fix, in an isolated copy. Asks first, with the spending ceiling.');
   }
 
@@ -151,8 +151,8 @@
     badge.hidden = !run;
     if (!run) return;
     const step = run.step === 'ship' || run.step === 'land' ? t(STEP_LABELS[run.step]) : `${t('Round')} ${run.round} · ${t(STEP_LABELS[run.step] || run.step)}`;
-    badge.replaceChildren(el('span', 'jcx-bf-dot'), el('span', '', 'Bug Fix Mode'), mine(` · ${step}`));
-    badge.setAttribute('aria-label', `${t('Bug Fix Mode')}: ${step}. ${money(run.spent)} / ${money(run.spend_cap)}`);
+    badge.replaceChildren(el('span', 'jcx-bf-dot'), el('span', '', 'Exterminator Mode'), mine(` · ${step}`));
+    badge.setAttribute('aria-label', `${t('Exterminator Mode')}: ${step}. ${money(run.spent)} / ${money(run.spend_cap)}`);
   }
 
   function redraw() { drawSwitch(); drawBadge(); }
@@ -188,7 +188,7 @@
 
   function runCard(run) {
     const card = el('section', 'jcx-bf-run');
-    card.setAttribute('aria-label', `${t('Bug Fix Mode')}: ${run.project}`);
+    card.setAttribute('aria-label', `${t('Exterminator Mode')}: ${run.project}`);
     const head = el('div', 'jcx-bf-head');
     head.append(mine(run.project, 'strong', 'jcx-bf-title'), chip(STATE[run.state] || run.state, run.state === 'running' ? 'busy' : run.state === 'done' ? 'good' : 'warn'));
     if (run.landed) head.append(chip('Landed', 'good'));
@@ -273,10 +273,10 @@
   }
 
   F.registerPane('bugfix', {
-    title: 'Bug Fix Mode',
+    title: 'Exterminator Mode',
     render(target) { draw(target); send({ type: 'code_bugfix' }); },
   });
-  F.registerMoreItem({ label: 'Bug Fix Mode…', run: () => F.openPane('bugfix') });
+  F.registerMoreItem({ label: 'Exterminator Mode…', run: () => F.openPane('bugfix') });
 
   const title = document.getElementById('jc-title');
   if (title) new MutationObserver(redraw).observe(title, { childList: true, characterData: true, subtree: true });

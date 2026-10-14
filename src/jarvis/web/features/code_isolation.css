@@ -25,7 +25,7 @@
 .jcx-chip.busy { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
 .jcx-chip.warn { color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
 .jcx-chip.bad { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger-soft)); }
-/* (Every pane's, not only Bug Fix's, PR's and Runs': Stacks' Merged, Triggers' On.) */
+/* (Every pane's, not only Exterminator's, PR's and Runs': Stacks' Merged, Triggers' On.) */
 .jcx-chip.good { color: rgb(var(--c-success-ink)); background: rgb(var(--c-success-soft)); }
 
 /* (The deck gives every button its parent's color: these keep their own.) */

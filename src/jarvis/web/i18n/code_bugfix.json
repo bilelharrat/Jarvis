@@ -1,10 +1,10 @@
 {
   "strings": {
-    "Bug Fix Mode": "修 bug 模式",
-    "Bug Fix Mode…": "修 bug 模式…",
-    "Bug Fix Mode is on: show its progress": "修 bug 模式已开启：查看进度",
-    "Bug Fix Mode: turn it on for this project…": "修 bug 模式：为这个项目开启…",
-    "Bug Fix Mode is on here. Click for its progress, and Stop.": "这里正在运行修 bug 模式。点一下查看进度，也可以停下。",
+    "Exterminator Mode": "灭虫模式",
+    "Exterminator Mode…": "灭虫模式…",
+    "Exterminator Mode is on: show its progress": "灭虫模式已开启：查看进度",
+    "Exterminator Mode: turn it on for this project…": "灭虫模式：为这个项目开启…",
+    "Exterminator Mode is on here. Click for its progress, and Stop.": "这里正在运行灭虫模式。点一下查看进度，也可以停下。",
     "Run your bug protocol on this project: 3 rounds of sweep, break and fix, in an isolated copy. Asks first, with the spending ceiling.": "在这个项目上运行你的修 bug 流程：3 轮“排查、破坏测试、修复”，在独立副本里进行。会先问你，并列出花费上限。",
     "Your bug protocol, on any project: 3 rounds of sweep (read-only audit agents in parallel), break (the suite, hostile inputs, the dev server) and fix (each with a test that fails first), an efficiency pass between rounds that loses no feature, then reports, a receipt and the ship step.": "你的修 bug 流程，适用于任何项目：3 轮排查（多个只读审查代理同时进行）、破坏测试（测试套件、恶意输入、开发服务器）和修复（每个修复都带一个先失败的测试），每两轮之间做一次不丢功能的效率优化，最后是报告、凭证和发布步骤。",
     "Turn on for this project…": "为这个项目打开…",
