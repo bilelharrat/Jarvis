@@ -1310,11 +1310,20 @@ async def test_the_copy_of_a_run_not_landed_is_never_swept(hub, projects):
     assert {"s-paused", "s-stopped"} <= live and "s-landed" not in live
 
 
-async def test_a_suite_s_child_in_a_session_of_its_own_goes_with_the_run(hub, tmp_path):
+async def test_a_suite_s_child_in_a_session_of_its_own_goes_with_the_run(
+    hub, tmp_path, monkeypatch
+):
     """R1-a: a test's child started with setsid (holding the runner's stdout) left the run's
     group and session, so it outlived the suite run. Every process of a run carries its
     mark, and what's left with it when the run ends is killed."""
     import signal
+
+    from jarvis import runproc
+
+    # (The runner lets go of what holds its output after LINGER, looked at every QUIET:
+    # shortened, as test_devservers does, so the test isn't 5 s of waiting.)
+    monkeypatch.setattr(runproc, "LINGER", 0.2)
+    monkeypatch.setattr(runproc, "QUIET", 0.1)
 
     folder = tmp_path / "orphan"
     folder.mkdir()
