@@ -119,7 +119,7 @@
       const words = mine(el('span', '', ''));
       words.textContent = t(watcherText(w, now));  // (an address and a name the viewer gave: data)
       const stop = spender(button('Stop', 'jc-btn small', () => send({ type: 'code_share_kick', share: share.share, viewer: w.viewer }),
-        'They can’t watch this link again from that device; everyone else goes on'));
+        'They, and anyone else at their network address, can’t watch this link again'));
       stop.setAttribute('aria-label', `${t('Stop')}: ${watcherWho(w)}`);
       li.append(words, stop);
       list.append(li);

@@ -393,11 +393,15 @@ class Shares:
 
     def kick(self, share_id: str, key: str) -> bool:
         """The owner stops one viewer (by its key, from watchers()): it, and its address,
-        can't watch this share again; the share goes on for everyone else."""
+        can't watch this share again; the share goes on for everyone else. The others
+        watching from that address are stopped with it, so the list shows no one who can't
+        watch any more (round 3, U3-12: they stayed listed, though blocked)."""
         share = self.shares.get(share_id)
         if share is None or not key:
             return False
         found = [v for v in share.viewers if _viewer_key(v) == key]
+        blocked = {share.addresses.get(v, "") for v in found} - {""}
+        found += [v for v in share.viewers if v not in found and share.addresses.get(v, "") in blocked]
         for viewer in found:
             share.stopped.add(viewer)
             address = share.addresses.get(viewer, "")

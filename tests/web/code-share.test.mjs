@@ -85,10 +85,10 @@ test('each viewer is said by its address (and the name on its suggestions), and 
   const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code_share.json', import.meta.url), 'utf8'));
   const said = (text) => zh.patterns.some(([re]) => new RegExp(re).test(text));
   assert.ok(said('A viewer at 10.0.0.7, just now') && said('Alex at 10.0.0.7, for 10 min'));
-  for (const s of ['Stop', 'Watching now', 'They can’t watch this link again from that device; everyone else goes on']) assert.ok(zh.strings[s], s);
+  for (const s of ['Stop', 'Watching now', 'They, and anyone else at their network address, can’t watch this link again']) assert.ok(zh.strings[s], s);
   const source = readFileSync(new URL('../../src/jarvis/web/features/code_share.js', import.meta.url), 'utf8');
   assert.match(source, /send\(\{ type: 'code_share_kick', share: share\.share, viewer: w\.viewer \}\)/);
-  assert.match(readFileSync(new URL('../../src/jarvis/web/share.js', import.meta.url), 'utf8'), /reply\.status === 403\) \{ ended\(\); return; \}/);
+  assert.match(readFileSync(new URL('../../src/jarvis/web/share.js', import.meta.url), 'utf8'), /reply\.status === 403\) \{ ended\(STOPPED\); return; \}/);
 });
 
 // Round 3, U3-4: in a stand-in window (tests/web/fixtures/stand-dom.mjs), the keyboard on a
@@ -136,4 +136,14 @@ test('Share live: Stop on one viewer never hands the focus to another’s Stop, 
   const card = body.querySelector('.jcx-share');
   fire('tasks', { items: [] });
   assert.ok(card.isConnected, 'drawn anew for a task-list event');
+});
+
+// Round 3, U3-12: a viewer the owner stopped (the Mac answers 403) is told that, not that the
+// share ended; in the Mac's own words (features/code_share.py stopped()).
+test('a stopped viewer is told the owner stopped their view', () => {
+  assert.equal(viewer.STOPPED, 'The owner stopped your view of this share.');
+  const backend = readFileSync(new URL('../../src/jarvis/features/code_share.py', import.meta.url), 'utf8');
+  assert.ok(backend.includes(`{"error": "${viewer.STOPPED}"}`));
+  const page = readFileSync(new URL('../../src/jarvis/web/share.js', import.meta.url), 'utf8');
+  assert.match(page, /if \(why\) \$\('ended'\)\.textContent = why;/);
 });

@@ -90,3 +90,24 @@ async def test_the_owner_sees_who_is_watching_and_can_stop_one(hub, projects, tm
     assert teammate.get(f"/share/{token}/state", params={"v": "teammate-01"}).status_code == 200
     [shown] = hub.code_share.public()
     assert [w["address"] for w in shown["watchers"]] == ["10.0.0.7"]
+
+
+async def test_stopping_a_viewer_drops_the_others_at_its_address_from_the_list(hub, projects, tmp_path):  # noqa: F811
+    """Round 3, U3-12: Stop blocks the viewer's address, so a second viewer there can't watch
+    any more either; it was still listed, as if it were watching. It goes from the list too,
+    and someone at another address goes on."""
+    task, _ = await session(hub, projects)
+    hub.code_share.cmd_start({"id": task.id})
+    token = token_of(hub)
+    one = client_at(hub, tmp_path, "10.0.0.66")
+    two = client_at(hub, tmp_path, "10.0.0.66")
+    other = client_at(hub, tmp_path, "10.0.0.7")
+    for client, v in ((one, "viewer-one-1"), (two, "viewer-two-1"), (other, "viewer-oth-1")):
+        assert client.get(f"/share/{token}/state", params={"v": v}).status_code == 200
+    [shown] = hub.code_share.public()
+    first = next(w for w in shown["watchers"] if w["address"] == "10.0.0.66")
+    await hub.handle({"type": "code_share_kick", "share": shown["share"], "viewer": first["viewer"]})
+    [shown] = hub.code_share.public()
+    assert [w["address"] for w in shown["watchers"]] == ["10.0.0.7"]
+    assert two.get(f"/share/{token}/state", params={"v": "viewer-two-1"}).status_code == 403
+    assert other.get(f"/share/{token}/state", params={"v": "viewer-oth-1"}).status_code == 200
