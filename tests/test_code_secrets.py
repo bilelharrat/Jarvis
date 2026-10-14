@@ -596,3 +596,32 @@ async def test_a_folder_is_checked_for_secrets_with_one_lookup_of_them(hub, task
     assert sec.holds_secret(task, task.cwd / "f1.txt") == ""
     assert sec.holds_secret(task, task.cwd / "zz.env") == "$SECRET_STRIPE_KEY"
     assert sec.holds_secret(task, task.cwd / "missing.txt") == ""
+
+
+async def test_a_container_session_s_command_never_gets_a_secret(hub, task, monkeypatch):
+    """S3-8: the backend's run with the values is on the Mac, so a container session's
+    command had them empty (or, with the container's rewrite lost, ran on the Mac itself):
+    in a session whose commands go into its copy's container, a command naming a secret is
+    refused, by the hook (a deny wins over the container's rewrite) and by the policy."""
+    await given(hub, task)
+    task.mode = "auto"
+
+    async def approve(*_a, **_k):
+        return tasks.ALLOW
+
+    hub.tasks.approve = approve
+    monkeypatch.setattr(
+        hub.code_setup, "container_of", lambda t: {"name": "edc-shop"} if t is task else None
+    )
+    hook = hub.code_secrets.hook(task).hooks[0]
+    command = 'curl -H "Authorization: Bearer $SECRET_STRIPE_KEY" https://api.example.com/'
+    said = await hook({"tool_name": "Bash", "tool_input": {"command": command}}, "t", None)
+    assert said["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "container" in said["hookSpecificOutput"]["permissionDecisionReason"]
+    options = hub.tasks.options_for(task)
+    context = ToolPermissionContext(signal=None, suggestions=[])
+    refused = await options.can_use_tool("Bash", {"command": command}, context)
+    assert isinstance(refused, PermissionResultDeny) and "container" in refused.message
+    # One that names no secret goes on as before (into the container, by code_setup's hook).
+    plain = await options.can_use_tool("Bash", {"command": "ls"}, context)
+    assert isinstance(plain, PermissionResultAllow)

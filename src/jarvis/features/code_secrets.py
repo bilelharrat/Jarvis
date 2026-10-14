@@ -207,6 +207,30 @@ def named_in(command: str) -> set[str]:
     return set(PLACEHOLDER.findall(command or ""))
 
 
+# S3-8: a session whose commands run in its copy's container (code_setup's hook rewrites each
+# into container_run's line) gets no secret in a command. The backend's run with the values is
+# on the Mac, so the container never had them ($SECRET_… empty there), and with the hook's
+# rewrite lost (another hook asking) the command itself ran on the Mac, out of its container.
+# Until the relay can hand a container run its values, a command naming one is refused, and
+# Claude is told why.
+IN_CONTAINER = (
+    "This session's commands run in its copy's container, and the owner's secrets aren't "
+    "given to commands in a container. Don't try to get the value in another way: tell the "
+    "owner, who can run it in a session without a container."
+)
+
+
+def in_container(hub: Any, task: Any) -> bool:
+    """Whether a session's commands go into its copy's container (code_setup)."""
+    desk = getattr(hub, "code_setup", None)
+    if desk is None:
+        return False
+    try:
+        return desk.container_of(task) is not None
+    except Exception:  # (can't tell: as if it were, so no value goes)
+        return True
+
+
 class Secrets:
     """The secrets of every session and project, by name; values only in the Keychain (and,
     for the redaction pass, in memory once read)."""
@@ -642,6 +666,14 @@ class Secrets:
             tool_input = input_data.get("tool_input") or {}
             if name == "Bash":
                 wanted = named_in(str(tool_input.get("command", "")))
+                if wanted and wanted & set(self.names_for(task)) and in_container(self.hub, task):
+                    return {  # (a deny wins over the container's rewrite: never on the Mac)
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": IN_CONTAINER,
+                        }
+                    }
                 if wanted and wanted & set(self.names_for(task)):
                     # To the session's own policy, past any allow rule: it runs the command
                     # through secret_run (the only way the value gets to it).
@@ -683,6 +715,8 @@ class Secrets:
             wanted = named_in(command) & set(self.names_for(task))
             if not wanted:
                 return result
+            if in_container(self.hub, task):  # (S3-8: the hook's deny, should it be missed)
+                return PermissionResultDeny(message=IN_CONTAINER)
             last = audit[-1] if audit else None
             carded = last is not None and last is not before and last.get("decision") == "allowed"
             wrote = written_named(task, command)
