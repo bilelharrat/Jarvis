@@ -4503,11 +4503,24 @@ function pickModel(ref) {
   else { codeDefaults.model = ref; send({ type: 'code_defaults', code_model: ref }); renderComposer(); }
 }
 
+// Models on this Mac (Ollama, LM Studio: features/local_models.py): the added ones and the
+// ones found running but not added yet, under one heading, each with its size and context
+// (features/code-lean.js's edenLocalNote). Looked for when Eden Code opens and again when
+// the menu opens (at most every 20 s: it asks only this Mac's usual ports).
+let localScanned = 0;
+function lookForLocalModels() { localScanned = Date.now(); send({ type: 'local_models_scan' }); }
+function localNote(m) { return typeof window.edenLocalNote === 'function' ? window.edenLocalNote(m) : (m.server || m.provider_name || ''); }
+function useLocalModel(m) {
+  jcNote(`Adding ${m.label} from ${m.server || 'this Mac'}…`);
+  send({ type: 'local_models_use', port: m.port, model: m.model });
+}
 function modelMenu() {
+  if (inEdenCode && Date.now() - localScanned > 20000) lookForLocalModels();
   const s = composerState();
   const eden = modelList.some((m) => m.eden) ? modelList.filter((m) => m.eden)
     : [['opus', 'claude-opus-5-5', 'Claude Opus 5.5'], ['sonnet', 'claude-sonnet-5-5', 'Claude Sonnet 5.5']].map(([ref, model, label]) => ({ ref, model, label, builtin: true, group: 'Anthropic Claude' }));
-  const mine = modelList.filter((m) => !m.eden && !m.builtin);
+  const mine = modelList.filter((m) => !m.eden && !m.builtin && !m.local);
+  const onMac = [...modelList.filter((m) => m.local && !m.eden), ...(providerInfo.on_this_mac || [])];
   const extra = [];
   let routed = false;
   for (const c of featureModelChoices) {
@@ -4528,6 +4541,7 @@ function modelMenu() {
       checked: !routed && !m.needs_key && (s.ref === m.ref || (m.builtin && s.modelId === m.model)),
       run: () => pickModel(m.ref),
     }))]),
+    ...(onMac.length ? [{ heading: 'On this Mac' }, ...onMac.map((m) => ({ label: m.label, note: localNote(m), checked: !routed && !m.needs_add && s.ref === m.ref, run: () => (m.needs_add ? useLocalModel(m) : pickModel(m.ref)) }))] : []),
     ...(mine.length ? [{ heading: 'Your models' }, ...mine.map((m) => ({ label: m.label, note: m.provider_name, checked: !routed && s.ref === m.ref, run: () => pickModel(m.ref) }))] : []),
     '-',
     { icon: 'key', label: mine.length ? 'Models & API keys…' : 'Add a model with an API key…', run: () => openJcSettings('models') },
@@ -4883,12 +4897,13 @@ $('jcs-queue').addEventListener('click', () => setPrefs({ code_queue: !(prefs &&
 $('jcs-awake').addEventListener('click', () => send({ type: 'awake', on: !awake }));
 
 function onProviders(ev) {
-  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '', fallback_auto: ev.fallback_auto || '' };
+  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '', fallback_auto: ev.fallback_auto || '', on_this_mac: ev.on_this_mac || [] };
   renderFallback();
   $('jcs-advice').textContent = providerInfo.advice;
   $('jcs-advice').hidden = !providerInfo.advice;
   modelList = ev.picker || providerInfo.models;
   if (!edenKeysAsked && modelList.some((m) => m.needs_key)) { edenKeysAsked = true; send({ type: 'eden_chat_keys' }); }
+  if (inEdenCode && !localScanned) lookForLocalModels();
   renderComposer();
   if (!$('jc-settings').hidden) { checkGeminiOnce(); renderProviders(); renderJcGeneral(); }
 }
@@ -5422,6 +5437,7 @@ function onJarvisCodeEvent(ev) {
     case 'providers': onProviders(ev); return true;
     case 'providers_check': onProviderCheck(ev); return true;
     case 'providers_error': onProvidersError(ev); return true;
+    case 'local_model_ready': if (ev.ref) pickModel(ev.ref); return true;
     case 'slash_list': customSlash[ev.directory] = ev.items || []; if (!$('cc-slash').hidden) renderSuggestions(); return true;
     case 'project_files': projectFiles[ev.directory] = ev.files || []; if (currentPane === 'files' && ev.directory === deckProject) renderPaneBody(); return true;
     case 'file_content': if (fileView && ev.path === fileView.path) { fileView = ev; drawViewer(); } return true;

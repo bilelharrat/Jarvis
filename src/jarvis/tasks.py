@@ -2536,7 +2536,8 @@ class TaskManager:
             from .key_proxy import replace_pass  # (the last connect's pass goes)
 
             replace_pass(self.__dict__.setdefault("_run_passes", {}), task.id, cfg["settings"])
-        for hook in self.option_hooks:
+        # (a hook marked last, as code_lean's, sees every other feature's additions)
+        for hook in sorted(self.option_hooks, key=lambda h: getattr(h, "last", False) is True):
             try:
                 hook.apply(task, options)
             except Exception:  # a feature's additions never keep a session from opening

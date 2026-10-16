@@ -291,6 +291,32 @@ def catalog_suggested(kind: str, base_url: str) -> tuple[str, ...]:
 
 # Names for a local server on its usual port (an OpenAI-compatible provider added without one).
 LOCAL_SERVERS = {11434: "Ollama", 1234: "LM Studio", 8080: "llama.cpp", 8000: "vLLM"}
+LOCAL_GROUP = "On this Mac"  # the pickers' heading for models on a server here
+LOCAL = "local:"  # a found model not added yet: "local:<port>/<model id>" (runs nothing)
+
+
+def _local_details(found: dict[str, Any], model: str) -> dict[str, Any]:
+    """What the pickers show of a model on this Mac: its size on disk (bytes), its context
+    window (tokens: the server's own word, else the catalog's, else unknown), its
+    parameters ("7.6B") and quantization ("Q4_K_M"), and whether it takes tools (None:
+    the server didn't say). Only plain values, whatever the server sent."""
+
+    def num(value: Any) -> int | None:
+        if isinstance(value, bool) or not isinstance(value, int | float) or value != value:
+            return None
+        return int(value) if 0 < value < 10**13 else None
+
+    def word(value: Any) -> str:
+        return " ".join(str(value).split())[:24] if isinstance(value, str | int | float) else ""
+
+    tools = found.get("tools")
+    return {
+        "size": num(found.get("size")),
+        "context": num(found.get("context")) or context_window(model),
+        "params": word(found.get("params") or ""),
+        "quant": word(found.get("quant") or ""),
+        "tools": tools if isinstance(tools, bool) else None,
+    }
 AUTHS = ("bearer", "x-api-key")
 _AUTH_WORDS = {
     "bearer": "bearer",
@@ -857,6 +883,10 @@ class ProviderStore:
         # it: {"openai": True, …}), so a model with no key here offers to use that one.
         self.chat_keys: dict[str, bool] = {}
         self.eden_chat_synced = ""  # eden_chat_stamp() of the list the file was last synced to
+        # The model servers found running on this Mac (features.local_models sets it at each
+        # look: {port: {model id: its details}}), so the pickers can show models on this Mac
+        # with their size and context, the ones not added yet among them.
+        self.local_found: dict[int, dict[str, dict[str, Any]]] = {}
         self._load()
         if not self.unreadable and self.eden_chat_synced != eden_chat_stamp():
             before = self._snapshot()
@@ -1525,10 +1555,57 @@ class ProviderStore:
             })  # fmt: skip
         for provider in self.providers.values():
             out += [
-                {**self._public_model(e), "eden": False}
+                {**self._public_model(e), "eden": False, **self._on_this_mac(provider, e.model)}
                 for e in self.models_of(provider.id)
                 if e.id not in used
             ]
+        return out
+
+    # models on this Mac (Ollama, LM Studio…)
+
+    @staticmethod
+    def local_port(provider: Provider) -> int | None:
+        """The port of a provider that is a model server on this Mac, else None."""
+        if provider.kind != "openai":
+            return None
+        parts = urlsplit(provider.base_url)
+        return parts.port if is_local(parts.hostname or "") and parts.port else None
+
+    def _on_this_mac(self, provider: Provider, model: str) -> dict[str, Any]:
+        """A picker row's extras for a model on a server on this Mac: its heading ("On this
+        Mac"), the server, and what the last look found about it (size in bytes, context in
+        tokens, parameters, quantization, whether it takes tools); nothing for any other."""
+        port = self.local_port(provider)
+        if port is None:
+            return {}
+        found = self.local_found.get(port, {}).get(model, {})
+        return {
+            "local": True, "group": LOCAL_GROUP, "port": port,
+            "server": LOCAL_SERVERS.get(port, provider.name), **_local_details(found, model),
+        }  # fmt: skip
+
+    def local_unadded(self) -> list[dict[str, Any]]:
+        """The models found running on this Mac that no provider here offers yet: listed in
+        the pickers under "On this Mac" all the same; picking one adds its server first
+        (local_models_use). Their refs aren't model refs: nothing runs them as they are."""
+        added: dict[int, set[str]] = {}
+        for provider in self.providers.values():
+            port = self.local_port(provider)
+            if port is not None:
+                added.setdefault(port, set()).update(e.model for e in self.models_of(provider.id))
+        out = []
+        for port, models in sorted(self.local_found.items()):
+            for model, found in models.items():
+                if model in added.get(port, ()):
+                    continue
+                server = LOCAL_SERVERS.get(port, f"Port {port}")
+                out.append({
+                    "ref": f"{LOCAL}{port}/{model}", "model": model, "label": model,
+                    "name": f"{model} · {server}", "provider": "", "provider_name": server,
+                    "kind": "openai", "builtin": False, "eden": False, "local": True,
+                    "group": LOCAL_GROUP, "port": port, "server": server, "needs_add": True,
+                    **_local_details(found, model),
+                })  # fmt: skip
         return out
 
     def describe(self, ref: str | None) -> str:
@@ -1710,6 +1787,7 @@ class ProviderStore:
             "limits": {"providers": MAX_PROVIDERS, "models": MAX_MODELS},
             "advice": KEY_ADVICE,
             "fallback_auto": self.pick_fallback(),  # what the fallback's Automatic would use
+            "on_this_mac": self.local_unadded(),  # found running here, not added yet
         }
 
     def _public_provider(self, provider: Provider) -> dict[str, Any]:

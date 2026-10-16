@@ -296,7 +296,7 @@
 
   // The picker's models (Eden chat's, then the owner's); one with no key yet is shown, not
   // choosable (a variant on it would only fail).
-  const runnable = (p) => (p.picker || p.models || []).map((m) => ({ ref: m.ref, label: m.needs_key ? `${m.label} (needs a key)` : m.label, off: !!m.needs_key }));
+  const runnable = (p) => (p.picker || p.models || []).map((m) => ({ ref: m.ref, label: m.needs_key ? `${m.label} (needs a key)` : m.local ? `${m.label} · On this Mac` : m.label, off: !!m.needs_key }));
   F.on('providers', (ev) => { state.models = runnable(ev); }, { replay: true });
   F.on('hello', (ev) => { if (ev.prefs && ev.prefs.features) state.features = ev.prefs.features; if (ev.providers) state.models = runnable(ev.providers); }, { replay: true });
   F.on('prefs', (ev) => { if (ev.features) state.features = ev.features; }, { replay: true });

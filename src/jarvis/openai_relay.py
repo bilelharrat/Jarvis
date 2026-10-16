@@ -41,6 +41,12 @@ What's translated:
   all (a web page at that address) ends the stream with Anthropic's error event, never as a
   quiet, cut-off answer taken as done; a whole reply that isn't JSON is a 400 too.
 
+Lean mode (features.code_lean): a lean session's requests come on /p/<provider id>/lean.
+They go on with Claude Code's tool descriptions cut to their first paragraph (LEAN_DESCRIPTION
+characters at most) and each parameter's description to its first sentence (lean_body):
+Claude Code's own run to thousands of words (Bash's alone is about 2,500 tokens), which a
+small model on this Mac reads before every turn, and often within a 4k or 8k context.
+
 Cost: none of its own. It carries requests a session makes; what the provider charges is
 the provider's (a model on this Mac costs nothing).
 """
@@ -979,6 +985,71 @@ class OpenAIRelay:
         return 200, None, events()
 
 
+LEAN_DESCRIPTION = 360  # characters of a tool's description a lean session's model gets
+LEAN_PARAMETER = 120  # …and of each of its parameters' descriptions
+_SENTENCE = re.compile(r"(?<=[.!?])\s")
+
+
+def _short(text: Any, limit: int, first: str = "\n\n") -> str:
+    """The text's first paragraph (or sentence), cut at a sentence end within limit."""
+    head = str(text or "").strip().split(first, 1)[0].strip()
+    if len(head) <= limit:
+        return head
+    cut = head[:limit]
+    ends = [m.start() for m in _SENTENCE.finditer(cut)]
+    return cut[: ends[-1]].strip() if ends and ends[-1] > limit // 3 else cut.rstrip() + "…"
+
+
+def _lean_schema(schema: Any) -> Any:
+    """A tool's JSON Schema with every description down to its first sentence and the
+    examples gone; types, names, enums and what's required are kept as they are."""
+    if isinstance(schema, list):
+        return [_lean_schema(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in ("examples", "$schema"):
+            continue
+        if key == "description" and isinstance(value, str):
+            out[key] = _short(value, LEAN_PARAMETER, first="\n")
+        elif key == "properties" and isinstance(value, dict):
+            out[key] = {name: _lean_schema(v) for name, v in value.items()}
+        else:
+            out[key] = _lean_schema(value)
+    return out
+
+
+def lean_body(body: dict[str, Any]) -> dict[str, Any]:
+    """A lean session's request as its model gets it: the tools' descriptions short (see
+    the module's docstring) and Claude Code's billing line out of the system prompt (it's
+    for Anthropic's API, which this isn't). Everything else is as it came."""
+    out = dict(body)
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        out["tools"] = [
+            {
+                **t,
+                "description": _short(t.get("description"), LEAN_DESCRIPTION),
+                "input_schema": _lean_schema(t.get("input_schema") or {"type": "object"}),
+            }
+            if isinstance(t, dict)
+            else t
+            for t in tools
+        ]
+    system = body.get("system")
+    if isinstance(system, list):
+        out["system"] = [
+            b
+            for b in system
+            if not (
+                isinstance(b, dict)
+                and str(b.get("text", "")).startswith("x-anthropic-billing-header:")
+            )
+        ]
+    return out
+
+
 def count_tokens(body: dict[str, Any]) -> int:
     """An estimate, as the Gemini relay makes it: four characters a token."""
     return max(
@@ -1034,6 +1105,8 @@ def build_app(relay: OpenAIRelay, resolve: Callable[[], Resolver | None]):
             return refuse(400, "That isn't JSON.")
         if not isinstance(body, dict):
             return refuse(400, "That isn't a Messages request.")
+        if request.path_params.get("lean"):
+            body = lean_body(body)
         status, data, events = await relay.messages(upstream, key, body)
         if events is None:
             # (unavailable's 503: not retried, so the turn ends and the fallback can take it)
@@ -1051,12 +1124,26 @@ def build_app(relay: OpenAIRelay, resolve: Callable[[], Resolver | None]):
             body = await request.json()
         except (ValueError, RecursionError):
             body = {}
-        return JSONResponse({"input_tokens": count_tokens(body if isinstance(body, dict) else {})})
+        body = body if isinstance(body, dict) else {}
+        if request.path_params.get("lean"):
+            body = lean_body(body)
+        return JSONResponse({"input_tokens": count_tokens(body)})
+
+    async def lean_messages(request: Request):
+        request.path_params["lean"] = "lean"
+        return await messages(request)
+
+    async def lean_tokens(request: Request):
+        request.path_params["lean"] = "lean"
+        return await tokens(request)
 
     return Starlette(
         routes=[
             Route("/p/{pid}/v1/messages", messages, methods=["POST"]),
             Route("/p/{pid}/v1/messages/count_tokens", tokens, methods=["POST"]),
+            # a lean session's (features.code_lean): the same, with lean_body's short tools
+            Route("/p/{pid}/lean/v1/messages", lean_messages, methods=["POST"]),
+            Route("/p/{pid}/lean/v1/messages/count_tokens", lean_tokens, methods=["POST"]),
         ]
     )
 
