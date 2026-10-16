@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Four tabs in iOS 26's floating glass tab bar (Sessions, Inbox, Queue, Settings), the
-/// approval sheet over all of them, and pairing when no Mac is paired yet.
+/// The G design (the owner's choice, 2026-10-16; GChat, GDrawer, GNew, GAsk mockups): no tab
+/// bar. One session fills the screen (or "What should we build?" when none is open); ☰ or a
+/// swipe from the left edge slides the sessions drawer over it; the Inbox, the Queue and
+/// Settings open from the drawer as sheets; pairing shows until a Mac is paired.
 struct RootView: View {
     @Environment(EdenCodeStore.self) private var store
 
@@ -9,34 +11,7 @@ struct RootView: View {
         @Bindable var store = store
         Group {
             if store.paired {
-                TabView(selection: $store.tab) {
-                    Tab("Sessions", systemImage: "rectangle.stack", value: EdenCodeStore.Tab.sessions) {
-                        NavigationStack(path: $store.path) {
-                            SessionsView()
-                                .navigationDestination(for: EdenCodeStore.Route.self) { route in
-                                    switch route {
-                                    case .session(let id): SessionScreen(id: id)
-                                    case .changes(let id): ChangesScreen(id: id)
-                                    }
-                                }
-                        }
-                    }
-                    Tab("Inbox", systemImage: "tray", value: EdenCodeStore.Tab.inbox) {
-                        NavigationStack { InboxView() }
-                    }
-                    .badge(store.home.needsYouCount)
-                    Tab("Queue", systemImage: "list.bullet", value: EdenCodeStore.Tab.queue) {
-                        NavigationStack { QueueView() }
-                    }
-                    Tab("Settings", systemImage: "gearshape", value: EdenCodeStore.Tab.settings) {
-                        NavigationStack { SettingsView() }
-                    }
-                }
-                .tint(EdenTheme.accent)
-                .overlay { ApprovalOverlay() }
-                .sheet(isPresented: $store.showNewSession) {
-                    NewSessionSheet()
-                }
+                GHome()
             } else {
                 PairingView(first: true)
             }
@@ -44,5 +19,242 @@ struct RootView: View {
         .sheet(isPresented: $store.showPairing) {
             NavigationStack { PairingView(first: false) }
         }
+    }
+}
+
+/// How far the drawer is open (0 shut, 1 open): the screen under it slides 300 pt right and
+/// softens, as GDrawer.dc.html draws it.
+private struct DrawerProgressKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var drawerProgress: CGFloat {
+        get { self[DrawerProgressKey.self] }
+        set { self[DrawerProgressKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// The screen's content (not its wallpaper) moving aside for the drawer.
+    func movesForDrawer(_ progress: CGFloat) -> some View {
+        offset(x: GHome.push * progress)
+            .blur(radius: progress)
+            .allowsHitTesting(progress == 0)
+            .accessibilityHidden(progress > 0)
+    }
+}
+
+/// The session (or the new one), the drawer over it, and what opens over both.
+struct GHome: View {
+    @Environment(EdenCodeStore.self) private var store
+    /// The finger's travel while it drags the drawer open or shut.
+    @State private var drag: CGFloat = 0
+
+    static let drawerWidth: CGFloat = 320
+    static let push: CGFloat = 300
+
+    private var progress: CGFloat {
+        min(1, max(0, (store.drawerOpen ? 1 : 0) + drag / Self.drawerWidth))
+    }
+
+    var body: some View {
+        @Bindable var store = store
+        let progress = progress
+        ZStack(alignment: .leading) {
+            EdenBackground()
+            NavigationStack(path: $store.path) {
+                Group {
+                    if let id = store.openSession {
+                        SessionScreen(id: id).id(id)
+                    } else {
+                        NewSessionScreen()
+                    }
+                }
+                .navigationDestination(for: EdenCodeStore.Route.self) { route in
+                    switch route {
+                    case .changes(let id): ChangesScreen(id: id)
+                    }
+                }
+            }
+            .environment(\.drawerProgress, progress)
+
+            if progress > 0 {
+                Color.black.opacity(0.08 * progress)
+                    .ignoresSafeArea()
+                    .contentShape(.rect)
+                    .onTapGesture { store.drawerOpen = false }
+                    .gesture(closing)
+                    .accessibilityLabel("Close your sessions")
+                    .accessibilityAddTraits(.isButton)
+            }
+
+            SessionDrawer()
+                .frame(width: Self.drawerWidth)
+                .offset(x: -(Self.drawerWidth + 50) * (1 - progress))
+                .gesture(closing)
+                .accessibilityHidden(progress == 0)
+
+            if !store.drawerOpen && store.path.isEmpty {
+                // The left edge: a swipe opens the drawer.
+                Color.clear
+                    .frame(width: 14)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(.rect)
+                    .highPriorityGesture(opening)
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
+            }
+
+            ApprovalOverlay()
+        }
+        .animation(.spring(response: 0.36, dampingFraction: 0.88), value: store.drawerOpen)
+        .onChange(of: store.drawerOpen) { _, open in
+            drag = 0
+            if open { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+        }
+        .sheet(item: $store.panel) { panel in
+            PanelSheet(panel: panel)
+        }
+    }
+
+    private var opening: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { drag = max(0, $0.translation.width) }
+            .onEnded { value in
+                let open = value.translation.width > 80 || value.predictedEndTranslation.width > 180
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
+                    drag = 0
+                    store.drawerOpen = open
+                }
+            }
+    }
+
+    private var closing: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { drag = min(0, $0.translation.width) }
+            .onEnded { value in
+                let close = value.translation.width < -80 || value.predictedEndTranslation.width < -180
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
+                    drag = 0
+                    if close { store.drawerOpen = false }
+                }
+            }
+    }
+}
+
+/// The Inbox, the Queue or Settings, opened from the drawer, with Done.
+struct PanelSheet: View {
+    var panel: EdenCodeStore.Panel
+    @Environment(EdenCodeStore.self) private var store
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch panel {
+                case .inbox: InboxView()
+                case .queue: QueueView()
+                case .settings: SettingsView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { store.panel = nil }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - The mockups' glyphs (their SVG paths, 24 pt boxes unless said)
+
+/// ☰ with uneven lines (M4 7h16 M4 12h10 M4 17h13).
+struct MenuGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
+        var path = Path()
+        for (y, end) in [(7.0, 20.0), (12.0, 14.0), (17.0, 17.0)] {
+            path.move(to: p(4, y))
+            path.addLine(to: p(end, y))
+        }
+        return path
+    }
+}
+
+/// ✎: a pen over a line (M12 20h9, M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z).
+struct PencilGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
+        var path = Path()
+        path.move(to: p(12, 20))
+        path.addLine(to: p(21, 20))
+        path.move(to: p(16.5, 3.5))
+        path.addArc(center: p(18, 5), radius: 2.1 * s, startAngle: .degrees(225), endAngle: .degrees(45), clockwise: false)
+        path.addLine(to: p(7, 19))
+        path.addLine(to: p(3, 20))
+        path.addLine(to: p(4, 16))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The diff mark of "2 files changed" (a 20 pt box: a rounded square, ± inside).
+struct DiffGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 20
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
+        var path = Path(roundedRect: CGRect(origin: p(3, 3), size: CGSize(width: 14 * s, height: 14 * s)), cornerRadius: 3 * s)
+        path.move(to: p(10, 6.5)); path.addLine(to: p(10, 11.5))
+        path.move(to: p(7.5, 9)); path.addLine(to: p(12.5, 9))
+        path.move(to: p(7.5, 14)); path.addLine(to: p(12.5, 14))
+        return path
+    }
+}
+
+/// The search lens (circle r7 at 11,11; a handle to 20,20).
+struct SearchGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
+        var path = Path(ellipseIn: CGRect(origin: p(4, 4), size: CGSize(width: 14 * s, height: 14 * s)))
+        path.move(to: p(20, 20)); path.addLine(to: p(16, 16))
+        return path
+    }
+}
+
+/// Settings: a hub and eight spokes.
+struct GearGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
+        var path = Path(ellipseIn: CGRect(origin: p(9, 9), size: CGSize(width: 6 * s, height: 6 * s)))
+        for (a, b) in [((12.0, 2.0), (12.0, 5.0)), ((12, 19), (12, 22)), ((2, 12), (5, 12)), ((19, 12), (22, 12)),
+                       ((4.9, 4.9), (7, 7)), ((17, 17), (19.1, 19.1)), ((4.9, 19.1), (7, 17)), ((17, 7), (19.1, 4.9))] {
+            path.move(to: p(a.0, a.1))
+            path.addLine(to: p(b.0, b.1))
+        }
+        return path
+    }
+}
+
+/// A 44 pt round glass control (☰, ✎).
+struct GCircleButton<Glyph: Shape>: View {
+    var glyph: Glyph
+    var label: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            glyph
+                .stroke(EdenTheme.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .frame(width: 20, height: 20)
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+        }
+        .buttonStyle(PressScale(scale: 0.94))
+        .gGlass(Circle(), interactive: true)
+        .accessibilityLabel(label)
     }
 }

@@ -1,239 +1,281 @@
 import SwiftUI
 
-/// The Sessions tab (PhoneSessions mockup): the Mac picker and +, the large title, search,
-/// the Needs-you banner, the pin from a handoff, sessions grouped by project with their
-/// status dots, Exterminator Mode's runs, and the usage glance.
-struct SessionsView: View {
+/// The sessions drawer (G2, GDrawer.dc.html): a pane of glass 320 pt wide from the left, over
+/// the session. Search, New session, then ONE flat list grouped Today, Yesterday and Earlier:
+/// each a name and, today, one coloured word (orange "Needs your OK", blue "Working…" with a
+/// spinner, green "Done"), the open one lit. What waits on the owner leads Today. Below: the
+/// Inbox and the Queue, then the Mac in use (tap to switch or pair another) and Settings.
+struct SessionDrawer: View {
     @Environment(EdenCodeStore.self) private var store
+    @Environment(\.colorScheme) private var scheme
+
+    private var dark: Bool { scheme == .dark }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            top
+            list
+            shortcuts
+            footer
+        }
+        .frame(maxHeight: .infinity)
+        .background { pane }
+    }
+
+    // MARK: - Search and New session
+
+    private var top: some View {
         @Bindable var store = store
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                header
-                TextField("Search", text: $store.search)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                SearchGlyph()
+                    .stroke(EdenTheme.chevron, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .frame(width: 16, height: 16)
+                TextField("", text: $store.search, prompt: Text("Search").foregroundStyle(EdenTheme.muted))
                     .font(.system(size: 16))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(EdenTheme.fill.opacity(1.15), in: .rect(cornerRadius: 11))
-                    .padding(.horizontal, 4)
+                    .foregroundStyle(EdenTheme.ink)
+                    .submitLabel(.search)
                     .accessibilityLabel("Search sessions")
-                if let problem = store.problem {
-                    ProblemBanner(text: problem)
-                }
-                if store.home.needsYouCount > 0 { needsYou }
-                if let pinned = store.home.pinned {
-                    Button { store.open(session: pinned.id) } label: {
-                        bannerRow(symbol: "iphone.and.arrow.forward", tint: EdenTheme.accent, title: "From your Mac", subtitle: pinned.title)
-                    }
-                    .buttonStyle(.plain)
-                }
-                ForEach(groups, id: \.project) { group in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(group.project.uppercased())
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(EdenTheme.muted)
-                            .padding(.horizontal, 6)
-                            .accessibilityAddTraits(.isHeader)
-                        VStack(spacing: 0) {
-                            ForEach(Array(group.sessions.enumerated()), id: \.element.id) { index, session in
-                                NavigationLink(value: EdenCodeStore.Route.session(session.id)) {
-                                    SessionRow(session: session, waiting: store.home.attention.first { $0.taskID == session.id })
-                                }
-                                .buttonStyle(.plain)
-                                if index < group.sessions.count - 1 { Divider().overlay(EdenTheme.divider).padding(.leading, 36) }
-                            }
-                        }
-                        .edenCard()
-                    }
-                }
-                if store.loaded && groups.isEmpty && store.problem == nil {
-                    emptyState
-                }
-                if !store.home.exterminator.isEmpty { exterminator }
-                UsageGlance(usage: store.usage)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            .padding(.horizontal, 12)
+            .frame(height: 40)
+            .background(dark ? Color.white.opacity(0.08) : Color.white.opacity(0.5), in: .rect(cornerRadius: 12, style: .continuous))
+            .overlay(alignment: .top) { topLine(12) }
+            Button { store.startNew() } label: {
+                HStack(spacing: 12) {
+                    PencilGlyph()
+                        .stroke(EdenTheme.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .frame(width: 20, height: 20)
+                    Text("New session").font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 9)
+        .padding(.bottom, 10)
+    }
+
+    // MARK: - The list
+
+    private var groups: [PhoneHome.DrawerGroup] { store.home.drawerGroups(query: store.search) }
+
+    private var list: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                if let problem = store.problem {
+                    ProblemBanner(text: problem).padding(.horizontal, 2).padding(.bottom, 6)
+                }
+                ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
+                    Text(group.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(EdenTheme.chevron)
+                        .padding(EdgeInsets(top: index == 0 ? 10 : 14, leading: 12, bottom: 4, trailing: 12))
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(group.sessions) { session in
+                        DrawerRow(session: session, showsStatus: group.title == "Today",
+                                  waiting: store.home.needsYou(session), current: session.id == store.openSession) {
+                            store.open(session: session.id)
+                        }
+                    }
+                }
+                if store.loaded && groups.isEmpty {
+                    Text(store.search.trimmed.isEmpty ? "No sessions yet. Start one with New session." : "No session matches “\(store.search.trimmed)”.")
+                        .font(.system(size: 14)).foregroundStyle(EdenTheme.muted)
+                        .padding(12)
+                }
+                if !store.home.exterminator.isEmpty && store.search.trimmed.isEmpty { exterminator }
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
         }
         .scrollIndicators(.hidden)
-        .background(EdenBackground())
-        .toolbar(.hidden, for: .navigationBar)
+        .scrollDismissesKeyboard(.immediately)
         .refreshable { await store.refreshAll() }
     }
 
-    private var groups: [(project: String, sessions: [PhoneSummary])] {
-        let query = store.search.trimmed.lowercased()
-        return store.home.byProject.compactMap { group in
-            let kept = query.isEmpty ? group.sessions : group.sessions.filter {
-                $0.title.lowercased().contains(query) || $0.project.lowercased().contains(query)
-            }
-            return kept.isEmpty ? nil : (group.project, kept)
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                MacPicker()
-                Spacer()
-                Button { store.showNewSession = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(EdenTheme.accent, in: .circle)
-                        .shadow(color: EdenTheme.accent.opacity(0.35), radius: 8, y: 6)
-                }
-                .buttonStyle(PressScale(scale: 0.94))
-                .accessibilityLabel("New session")
-            }
-            Text("Sessions")
-                .font(.system(size: 34, weight: .bold))
-                .tracking(-0.68)
-                .foregroundStyle(EdenTheme.ink)
+    private var exterminator: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Exterminator Mode")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
+                .padding(EdgeInsets(top: 14, leading: 12, bottom: 4, trailing: 12))
                 .accessibilityAddTraits(.isHeader)
+            ForEach(store.home.exterminator) { run in
+                Button { if let id = run.taskID { store.open(session: id) } } label: {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(run.project).font(.system(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
+                        Text(run.line).font(.system(size: 13)).foregroundStyle(EdenTheme.muted).lineLimit(1)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .padding(.top, 12)
-        .padding(.horizontal, 4)
     }
 
-    private var needsYou: some View {
-        Button { store.tab = .inbox } label: {
-            HStack(spacing: 12) {
-                Text("\(store.home.needsYouCount)")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(EdenTheme.orange, in: .rect(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Needs you").font(.system(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.ink)
-                    Text(InboxView.summary(store.home.attention)).font(.system(size: 13)).foregroundStyle(EdenTheme.muted)
-                }
+    // MARK: - Inbox and Queue
+
+    private var shortcuts: some View {
+        VStack(spacing: 0) {
+            shortcut("Inbox", symbol: "tray", count: store.home.attention.count, tint: EdenTheme.orange) { store.show(.inbox) }
+            shortcut("Queue", symbol: "list.bullet", count: store.todos.cards.filter(\.waiting).count, tint: EdenTheme.chevron) { store.show(.queue) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
+    }
+
+    private func shortcut(_ title: String, symbol: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(EdenTheme.muted).frame(width: 20)
+                Text(title).font(.system(size: 15)).foregroundStyle(EdenTheme.ink)
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(tint == EdenTheme.chevron ? EdenTheme.muted : .white)
+                        .padding(.horizontal, 7).frame(minWidth: 20, minHeight: 20)
+                        .background(tint == EdenTheme.chevron ? EdenTheme.fill : tint, in: .capsule)
+                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(EdenTheme.orange.opacity(0.16), in: .rect(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(EdenTheme.cardRim.opacity(0.8), lineWidth: 1))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Needs you, \(store.home.needsYouCount). \(InboxView.summary(store.home.attention))")
+        .accessibilityLabel(count > 0 ? "\(title), \(count)" : title)
     }
 
-    private func bannerRow(symbol: String, tint: Color, title: String, subtitle: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                .frame(width: 34, height: 34).background(tint, in: .rect(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.ink)
-                Text(subtitle).font(.system(size: 13)).foregroundStyle(EdenTheme.muted).lineLimit(1)
-            }
-            Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .edenCard()
-    }
+    // MARK: - The Mac and Settings
 
-    private var exterminator: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("EXTERMINATOR MODE").font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 6)
-            VStack(spacing: 0) {
-                ForEach(store.home.exterminator) { run in
-                    Button { if let id = run.taskID { store.open(session: id) } } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "ant.fill").foregroundStyle(EdenTheme.orange)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(run.project).font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink)
-                                Text(run.line).font(.system(size: 13)).foregroundStyle(EdenTheme.muted)
-                            }
-                            Spacer()
+    private var footer: some View {
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(store.macs, id: \.baseURL) { mac in
+                    Button { store.select(mac) } label: {
+                        if store.current.map({ PairingStore.same($0, mac) }) ?? false {
+                            Label(mac.macLabel, systemImage: "checkmark")
+                        } else {
+                            Text(mac.macLabel)
                         }
-                        .padding(.horizontal, 14).padding(.vertical, 12)
                     }
-                    .buttonStyle(.plain)
                 }
+                Divider()
+                Button { store.showPairing = true } label: { Label("Pair another Mac", systemImage: "plus") }
+            } label: {
+                HStack(spacing: 10) {
+                    EdenMarkTile(size: 32, mark: 16, radius: 16, line: 1.2)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(store.current?.macLabel ?? "Your Mac").font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(1)
+                        Text(connection.text).font(.system(size: 12)).foregroundStyle(connection.ink)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
             }
-            .edenCard()
+            .accessibilityLabel("\(store.current?.macLabel ?? "Your Mac"), \(connection.text). Switch Mac")
+            Button { store.show(.settings) } label: {
+                GearGlyph()
+                    .stroke(EdenTheme.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .frame(width: 18, height: 18)
+                    .frame(width: 36, height: 36)
+                    .background(EdenTheme.fill.opacity(0.86), in: .circle)
+            }
+            .buttonStyle(PressScale(scale: 0.94))
+            .accessibilityLabel("Settings")
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 12)
+        .overlay(alignment: .top) { Rectangle().fill(EdenTheme.divider).frame(height: 1) }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "chevron.left.forwardslash.chevron.right").font(.system(size: 30)).foregroundStyle(EdenTheme.accent)
-            Text("No sessions yet").font(.headline).foregroundStyle(EdenTheme.ink)
-            Text("Start one here, or on your Mac. It shows up here as it works.")
-                .font(.subheadline).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
-            Button("New session") { store.showNewSession = true }.buttonStyle(.glassProminent)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(24)
-        .edenCard(radius: 20)
+    private var connection: (text: String, ink: Color) {
+        if store.switchedOff { return ("Turned off on the Mac", EdenTheme.needsInk) }
+        if store.problem != nil { return ("Can’t reach it", EdenTheme.needsInk) }
+        if !store.loaded { return ("Connecting…", EdenTheme.chevron) }
+        return ("Connected", EdenTheme.chevron)
+    }
+
+    // MARK: - The glass
+
+    /// GDrawer's pane: white 38 % over a 40 pt blur, a bright right edge, a shadow to the right.
+    private var pane: some View {
+        Rectangle()
+            .fill(dark ? Color(UIColor(hex: 0x1E2236, alpha: 0.55)) : Color.white.opacity(0.38))
+            // The clear glass: the wallpaper shows through, as in the mockup.
+            .glassEffect(.clear, in: .rect)
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(Color.white.opacity(dark ? 0.10 : 0.7)).frame(width: 1)
+            }
+            .shadow(color: dark ? .black.opacity(0.5) : Color(UIColor(hex: 0x283C78, alpha: 0.18)), radius: 22, x: 16)
+            .ignoresSafeArea()
+    }
+
+    private func topLine(_ radius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .strokeBorder(LinearGradient(stops: [.init(color: .white.opacity(dark ? 0.12 : 1), location: 0), .init(color: .clear, location: 0.12)],
+                                         startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            .allowsHitTesting(false)
     }
 }
 
-/// One session: its dot, its title, and what it's doing (or waits on).
-struct SessionRow: View {
+/// One session in the drawer: its name and (today) its one coloured word, the dot or spinner
+/// at the end; the open one sits on a lighter glass.
+struct DrawerRow: View {
     var session: PhoneSummary
-    var waiting: PhoneCard?
+    var showsStatus: Bool
+    var waiting: Bool
+    var current: Bool
+    var action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    private var status: CodeStatus { waiting ? .needsYou : session.status }
 
     var body: some View {
-        HStack(spacing: 12) {
-            StatusDot(status: session.status)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(session.title).font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(1)
-                Text(subtitle).font(.system(size: 13)).foregroundStyle(EdenTheme.subtitleInk(session.status)).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .contentShape(.rect)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(session.title), \(session.status.label). \(subtitle)")
-    }
-
-    private var subtitle: String {
-        if let waiting { return waiting.approval.question }
-        var parts = [session.status.label]
-        if let at = session.updatedAt { parts.append(at.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))) }
-        if !session.model.isEmpty { parts.append(session.model) }
-        return parts.joined(separator: " · ")
-    }
-}
-
-/// "MacBook Air ▾": which Mac, and pairing another.
-struct MacPicker: View {
-    @Environment(EdenCodeStore.self) private var store
-
-    var body: some View {
-        Menu {
-            ForEach(store.macs, id: \.baseURL) { mac in
-                Button { store.select(mac) } label: {
-                    if store.current.map({ PairingStore.same($0, mac) }) ?? false {
-                        Label(mac.macLabel, systemImage: "checkmark")
-                    } else {
-                        Text(mac.macLabel)
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(session.title).font(.system(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
+                    if showsStatus {
+                        Text(GStatus.drawerWord(status)).font(.system(size: 13)).foregroundStyle(GStatus.ink(status)).lineLimit(1)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if showsStatus { indicator }
             }
-            Divider()
-            Button { store.showPairing = true } label: { Label("Pair another Mac", systemImage: "plus") }
-        } label: {
-            HStack(spacing: 5) {
-                Text(store.current?.macLabel ?? "Your Mac").font(.system(size: 14))
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background {
+                if current {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(scheme == .dark ? Color.white.opacity(0.12) : Color.white.opacity(0.55))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(LinearGradient(stops: [.init(color: .white.opacity(scheme == .dark ? 0.15 : 1), location: 0), .init(color: .clear, location: 0.1)],
+                                                             startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                        }
+                }
             }
-            .foregroundStyle(EdenTheme.ink)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .contentShape(.rect)
         }
-        .accessibilityLabel("Mac: \(store.current?.macLabel ?? "none"). Switch Mac")
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(session.title), \(GStatus.drawerWord(status))")
+        .accessibilityAddTraits(current ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @ViewBuilder private var indicator: some View {
+        if status == .working {
+            Spinner(size: 14)
+        } else {
+            Circle().fill(EdenTheme.dot(status)).frame(width: 9, height: 9).accessibilityHidden(true)
+        }
     }
 }
 
@@ -256,7 +298,7 @@ struct UsageGlance: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .edenCard()
+        .gGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }

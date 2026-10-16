@@ -5,14 +5,21 @@ import UIKit
 /// The app's state: the paired Macs and the one in use, what it says (sessions, the cards that
 /// wait, the pin, options, usage, the to-do column), and where the app should go next (a
 /// push, a handoff, a Live Activity tapped). One per app.
+///
+/// Navigation is the G design's (2026-10-16): no tab bar. One session fills the screen (or the
+/// new-session screen when none is open); the drawer from the left lists every session; the
+/// Inbox, the Queue and Settings open over it as sheets from the drawer.
 @MainActor
 @Observable
 final class EdenCodeStore {
-    enum Tab: Hashable { case sessions, inbox, queue, settings }
+    /// What opens over the session from the drawer.
+    enum Panel: String, Identifiable, Hashable {
+        case inbox, queue, settings
+        var id: String { rawValue }
+    }
 
-    /// Where to go: a session, its changes, or a card to answer.
+    /// What pushes onto the session: its changes (the receipt, keep/undo, comments).
     enum Route: Hashable {
-        case session(Int)
         case changes(Int)
     }
 
@@ -32,11 +39,18 @@ final class EdenCodeStore {
     var switchedOff = false
     var loaded = false
 
-    var tab: Tab = .sessions
+    /// The session on screen; nil shows the new-session screen (G3).
+    var openSession: Int?
     var path: [Route] = []
-    /// A card to show as the approval sheet.
+    /// The sessions drawer (G2).
+    var drawerOpen = false
+    /// The Inbox, the Queue or Settings, over everything.
+    var panel: Panel?
+    /// A card with no session to show it in (a session's own cards show inside it, G4).
     var sheetCard: PhoneCard?
-    var showNewSession = false
+    /// True once the app has chosen what to show first (or the owner chose): the landing
+    /// session is picked once, never over the owner's own choice.
+    private(set) var landed = false
     var showPairing = false
     var search = ""
 
@@ -87,6 +101,8 @@ final class EdenCodeStore {
         loaded = false
         problem = nil
         path = []
+        openSession = nil
+        landed = false
         if pairing != nil { Task { await refreshAll() } }
     }
 
@@ -136,6 +152,7 @@ final class EdenCodeStore {
             let found = try await backend.home()
             home = found
             loaded = true
+            land()
             problem = nil
             switchedOff = false
             openPinIfNew(found.pinned)
@@ -195,14 +212,50 @@ final class EdenCodeStore {
         open(session: pinned.id)
     }
 
+    /// The first screen: the session that needs the owner, else the newest; the new-session
+    /// screen when there are none. Once only, and never over a session the owner opened.
+    func land() {
+        guard !landed else { return }
+        landed = true
+        if openSession == nil, let id = home.landingID { openSession = id }
+    }
+
     func open(session id: Int) {
-        tab = .sessions
-        path = [.session(id)]
+        landed = true
+        openSession = id
+        path = []
+        drawerOpen = false
+        panel = nil
     }
 
     func openChanges(_ id: Int) {
-        tab = .sessions
-        path = [.session(id), .changes(id)]
+        open(session: id)
+        path = [.changes(id)]
+    }
+
+    /// ✎: the new-session screen.
+    func startNew() {
+        landed = true
+        openSession = nil
+        path = []
+        drawerOpen = false
+        panel = nil
+    }
+
+    /// The Inbox, the Queue or Settings, from the drawer.
+    func show(_ panel: Panel) {
+        drawerOpen = false
+        self.panel = panel
+    }
+
+    /// A card from the Inbox or a push: inside its session (G4), or on its own when it has none.
+    func show(card: PhoneCard) {
+        if let id = card.taskID {
+            open(session: id)
+        } else {
+            panel = nil
+            sheetCard = card
+        }
     }
 
     /// A notification tapped: a handoff or a finished/failed session opens its session; a card
@@ -216,7 +269,7 @@ final class EdenCodeStore {
             switch push.kind {
             case .codeApproval, .codeNeedsYou:
                 if let card = home.attention.first(where: { $0.id == push.id || $0.taskID == push.taskID }) {
-                    sheetCard = card
+                    show(card: card)
                 } else if let id = push.taskID {
                     open(session: id)
                 }
@@ -227,7 +280,8 @@ final class EdenCodeStore {
         }
     }
 
-    /// edencode://session/5, edencode://changes/5, edencode://inbox, edencode://new
+    /// edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue,
+    /// edencode://settings, edencode://new; anything else opens the drawer.
     func open(url: URL) {
         guard url.scheme?.lowercased() == "edencode" else {
             if let destination = Destination(url: url), case .codeSession(let id) = destination { open(session: id) }
@@ -237,10 +291,11 @@ final class EdenCodeStore {
         switch parts.first {
         case "session": if let id = parts.dropFirst().first.flatMap({ Int($0) }) { open(session: id) }
         case "changes": if let id = parts.dropFirst().first.flatMap({ Int($0) }) { openChanges(id) }
-        case "inbox": tab = .inbox
-        case "queue": tab = .queue
-        case "new": showNewSession = true
-        default: tab = .sessions
+        case "inbox": show(.inbox)
+        case "queue": show(.queue)
+        case "settings": show(.settings)
+        case "new": startNew()
+        default: panel = nil; path = []; drawerOpen = true
         }
     }
 
@@ -289,6 +344,8 @@ final class EdenCodeStore {
         usage = fixture.usageNow
         todos = fixture.todosNow
         loaded = true
+        landed = false
+        land()
     }
     #endif
 }

@@ -245,6 +245,136 @@ final class PhoneAPITests: XCTestCase {
         ])
         XCTAssertEqual(Speaker.spoken(file: file), "In a.js, 1 added, 1 removed. Change 1, line 3. removed: x = 1. added: x = 2")
     }
+
+    // MARK: - The G design (drawer navigation, 2026-10-16)
+
+    private func card(_ id: String, task: Int?, question: Bool = false, choices: [ApprovalChoice] = Approval.defaultChoices,
+                      faceID: Bool = false, macOnly: Bool = false) -> PhoneCard {
+        var approval = Approval(id: id, question: "Run?", detail: "", choices: choices, source: .code, taskID: task)
+        if question { approval.askKind = "question" }
+        return PhoneCard(approval: approval, macOnly: macOnly, faceID: faceID)
+    }
+
+    func testTheDrawerGroupsTodayYesterdayEarlierWithWhatNeedsYouFirst() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 16, hour: 15))!
+        func at(_ hours: Double) -> Date { now.addingTimeInterval(-hours * 3600) }
+        let home = PhoneHome(sessions: [
+            PhoneSummary(id: 1, title: "Fix share-sheet crash", project: "askeden", status: .working, updatedAt: at(0.1)),
+            PhoneSummary(id: 2, title: "Chat list redesign", project: "messenger", status: .done, updatedAt: at(1)),
+            PhoneSummary(id: 3, title: "Passkey sign-in", project: "askeden", status: .working, updatedAt: at(2)),  // a card waits
+            PhoneSummary(id: 4, title: "No-zoom lock", project: "askeden", status: .done, updatedAt: at(20)),     // yesterday 19:00
+            PhoneSummary(id: 5, title: "README refresh", project: "jarvis", status: .done, updatedAt: at(80)),
+            PhoneSummary(id: 6, title: "Old but running", project: "jarvis", status: .working, updatedAt: at(100)),
+            PhoneSummary(id: 7, title: "No time", project: "jarvis", status: .done),
+        ], attention: [card("c", task: 3)])
+        let groups = home.drawerGroups(now: now, calendar: calendar)
+        XCTAssertEqual(groups.map(\.title), ["Today", "Yesterday", "Earlier"])
+        XCTAssertEqual(groups[0].sessions.map(\.id), [3, 1, 2, 6])  // needs you first, the rest newest first
+        XCTAssertEqual(groups[1].sessions.map(\.id), [4])
+        XCTAssertEqual(groups[2].sessions.map(\.id), [5, 7])
+        // The search matches the title or the project; empty groups go.
+        XCTAssertEqual(home.drawerGroups(query: "  JARVIS ", now: now, calendar: calendar).map(\.title), ["Today", "Earlier"])
+        XCTAssertEqual(home.drawerGroups(query: "share", now: now, calendar: calendar).flatMap(\.sessions).map(\.id), [1])
+        XCTAssertTrue(home.drawerGroups(query: "nothing like it", now: now, calendar: calendar).isEmpty)
+        XCTAssertTrue(PhoneHome().drawerGroups().isEmpty)
+    }
+
+    func testTheAppOpensOnWhatNeedsYouElseTheNewestSession() {
+        let old = Date(timeIntervalSince1970: 1_000), new = Date(timeIntervalSince1970: 2_000)
+        var home = PhoneHome(sessions: [
+            PhoneSummary(id: 1, title: "a", project: "p", status: .done, updatedAt: old),
+            PhoneSummary(id: 2, title: "b", project: "p", status: .done, updatedAt: new),
+        ])
+        XCTAssertEqual(home.landingID, 2)
+        home.sessions.append(PhoneSummary(id: 3, title: "c", project: "p", status: .needsYou, updatedAt: old))
+        XCTAssertEqual(home.landingID, 3)
+        home.sessions[2].status = .working
+        home.attention = [card("x", task: 1)]
+        XCTAssertEqual(home.landingID, 1)  // its card waits
+        XCTAssertEqual(PhoneHome(sessions: [PhoneSummary(id: 9, title: "x", project: "p", status: .done),
+                                            PhoneSummary(id: 8, title: "y", project: "p", status: .done)]).landingID, 9)  // the Mac's order
+        XCTAssertNil(PhoneHome().landingID)
+    }
+
+    func testTheRunningStepShowsOnlyInTheStatusLine() {
+        let rows = SessionModel.rows([
+            PhoneEntry(i: 1, role: .user, text: "go"),
+            PhoneEntry(i: 2, role: .tool, text: "Fixed it in 2 files"),
+            PhoneEntry(i: 3, role: .tool, text: "Running tests · 3 of 41…"),
+        ])
+        let working = SessionModel.visibleRows(rows, working: true)
+        XCTAssertEqual(working.map(\.id), ["u1", "s2"])
+        if case .steps(let steps) = working[1] { XCTAssertEqual(steps.map(\.i), [2]) } else { XCTFail("steps") }
+        XCTAssertEqual(SessionModel.visibleRows(rows, working: false), rows)
+        let alone = SessionModel.rows([PhoneEntry(i: 1, role: .user, text: "go"), PhoneEntry(i: 2, role: .tool, text: "Reading…")])
+        XCTAssertEqual(SessionModel.visibleRows(alone, working: true).map(\.id), ["u1"])
+    }
+
+    func testOneWordForWhereASessionIs() {
+        XCTAssertEqual(GStatus.word(.working), "Working")
+        XCTAssertEqual(GStatus.word(.needsYou), "Needs your OK")
+        XCTAssertEqual(GStatus.word(.done), "Done")
+        XCTAssertEqual(GStatus.drawerWord(.working), "Working…")
+        XCTAssertEqual(GStatus.drawerWord(.done), "Done · ready to review")
+        XCTAssertEqual(GStatus.drawerWord(.needsYou), "Needs your OK")
+    }
+
+    func testTheAskCardsWords() {
+        XCTAssertEqual(AskCard.noLabel(card("a", task: 1)), "Not now")
+        XCTAssertEqual(AskCard.noLabel(card("b", task: 1, choices: [ApprovalChoice(id: "allow", label: "Allow"), ApprovalChoice(id: "deny", label: "Deny")])), "Not now")
+        XCTAssertEqual(AskCard.noLabel(card("c", task: 1, question: true, choices: [ApprovalChoice(id: "opt0", label: "A"), ApprovalChoice(id: "deny", label: "Skip")])), "Skip")
+        XCTAssertTrue(AskCard.why(card("d", task: 1, faceID: true)).contains("Face ID"))
+        XCTAssertTrue(AskCard.why(card("e", task: 1, macOnly: true)).contains("Touch ID on your Mac"))
+    }
+
+    @MainActor
+    func testNavigationWithoutTabs() {
+        let store = EdenCodeStore()
+        store.home = PhoneHome(sessions: [PhoneSummary(id: 4, title: "a", project: "p", status: .done),
+                                          PhoneSummary(id: 6, title: "b", project: "p", status: .needsYou)])
+        store.land()
+        XCTAssertEqual(store.openSession, 6)  // what needs you
+        store.open(session: 4)
+        store.land()
+        XCTAssertEqual(store.openSession, 4)  // never over the owner's choice
+
+        store.drawerOpen = true
+        store.openChanges(5)
+        XCTAssertEqual(store.openSession, 5)
+        XCTAssertEqual(store.path, [.changes(5)])
+        XCTAssertFalse(store.drawerOpen)
+
+        store.startNew()
+        XCTAssertNil(store.openSession)
+        XCTAssertTrue(store.path.isEmpty)
+
+        store.open(url: URL(string: "edencode://inbox")!)
+        XCTAssertEqual(store.panel, .inbox)
+        store.open(url: URL(string: "edencode://queue")!)
+        XCTAssertEqual(store.panel, .queue)
+        store.open(url: URL(string: "edencode://settings")!)
+        XCTAssertEqual(store.panel, .settings)
+        store.open(url: URL(string: "edencode://session/7")!)
+        XCTAssertEqual(store.openSession, 7)
+        XCTAssertNil(store.panel)
+        store.open(url: URL(string: "edencode://changes/8")!)
+        XCTAssertEqual(store.path, [.changes(8)])
+        store.open(url: URL(string: "edencode://new")!)
+        XCTAssertNil(store.openSession)
+        store.open(url: URL(string: "edencode://sessions")!)
+        XCTAssertTrue(store.drawerOpen)
+
+        // A card opens inside its session; one without a session shows on its own.
+        store.panel = .inbox
+        store.show(card: card("c1", task: 6))
+        XCTAssertEqual(store.openSession, 6)
+        XCTAssertNil(store.panel)
+        XCTAssertNil(store.sheetCard)
+        store.show(card: card("c2", task: nil))
+        XCTAssertEqual(store.sheetCard?.id, "c2")
+    }
 }
 
 /// A backend that only records what's asked.

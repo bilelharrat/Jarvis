@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The to-do queue (code_todo): each project's cards in the owner's order, with Start (never
+/// The to-do queue (code_todo; from the drawer): each project's cards in the owner's order, with Start (never
 /// in Auto or Bypass from here), and what's queued, running or started.
 struct QueueView: View {
     @Environment(EdenCodeStore.self) private var store
@@ -10,9 +10,6 @@ struct QueueView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Queue").font(.system(size: 34, weight: .bold)).tracking(-0.68).foregroundStyle(EdenTheme.ink)
-                    .padding(.top, 12).padding(.horizontal, 4)
-                    .accessibilityAddTraits(.isHeader)
                 if let problem { ProblemBanner(text: problem) }
                 if store.todos.cards.isEmpty {
                     VStack(spacing: 8) {
@@ -21,7 +18,7 @@ struct QueueView: View {
                         Text("Write work ahead on your Mac’s agent board; it waits here to start.")
                             .font(.subheadline).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
                     }
-                    .frame(maxWidth: .infinity).padding(24).edenCard(radius: 20)
+                    .frame(maxWidth: .infinity).padding(24).gGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 ForEach(store.todos.byProject, id: \.project) { group in
                     VStack(alignment: .leading, spacing: 6) {
@@ -32,16 +29,17 @@ struct QueueView: View {
                                 if index < group.cards.count - 1 { Divider().overlay(EdenTheme.divider).padding(.leading, 14) }
                             }
                         }
-                        .edenCard()
+                        .gGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                 }
                 UsageGlance(usage: store.usage)
             }
             .padding(.horizontal, 16)
+            .padding(.top, 8)
             .padding(.bottom, 24)
         }
         .background(EdenBackground())
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Queue")
         .refreshable { await store.refreshTodos(); await store.refreshUsage() }
         .task { await store.refreshTodos() }
     }
