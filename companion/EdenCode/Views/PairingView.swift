@@ -123,6 +123,7 @@ struct PairingView: View {
             .padding(.bottom, 30)
         }
         .scrollDismissesKeyboard(.interactively)
+        .statusBarScrim()
         .background(EdenBackground())
         .animation(.spring(duration: 0.35), value: pairedWith)
         .fullScreenCover(isPresented: $scanning) {

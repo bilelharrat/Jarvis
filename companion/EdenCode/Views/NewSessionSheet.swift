@@ -27,30 +27,32 @@ struct NewSessionScreen: View {
     ]
 
     var body: some View {
-        GeometryReader { geo in
-            let top = geo.safeAreaInsets.top
-            let height = geo.size.height + top + geo.safeAreaInsets.bottom
-            ZStack(alignment: .top) {
-                EdenBackground()
-                Group {
-                    hero
-                        .padding(.top, height * 250 / 844)
-                        .ignoresSafeArea(edges: .top)
-                    VStack(spacing: 10) {
-                        header
-                        if let problem = problem ?? store.problem {
-                            ProblemBanner(text: problem).padding(.horizontal, 16)
-                        }
-                    }
-                    .padding(.top, top + 5)
-                    .ignoresSafeArea(edges: .top)
-                }
-                .movesForDrawer(drawer)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                bottom.movesForDrawer(drawer)
-            }
+        // The hero fills what's left between ☰ and the input bar and gives way when the
+        // keyboard takes the room (it used to keep its height and push the input bar under
+        // the keyboard): all of it, then just the question, then nothing.
+        ViewThatFits(in: .vertical) {
+            hero.frame(maxHeight: .infinity).offset(y: -20)
+            heroTitle.frame(maxHeight: .infinity)
+            Color.clear
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .movesForDrawer(drawer)
+        .safeAreaBar(edge: .top, spacing: 0) {
+            VStack(spacing: 10) {
+                header
+                if let problem = problem ?? store.problem {
+                    ProblemBanner(text: problem).padding(.horizontal, 16)
+                }
+            }
+            .padding(.top, 5)
+            .padding(.bottom, 6)
+            .movesForDrawer(drawer)
+            .background { GBarScrim(edge: .top) }
+        }
+        .safeAreaBar(edge: .bottom, spacing: 0) {
+            bottom.padding(.top, 6).movesForDrawer(drawer)
+        }
+        .background { EdenBackground() }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear(perform: pickDefaults)
         .onChange(of: store.options.projects) { _, _ in pickDefaults() }
@@ -71,7 +73,7 @@ struct NewSessionScreen: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            GCircleButton(glyph: MenuGlyph(), label: "Your sessions") { store.drawerOpen = true }
+            GCircleButton(glyph: MenuGlyph(), label: "Your sessions") { Keyboard.dismiss(); store.drawerOpen = true }
             Spacer(minLength: 0)
             projectPill
             Spacer(minLength: 0)
@@ -134,6 +136,13 @@ struct NewSessionScreen: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var heroTitle: some View {
+        Text("What should we build?")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(EdenTheme.ink)
+            .accessibilityAddTraits(.isHeader)
+    }
+
     private var whereLine: String {
         let mac = store.current?.macLabel ?? "Mac"
         return project.isEmpty ? "On your \(mac)" : "In \(project), on your \(mac)"
@@ -162,6 +171,7 @@ struct NewSessionScreen: View {
                 modeID: mode,
                 modeLabel: CodeModes.name(mode),
                 modelLabel: model?.name ?? store.options.modelName(store.options.defaultModel),
+                modelRef: model?.ref ?? store.options.defaultModel,
                 modes: store.options.modes,
                 models: store.options.models,
                 dictating: dictation.listening,

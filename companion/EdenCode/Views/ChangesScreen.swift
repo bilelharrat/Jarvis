@@ -50,6 +50,8 @@ struct ChangesScreen: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 90)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .statusBarScrim()
         .background(EdenBackground())
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)

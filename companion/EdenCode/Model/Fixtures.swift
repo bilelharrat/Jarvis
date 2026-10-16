@@ -20,6 +20,8 @@ enum EdenDebug {
     static var typed: String? { defaults.string(forKey: "EDENCODETyped") }
     static var composerOpen: Bool { defaults.bool(forKey: "EDENCODEComposerOpen") }
     static var focus: Bool { defaults.bool(forKey: "EDENCODEFocus") }
+    /// -EDENCODEModels YES: the model list open over the input bar (for screenshots).
+    static var models: Bool { defaults.bool(forKey: "EDENCODEModels") }
 }
 
 /// Sample data for every screen, as a Mac would answer it.
@@ -49,6 +51,10 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
                 PhoneSummary(id: 6, title: "Passkey sign-in", project: "askeden", status: .needsYou, mode: "edits",
                              modeLabel: "Accept edits", model: "Sonnet 5.5", costUSD: 0.61, updatedAt: ago(9)),
                 PhoneSummary(id: 4, title: "Chat list redesign", project: "eden messenger", status: .done, model: "Sonnet 5.5", costUSD: 0.38, updatedAt: ago(25)),
+                // A long one at rest (the owner's TestFlight 2 screenshots): it scrolls under the
+                // header and must end above the input bar; the drawer says "Resting", not "Waiting".
+                PhoneSummary(id: 11, title: "Resume after restart", project: "jarvis", status: .resting, model: "Model Router",
+                             costUSD: 0.84, updatedAt: ago(70)),
                 PhoneSummary(id: 7, title: "VoiceOver labels", project: "askeden", status: .working, model: "Opus 5.5", costUSD: 0.20, updatedAt: ago(40)),
                 PhoneSummary(id: 3, title: "No-zoom lock for iPad", project: "askeden", status: .done, model: "Sonnet 5.5", costUSD: 0.52, updatedAt: yesterday),
                 PhoneSummary(id: 8, title: "Router log cleanup", project: "jarvis", status: .done, model: "Haiku 5", costUSD: 0.09, updatedAt: yesterday.addingTimeInterval(-3600)),
@@ -79,10 +85,18 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
 
     var optionsNow: PhoneOptions {
         PhoneOptions(
-            models: [PhoneOptions.Model(ref: "claude:opus", name: "Opus 5.5", group: "Claude"),
-                     PhoneOptions.Model(ref: "claude:sonnet", name: "Sonnet 5.5", group: "Claude"),
-                     PhoneOptions.Model(ref: "claude:haiku", name: "Haiku 5", group: "Claude"),
-                     PhoneOptions.Model(ref: "gemini:pro", name: "Gemini 3 Pro", group: "Gemini", needsKey: true)],
+            // As a Mac answers (docs/eden-code-phone.md): Model Router first, then the Mac's
+            // headings; the Moonshot rows as an older Mac sent them, raw ids and its provider's name.
+            models: [PhoneOptions.Model(ref: "router", name: "Model Router", note: "Picks the model and effort for each message", router: true),
+                     PhoneOptions.Model(ref: "claude:opus", name: "Claude Opus 5.5", group: "Anthropic Claude"),
+                     PhoneOptions.Model(ref: "claude:sonnet", name: "Claude Sonnet 5.5", group: "Anthropic Claude"),
+                     PhoneOptions.Model(ref: "custom:gpt", name: "GPT-6.1 Sol", group: "OpenAI GPT"),
+                     PhoneOptions.Model(ref: "eden:gemini-4-argon", name: "Gemini 4 Argon", group: "Google Gemini", needsKey: true,
+                                        note: "Needs a Google Gemini API key"),
+                     PhoneOptions.Model(ref: "custom:k26", name: ModelMenu.friendly("kimi-k2.6"), group: "Moonshot"),
+                     PhoneOptions.Model(ref: "custom:k27", name: ModelMenu.friendly("kimi-k2.7-code"), group: "Moonshot"),
+                     PhoneOptions.Model(ref: "custom:k27h", name: ModelMenu.friendly("kimi-k2.7-code-highspeed"), group: "Moonshot"),
+                     PhoneOptions.Model(ref: "custom:qwen", name: "Qwen3", group: "On this Mac")],
             projects: [PhoneOptions.Project(name: "askeden", branch: "main", running: 2),
                        PhoneOptions.Project(name: "eden messenger", branch: "redesign", running: 0),
                        PhoneOptions.Project(name: "jarvis", branch: "eden-code-hardening", running: 1)],
@@ -114,7 +128,13 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
         v.model = "claude:opus"
         v.modelLabel = summary?.model ?? "Opus 5.5"
         v.doing = v.status == .working ? "Running tests · 3 of 41" : ""
-        if id == 6 {
+        if id == 11 {
+            v.model = "router"
+            v.modelLabel = "Model Router"
+            v.router = true
+            v.routedLabel = "Claude Sonnet 5.5"
+            v.entries = Self.longTranscript
+        } else if id == 6 {
             // GAsk.dc.html
             v.entries = [
                 PhoneEntry(i: 1, role: .user, text: "Add passkey sign-in to the site."),
@@ -139,6 +159,25 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
         v.v = "fixture"
         return v
     }
+
+    /// The owner's screenshot's session, long enough to scroll.
+    static let longTranscript: [PhoneEntry] = {
+        var out = [
+            PhoneEntry(i: 1, role: .user, text: "Pick up where we left off before the restart."),
+            PhoneEntry(i: 2, role: .assistant, text: "Hi Bilel, I'm back. Reading the to-do list and the last session's notes first so I don't redo anything."),
+            PhoneEntry(i: 3, role: .tool, text: "Reading TODO.md"),
+            PhoneEntry(i: 4, role: .tool, text: "Read ROADMAP.md"),
+        ]
+        let lines = ["The installer check passed on the Windows runner.", "The phone's pairing sheet now scans the QR code.",
+                     "Two tests were flaky; I made them wait for the server instead of sleeping.", "The receipts screen loads the last five turns."]
+        for (n, line) in lines.enumerated() {
+            out.append(PhoneEntry(i: 5 + n * 2, role: .assistant, text: line))
+            out.append(PhoneEntry(i: 6 + n * 2, role: .tool, text: "Ran the tests (\(40 + n) passed)"))
+        }
+        out.append(PhoneEntry(i: 20, role: .user, text: "And after a restart?"))
+        out.append(PhoneEntry(i: 21, role: .assistant, text: "Back after the restart: it picks up where it left off, with the same session, the same model and the queue as it was."))
+        return out
+    }()
 
     var changesNow: PhoneChanges {
         lock.withLock {

@@ -377,6 +377,7 @@
 		D78FD4F321F092F8FCF93C53 /* SensorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB0E7A6FB559F093710D2E4 /* SensorModels.swift */; };
 		D8984BE660EFC484A82A0FDA /* EdenCodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD87459FCD36E28352991CA7 /* EdenCodeApp.swift */; };
 		D8C6A6D7A61EF8F916404D82 /* goals.json in Resources */ = {isa = PBXBuildFile; fileRef = E5624090F33FAEF900499544 /* goals.json */; };
+		D8EC76ADE8655BC1F151256E /* PhoneMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F36CE4DA900BCA398D478BB /* PhoneMenuTests.swift */; };
 		D954D212CF659C164A712E44 /* MainTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46CDF77E69B96A427B73499 /* MainTabs.swift */; };
 		D9DBB20DDCF250A22D45E8B5 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		DA77AE7873ADFA625A56654C /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
@@ -626,6 +627,7 @@
 		3CD49742A197EED317DEC04F /* HeadsUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadsUp.swift; sourceTree = "<group>"; };
 		3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxTests.swift; sourceTree = "<group>"; };
 		3E2D5B4892F9C5013D6940AD /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
+		3F36CE4DA900BCA398D478BB /* PhoneMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMenuTests.swift; sourceTree = "<group>"; };
 		408FC556EFB9E2A814D00217 /* LookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookTests.swift; sourceTree = "<group>"; };
 		418C987D4F3C55B2D7BA96A9 /* journal_item.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = journal_item.json; sourceTree = "<group>"; };
 		42088B2A1308DBD79B7FA57A /* switches.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = switches.json; sourceTree = "<group>"; };
@@ -1370,6 +1372,7 @@
 			children = (
 				F0F096B6F77D45A6FC12E31E /* PairPayloadTests.swift */,
 				023AAF8B3E7DC07669920600 /* PhoneAPITests.swift */,
+				3F36CE4DA900BCA398D478BB /* PhoneMenuTests.swift */,
 			);
 			path = EdenCodeTests;
 			sourceTree = "<group>";
@@ -2139,6 +2142,7 @@
 			files = (
 				99F73C9B69D828D7AF25C654 /* PairPayloadTests.swift in Sources */,
 				E465EE6F6529AE1A043531B4 /* PhoneAPITests.swift in Sources */,
+				D8EC76ADE8655BC1F151256E /* PhoneMenuTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2373,7 +2377,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = EdenCodeWidgets/EdenCodeWidgets.entitlements;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EdenCodeWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -2395,7 +2399,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = EdenCode/EdenCode.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EdenCode/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -2520,7 +2524,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = EdenCodeWidgets/EdenCodeWidgets.entitlements;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EdenCodeWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -2673,7 +2677,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = EdenCode/EdenCode.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EdenCode/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;

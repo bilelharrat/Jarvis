@@ -308,8 +308,9 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode
       PRODUCT_NAME: EdenCode
       INFOPLIST_FILE: EdenCode/Info.plist
-      # Eden Code's own build number (TestFlight takes each upload's once): 2 since QR pairing.
-      CURRENT_PROJECT_VERSION: "2"
+      # Eden Code's own build number (TestFlight takes each upload's once): 2 since QR pairing,
+      # 3 for the TestFlight 2 layout fixes (insets, drawer, model list, Model Router).
+      CURRENT_PROJECT_VERSION: "3"
       GENERATE_INFOPLIST_FILE: false
       TARGETED_DEVICE_FAMILY: "1"
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
@@ -368,7 +369,7 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode.widgets
       INFOPLIST_FILE: EdenCodeWidgets/Info.plist
-      CURRENT_PROJECT_VERSION: "2"  # (an extension's build number is its app's)
+      CURRENT_PROJECT_VERSION: "3"  # (an extension's build number is its app's)
       GENERATE_INFOPLIST_FILE: false
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       TARGETED_DEVICE_FAMILY: "1"

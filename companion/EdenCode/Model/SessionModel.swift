@@ -135,7 +135,7 @@ final class SessionModel {
         do {
             let ok = try await backend.setModel(id: id, ref: model.ref)
             said = ok.said.isEmpty ? nil : ok.said
-            if ok.ok { view.model = model.ref; view.modelLabel = model.name }
+            if ok.ok { view.model = model.ref; view.modelLabel = model.name; view.router = model.router }
         } catch {
             problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
         }

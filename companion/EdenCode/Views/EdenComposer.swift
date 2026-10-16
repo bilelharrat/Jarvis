@@ -14,6 +14,8 @@ struct EdenComposer: View {
     var modeID: String
     var modeLabel: String
     var modelLabel: String
+    /// The session's model's ref ("router" while Model Router routes it): the picker's check.
+    var modelRef: String = ""
     var modes: [PhoneOptions.Mode]
     var models: [PhoneOptions.Model]
     var dictating: Bool
@@ -31,9 +33,19 @@ struct EdenComposer: View {
     @FocusState private var focused: Bool
     @State private var expanded = false
     @State private var picked: [PhotosPickerItem] = []
+    @State private var choosingModel = false
     @Environment(\.colorScheme) private var scheme
+    /// The sessions drawer opening over the screen: the keyboard goes (it stayed up over the
+    /// drawer's Inbox, Queue and Mac on TestFlight 2: UIKit's resign alone didn't take, since
+    /// this focus state held on to it).
+    @Environment(\.drawerProgress) private var drawerProgress
 
     private var dark: Bool { scheme == .dark }
+    /// The pill's words: "Bypass" for Bypass permissions (app.js JC_MODES short); the menu
+    /// and VoiceOver keep the full name.
+    private var modeShort: String {
+        modes.first(where: { $0.id == modeID })?.short ?? CodeModes.short(modeID, name: modeLabel)
+    }
     private var empty: Bool { text.trimmed.isEmpty && attachments == 0 }
 
     var body: some View {
@@ -46,6 +58,16 @@ struct EdenComposer: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(rim)
         .background(ring)
+        // The model list opens above the whole bar, pointing down at it: never over the text
+        // or its buttons (it used to be a Menu that unfolded over the bar).
+        .popover(isPresented: $choosingModel, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            ModelPicker(models: models, current: ModelMenu.current(models, ref: modelRef, label: modelLabel)) { model in
+                choosingModel = false
+                onModel(model)
+            }
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(.regularMaterial)
+        }
         .shadow(color: .black.opacity(dark ? 0.6 : 0.2), radius: dark ? 11 : 8, y: dark ? 14 : 10)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: expanded)
         .animation(.easeOut(duration: 0.2), value: focused)
@@ -54,8 +76,15 @@ struct EdenComposer: View {
         .onAppear {
             if EdenDebug.composerOpen { expanded = true }
             if EdenDebug.focus { focused = true }
+            if EdenDebug.models {
+                expanded = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { choosingModel = true }
+            }
         }
         #endif
+        .onChange(of: drawerProgress > 0) { _, open in
+            if open { focused = false; choosingModel = false; expanded = false }
+        }
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
             onPictures(items)
@@ -190,7 +219,7 @@ struct EdenComposer: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: CodeModes.symbol(modeID)).font(.system(size: 12, weight: .semibold))
-                    Text(modeLabel).font(.system(size: 12, weight: .semibold))
+                    Text(modeShort).font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize()
                     ChevronDown().stroke(style: StrokeStyle(lineWidth: 1.6)).frame(width: 9, height: 9)
                 }
                 .foregroundStyle(ComposerInk.accentInk(dark))
@@ -201,17 +230,9 @@ struct EdenComposer: View {
             }
             .accessibilityLabel("Mode, \(modeLabel)")
             Spacer(minLength: 4)
-            Menu {
-                ForEach(models) { model in
-                    Button { onModel(model) } label: {
-                        if model.needsKey {
-                            Text("\(model.name) — needs a key on the Mac")
-                        } else {
-                            Label(model.name, systemImage: model.name == modelLabel ? "checkmark" : "cpu")
-                        }
-                    }
-                    .disabled(model.needsKey)
-                }
+            Button {
+                focused = false
+                choosingModel = true
             } label: {
                 HStack(spacing: 6) {
                     Circle().fill(ComposerInk.accent(dark)).frame(width: 6, height: 6)
@@ -222,10 +243,12 @@ struct EdenComposer: View {
                 .foregroundStyle(ComposerInk.ink2(dark))
                 .padding(.horizontal, 9)
                 .frame(height: 26)
-                .frame(maxWidth: 150)
+                .frame(maxWidth: 170)
                 .background(Capsule().fill(ComposerInk.ink(dark).opacity(0.06)))
                 .overlay(Capsule().strokeBorder(ComposerInk.ink(dark).opacity(0.11), lineWidth: 0.5))
+                .contentShape(.capsule)
             }
+            .buttonStyle(PressScale(scale: 0.96))
             .accessibilityLabel("Model, \(modelLabel)")
         }
         .padding(.top, 10)
@@ -276,6 +299,89 @@ struct EdenComposer: View {
                 .stroke(.black.opacity(dark ? 0.55 : 0.09), lineWidth: 0.5)
                 .padding(-0.25)
         }
+    }
+}
+
+/// The model list (the composer's model pill): Model Router first, then each provider under
+/// its heading as the Mac's model menu has them (ModelMenu.sections), friendly names, a quiet
+/// note where there is one, the session's model checked; one that needs a key on the Mac is
+/// shown, dimmed, and can't be picked. A popover above the input bar, in iOS's own glass.
+struct ModelPicker: View {
+    var models: [PhoneOptions.Model]
+    var current: PhoneOptions.Model?
+    var onPick: (PhoneOptions.Model) -> Void
+
+    private var sections: [ModelMenu.Section] { ModelMenu.sections(models) }
+
+    /// Tall enough for the list (a row ~50 pt with its note, 44 without; a heading 30), at most 440.
+    private var height: CGFloat {
+        let rows = models.reduce(CGFloat(0)) { $0 + (note($1).isEmpty ? 44 : 54) }
+        let heads = CGFloat(sections.filter { !$0.title.isEmpty }.count) * 32
+        return min(440, max(120, rows + heads + 16))
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if models.isEmpty {
+                    Text("Your Mac hasn’t sent its models yet.")
+                        .font(.system(size: 14)).foregroundStyle(EdenTheme.muted).padding(16)
+                }
+                ForEach(sections) { section in
+                    if !section.title.isEmpty {
+                        Text(section.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(EdenTheme.muted)
+                            .padding(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    ForEach(section.models) { model in row(model) }
+                    if section.title.isEmpty && sections.count > 1 {
+                        Divider().padding(.horizontal, 12).padding(.top, 4)
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: 300, height: height)
+    }
+
+    private func note(_ model: PhoneOptions.Model) -> String {
+        if !model.note.isEmpty { return model.note }
+        return model.needsKey ? "Needs a key on your Mac" : ""
+    }
+
+    private func row(_ model: PhoneOptions.Model) -> some View {
+        let chosen = current?.ref == model.ref
+        let note = note(model)
+        return Button { onPick(model) } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.name)
+                        .font(.system(size: 16, weight: model.router ? .semibold : .regular))
+                        .foregroundStyle(EdenTheme.ink)
+                        .lineLimit(1)
+                    if !note.isEmpty {
+                        Text(note).font(.system(size: 12)).foregroundStyle(EdenTheme.muted).lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                if chosen {
+                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.accent)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+            .opacity(model.needsKey ? 0.45 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(model.needsKey)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([model.name, note].filter { !$0.isEmpty }.joined(separator: ". "))
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
     }
 }
 

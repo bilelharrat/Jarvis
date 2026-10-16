@@ -153,9 +153,28 @@ enum GStatus {
         case .needsYou: "Needs your OK"
         case .done: "Done"
         case .failed: "Failed"
-        case .idle, .resting: "Waiting"
+        // Not "Waiting": that read as "waiting on you" (owner, TestFlight 2). A session at
+        // rest is just resting; orange "Needs your OK" is the only word that wants the owner.
+        case .idle, .resting: "Resting"
         case .unknown: "Session"
         }
+    }
+
+    /// Whether a status is worth a dot or spinner in the drawer: one at rest gets none.
+    static func showsIndicator(_ status: CodeStatus) -> Bool {
+        switch status {
+        case .working, .needsYou, .done, .failed: true
+        default: false
+        }
+    }
+
+    /// A resting session's quiet line in the drawer: when it last did something ("Resting ·
+    /// 2 hr. ago"), or just "Resting".
+    static func restingLine(_ updatedAt: Date?, now: Date = Date()) -> String {
+        guard let updatedAt else { return "Resting" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return "Resting · " + formatter.localizedString(for: min(updatedAt, now), relativeTo: now)
     }
 
     /// The drawer: "Working…", "Needs your OK", "Done · ready to review".
@@ -228,4 +247,37 @@ struct EdenGlassCard: ViewModifier {
 
 extension View {
     func edenCard(radius: CGFloat = 18) -> some View { modifier(EdenGlassCard(radius: radius)) }
+}
+
+/// The frosted band behind a floating bar (a session's ☰ · title · ✎, the input bar): what
+/// scrolls under it blurs and fades instead of colliding with the controls, and the top one
+/// reaches up behind the clock and the Dynamic Island. Clear at its inner edge, so the
+/// wallpaper still reads as one piece.
+struct GBarScrim: View {
+    var edge: VerticalEdge
+
+    var body: some View {
+        Rectangle()
+            .fill(.thinMaterial)
+            .mask {
+                LinearGradient(stops: edge == .top
+                               ? [.init(color: .black, location: 0), .init(color: .black, location: 0.78), .init(color: .clear, location: 1)]
+                               : [.init(color: .clear, location: 0), .init(color: .black, location: 0.38), .init(color: .black, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .padding(edge == .top ? .bottom : .top, -16)
+            .ignoresSafeArea(.container, edges: edge == .top ? .top : .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// A frosted band behind the clock and the Dynamic Island for a screen whose content
+    /// scrolls up under them (Changes, pairing): it blurs instead of colliding with the clock.
+    func statusBarScrim() -> some View {
+        overlay(alignment: .top) {
+            GBarScrim(edge: .top).frame(height: 0)
+        }
+    }
 }
