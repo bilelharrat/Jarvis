@@ -37,7 +37,7 @@ test('Eden Code never listens: a code backend, its own page, only its own app fe
   assert.equal(eden.profile, 'code');
   assert.equal(eden.query, 'app=code');
   assert.equal(eden.socketApp, 'eden-code');
-  for (const f of ['code-sessions.js', 'code-verify.js', 'touchid.js', 'video-proof.js', 'design-match.js']) assert.ok(eden.features.has(f), f);
+  for (const f of ['code-sessions.js', 'code-verify.js', 'touchid.js', 'video-proof.js', 'design-match.js', 'self-check.js']) assert.ok(eden.features.has(f), f);
   for (const f of ['shell.js', 'eden-window.js', 'eden-code.js', 'follow-repo.js', 'browser-ai.js']) assert.ok(!eden.features.has(f), f);
   assert.equal(FLAVORS.jarvis.profile, 'full');
   assert.equal(FLAVORS.jarvis.features, undefined); // Eden Secretary loads them all
