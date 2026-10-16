@@ -55,11 +55,14 @@ enum EdenDebugOpen {
         switch parts.first {
         case "session": store.open(session: id)
         case "changes": store.openChanges(id)
-        case "approve": store.sheetCard = store.home.attention.first
-        case "inbox": store.tab = .inbox
-        case "queue": store.tab = .queue
-        case "settings": store.tab = .settings
-        case "new": store.showNewSession = true
+        case "approve": if let card = store.home.attention.first { store.show(card: card) }
+        case "drawer":
+            if parts.count > 1 { store.open(session: id) }
+            store.drawerOpen = true
+        case "inbox": store.show(.inbox)
+        case "queue": store.show(.queue)
+        case "settings": store.show(.settings)
+        case "new": store.startNew()
         case "pair": store.showPairing = true
         default: break
         }

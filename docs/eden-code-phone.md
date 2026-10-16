@@ -121,6 +121,13 @@ Read aloud, Eden chat's composer: attach, mode, model, dictate, send, steer, sto
 command or an always-allow; Mac-only cards take only a no), Changes (receipt, Keep / Undo / line comments, Undo all,
 Open pull request), New session. Debug launch arguments (`EdenCode/Model/Fixtures.swift`): `-EDENCODEFixtures YES`
 shows sample data; `-EDENCODEServer host:port -EDENCODECode 123456` pairs with a test server.
+Layout (the owner's "G" design, 2026-10-16): no tab bar. The app opens on the session that needs the owner (else
+the newest; "What should we build?" when there are none), full screen under three glass controls (☰ sessions, the
+title pill with one coloured status word, ✎ new session). The drawer from the left (☰ or an edge swipe) lists every
+session in one list grouped Today / Yesterday / Earlier, what needs the owner first, with the Inbox, the Queue, the
+Mac in use (switch or pair another) and Settings at the bottom. A session's card takes the input bar's place until
+answered or "Reply instead". `-EDENCODEOpen session:5 | drawer:5 | new | approve | inbox | queue | settings |
+changes:5 | pair` opens each screen for screenshots.
 
 ## The native iPhone screens (after App Review)
 

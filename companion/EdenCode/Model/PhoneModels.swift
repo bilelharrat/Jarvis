@@ -213,6 +213,60 @@ struct PhoneHome: Equatable, Sendable, Decodable {
     }
 
     var needsYouCount: Int { max(attention.count, sessions.filter { $0.status == .needsYou }.count) }
+
+    /// Waits on the owner: a card for it, or its status says so.
+    func needsYou(_ session: PhoneSummary) -> Bool {
+        session.status == .needsYou || attention.contains { $0.taskID == session.id }
+    }
+
+    /// What the app opens on (G1): the session that waits on the owner, else the newest one.
+    var landingID: Int? {
+        if let waiting = sessions.first(where: needsYou) { return waiting.id }
+        return Self.newestFirst(sessions).first?.id
+    }
+
+    /// Newest first by updated_at; the Mac's own order where it doesn't say.
+    static func newestFirst(_ list: [PhoneSummary]) -> [PhoneSummary] {
+        list.enumerated().sorted { a, b in
+            let at = a.element.updatedAt ?? .distantPast, bt = b.element.updatedAt ?? .distantPast
+            return at != bt ? at > bt : a.offset < b.offset
+        }.map(\.element)
+    }
+
+    /// A group in the drawer (G2): "Today", "Yesterday", "Earlier".
+    struct DrawerGroup: Equatable {
+        var title: String
+        var sessions: [PhoneSummary]
+    }
+
+    /// The drawer's one flat list: Today (what needs the owner first, then
+    /// newest first), Yesterday, Earlier. A session that is working or waiting is
+    /// always Today's, whenever it began; one the Mac gives no time is Earlier's. The search
+    /// matches the title or the project.
+    func drawerGroups(query: String = "", now: Date = Date(), calendar: Calendar = .current) -> [DrawerGroup] {
+        let query = query.trimmed.lowercased()
+        let kept = Self.newestFirst(sessions).filter {
+            query.isEmpty || $0.title.lowercased().contains(query) || $0.project.lowercased().contains(query)
+        }
+        var today: [PhoneSummary] = [], yesterday: [PhoneSummary] = [], earlier: [PhoneSummary] = []
+        for session in kept {
+            if needsYou(session) || session.status == .working {
+                today.append(session)
+            } else if let at = session.updatedAt, calendar.isDate(at, inSameDayAs: now) {
+                today.append(session)
+            } else if let at = session.updatedAt, let before = calendar.date(byAdding: .day, value: -1, to: now),
+                      calendar.isDate(at, inSameDayAs: before) {
+                yesterday.append(session)
+            } else {
+                earlier.append(session)
+            }
+        }
+        // What needs the owner first; the rest stays newest first.
+        func rank(_ s: PhoneSummary) -> Int { needsYou(s) ? 0 : 1 }
+        today = today.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        return [DrawerGroup(title: "Today", sessions: today), DrawerGroup(title: "Yesterday", sessions: yesterday),
+                DrawerGroup(title: "Earlier", sessions: earlier)].filter { !$0.sessions.isEmpty }
+    }
 }
 
 /// GET /options.

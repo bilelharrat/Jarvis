@@ -6,7 +6,7 @@ import Foundation
 ///     xcrun simctl launch <device> com.askeden.jarvis.edencode -EDENCODEFixtures YES -EDENCODEOpen session:5
 ///
 /// -EDENCODEFixtures YES: sample sessions instead of a Mac (to look at the screens).
-/// -EDENCODEOpen session:<id> | changes:<id> | approve | inbox | queue | settings | new | pair
+/// -EDENCODEOpen session:<id> | changes:<id> | approve | drawer | inbox | queue | settings | new | pair
 /// -EDENCODEServer host:port -EDENCODECode 123456: pairs with a test Mac at launch.
 /// -EDENCODEReset YES: forgets every paired Mac.
 /// None of this exists in Release builds.
@@ -36,15 +36,24 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var kept: Set<String> = ["h3"]
 
+    /// The G mockups' sessions (GDrawer.dc.html): one waits on the owner, two work, the rest
+    /// are done today, yesterday and earlier.
     var homeNow: PhoneHome {
-        PhoneHome(
+        let now = Date()
+        func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now) ?? ago(1440)
+        return PhoneHome(
             sessions: [
-                PhoneSummary(id: 5, title: "Fix share-sheet crash", project: "askeden / site", status: .working, mode: "ask",
-                             modeLabel: "Manual", model: "Opus 5.5", costUSD: 1.42),
-                PhoneSummary(id: 6, title: "Passkey sign-in", project: "askeden / site", status: .needsYou, mode: "edits",
-                             modeLabel: "Accept edits", model: "Sonnet 5.5", costUSD: 0.61),
-                PhoneSummary(id: 4, title: "No-zoom lock for iPad", project: "askeden / site", status: .done, model: "Sonnet 5.5", costUSD: 0.38),
-                PhoneSummary(id: 3, title: "Redesign the chat list", project: "eden messenger", status: .failed, model: "Opus 5.5", costUSD: 2.10),
+                PhoneSummary(id: 5, title: "Fix share-sheet crash", project: "askeden", status: .working, mode: "ask",
+                             modeLabel: "Manual", model: "Opus 5.5", costUSD: 1.42, updatedAt: ago(2)),
+                PhoneSummary(id: 6, title: "Passkey sign-in", project: "askeden", status: .needsYou, mode: "edits",
+                             modeLabel: "Accept edits", model: "Sonnet 5.5", costUSD: 0.61, updatedAt: ago(9)),
+                PhoneSummary(id: 4, title: "Chat list redesign", project: "eden messenger", status: .done, model: "Sonnet 5.5", costUSD: 0.38, updatedAt: ago(25)),
+                PhoneSummary(id: 7, title: "VoiceOver labels", project: "askeden", status: .working, model: "Opus 5.5", costUSD: 0.20, updatedAt: ago(40)),
+                PhoneSummary(id: 3, title: "No-zoom lock for iPad", project: "askeden", status: .done, model: "Sonnet 5.5", costUSD: 0.52, updatedAt: yesterday),
+                PhoneSummary(id: 8, title: "Router log cleanup", project: "jarvis", status: .done, model: "Haiku 5", costUSD: 0.09, updatedAt: yesterday.addingTimeInterval(-3600)),
+                PhoneSummary(id: 9, title: "README refresh", project: "jarvis", status: .done, model: "Haiku 5", costUSD: 0.05, updatedAt: ago(60 * 24 * 3)),
+                PhoneSummary(id: 10, title: "Windows installer check", project: "jarvis", status: .failed, model: "Opus 5.5", costUSD: 2.10, updatedAt: ago(60 * 24 * 6)),
             ],
             attention: [Self.migrationCard, Self.questionCard],
             pinned: nil,
@@ -53,8 +62,8 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
     }
 
     static let migrationCard = PhoneCard(
-        approval: Approval(id: "c-migrate", question: "Run a database migration?",
-                           detail: "npx wrangler d1 migrations apply eden --remote",
+        approval: Approval(id: "c-migrate", question: "Can I add the passkeys table?",
+                           detail: "wrangler d1 migrations apply eden --remote",
                            choices: [ApprovalChoice(id: "allow", label: "Allow"), ApprovalChoice(id: "always", label: "Always allow migrations in this project"),
                                      ApprovalChoice(id: "deny", label: "Deny")],
                            source: .code, taskID: 6),
@@ -74,9 +83,9 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
                      PhoneOptions.Model(ref: "claude:sonnet", name: "Sonnet 5.5", group: "Claude"),
                      PhoneOptions.Model(ref: "claude:haiku", name: "Haiku 5", group: "Claude"),
                      PhoneOptions.Model(ref: "gemini:pro", name: "Gemini 3 Pro", group: "Gemini", needsKey: true)],
-            projects: [PhoneOptions.Project(name: "askeden / site", branch: "main", running: 2),
+            projects: [PhoneOptions.Project(name: "askeden", branch: "main", running: 2),
                        PhoneOptions.Project(name: "eden messenger", branch: "redesign", running: 0),
-                       PhoneOptions.Project(name: "jarvis", branch: "eden-code-hardening", running: 0)],
+                       PhoneOptions.Project(name: "jarvis", branch: "eden-code-hardening", running: 1)],
             defaultModel: "claude:opus")
     }
 
@@ -87,8 +96,8 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
 
     var todosNow: PhoneTodos {
         PhoneTodos(cards: [
-            PhoneTodoCard(id: "t1", project: "askeden / site", title: "Dark mode for the pricing page", prompt: "Add a dark mode to /pricing", mode: "edits"),
-            PhoneTodoCard(id: "t2", project: "askeden / site", title: "Lighthouse to 95+", prompt: "Raise the Lighthouse score", mode: "ask", state: "queued"),
+            PhoneTodoCard(id: "t1", project: "askeden", title: "Dark mode for the pricing page", prompt: "Add a dark mode to /pricing", mode: "edits"),
+            PhoneTodoCard(id: "t2", project: "askeden", title: "Lighthouse to 95+", prompt: "Raise the Lighthouse score", mode: "ask", state: "queued"),
             PhoneTodoCard(id: "t3", project: "eden messenger", title: "Rewrite the build scripts", prompt: "Move the build to Bun", mode: "auto"),
             PhoneTodoCard(id: "t4", project: "eden messenger", title: "Typing indicator", prompt: "Show who is typing", mode: "ask", state: "started", taskID: 3),
         ])
@@ -98,21 +107,33 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
         var v = PhoneView(id: id)
         let summary = homeNow.sessions.first { $0.id == id }
         v.title = summary?.title ?? "Fix share-sheet crash"
-        v.project = summary?.project ?? "askeden / site"
+        v.project = summary?.project ?? "askeden"
         v.status = summary?.status ?? .working
         v.mode = summary?.mode ?? "ask"
         v.modeLabel = CodeModes.name(v.mode)
         v.model = "claude:opus"
         v.modelLabel = summary?.model ?? "Opus 5.5"
         v.doing = v.status == .working ? "Running tests · 3 of 41" : ""
-        v.entries = [
-            PhoneEntry(i: 1, role: .user, text: "The share sheet crashes with an image. Fix it and prove it in the simulator."),
-            PhoneEntry(i: 2, role: .tool, text: "Read share.js, ShareSheet.swift +4"),
-            PhoneEntry(i: 3, role: .tool, text: "Reproduced in iPhone 17 simulator"),
-            PhoneEntry(i: 4, role: .tool, text: "Edited 2 files"),
-            PhoneEntry(i: 5, role: .assistant, text: "Found it: the image goes to the share sheet before its upload finishes. I now wait for the upload and fall back to the local file."),
-        ]
-        if v.status == .working { v.entries.append(PhoneEntry(i: 6, role: .tool, text: "Running tests · 3 of 41…")) }
+        if id == 6 {
+            // GAsk.dc.html
+            v.entries = [
+                PhoneEntry(i: 1, role: .user, text: "Add passkey sign-in to the site."),
+                PhoneEntry(i: 2, role: .assistant, text: "Done with the code. The last step is the database: I need to add one table for passkeys."),
+                PhoneEntry(i: 3, role: .tool, text: "Wrote the sign-in flow"),
+                PhoneEntry(i: 4, role: .tool, text: "24 tests passed"),
+            ]
+        } else {
+            // GChat.dc.html
+            v.entries = [
+                PhoneEntry(i: 1, role: .user, text: "The share sheet crashes when I share a chat with a photo. Fix it and prove it in the simulator."),
+                PhoneEntry(i: 2, role: .assistant, text: "On it. I reproduced the crash: the photo goes to the share sheet before its upload finishes, so the link is empty."),
+                PhoneEntry(i: 3, role: .tool, text: "Read share.js and ShareSheet.swift"),
+                PhoneEntry(i: 4, role: .tool, text: "Reproduced it in the iPhone simulator"),
+                PhoneEntry(i: 5, role: .tool, text: "Fixed it in 2 files"),
+                PhoneEntry(i: 6, role: .assistant, text: "Now it waits for the upload and falls back to the photo on the phone. Running the tests to make sure nothing else broke."),
+            ]
+            if v.status == .working { v.entries.append(PhoneEntry(i: 7, role: .tool, text: "Running tests · 3 of 41…")) }
+        }
         v.cards = homeNow.attention.filter { $0.taskID == id }
         v.next = v.entries.last?.i ?? 0
         v.v = "fixture"
@@ -178,7 +199,7 @@ final class FixtureBackend: CodeBackend, @unchecked Sendable {
         return result
     }
     func comment(id: Int, comments: [PhoneComment]) async throws -> PhoneOK { PhoneOK(ok: true) }
-    func receipts(id: Int) async throws -> PhoneReceipts { PhoneReceipts(receipts: [Self.receipt]) }
+    func receipts(id: Int) async throws -> PhoneReceipts { PhoneReceipts(receipts: id == 5 ? [Self.receipt] : []) }
     func todos() async throws -> PhoneTodos { todosNow }
     func startTodo(card: String) async throws -> PhoneOK { PhoneOK(ok: true, id: 5) }
     func usage() async throws -> PhoneUsage { usageNow }

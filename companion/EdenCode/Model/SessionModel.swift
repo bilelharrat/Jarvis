@@ -191,6 +191,16 @@ final class SessionModel {
 
     var rows: [Row] { Self.rows(entries) }
 
+    /// What G1 draws: the rows without the step that is running now, which the one live
+    /// status line under the transcript says instead ("Running tests · 3 of 41").
+    nonisolated static func visibleRows(_ rows: [Row], working: Bool) -> [Row] {
+        guard working, case .steps(var steps)? = rows.last, steps.last?.stepRunning == true else { return rows }
+        var kept = Array(rows.dropLast())
+        steps.removeLast()
+        if !steps.isEmpty { kept.append(.steps(steps)) }
+        return kept
+    }
+
     /// For VoiceOver: "Working: Running tests", "Finished".
     var statusLine: String {
         switch view.status {
