@@ -20,7 +20,9 @@ What it adds, and where:
   sessions still working under that cap: Claude Code's own stop covers one session alone.
 - Window commands: cu_state (the meter), cu_cap (one session's or one project's own cap).
 - Settings (feature prefs, set from Eden Code settings): code_budget_session,
-  code_budget_project (a day), code_budget_day, code_budget_alerts.
+  code_budget_project (a day), code_budget_day, code_budget_alerts; code_budget_offer, the
+  first-run card's answer (cu_state's offer: {show, cap}, the cap it proposes from the last
+  two weeks' spending, suggested_cap).
 - A loop that lets held sessions go at midnight, when the day's caps start over.
 - It never keeps a session from running because of its own trouble: a cap that can't be
   worked out is no cap, and a count that can't be saved is kept for this run.
@@ -48,6 +50,13 @@ PREF_SESSION = "code_budget_session"
 PREF_PROJECT = "code_budget_project"
 PREF_DAY = "code_budget_day"
 PREF_ALERTS = "code_budget_alerts"
+# The first-run card that proposes a daily cap (the caps all start at 0, no cap): "" until
+# the owner answers it, then "set" (a cap was set from it) or "no" (dismissed): it never
+# comes back once answered, and never shows while a daily cap is set.
+PREF_OFFER = "code_budget_offer"
+OFFER_ANSWERS = ("", "set", "no")
+OFFER_DEFAULT = 20.0  # the cap proposed with nothing spent yet to go by
+OFFER_STEPS = (5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000)
 CAP_MAX = 100_000.0  # a cap past this is a typo, not a budget
 NEAR = 0.005  # spent within half a cent of a cap counts as the cap reached
 EMIT_EVERY = 0.5  # the meter's pushes to the windows, at most this often
@@ -71,6 +80,21 @@ prefs.register_feature_pref(PREF_SESSION, 0.0, _cap)
 prefs.register_feature_pref(PREF_PROJECT, 0.0, _cap)
 prefs.register_feature_pref(PREF_DAY, 0.0, _cap)
 prefs.register_feature_pref(PREF_ALERTS, True)
+prefs.register_feature_pref(
+    PREF_OFFER, "", lambda v: v if isinstance(v, str) and v in OFFER_ANSWERS else None
+)
+
+
+def suggested_cap(days: list[dict[str, Any]]) -> float:
+    """The daily cap the first-run card proposes: half again the busiest of the last days
+    (a cap that a normal day never reaches, but a runaway one does), at a round amount; with
+    nothing spent yet, OFFER_DEFAULT."""
+    top = max((float(d.get("total") or 0.0) for d in days), default=0.0)
+    if top <= 0:
+        return OFFER_DEFAULT
+    want = top * 1.5
+    return float(next((step for step in OFFER_STEPS if step >= want), OFFER_STEPS[-1]))
+
 
 ZH = {
     "This Eden Code session has used {percent}% of its {cap} limit.": "这个 Eden Code 会话已用掉其 {cap} 上限的 {percent}%。",
@@ -509,6 +533,12 @@ class Meter:
                 "day": defaults.day,
             },
             "alerts": self.hub.prefs.feature(PREF_ALERTS) is not False,
+            # The first-run card: shown while no daily cap is set and it hasn't been answered.
+            "offer": {
+                "show": defaults.day <= 0 and not self.hub.prefs.feature(PREF_OFFER),
+                "cap": suggested_cap(usage.recent(14)),
+                "spent": any(d["total"] > 0 for d in usage.recent(14)),  # (what it's from)
+            },
         }
 
     # ── window commands ──

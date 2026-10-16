@@ -2,7 +2,9 @@
 // Claude Code reports them; this session's, its project's and the day's spending against
 // their caps, each cap editable there; the last two weeks; today by project), its More
 // item and /usage, and the Limits tab of Eden Code settings (the default caps and the
-// heads-ups switch).
+// heads-ups switch). And the first-run card on the welcome screen that proposes a daily cap
+// (every cap starts at none): set it there, or say no thanks; either answer is kept
+// (code_budget_offer) and the card doesn't come back.
 //
 // Everything shown from the backend is data: text only (textContent), project names marked
 // data-no-i18n. Pure helpers are exported for node --test (tests/web/code-usage.test.mjs).
@@ -58,7 +60,14 @@
     return when.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   }
 
-  const api = { fmtMoney, percentOf, level, parseCap, barHeights, resetText };
+  // Whether the first-run card shows: the meter proposes it (no daily cap), it hasn't been
+  // answered, and no daily cap was set meanwhile (the prefs come before the meter's state).
+  function offerShown(meterState, prefsFeatures) {
+    const f = prefsFeatures || {};
+    return Boolean(meterState && meterState.offer && meterState.offer.show && !f.code_budget_offer && !(Number(f.code_budget_day) > 0));
+  }
+
+  const api = { fmtMoney, percentOf, level, parseCap, barHeights, resetText, offerShown };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -229,7 +238,56 @@
       if (!focused) renderPane(paneBody, F.currentTask());  // (never under a cap being typed)
     }
     drawLimits();
+    drawOffer();
   });
+
+  // ── the first-run card: a daily cap proposed ──
+
+  let offerCard = null;
+  function drawOffer() {
+    const welcome = document.getElementById('cc-welcome');
+    if (!offerShown(state, features) || !welcome) {
+      if (offerCard) { offerCard.remove(); offerCard = null; }
+      return;
+    }
+    if (offerCard && offerCard.isConnected) return;
+    const card = el('section', 'jc-card cu-offer');
+    card.setAttribute('aria-label', t('Daily spending limit'));
+    card.append(el('p', 'jc-label', 'Daily spending limit'),
+      el('p', 'cu-offer-text', 'Eden Code has no daily spending limit yet. Set one, so a runaway session can’t spend a lot while you’re not looking? Sessions stop at the limit and go on tomorrow, or when you raise it.'));
+    const row = el('div', 'cu-offer-row');
+    const field = el('label', 'cu-cap');
+    field.append(el('span', 'jc-dim', 'A day'));
+    const input = mine(el('input', 'jc-field cu-cap-input'));
+    input.inputMode = 'decimal';
+    input.value = String((state.offer && state.offer.cap) || 20);
+    input.setAttribute('aria-label', 'Eden Code’s limit a day, in dollars');
+    field.append(input);
+    const note = el('span', 'cu-cap-note jc-dim');
+    const set = el('button', 'jc-btn filled small', 'Set the limit');
+    set.type = 'button';
+    const no = el('button', 'jc-btn small', 'No thanks');
+    no.type = 'button';
+    const answer = (changes) => {
+      Object.assign(features, changes);  // (at once: the prefs event follows)
+      F.send({ type: 'feature_prefs', changes });
+      drawOffer();
+    };
+    set.addEventListener('click', () => {
+      const value = parseCap(input.value);
+      if (Number.isNaN(value) || !value) { note.textContent = t('An amount in dollars, like 5 or 12.50'); input.focus(); return; }
+      answer({ code_budget_day: value, code_budget_offer: 'set' });
+    });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); set.click(); } });
+    no.addEventListener('click', () => answer({ code_budget_offer: 'no' }));
+    row.append(field, set, no, note);
+    card.append(row, state.offer.spent
+      ? el('p', 'jc-dim cu-intro', 'Proposed from what your sessions spent the last two weeks. You can change it any time in Eden Code settings › Limits.')
+      : el('p', 'jc-dim cu-intro', 'A starting point: nothing spent yet to go by. You can change it any time in Eden Code settings › Limits.'));
+    const hint = welcome.querySelector('.jc-hint');
+    if (hint) welcome.insertBefore(card, hint); else welcome.append(card);
+    offerCard = card;
+  }
 
   // ── Eden Code settings › Limits: the defaults ──
 
@@ -319,6 +377,10 @@
   }
 
   buildLimits();
-  F.on('prefs', (ev) => { features = ev.features || {}; drawLimits(); }, { replay: true });
-  F.on('hello', (ev) => { features = (ev.prefs && ev.prefs.features) || {}; drawLimits(); }, { replay: true });
+  F.on('prefs', (ev) => { features = ev.features || {}; drawLimits(); drawOffer(); }, { replay: true });
+  F.on('hello', (ev) => {
+    features = (ev.prefs && ev.prefs.features) || {};
+    drawLimits();
+    if (!features.code_budget_offer && !(Number(features.code_budget_day) > 0)) F.send({ type: 'cu_state' });  // (for the first-run card)
+  }, { replay: true });
 })(typeof window === 'object' ? window : globalThis);
