@@ -143,13 +143,18 @@ class SessionModel(val id: Int, private val backend: CodeBackend) {
     suspend fun setMode(mode: String) = act {
         val ok = io { backend.setMode(id, mode) }
         said = ok.said.ifEmpty { null }
-        if (ok.ok) view = view.copy(mode = mode, modeLabel = CodeModes.name(mode))
+        if (ok.ok) view = view.copy(mode = mode, modeLabel = CodeModes.name(mode), modeShort = CodeModes.short(mode))
     }
 
     suspend fun setModel(model: PhoneOptions.Model) = act {
         val ok = io { backend.setModel(id, model.ref) }
         said = ok.said.ifEmpty { null }
-        if (ok.ok) view = view.copy(model = model.ref, modelLabel = model.name)
+        // Model Router keeps the session on its model until the next message routes it (the Mac's
+        // next answer says where it went).
+        if (ok.ok) view = view.copy(
+            model = model.ref, modelLabel = model.name, router = model.router,
+            routedLabel = if (model.router) (if (view.router) view.routedLabel else view.modelLabel) else "",
+        )
     }
 
     suspend fun land() = act { said = io { backend.land(id) }.said }

@@ -289,9 +289,14 @@ fun FormSheet(
     actionEnabled: Boolean = true,
     busy: Boolean = false,
     onAction: () -> Unit = {},
+    followKeyboard: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val top = safeTop()
+    // followKeyboard: a form whose fields are at its foot (pairing) scrolls them into sight above the keyboard.
+    val scroll = rememberScrollState()
+    val keyboardUp = imeBottom()
+    if (followKeyboard) androidx.compose.runtime.LaunchedEffect(keyboardUp) { if (keyboardUp > 0.dp) scroll.scrollTo(scroll.maxValue) }
     val shape = RoundedCornerShape(topStart = 38.dp, topEnd = 38.dp)
     Box(
         Modifier.fillMaxSize().padding(top = top + 1.dp).clip(shape)
@@ -311,7 +316,7 @@ fun FormSheet(
                     }
                 }
             }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 4.dp, bottom = 40.dp), content = content)
+            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(top = 4.dp, bottom = 40.dp), content = content)
         }
     }
 }

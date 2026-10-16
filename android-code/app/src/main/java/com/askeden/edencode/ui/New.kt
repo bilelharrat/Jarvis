@@ -140,7 +140,7 @@ fun NewScreen() {
         }
 
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().padding(bottom = safeBottom() + 8.dp).movesForDrawer(),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = keyboardOrSafeBottom() + 8.dp).movesForDrawer(),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             if (text.isBlank()) {
@@ -172,9 +172,9 @@ fun NewScreen() {
             }
             EdenComposer(
                 text = text, onText = { text = it }, working = starting,
-                modeID = mode, modeLabel = CodeModes.name(mode),
+                modeID = mode, modeLabel = CodeModes.short(mode),
                 modelLabel = model?.name ?: options.modelName(options.defaultModel),
-                modes = options.modes, models = options.models,
+                modes = options.modes, models = options.models, modelRef = model?.ref ?: options.defaultModel,
                 dictating = voice.listening, talking = false, attachments = pictures.size,
                 backdrop = backdrop, startExpanded = DebugComposer.open,
                 onSend = { start() }, onSteer = { start() }, onStop = {},

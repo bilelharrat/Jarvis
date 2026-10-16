@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -107,6 +109,39 @@ fun GHeader(backdrop: Backdrop?, onMenu: () -> Unit, onNew: (() -> Unit)?, modif
         middle()
         if (onNew != null) GCircleButton(Glyphs.compose, "New session", backdrop, onClick = onNew) else Spacer(Modifier.width(44.dp))
     }
+}
+
+/**
+ * The frosted band behind a floating header (2026-10-16): the backdrop blurred under it and
+ * fading out at its foot, so the transcript scrolling up goes soft under the clock and the title pill instead of colliding with them (the
+ * owner's screenshots: a step's chip over the clock, the first reply behind the pill). [solid]: the
+ * status bar and the header row; [fade]: the soft edge under them. [bottom]: the same band at the
+ * foot of the screen, under an input bar (what scrolls below it, over the gesture bar, goes soft).
+ */
+@Composable
+fun GTopScrim(
+    backdrop: Backdrop?, solid: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
+    fade: androidx.compose.ui.unit.Dp = 22.dp, bottom: Boolean = false,
+) {
+    val dark = Eden.dark
+    val tint = if (dark) hex(0x141A2E, 0.6f) else hex(0xE4EAF6, 0.58f)
+    val height = solid + fade
+    val until = solid / height
+    Box(
+        modifier.fillMaxWidth().height(height)
+            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                // Solid down to the header's foot, then fading to nothing [fade] below it.
+                drawRect(
+                    if (bottom) androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f - until to Color.Black, 1f to Color.Black)
+                    else androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Black, until to Color.Black, 1f to Color.Transparent),
+                    blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                )
+            }
+            .glass(backdrop, androidx.compose.ui.graphics.RectangleShape, tint, blur = 20.dp, saturate = 1.6f,
+                fallbackTint = if (dark) hex(0x141A2E, 0.9f) else hex(0xE4EAF6, 0.9f)),
+    )
 }
 
 /**

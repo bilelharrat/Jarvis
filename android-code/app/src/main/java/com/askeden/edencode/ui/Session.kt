@@ -134,15 +134,35 @@ fun SessionScreen(id: Int) {
     val lastReply = model.entries.lastOrNull { it.role == PhoneEntry.Role.Assistant }
 
     val top = safeTop()
+    // The header's foot: the status bar (or the cutout), then its 44 row (it sits 6 up into the inset).
+    val headerFoot = top - 6.dp + 44.dp
+    // The input bar sits above the keyboard while it's up, else above the gesture bar.
+    val bottomInset = keyboardOrSafeBottom()
+    val keyboard = imeBottom()
     var composerHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val list = rememberLazyListState()
     val rows = Transcript.visibleRows(model.rows, model.working)
-
-    LaunchedEffect(model.entries.size, model.view.live.length) {
-        val count = list.layoutInfo.totalItemsCount
-        if (count > 0) list.animateScrollToItem(count - 1)
+    // Whether the owner is reading the end (they scrolled up: new words don't pull them down).
+    val atEnd by remember {
+        androidx.compose.runtime.derivedStateOf {
+            val info = list.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            last == null || (last.index >= info.totalItemsCount - 1 && last.offset + last.size <= info.viewportEndOffset + 4)
+        }
     }
+
+    // Following the end: true until the owner scrolls up to read, true again once they're back down.
+    var follow by remember { mutableStateOf(true) }
+    LaunchedEffect(list.isScrollInProgress) { if (!list.isScrollInProgress) follow = atEnd }
+    suspend fun toEnd() {
+        val count = list.layoutInfo.totalItemsCount
+        if (count > 0) list.scrollToItem(count - 1, Int.MAX_VALUE / 2)  // (clamped to the very end)
+    }
+    // The latest message stays in sight above the input bar: when it comes, and (while following)
+    // as the bar grows (the composer's options, a card) or the keyboard opens or closes.
+    LaunchedEffect(model.entries.size, model.view.live.length) { toEnd(); follow = true }
+    LaunchedEffect(composerHeight, keyboard) { if (follow || keyboard > 0.dp) toEnd() }
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
@@ -151,8 +171,9 @@ fun SessionScreen(id: Int) {
                 Modifier.fillMaxSize().movesForDrawer(),
                 state = list,
                 contentPadding = PaddingValues(
-                    start = 20.dp, end = 20.dp, top = top - 6.dp + 44.dp + 12.dp,
-                    bottom = with(density) { composerHeight.toDp() } + 24.dp,
+                    start = 20.dp, end = 20.dp, top = headerFoot + 14.dp,
+                    // The input bar (measured inside its own padding) and what it sits on.
+                    bottom = with(density) { composerHeight.toDp() } + bottomInset + 8.dp + 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(if (pending == null) 18.dp else 16.dp),
             ) {
@@ -188,7 +209,9 @@ fun SessionScreen(id: Int) {
             }
         }
 
-        // The floating header: ☰, the title pill (its menu), ✎.
+        GTopScrim(backdrop, bottomInset + 8.dp, Modifier.align(Alignment.BottomCenter), fade = 14.dp, bottom = true)
+        // The frosted band under the clock and the header, then the floating header: ☰, the title pill (its menu), ✎.
+        GTopScrim(backdrop, headerFoot + 4.dp)
         GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp).movesForDrawer()) {
             GTitlePill(title, status, project, backdrop) { close ->
                 if (filesChanged > 0 || model.latestReceipt != null) GlassMenuItem("See the changes") { close(); store.push(EdenCodeStore.Route.Changes(id)) }
@@ -201,9 +224,8 @@ fun SessionScreen(id: Int) {
         }
 
         // The bottom: a card that waits, or the input bar.
-        val bottom = safeBottom()
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().padding(bottom = bottom + 8.dp)
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottomInset + 8.dp)
                 .onSizeChanged { composerHeight = it.height }.movesForDrawer(),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -242,7 +264,8 @@ fun SessionScreen(id: Int) {
             val view = model.view
             EdenComposer(
                 text = text, onText = { text = it }, working = model.working,
-                modeID = view.mode, modeLabel = view.modeLabel, modelLabel = view.modelLabel,
+                modeID = view.mode, modeLabel = view.modeShort, modelLabel = view.modelLabel,
+                modelRef = view.model, routedLabel = view.routedLabel,
                 modes = store.options.modes, models = store.options.models,
                 dictating = voice.listening, talking = voice.speaking == "last", attachments = pictures.size,
                 backdrop = backdrop, startExpanded = DebugComposer.open,

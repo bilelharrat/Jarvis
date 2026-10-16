@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.verticalScroll
 import com.askeden.edencode.model.PhoneOptions
 
 /**
@@ -67,6 +68,8 @@ fun EdenComposer(
     modelLabel: String,
     modes: List<PhoneOptions.Mode>,
     models: List<PhoneOptions.Model>,
+    modelRef: String = "",
+    routedLabel: String = "",
     dictating: Boolean,
     talking: Boolean,
     attachments: Int,
@@ -177,7 +180,7 @@ fun EdenComposer(
             }
         }
         AnimatedVisibility(expanded, enter = fadeIn(tween(200, 60)) + expandVertically(spring(0.86f, 600f)), exit = fadeOut(tween(150)) + shrinkVertically(tween(260))) {
-            Drawer(ink, modeID, modeLabel, modelLabel, modes, models, attachments, onMode, onModel, onPictures)
+            Drawer(ink, modeID, modeLabel, modelLabel, modelRef, routedLabel, modes, models, attachments, onMode, onModel, onPictures)
         }
     }
 }
@@ -199,6 +202,8 @@ private fun Drawer(
     modeID: String,
     modeLabel: String,
     modelLabel: String,
+    modelRef: String,
+    routedLabel: String,
     modes: List<PhoneOptions.Mode>,
     models: List<PhoneOptions.Model>,
     attachments: Int,
@@ -232,6 +237,7 @@ private fun Drawer(
                     horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Glyph(if (modeID == "edits") Glyphs.pencil else Glyphs.hand, 12.dp, ink.accentInk)
+                    // The pill's short words ("Bypass", as the Mac's composer), never cut off.
                     T(modeLabel, sf(12f, Semibold, lineHeight = 15f), ink.accentInk, maxLines = 1)
                     Glyph(Glyphs.chevD, 9.dp, ink.accentInk)
                 }
@@ -254,15 +260,84 @@ private fun Drawer(
                     T(modelLabel.ifEmpty { "Model" }, sf(12f, Semibold, lineHeight = 15f), ink.ink2, Modifier.weight(1f, fill = false), maxLines = 1)
                     Glyph(Glyphs.chevD, 9.dp, ink.ink2)
                 }
-                GlassMenu(modelOpen, { modelOpen = false }, Modifier.align(Alignment.TopEnd)) {
-                    for (model in models) {
-                        GlassMenuItem(if (model.needsKey) "${model.name} — needs a key on the Mac" else model.name, checked = model.name == modelLabel, enabled = !model.needsKey) {
-                            modelOpen = false
-                            onModel(model)
-                        }
-                    }
+                if (modelOpen) ModelSheet(models, modelRef, modelLabel, routedLabel, onDismiss = { modelOpen = false }) {
+                    modelOpen = false
+                    onModel(it)
                 }
             }
         }
     }
 }
+
+/**
+ * The model picker (2026-10-16), as the Mac's model menu: Model Router first, then each provider's
+ * models under its heading, every row by its name (the Mac sends names, never raw ids) with its
+ * note under it (a provider, what it needs), the one in use checked. A bottom sheet over the whole
+ * screen: the drop-down it replaces opened over the input bar and the keyboard.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun ModelSheet(
+    models: List<PhoneOptions.Model>,
+    currentRef: String,
+    currentLabel: String,
+    routedLabel: String,
+    onDismiss: () -> Unit,
+    onPick: (PhoneOptions.Model) -> Unit,
+) {
+    val c = Eden.colors
+    val dark = Eden.dark
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    androidx.compose.runtime.LaunchedEffect(Unit) { keyboard?.hide() }
+    // The current row: by its ref; a list from an older Mac (or a fixture) may only match by name.
+    val current = models.firstOrNull { it.ref == currentRef }?.ref ?: models.firstOrNull { it.name == currentLabel }?.ref
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = if (dark) hex(0x1F2130) else hex(0xF4F6FB),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().androidxVerticalScroll()
+                .padding(start = 16.dp, end = 16.dp, bottom = safeBottom() + 8.dp)
+                .semantics { contentDescription = "Choose a model" },
+        ) {
+            T("Model", sf(17f, Semibold), c.ink, Modifier.padding(start = 4.dp, bottom = 8.dp))
+            var heading: String? = null
+            for (model in models) {
+                if (model.group != heading) {
+                    heading = model.group
+                    if (model.group.isNotEmpty()) {
+                        T(model.group, sf(13f, Semibold), c.muted, Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp))
+                    }
+                }
+                val note = if (model.router && model.ref == current && routedLabel.isNotEmpty()) "Now on $routedLabel · ${model.note}".trimEnd(' ', '·') else model.note
+                ModelRow(model.name, note, checked = model.ref == current, enabled = !model.needsKey, router = model.router) { onPick(model) }
+                if (model.router) Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(0.5.dp).background(c.separator))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelRow(name: String, note: String, checked: Boolean, enabled: Boolean, router: Boolean, onClick: () -> Unit) {
+    val c = Eden.colors
+    Row(
+        Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp)
+            .background(if (checked) c.accent.copy(alpha = 0.10f) else Color.Transparent, RoundedCornerShape(14.dp))
+            .pressable(0.98f, enabled = enabled, label = if (note.isEmpty()) name else "$name, $note", onClick = onClick)
+            .semantics { if (checked) stateDescription = "Selected" }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            T(name, sf(16f, if (router) Semibold else Medium), if (enabled) c.ink else c.muted, maxLines = 1)
+            if (note.isNotEmpty()) T(note, sf(12.5f), c.muted, maxLines = 2)
+        }
+        Box(Modifier.width(20.dp), contentAlignment = Alignment.Center) { if (checked) Glyph(Glyphs.check, 15.dp, c.accent) }
+    }
+}
+
+@Composable
+private fun Modifier.androidxVerticalScroll(): Modifier = this.verticalScroll(androidx.compose.foundation.rememberScrollState())

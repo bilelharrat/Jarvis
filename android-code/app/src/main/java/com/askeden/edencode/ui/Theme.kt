@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.ime
 import com.askeden.edencode.model.CodeStatus
 
 /** A hex colour, with alpha. */
@@ -162,7 +164,23 @@ fun Float.toSp(): TextUnit = this.sp
  * they're taller, so every screen sits where it sits on the iPhone.
  */
 @Composable
-fun safeTop(): Dp = maxOf(WindowInsets.statusBars.asPaddingValues().calculateTopPadding(), 62.dp)
+fun safeTop(): Dp = maxOf(
+    WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+    WindowInsets.displayCutout.asPaddingValues().calculateTopPadding(),
+    62.dp,
+)
 
 @Composable
 fun safeBottom(): Dp = maxOf(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(), 34.dp)
+
+/**
+ * Where a screen's bottom bar sits above: the keyboard while it's up (its inset already counts the
+ * navigation bar under it), else [safeBottom]. Adding the two (imePadding over safeBottom) floated
+ * the input bar a navigation bar's height above Gboard, with the transcript showing in the gap.
+ */
+@Composable
+fun keyboardOrSafeBottom(): Dp = maxOf(imeBottom(), safeBottom())
+
+/** How tall the keyboard is now (0 when it's down). */
+@Composable
+fun imeBottom(): Dp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()

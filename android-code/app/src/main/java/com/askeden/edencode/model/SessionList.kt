@@ -61,7 +61,10 @@ object SessionList {
         CodeStatus.NeedsYou -> "Needs your OK"
         CodeStatus.Done -> "Done"
         CodeStatus.Failed -> "Failed"
-        CodeStatus.Idle, CodeStatus.Resting -> "Waiting"
+        // "Waiting" read as "waits on you" (the owner, 2026-10-16): only NeedsYou says that.
+        // These are the Mac's own words for a session at rest (its phone page's).
+        CodeStatus.Idle -> "Idle"
+        CodeStatus.Resting -> "Resting"
         CodeStatus.Unknown -> "Session"
     }
 
@@ -71,6 +74,9 @@ object SessionList {
         CodeStatus.Done -> "Done · ready to review"
         else -> word(status)
     }
+
+    /** Whether a drawer row says its status at all: a session at rest (idle, resting) has no line and no dot. */
+    fun drawerShowsStatus(status: CodeStatus): Boolean = status != CodeStatus.Idle && status != CodeStatus.Resting && status != CodeStatus.Unknown
 
     private fun dayStart(at: Long, zone: TimeZone): Long = Calendar.getInstance(zone).run {
         timeInMillis = at

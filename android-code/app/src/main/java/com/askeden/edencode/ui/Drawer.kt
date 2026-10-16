@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -84,8 +85,24 @@ fun SessionsDrawer(store: EdenCodeStore, onClose: () -> Unit) {
         }
         val open = store.openSession
         val groups = SessionList.groups(store.home, store.search)
+        // The list scrolls in its own area, fading out at its ends, and stops above the Inbox and
+        // the Queue (they drew over its last row before, 2026-10-16), with a hairline between.
+        val scroll = rememberScrollState()
         Column(
-            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp),
+            Modifier.weight(1f).fillMaxWidth()
+                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    val fade = 18.dp.toPx() / size.height.coerceAtLeast(1f)
+                    drawRect(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0f to (if (scroll.value > 0) Color.Transparent else Color.Black), fade.coerceAtMost(0.5f) to Color.Black,
+                            (1f - fade).coerceAtLeast(0.5f) to Color.Black, 1f to (if (scroll.canScrollForward) Color.Transparent else Color.Black),
+                        ),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                    )
+                }
+                .verticalScroll(scroll).padding(horizontal = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             store.problem?.let { Box(Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) { ProblemBanner(it) } }
@@ -116,7 +133,8 @@ fun SessionsDrawer(store: EdenCodeStore, onClose: () -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
         }
-        Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
+        Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(if (dark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)))
+        Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)) {
             Shortcut(Glyphs.inboxLine, "Inbox", store.home.attention.size, grey = false) { store.show(EdenCodeStore.Panel.Inbox) }
             Shortcut(Glyphs.queueLine, "Queue", store.todos.cards.count { it.waiting }, grey = true) { store.show(EdenCodeStore.Panel.Queue) }
         }
@@ -183,6 +201,7 @@ private fun DrawerRow(s: PhoneSummary, showsStatus: Boolean, waiting: Boolean, s
     val g = gInk
     val status = if (waiting) CodeStatus.NeedsYou else s.status
     val word = SessionList.drawerWord(status)
+    val showsStatus = showsStatus && SessionList.drawerShowsStatus(status)
     Row(
         Modifier.fillMaxWidth().selectedFill(selected)
             .pressable(0.98f, label = "${s.title}, $word", onClick = onClick)

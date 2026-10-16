@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -216,9 +217,14 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
     LaunchedEffect(Unit) { if (DebugPairing.server != null && probed == null) probe() }
 
     val top = if (first) safeTop() else 0.dp
+    // The address and code fields and Find my Mac are at the foot: with the keyboard up, the page
+    // stops above it and scrolls them into sight (the field sat half under Gboard, the button hidden).
+    val scroll = rememberScrollState()
+    val keyboardUp = imeBottom()
+    if (first) LaunchedEffect(keyboardUp) { if (keyboardUp > 0.dp) scroll.scrollTo(scroll.maxValue) }
     Box(Modifier.fillMaxSize()) {
     Column(
-        Modifier.fillMaxSize().then(if (first) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+        Modifier.fillMaxSize().then(if (first) Modifier.imePadding().verticalScroll(scroll) else Modifier)
             .padding(top = top + if (first) 40.dp else 2.dp, start = 20.dp, end = 20.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
     ) {
