@@ -23,12 +23,12 @@ if (app) document.body.classList.add('in-app');
 const inSplitPane = window.parent !== window && new URLSearchParams(location.search).get('pane') === 'code';
 if (inSplitPane) document.body.classList.add('jc-split-pane');
 const SPLIT_PANE_SKIPS = new Set([
-  'browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture',
+  'browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'sc_call',
   'code_voice_point', 'code_voice_file', 'cp_find', 'cp_capture', 'show_session', 'ui', 'alert', 'desktop_hands', 'remote_code',
   'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed', 'sources', 'note', 'level',
 ]);
 const SPLIT_PANE_QUIET = new Set([
-  'capabilities', 'browser_result', 'research_result', 'pdf_result', 'location_fix', 'cv_page_result',
+  'capabilities', 'browser_result', 'research_result', 'pdf_result', 'location_fix', 'cv_page_result', 'sc_result',
   'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'cp_tree', 'cp_captured', 'galaxy',
 ]);
 
@@ -40,7 +40,7 @@ const SPLIT_PANE_QUIET = new Set([
 // window is open on the same backend (hub.window_joined); with one open, that window does them.
 const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
-const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture']);
+const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'sc_call']);
 let jarvisWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
 // Eden Code's backend alone listens to no one (hub.profile "code": no microphone, no voice
 // loops, until an Eden Secretary window joins and makes it "full"), so the title bar's voice

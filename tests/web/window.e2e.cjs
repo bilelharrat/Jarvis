@@ -8164,6 +8164,31 @@ test('A video proof plays from the window’s own server when its poster is clic
   assert(src === '/f/code-video/0123456789abcdef01234567', `video src: ${src}`);
 });
 
+test('Check it yourself: one compact line that opens to its pictures, findings and steps, the page’s words as text', async () => {
+  await loadFeatures('code-selfcheck.js', 'code-selfcheck.css');
+  await open(1);
+  const check = { target: 'web', verdict: 'fail', headline: 'Checked: 4 steps, 2 screenshots, 1 console error', steps: 4, budget: 30, seconds: 41, shots: 2,
+    pictures: [{ proof: '0123456789abcdef', thumb: 'QUJDRA==' }, { proof: 'fedcba9876543210', thumb: '' }], console_errors: 1, network_failures: 0,
+    findings: ['Console: <img src=x onerror=alert(1)>'], actions: ['Opened http://localhost:5173/', 'click e1'], url: 'http://localhost:5173/',
+    goal: 'An Add to cart button', summary: 'The count stayed at 0.', compared: 'Not as asked.' };
+  await deliver({ type: 'task_log', id: 1, entry: { n: 13, role: 'selfcheck', text: 'Checked: 4 steps, 2 screenshots, 1 console error (found problems)', check } });
+  await frames(2);
+  const r = await js(`(() => { const li = document.querySelector('#deck-timeline .sc-check'); const d = li.querySelector('details');
+    const closed = !d.open; li.querySelector('summary').click();
+    return { closed, open: d.open, cls: li.className, head: li.querySelector('summary').textContent, mark: li.querySelector('.cv-mark').getAttribute('aria-label'),
+      imgs: li.querySelectorAll('img').length, injected: li.querySelectorAll('.cv-findings img').length, finding: li.querySelector('.cv-finding').textContent,
+      steps: li.querySelectorAll('.sc-steps li').length, buttons: [...li.querySelectorAll('.sc-pictures button')].map((b) => b.getAttribute('aria-label')) }; })()`);
+  assert(r.closed && r.open && r.cls.includes('failed') && r.head.includes('Checked: 4 steps, 2 screenshots, 1 console error'), JSON.stringify(r));
+  assert(r.mark === 'Found problems' && r.imgs === 1 && r.injected === 0 && r.finding.includes('<img') && r.steps === 2, JSON.stringify(r));
+  assert(r.buttons.join() === 'Screenshot 1,Screenshot 2', JSON.stringify(r));
+  await js('__sent.length = 0; document.querySelector("#deck-timeline .sc-pictures button").click(); true');
+  const asked = await sentOf('cv_proof');
+  assert(JSON.stringify(asked) === JSON.stringify([{ type: 'cv_proof', proof: '0123456789abcdef' }]), JSON.stringify(asked));
+  assert(await js('document.activeElement && document.activeElement.classList.contains("cv-lightbox-close")'), 'the picture took no focus');
+  await js('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true');
+  assert(await js('!document.querySelector(".cv-lightbox")'), 'Escape left the picture open');
+});
+
 // ── The owner's agents (web/features/agents.js, Settings › Agents, and the orb) ──
 
 const AGENTS_EV = (extra = '') => `__ev({ type: 'agents', error: '', active: 'main', max: 6, channels: ['telegram', 'imessage', 'slack', 'discord'],

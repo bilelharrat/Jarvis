@@ -799,6 +799,8 @@
       row('Check each turn’s work', select([['', 'Eden Code’s default'], ['on', 'On'], ['off', 'Off']], own.verify === undefined ? '' : own.verify ? 'on' : 'off', (v) => set('verify', v === '' ? undefined : v === 'on'), 'Check each turn’s work')),
       // Video proof (features/code_video.py): off unless the project turns it on.
       row('Video proof after UI changes', select([['off', 'Off'], ['on', 'On']], own.video_proof ? 'on' : 'off', (v) => set('video_proof', v === 'on' ? true : undefined), 'Video proof after UI changes')),
+      // Check it yourself (features/code_selfcheck.py): by default on with a dev server or an iOS app.
+      row('Check it yourself', select([['', 'Eden Code’s default'], ['on', 'On'], ['off', 'Off']], own.self_check === undefined ? '' : own.self_check ? 'on' : 'off', (v) => set('self_check', v === '' ? undefined : v === 'on'), 'Check it yourself')),
     );
     rows.querySelectorAll('select').forEach((s, i) => { if (i && !path) s.disabled = true; });
     if (names.length) rows.firstChild.querySelector('select').querySelectorAll('option').forEach(mine);

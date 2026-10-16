@@ -1100,6 +1100,10 @@ def agent_action(tool_input: dict[str, Any]) -> str:
 # the full tool name -> (what it wants to do, e.g. "start a dev server"; and what a call does,
 # from its input and the session's folder, or None for the name and input).
 FEATURE_TOOLS: dict[str, tuple[str, Callable[[dict[str, Any], Path], str] | None]] = {}
+# Feature tools whose every step lands only on the project's own app on this Mac (Check it
+# yourself's hidden preview, held there by the app itself): in Accept edits and Auto they go
+# ahead as a session's own browser tab does on a page on this Mac; elsewhere they ask.
+LOCAL_ONLY_TOOLS: set[str] = set()
 
 
 def approval_detail(name: str, tool_input: dict[str, Any], cwd: Path) -> str:
@@ -3476,8 +3480,7 @@ class TaskManager:
                 return allow(*free)
             page = await self._browser_target(task, tool_name, tool_input)
             if (
-                page is not None
-                and page.local
+                (tool_name in LOCAL_ONLY_TOOLS or (page is not None and page.local))
                 and task.mode in ("edits", "smart")
                 and not asked_by_rule
             ):

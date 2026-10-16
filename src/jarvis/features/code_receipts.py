@@ -8,6 +8,9 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
 - the check after the turn (code_verify), when the session has it on, with its picture of
   the page, and the video proof (code_video) when its project records one: both waited
   for, together, up to VERIFY_WAIT;
+- the session's own check of its work (code_selfcheck, "Check it yourself"): its line
+  ("Checked: 4 steps, 2 screenshots, no console errors"), verdict, first picture and
+  video, waited for while it finishes;
 - for a Spec mode task (code_spec), "Requirements met": each requirement it covers, met or
   not, with its evidence (the tests named after its criteria that passed, the reviewer's
   reason, the video proof and the check's screenshot), waited for up to SPEC_WAIT (the
@@ -115,6 +118,12 @@ def receipt_text(r: dict[str, Any]) -> str:
         parts.append("no tests run")
     if r["check"]:
         parts.append(f"check: {r['check']['text'] or r['check']['status']}"[:120])
+    own = r.get("selfcheck")
+    if own:
+        verdict = {"pass": "passed", "fail": "found problems"}.get(
+            own.get("verdict"), "not finished"
+        )
+        parts.append(f"{own.get('headline') or 'Checked'} ({verdict})"[:140])
     reqs = r.get("requirements")
     if reqs:
         met = sum(1 for q in reqs if q.get("status") == "met")
@@ -190,6 +199,10 @@ class Receipts:
             waits["check"] = self.waiting[task.id] = loop.create_future()
         if self.videoing(task, [str(f) for f in data.get("files") or []]):
             waits["video"] = self.filming[task.id] = loop.create_future()
+        selfcheck = getattr(self.hub, "code_selfcheck", None)  # Check it yourself (code_selfcheck)
+        pending = selfcheck.pending(task.id) if selfcheck is not None else None
+        if pending is not None:
+            waits["selfcheck"] = pending
         spec = getattr(self.hub, "code_spec", None)
         if spec is not None and spec.covers(task.id):
             waits["spec"] = spec.proof_future(task.id)
@@ -210,6 +223,11 @@ class Receipts:
                 "poster": str(video.get("poster") or ""),
                 "seconds": video.get("seconds") or 0,
             }
+        own = selfcheck.receipt_part(task.id) if selfcheck is not None else None
+        if own:
+            receipt["selfcheck"] = own
+            if own.get("verdict") == "fail" and receipt["risk"] != "high":
+                receipt["risk"], receipt["why"] = "high", "its own check found problems"
         if "spec" in got:
             rows = spec.attach_receipt(task.id, list(got["spec"] or []), receipt)
             if rows:

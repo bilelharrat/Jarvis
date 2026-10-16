@@ -44,15 +44,18 @@
     facts.append(el('li', '', `${r.file_count} ${r.file_count === 1 ? F.t('file changed') : F.t('files changed')}`));
     facts.append(testsFact(r.tests));
     if (r.check) facts.append(el('li', r.check.status === 'problems' ? 'rc-bad' : 'rc-ok', r.check.text || r.check.status));
+    // The session's own check of its work (code_selfcheck: "Check it yourself").
+    const selfCheck = r.selfcheck;
+    if (selfCheck && selfCheck.headline) facts.append(el('li', selfCheck.verdict === 'pass' ? 'rc-ok' : 'rc-bad', selfCheck.headline));
     li.replaceChildren(head, facts);
-    const thumb = picture(r.check && r.check.thumb);
+    const thumb = picture((r.check && r.check.thumb) || (selfCheck && selfCheck.thumb));
     if (thumb) {
       const img = el('img', 'rc-thumb');
       img.src = thumb;
       img.alt = F.t('The page after this turn');
       li.append(img);
     }
-    const v = r.video;
+    const v = r.video || (selfCheck && selfCheck.video);
     if (v && /^[0-9a-f]{24}$/.test(v.id || '')) {
       const video = el('video', 'rc-video');
       video.controls = true;
