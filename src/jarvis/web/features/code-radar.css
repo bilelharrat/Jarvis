@@ -1,0 +1,45 @@
+/* Eden Code's engine radar (features/code-radar.js): each update's card with its numbers
+   before and after, the engines, and the table by engine and model, in the workbench's own
+   cards and tokens (light, dark and the glass look alike). */
+
+.rd-section { margin-bottom: 14px; }
+.rd-section:first-of-type .jc-label { margin-top: 2px; }
+.rd-intro { margin: 2px 4px 10px; line-height: 1.45; }
+.rd-off { margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+.rd-sub { margin: 4px 0 0; font-size: 12px; line-height: 1.45; }
+
+.rd-change { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.rd-change.shift { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-danger)); }
+.rd-change.dismissed { opacity: 0.6; }
+.rd-change-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rd-change-head strong { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+
+.rd-pill { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgb(var(--c-ink) / 0.07); color: rgb(var(--c-ink-2)); }
+.rd-pill.shift { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.rd-pill.steady { background: rgb(var(--c-success-ink) / 0.12); color: rgb(var(--c-success-ink)); }
+.rd-pill.collecting { background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); }
+.rd-pill.pinned { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent)); }
+
+.rd-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 12.5px; }
+.rd-table th { padding: 3px 6px; text-align: left; font-size: 11px; font-weight: 600; color: rgb(var(--c-muted)); }
+.rd-table td { padding: 4px 6px; border-top: 0.5px solid rgb(var(--c-border)); }
+.rd-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rd-table tr.rd-worse td { color: rgb(var(--c-danger-ink)); font-weight: 600; }
+.rd-table tr.rd-better td { color: rgb(var(--c-success-ink)); }
+.rd-scroll { overflow-x: auto; margin-top: 4px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); padding: 2px 6px 6px; }
+.rd-wide th { white-space: normal; vertical-align: bottom; min-width: 52px; }
+.rd-model { max-width: 140px; overflow-wrap: anywhere; }
+
+.rd-acts { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.rd-scope { margin: 0 0 6px; }
+
+.rd-engine-now { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; margin: 0 2px 8px; font-size: 13px; }
+.rd-engines li.rd-engine { display: flex; align-items: center; gap: 8px; }
+.rd-engines li.rd-engine.current { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-accent) / 0.45); }
+.rd-engine-words { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rd-path { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.rd-here { color: rgb(var(--c-accent)); font-weight: 600; }
+.rd-own { display: flex; gap: 8px; margin: 8px 0 4px; }
+.rd-own .jcs-input { max-width: none; font-family: var(--mono); font-size: 12px; }
+.rd-limits { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.45; }
+.rd-foot { display: flex; align-items: center; gap: 6px; margin-top: 12px; }

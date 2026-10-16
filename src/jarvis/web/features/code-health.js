@@ -1,6 +1,7 @@
 // Eden Code's Health pane (features/code_health.py), from the More menu: the engine's
-// version, the Claude sign-in (with the command that signs in, when it isn't), and this
-// session's connection, with Reconnect for one that failed or ended.
+// version (pinned or built in), the engine radar's verdict, the Claude sign-in (with the
+// command that signs in, when it isn't), and this session's connection, with Reconnect for
+// one that failed or ended.
 // Pure helpers are exported for node --test (tests/web/code-health.test.mjs).
 (function (root) {
   'use strict';
@@ -16,7 +17,17 @@
     return s.busy ? 'Working' : 'Ready';
   }
 
-  const api = { sessionWords };
+  // The engine radar's line (features/code_radar.py), as code-radar.js words it.
+  function radarWords(r) {
+    if (!r) return '';
+    if (r.on === false) return 'Off';
+    if (r.status === 'shift') return r.shifts === 1 ? 'Worse after an update' : 'Worse after updates';
+    if (r.status === 'collecting') return 'Watching the latest update';
+    if (r.status === 'steady') return 'No change after updates';
+    return 'Nothing measured yet';
+  }
+
+  const api = { sessionWords, radarWords };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -63,7 +74,17 @@
     const eng = el('ul', 'jc-list ch-list');
     const version = engine.version ? mine(el('span', '', engine.version)) : el('span', 'jc-dim', 'Unknown');
     const where = engine.path ? (engine.bundled ? el('small', 'jc-dim', own('Built into Eden Secretary', 'Built into Eden Code')) : mine(el('small', 'jc-dim ch-path', engine.path))) : el('small', 'ch-bad', 'Not found');
-    eng.append(row('Engine', version, where));
+    let extra = where;
+    if (answer.pin) {  // (an engine pinned in the Engine radar: features/code_engines.py)
+      extra = el('span', 'ch-engine-extra');
+      extra.append(el('small', 'ch-pinned', 'Pinned'), document.createTextNode(' '), where);
+    }
+    eng.append(row('Engine', version, extra));
+    if (answer.radar) {
+      const r = answer.radar;
+      const open = button('Open', 'jc-mini', () => F.openPane('cw-radar'), 'Eden Code before and after each update');
+      eng.append(row('Engine radar', el('span', r.status === 'shift' ? 'ch-bad' : '', radarWords(r)), open));
+    }
     const signin = answer.signin || {};
     const state = el('span', `ch-state ${signin.state || 'unknown'}`, signin.summary || 'Couldn’t tell');
     const sign = row('Claude sign-in', state, signin.plan ? mine(el('small', 'jc-dim', signin.plan)) : null);
