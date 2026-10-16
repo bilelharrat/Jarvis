@@ -127,12 +127,14 @@ class Note:
     urgent: bool = False  # makes a sound even in quiet hours
     level: str = "active"
     ttl: int = 3600  # seconds Apple may keep trying while the phone is out of reach
+    # More for the app in the payload's own key (a handoff's link: features/code_phone.py).
+    extra: dict[str, Any] = field(default_factory=dict)
 
     def payload(self, quiet: bool, now: float) -> dict[str, Any]:
         level, sound = self.level, True
         if quiet and not self.urgent:
             level, sound = "passive", False
-        jarvis: dict[str, Any] = {"kind": self.kind, "id": self.ident, "at": int(now)}
+        jarvis: dict[str, Any] = {**self.extra, "kind": self.kind, "id": self.ident, "at": int(now)}
         if self.task_id is not None:
             jarvis["task_id"] = self.task_id
         if self.choices:
@@ -399,17 +401,21 @@ class Notifier:
             self._sent = {k: v for k, v in self._sent.items() if now - v[0] < REPEAT_SECONDS}
         return False
 
-    async def deliver(self, note: Note, *, test: bool = False, only: str = "") -> dict[str, str]:
+    async def deliver(
+        self, note: Note, *, test: bool = False, only: str = "", asked: bool = False
+    ) -> dict[str, str]:
         """Push this to every phone that wants it (test: to each registered phone, or
-        only this one, whatever it wants and wherever the owner is). What happened, by
-        device id: "sent", or why not."""
+        only this one, whatever it wants and wherever the owner is; asked: the owner asked
+        for this push now, at the Mac, so to each registered phone whatever its settings say
+        and wherever the owner is, still within its rate limit: a handoff). What happened,
+        by device id: "sent", or why not."""
         creds = await self.sender.route()  # the owner's key, or their Jarvis account
         if creds is None:
             return {}
-        if not test and not await self.owner_is_away():
+        if not test and not asked and not await self.owner_is_away():
             return {}
         now = self.clock()
-        quiet = not test and quiet_hours_now(self.hub, datetime.now(), in_quiet_hours)
+        quiet = not test and not asked and quiet_hours_now(self.hub, datetime.now(), in_quiet_hours)
         payload = note.payload(quiet, now)
         store = self.companion.store
         jobs: dict[str, Awaitable[push.Result]] = {}
@@ -421,7 +427,7 @@ class Notifier:
             registration = record and record["push"]
             if not registration:
                 continue
-            if not test and not self.wants(record["settings"], note.setting):
+            if not test and not asked and not self.wants(record["settings"], note.setting):
                 continue
             if not creds.allows(registration["bundle_id"]):
                 outcome[device.id] = "not this app"
