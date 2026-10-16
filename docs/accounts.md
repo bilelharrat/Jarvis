@@ -876,9 +876,24 @@ stand-in's id, so the allowance (or Help's own budget) is charged at its registr
 (`proxy.js` `priceOf`). Token counts (`/count_tokens`) are estimated (a token per 3 bytes). Only
 with none of the three keys do these answer 503 `not_set_up`.
 
+### Eden Cloud tokens (hosted Eden Code runs)
+
+`POST /cloud/token` (auth: a `mac` device) → 200 `{ "token": "<JWS>", "expires_in": 600, "plan": "plus" | "free" }`.
+What a linked Mac trades its device token for, to use Eden Cloud (`JARVIS V1/cloud/`, hosted Eden
+Code runs). The device token never goes to Eden Cloud: it gets this instead, good for ten minutes
+and for nothing else. A compact JWS, `alg: EdDSA` (Ed25519), signed with the secret
+`EDEN_CLOUD_SIGNING_KEY` (PKCS#8, base64); claims `iss` (`askeden.com`, or the var
+`EDEN_CLOUD_ISSUER`), `aud: "eden-cloud"`, `sub` the account, `dev` the device, `kind: "mac"`,
+`plan`, `iat`, `exp`, `jti`. Eden Cloud checks it with the public key alone. Any other device kind
+→ 403 `forbidden`; no key → 503 `not_set_up`. Limited by `API_RATE` (`cloud:<account>`).
+Code: `accounts/cloud-token.js`; Eden Cloud's side: `cloud/eden_cloud/auth.py`.
+
 ## What the owner sets up once
 
 Worker secrets (`cd site && npx wrangler secret put NAME`):
+- optional `EDEN_CLOUD_SIGNING_KEY`: an Ed25519 private key (PKCS#8, base64) for Eden Cloud
+  tokens; its public key (raw, base64) goes to Eden Cloud as `EDEN_CLOUD_ASKEDEN_PUBLIC_KEY`
+  (cloud/README.md). Without it `POST /api/cloud/token` answers 503.
 - `ANTHROPIC_API_KEY` (optional): the key Jarvis Plus, Help, @Eden and background tasks spend on
   Claude; without it they run on `GEMINI_API_KEY` or `OPENAI_API_KEY` ("Included AI without an
   Anthropic key").
