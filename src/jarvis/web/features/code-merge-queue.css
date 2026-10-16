@@ -1,0 +1,28 @@
+/* Eden Code's merge queue lane on the agent board (features/code-merge-queue.js): each
+   project's queue in landing order, and what's ready to join it. The Summit Glass tokens
+   of .deck.jc, so it follows light and dark as the board's other lanes do. */
+
+.cs-lanes.cs-lanes-more:has(> .cs-lane:nth-child(7)) { grid-template-columns: repeat(7, minmax(200px, 1fr)); }
+@media (max-width: 1320px) { .cs-lanes.cs-lanes-more:has(> .cs-lane:nth-child(7)) { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } }
+.cs-lane-dot.mq { background: rgb(var(--c-teal, var(--c-accent))); }
+.mq-needs { margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft, var(--c-fill-3))); }
+
+.mq-queue, .mq-ready { display: flex; flex-direction: column; gap: 6px; }
+.mq-queue-head { display: flex; align-items: center; gap: 6px; margin: 0 4px; }
+.mq-project { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.mq-sub { margin: 4px 4px 0; font-size: 11.5px; font-weight: 600; color: rgb(var(--c-muted)); }
+.cs-board .mq-lane .jc-btn { padding: 3px 9px; font-size: 11.5px; }
+.cs-board .mq-card .cs-card-acts .jc-btn:is([aria-label^="↑"], [aria-label^="↓"]) { min-width: 28px; }
+
+.mq-card .cs-card-project { white-space: normal; }
+.mq-state { -webkit-line-clamp: 1; }
+.mq-note { font-size: 11.5px; line-height: 1.4; white-space: normal; }
+.mq-card.working { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-accent) / 0.45); }
+.mq-card.owner { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-warning, var(--c-danger)) / 0.55); }
+.mq-card.paused { opacity: 0.72; }
+.mq-candidate { opacity: 0.9; }
+.jc-dot.mq-queued { background: rgb(var(--c-muted)); }
+.jc-dot.mq-working, .jc-dot.mq-checks { background: rgb(var(--c-accent)); }
+.jc-dot.mq-fixing { background: rgb(var(--c-purple)); }
+.jc-dot.mq-owner { background: rgb(var(--c-warning, var(--c-danger))); }
+.jc-dot.mq-paused { background: rgb(var(--c-fill-3)); }

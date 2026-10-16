@@ -1,0 +1,25 @@
+{
+  "strings": {
+    "Merge queue": "合并队列",
+    "Waiting its turn": "等待轮到它",
+    "Landing now": "正在合并",
+    "Waiting for its checks": "等待它的检查",
+    "Back with its session": "已交回它的会话",
+    "Paused": "已暂停",
+    "Needs you": "需要你",
+    "need you": "个需要你",
+    "Ready to queue": "可以加入队列",
+    "Queue": "加入队列",
+    "Pause queue": "暂停队列",
+    "Resume queue": "恢复队列",
+    "Try again": "重试",
+    "Resume": "继续",
+    "Pause": "暂停",
+    "Remove": "移除",
+    "Move up": "上移",
+    "Move down": "下移",
+    "pull request": "拉取请求",
+    "isolated copy": "独立副本",
+    "Nothing to land. Copies and pull requests with work show here.": "没有要合并的。有工作的副本和拉取请求会显示在这里。"
+  }
+}

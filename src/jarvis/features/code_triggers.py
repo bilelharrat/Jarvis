@@ -618,7 +618,12 @@ class Triggers:
 
     async def _linear_door(self, signing: str, body: bytes, headers: Any,
                            config: dict[str, Any]) -> tuple[int, dict[str, Any]]:  # fmt: skip
-        if not linear.verify(signing, body, headers.get("linear-signature", "")):
+        # Signed by the workspace's webhook, or by one of Eden's agents' own Linear apps
+        # (code_linear_agents: each app signs its webhooks with its own secret).
+        agents = getattr(self.hub, "linear_agents", None)
+        signings = [signing, *(await agents.secrets() if agents is not None else [])]
+        offered = headers.get("linear-signature", "")
+        if not any(linear.verify(s, body, offered) for s in signings):
             return 401, {"error": "bad signature"}
         payload = _json(body)
         if payload is None:
@@ -715,7 +720,13 @@ class Triggers:
 
     async def on_linear(self, payload: dict[str, Any], config: dict[str, Any]) -> str:
         """A Linear webhook, signed and fresh: a session for a ticket just given to Eden by
-        someone on the owner's list. What was done ("" for nothing)."""
+        someone on the owner's list. What was done ("" for nothing). Eden's named agents
+        (code_linear_agents) hear it first: theirs is theirs."""
+        agents = getattr(self.hub, "linear_agents", None)
+        if agents is not None:
+            said = await agents.on_linear(payload, config)
+            if said is not None:
+                return said
         if payload.get("type") != "Issue" or payload.get("action") not in ("create", "update"):
             return ""
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
@@ -901,6 +912,10 @@ class Triggers:
 
     async def post(self, job: dict[str, Any], text: str) -> None:
         """A fixed line back on the ticket or in the thread (never the session's words)."""
+        agents = getattr(self.hub, "linear_agents", None)
+        if job.get("agent") and agents is not None:
+            await agents.post(job, text)  # (as the agent: its session's activity, or signed)
+            return
         try:
             if job["service"] == "linear":
                 if job.get("issue_id"):

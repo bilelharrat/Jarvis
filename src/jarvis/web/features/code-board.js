@@ -136,7 +136,8 @@
     board,
     isOpen: () => isOpen(),
     open: () => open(),
-    addLane(lane) { extraLanes.push(lane); drawn = ''; schedule(); },
+    // (lane.order: where it goes among them, lowest first; 0 unless it says, in the order added)
+    addLane(lane) { extraLanes.push(lane); extraLanes.sort((a, b) => (a.order || 0) - (b.order || 0)); drawn = ''; schedule(); },
     refresh() { drawn = ''; schedule(); },
   };
   const shared = () => F.codeSessions || { meta: new Map(), unread: new Set() };

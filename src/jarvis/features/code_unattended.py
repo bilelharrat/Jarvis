@@ -194,6 +194,7 @@ class Scope:
     commands: list[str] = field(default_factory=list)
     spend_cap: float = SPEND_DEFAULT
     hours: float = HOURS_DEFAULT
+    model: str = ""  # a model's ref (Eden's agents in Linear name theirs), else the project's
 
 
 @dataclass
@@ -273,6 +274,24 @@ def end_hooks_of(hub: Any) -> list[Any]:
         found = []
         hub.code_run_end_hooks = found
     return found
+
+
+def holds_of(hub: Any) -> list[Any]:
+    """The hub's list of hooks that keep a run going when its turn ends done: hook(run,
+    task) -> True while it waits for something (an answer to a question it asked)."""
+    found = getattr(hub, "code_run_holds", None)
+    if found is None:
+        found = []
+        hub.code_run_holds = found
+    return found
+
+
+def _holds(hold: Any, run: Any, task: Any) -> bool:
+    try:
+        return bool(hold(run, task))
+    except Exception:
+        log.exception("a run's hold failed")
+        return False
 
 
 def check_command(entry: str) -> str:
@@ -643,7 +662,9 @@ class Runs:
         """Start a run the owner has approved (or scheduled, or opted a repository in for)."""
         self.load()
         own = self.hub.tasks.defaults_for(scope.project)
-        cfg = self.hub._model_config(str(own.get("model") or self.hub.prefs.code_model or ""))
+        cfg = self.hub._model_config(
+            str(scope.model or own.get("model") or self.hub.prefs.code_model or "")
+        )
         try:
             task = self.hub.tasks.start(
                 scope.prompt,
@@ -952,6 +973,8 @@ class Runs:
         elif status == "done":
             if task.busy or not task.inbox.empty():
                 return  # more to do
+            if any(_holds(hold, run, task) for hold in holds_of(self.hub)):
+                return  # waiting for an answer (code_linear_agents: a question in Linear)
             why = "finished"
         elif status == "failed" and not task.workspace:
             why = "copy"
