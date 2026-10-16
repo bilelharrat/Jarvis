@@ -1,0 +1,39 @@
+{
+ "strings": {
+  "Programs on this Mac": "这台 Mac 上的程序",
+  "On this Mac only.": "只在这台 Mac 上。",
+  "API token": "API 令牌",
+  "Kept in the Keychain. Send it as Authorization: Bearer <token>.": "保存在钥匙串里。用 Authorization: Bearer <令牌> 发送。",
+  "Regenerate": "重新生成",
+  "Show the API token": "显示 API 令牌",
+  "Copy the API token": "复制 API 令牌",
+  "Make a new API token": "生成新的 API 令牌",
+  "It stays the same across launches.": "每次启动都保持不变。",
+  "Save the port": "保存端口",
+  "The eden-code command": "eden-code 命令",
+  "Install again": "重新安装",
+  "Install the eden-code command": "安装 eden-code 命令",
+  "A pattern in the project; * crosses folders.": "项目里的模式；* 可以跨文件夹。",
+  "Its first message, each time the files change.": "每次文件变化时，它的第一条消息。",
+  "For each run.": "每次运行。",
+  "Add a watch…": "添加监视…",
+  "Say what to do first.": "请先说要做什么。",
+  "The pattern is a path inside the project, like src/**/*.py.": "模式是项目里的路径，比如 src/**/*.py。",
+  "Letters, digits, spaces, dots, dashes.": "字母、数字、空格、点、横线。",
+  "What it sends is added to this, as data.": "它发来的内容会作为数据加在这后面。",
+  "Add a webhook…": "添加 Webhook…",
+  "Watches and webhooks": "监视和 Webhook",
+  "Watches": "监视",
+  "No watches yet.": "还没有监视。",
+  "Show the secret": "显示密钥",
+  "Control Eden Code from code": "用代码控制 Eden Code",
+  "Control from code": "用代码控制",
+  "The eden-code command and a local API (docs/eden-code-api.md). Off until you turn it on.": "eden-code 命令和一个本地 API（docs/eden-code-api.md）。你开启之前一直关闭。",
+  "Scripts, CI and other agents with your API token can start sessions (never in Auto or Bypass permissions), send them messages, read them, stop them and add to-do cards. Landing, discarding and Exterminator Mode still ask you here.": "持有你的 API 令牌的脚本、CI 和其他智能体可以启动会话（绝不会是自动或绕过权限模式）、给会话发消息、读取会话、停止会话和添加待办卡片。合并、丢弃和灭虫模式仍会在这里问你。",
+  "Runs without you that start by themselves: when files change, or when another program sends a signed request. Each in an isolated copy, in Accept edits, within the scope you OK on its card.": "自己启动的无人值守运行：在文件变化时，或另一个程序发来签名请求时。每次都在独立副本里、以自动接受编辑模式运行，只在你在它的卡片上确认的范围内。",
+  "Writes ~/.local/bin/eden-code, which runs Eden Code’s own Python. Then: eden-code sessions, eden-code start --project … --prompt …": "写入 ~/.local/bin/eden-code，它运行 Eden Code 自带的 Python。然后：eden-code sessions、eden-code start --project … --prompt …"
+ },
+ "patterns": [
+  ["^Installed: (.+)$", "已安装：$1"]
+ ]
+}

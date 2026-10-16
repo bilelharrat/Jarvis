@@ -1,7 +1,8 @@
 // Eden Code's agent board: every session as a card, by where it stands (needs you,
 // working, done, failed, resting), with its project, branch, lines changed, cost, last
 // activity and what it's doing, and a click to open it, stop it or answer what it asks.
-// The Dock's badge says how many sessions need you (app/features/code-sessions.js).
+// The Dock's badge says how many sessions need you (app/features/code-sessions.js), unless
+// the Needs attention inbox is there to say how much is waiting in all (code-attention.js).
 //
 // For a screen reader and the keyboard alone (F16, Eden Daredevil): each lane is a list and
 // each card a list item that says, in one line, which session it is, where it stands and
@@ -200,8 +201,10 @@
     frame = requestAnimationFrame(() => { frame = 0; if (!pressing) render(); });
   }
 
-  // The Dock's badge: sessions waiting on an answer from you.
+  // The Dock's badge: sessions waiting on an answer from you. The Needs attention inbox
+  // (code-attention.js) counts those and everything else waiting, and badges the Dock itself.
   function badge() {
+    if (F.codeAttention && F.codeAttention.badges) return;
     const count = ccTasks.filter((x) => asksOf(x.id).length).length;
     if (count === B.badge) return;
     B.badge = count;

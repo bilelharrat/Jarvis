@@ -369,6 +369,9 @@ EDEN_CODE_S_OWN = {
         "code_sessions",
         "code_stack_watch",
         "code_triggers_listener",
+        "code_api_listener",  # the local API, on 127.0.0.1 only while its switch is on
+        "code_automate_hooks",  # the webhooks' listener, only while they're on
+        "code_automate_watches",  # a project's files, only while watches are on
         "code_usage_midnight",
         "code_verify",
         "code_voice_journal",

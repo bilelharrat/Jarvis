@@ -1,0 +1,16 @@
+/* Eden Code settings › Control from code: the API's switch, address, token and command, then
+   the watches and webhooks, each a row of its own. */
+
+.jcx-api-block { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); padding: 6px 0; }
+.jcx-api-tools { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.jcx-api-tools .jcs-input[type="number"] { width: 90px; }
+.jcx-api code, .jcx-api-token { font: 11px var(--mono); color: rgb(var(--c-accent-ink)); overflow-wrap: anywhere; max-width: 300px; }
+.jcx-api-example { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; font: 10.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: rgb(var(--c-ink-2)); background: rgb(var(--c-surface-muted)); }
+.jcx-api-form { display: flex; flex-direction: column; }
+.jcx-api-actions { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; }
+.jcx-api-list { list-style: none; margin: 2px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jcx-api-item { display: flex; flex-direction: column; gap: 3px; padding: 6px 0; border-bottom: 0.5px solid rgb(var(--c-border)); font-size: 12.5px; }
+.jcx-api-item small { font-size: 11.5px; }
+.jcx-api-error { margin: 2px 0 0; font-size: 12px; color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-api .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-api .jc-btn.filled { color: #fff; }

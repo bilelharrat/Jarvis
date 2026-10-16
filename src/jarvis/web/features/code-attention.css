@@ -1,0 +1,34 @@
+/* Eden Code's Needs attention inbox (features/code-attention.js): its button in the sidebar's
+   foot, with the count, and the inbox: a glass sheet beside the sidebar, one calm row per
+   thing waiting. The Summit Glass tokens of .deck.jc, light and dark alike. */
+
+.jc-icon.ca-btn { position: relative; }
+.jc-icon.ca-btn.ca-has { color: rgb(var(--c-ink)); }
+.jc-icon.ca-btn[aria-expanded="true"] { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent-ink)); }
+.ca-count { position: absolute; top: -3px; right: -4px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: rgb(var(--c-warning)); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px rgb(var(--c-surface)); }
+.ca-count[hidden] { display: none; }
+
+.ca-inbox { position: fixed; left: 16px; bottom: 64px; z-index: 40; width: min(420px, calc(100vw - 32px)); max-height: min(560px, calc(100vh - 120px)); display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; }
+.ca-inbox[hidden] { display: none; }
+.ca-inbox.glass-panel::before { background-color: var(--glass-fill-strong); }
+.ca-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 12px 8px 18px; }
+.ca-titles { flex: 1; min-width: 0; }
+.ca-title { margin: 0; font-family: var(--sans); font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+.ca-sub { margin: 3px 0 0; font-size: 12px; line-height: 1.4; color: rgb(var(--c-muted)); }
+.ca-sub:empty { display: none; }
+.ca-close { width: 26px; height: 26px; flex: none; font-size: 17px; color: rgb(var(--c-muted)); }
+.ca-close:hover { color: rgb(var(--c-ink)); }
+
+.ca-list { list-style: none; margin: 0; padding: 4px 12px 14px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.ca-item { display: flex; flex-direction: column; gap: 4px; padding: 9px 12px 10px; border-radius: 13px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.ca-item.ca-approval, .ca-item.ca-conflict { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-warning) / 0.5); }
+.ca-item-top { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: rgb(var(--c-ink-2)); }
+.ca-item-top .jc-dot { flex: none; }
+.ca-project { margin-left: auto; font-weight: 500; text-transform: none; letter-spacing: 0; color: rgb(var(--c-muted)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-said { margin: 0; font-size: 13px; line-height: 1.4; color: rgb(var(--c-ink)); overflow-wrap: anywhere; }
+.ca-detail { margin: 0; font-size: 12px; color: rgb(var(--c-muted)); overflow-wrap: anywhere; }
+.ca-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.ca-acts .jc-btn { padding: 4px 10px; font-size: 11.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-empty { margin: 4px 18px 18px; font-size: 13px; color: rgb(var(--c-subtle)); }
+.ca-empty[hidden] { display: none; }
+.ca-inbox button:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }

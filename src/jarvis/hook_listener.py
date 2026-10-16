@@ -171,9 +171,17 @@ def came_through(request: Any) -> bool:
 class HookListener:
     """The server; start(port) and stop() from the app's loop, close_now() from anywhere."""
 
-    def __init__(self, names: tuple[str, ...], dispatch: Callable[[str, Any], Awaitable[Any]]):
+    def __init__(
+        self,
+        names: tuple[str, ...],
+        dispatch: Callable[[str, Any], Awaitable[Any]],
+        app: Any = None,
+    ):
+        """app: an ASGI app of the caller's own to serve in place of the hooks' doors (the
+        local API of features/code_api.py), with the same port rules, deadlines and caps."""
         self.names = frozenset(names)
         self.dispatch = dispatch
+        self.app = app
         self.port = 0  # the port it listens on (0 while it doesn't)
         self.error = ""  # why it couldn't, in words for the owner
         self._server: Any = None
@@ -207,7 +215,7 @@ class HookListener:
         from .mcp_endpoint import quiet_server
 
         config = uvicorn.Config(
-            build_app(self.names, self.dispatch),
+            self.app if self.app is not None else build_app(self.names, self.dispatch),
             log_level="warning",
             lifespan="off",
             access_log=False,

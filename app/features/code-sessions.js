@@ -1,6 +1,7 @@
-// Eden Code sessions in the app itself: the Dock's badge counts the sessions waiting on
-// an answer from you (the window's agent board sends the count), and Open folder… has a
-// folder picker of its own, titled for what it's for.
+// Eden Code sessions in the app itself: the Dock's badge counts what's waiting on you (the
+// window's Needs attention inbox sends the count: approvals, replies, failed and stopped
+// runs…; without it, the agent board's sessions waiting on an answer), and Open folder… has
+// a folder picker of its own, titled for what it's for.
 //
 // Other features can badge the Dock too: each keeps its own count in app.jarvisBadges and
 // the badge shows their sum, so none overwrites another's.
