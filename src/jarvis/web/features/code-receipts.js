@@ -1,21 +1,37 @@
 // A turn's proof (features/code_receipts.py): the transcript's "Proof · …" entry drawn as one
-// card: what changed, the tests, the check after the turn with its picture, and the risk,
-// in a colour and in words; for a Spec mode task, which requirements it met (code-spec.js).
-// The entry's text stays the same everywhere else (the phone, voice).
+// card: what changed, the tests, whether its tests still test (code_test_integrity: a test
+// weakened, mutants caught), the check after the turn with its picture, and the risk, in a
+// colour and in words; for a Spec mode task, which requirements it met (code-spec.js). The
+// entry's text stays the same everywhere else (the phone, voice). Its settings (Settings ›
+// Eden Code › Receipts): the integrity check (on) and the quick mutation pass (off).
 (function (root) {
   'use strict';
 
-  // The tests line as [class, words, count]: passed / failed with the count when the run
-  // said one, "Tests ran" when it said none (passed is null: it exited fine, but there's no
-  // count to trust; the output may have been cut off). Never "(0)": count is 0 then.
+  // The tests line as [class, words, count], by the run's state (codesupervisor.tests_verdict):
+  // "Tests passed" only for a real pass (passed true, a count, nothing changed after it),
+  // amber when a test was weakened; failed with its count; "Tests ran" when it said none;
+  // stopped, refused or out of date said so. Never "(0)": count is 0 then. A receipt from
+  // before states were sent (no state) reads its passed as it always did.
   function testsLine(t) {
     if (!t) return ['rc-none', 'No tests run', 0];
-    if (t.passed == null) return ['rc-none', 'Tests ran (no result shown)', 0];
-    const n = Number(t.passed ? t.passed_count : t.failed_count) || 0;
-    return t.passed ? ['rc-ok', 'Tests passed', n] : ['rc-bad', 'Tests failed', n];
+    const state = t.state || (t.passed == null ? 'unknown' : t.passed ? 'passed' : 'failed');
+    const passed = Number(t.passed_count) || 0;
+    if (state === 'passed' && t.passed === true && passed > 0) return [t.trusted === false ? 'rc-warn' : 'rc-ok', 'Tests passed', passed];
+    if (state === 'failed') return ['rc-bad', 'Tests failed', Number(t.failed_count) || 0];
+    if (state === 'stale') return ['rc-warn', 'Tests passed before its last edits', passed];
+    if (state === 'cancelled') return ['rc-warn', 'Tests didn’t finish', 0];
+    if (state === 'refused') return ['rc-none', 'Tests not run (not allowed)', 0];
+    return ['rc-none', 'Tests ran (no result shown)', 0];
   }
 
-  if (typeof module === 'object' && module.exports) { module.exports = { testsLine }; return; }
+  // The integrity lines (code_test_integrity) as [class, text]: the backend's own words.
+  const TONE = { ok: 'rc-ok', warn: 'rc-warn', bad: 'rc-bad', none: 'rc-none' };
+  function integrityLines(r) {
+    const lines = (r && r.integrity && Array.isArray(r.integrity.lines)) ? r.integrity.lines : [];
+    return lines.filter((x) => x && x.text).slice(0, 4).map((x) => [TONE[x.tone] || 'rc-none', String(x.text)]);
+  }
+
+  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, integrityLines }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
   const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
@@ -42,7 +58,9 @@
     head.append(el('span', `rc-risk rc-${r.risk}`, F.t(RISK[r.risk] || r.risk)), el('span', 'rc-why', r.why));
     const facts = el('ul', 'rc-facts');
     facts.append(el('li', '', `${r.file_count} ${r.file_count === 1 ? F.t('file changed') : F.t('files changed')}`));
+    if (r.stopped) facts.append(el('li', 'rc-warn', F.t('Stopped before it finished')));
     facts.append(testsFact(r.tests));
+    for (const [cls, text] of integrityLines(r)) facts.append(el('li', `${cls} rc-integrity`, text));
     if (r.check) facts.append(el('li', r.check.status === 'problems' ? 'rc-bad' : 'rc-ok', r.check.text || r.check.status));
     // The session's own check of its work (code_selfcheck: "Check it yourself").
     const selfCheck = r.selfcheck;
@@ -97,4 +115,44 @@
     }
   }
   F.registerEntryDecorator(card);
+
+  // ── Settings › Eden Code: Receipts (prefs.features) ──
+  const features = {};
+  const SWITCHES = [
+    ['code_test_integrity', true, 'Check tests weren’t weakened', 'Before a receipt says the tests passed, read the turn’s test changes for assertions taken out or loosened, skips, a test command that can’t fail, tests deleted and mocks of the code under test.'],
+    ['code_mutation_pass', false, 'Quick mutation pass', 'After a turn whose tests passed, make a few small changes to the lines it changed and rerun the relevant tests in a scratch copy, to show how many they catch. Up to 3 minutes; no AI is used.'],
+  ];
+  const switches = {};
+  (function addSettings() {
+    const general = document.getElementById('jcs-general');
+    if (!general) return;
+    const label = el('p', 'jcs-label', F.t('Receipts'));
+    const group = el('div', 'jcs-group');
+    for (const [key, , name, note] of SWITCHES) {
+      const row = el('div', 'jcs-row');
+      const text = el('span');
+      text.append(document.createTextNode(F.t(name)), el('small', '', F.t(note)));
+      const sw = el('button', 'jcs-switch');
+      sw.type = 'button';
+      sw.id = `rc-pref-${key}`;
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-label', F.t(name));
+      sw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { [key]: !valueOf(key) } }));
+      switches[key] = sw;
+      row.append(text, sw);
+      group.append(row);
+    }
+    const foot = general.querySelector('.jcs-foot');
+    general.insertBefore(label, foot);
+    general.insertBefore(group, foot);
+  })();
+  function valueOf(key) {
+    const found = SWITCHES.find((s) => s[0] === key);
+    return key in features ? !!features[key] : !!(found && found[1]);
+  }
+  function drawSettings() { for (const [key] of SWITCHES) if (switches[key]) switches[key].setAttribute('aria-checked', String(valueOf(key))); }
+  function prefsFrom(prefs) { if (prefs && prefs.features) Object.assign(features, prefs.features); drawSettings(); }
+  F.on('hello', (ev) => prefsFrom(ev.prefs), { replay: true });
+  F.on('prefs', (ev) => prefsFrom(ev), { replay: true });
+  drawSettings();
 })(typeof window === 'object' ? window : globalThis);

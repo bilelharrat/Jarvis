@@ -14,3 +14,10 @@
 .rc-files { margin-top: 4px; font-size: 12px; }
 .rc-qa { margin-top: 6px; font-size: 12px; }
 .rc-video { display: block; max-width: 320px; margin-top: 6px; border-radius: 6px; }
+/* A pass that can't be trusted as it stands (a test weakened, or run before the last edits),
+   a run that didn't finish, few mutants caught: amber, between the green and the red. */
+.rc-facts .rc-warn { color: #b7791f; }
+@media (prefers-color-scheme: dark) { .rc-facts .rc-warn { color: #e0a030; } }
+/* The integrity lines are sentences: each on a line of its own, under the short facts. */
+.rc-facts .rc-integrity { flex-basis: 100%; }
+.rc-facts:has(> .rc-integrity) { row-gap: 4px; }
