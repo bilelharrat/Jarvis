@@ -279,9 +279,8 @@
   side.setAttribute('aria-label', t('Settings sections'));
   const lights = el('div', 'ecs-lights');
   const close = doc.getElementById('jcs-close');
-  if (close) { close.classList.add('ecs-light', 'red'); lights.append(close); }
-  lights.append(el('span', 'ecs-light yellow'), el('span', 'ecs-light green'));
-  lights.querySelectorAll('span.ecs-light').forEach((n) => n.setAttribute('aria-hidden', 'true'));
+  // Just the close button, an X in a rounded square: no yellow and green dots, which did nothing.
+  if (close) { close.classList.add('ecs-close'); lights.append(close); }
   const title = doc.getElementById('jcs-title');
   if (title) { title.classList.add('ecs-vh'); side.append(title); }
   const search = el('input', 'ecs-search');

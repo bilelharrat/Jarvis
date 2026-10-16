@@ -81,14 +81,20 @@ body.eden-code .jcs-card.ecs button, body.eden-code .jcs-card.ecs select, body.e
   flex: 0 0 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; overflow-y: auto;
   border-radius: 18px; background: var(--ecs-side); border: 1px solid var(--ecs-side-rim); box-shadow: var(--ecs-side-sh);
 }
-.jcs-card.ecs .ecs-lights { display: flex; gap: 8px; padding: 2px 6px 14px; }
-.jcs-card.ecs .ecs-light { width: 12px; height: 12px; flex: none; border-radius: 50%; padding: 0; border: 0; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12); }
-body.eden-code .jc-settings .jcs-card.ecs .ecs-light.red, body.eden-code .jc-settings .jcs-card.ecs .ecs-light.red:hover { width: 12px; height: 12px; min-width: 0; padding: 0; border-radius: 50%; background: #ff5f57; color: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.jcs-card.ecs .ecs-light.red svg { width: 6px; height: 6px; stroke-width: 3; }
-.jcs-card.ecs .ecs-lights:hover .ecs-light.red, .jcs-card.ecs .ecs-light.red:focus-visible { color: rgba(77, 0, 0, 0.7); }
-.jcs-card.ecs .ecs-light.red:focus-visible { outline: 2px solid var(--ecs-accent); outline-offset: 2px; }
-.jcs-card.ecs .ecs-light.yellow { background: #febc2e; }
-.jcs-card.ecs .ecs-light.green { background: #28c840; }
+.jcs-card.ecs .ecs-lights { display: flex; padding: 0 2px 12px; }
+/* Close: an X in a rounded square (the window's own buttons close the window; this closes Settings). */
+body.eden-code .jc-settings .jcs-card.ecs .ecs-close, body.eden-code .jc-settings .jcs-card.ecs .ecs-close:hover {
+  width: 28px; height: 28px; min-width: 0; padding: 0; border: 0; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--ecs-close-bg, rgba(255, 255, 255, 0.55)); color: var(--ecs-close-ink, #3a3a3c);
+  box-shadow: inset 0 1px 0 var(--ecs-close-rim, rgba(255, 255, 255, 0.9)), inset 0 0 0 1px var(--ecs-close-edge, rgba(0, 0, 0, 0.1));
+}
+body.eden-code .jc-settings .jcs-card.ecs .ecs-close:hover { filter: brightness(0.96); }
+body.eden-code .jc-settings .jcs-card.ecs .ecs-close svg { width: 12px; height: 12px; stroke-width: 2; }
+.jcs-card.ecs .ecs-close:focus-visible { outline: 2px solid var(--ecs-accent); outline-offset: 2px; }
+@media (prefers-color-scheme: dark) {
+  body.eden-code .jc-settings .jcs-card.ecs { --ecs-close-bg: rgba(255, 255, 255, 0.1); --ecs-close-ink: #e5e5ea; --ecs-close-rim: rgba(255, 255, 255, 0.16); --ecs-close-edge: rgba(255, 255, 255, 0.1); }
+}
 .jcs-card.ecs .ecs-search {
   margin: 0 2px 10px; padding: 7px 10px; border: 0; border-radius: 9px; background: var(--ecs-field);
   font: inherit; font-size: 13px; color: var(--ecs-text); outline: none; -webkit-appearance: none; appearance: none;

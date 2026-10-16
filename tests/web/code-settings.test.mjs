@@ -209,3 +209,11 @@ test('every merged feature’s settings group lands in its section', () => {
   ];
   for (const [d, section] of expected) assert.equal(where(d), section, JSON.stringify(d));
 });
+
+test('Settings has only a close button, an X in a rounded square: no yellow or green dots', () => {
+  const js = readFileSync(new URL('../../src/jarvis/web/features/code-settings.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../src/jarvis/web/features/code-settings.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(js, /ecs-light (yellow|green)/);
+  assert.match(js, /close\.classList\.add\('ecs-close'\)/);
+  assert.match(css, /\.ecs-close, body\.eden-code \.jc-settings \.jcs-card\.ecs \.ecs-close:hover \{[^}]*border-radius: 8px;/);
+});
