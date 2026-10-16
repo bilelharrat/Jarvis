@@ -55,6 +55,13 @@ HTTP (remote.py's server): GET /code/ (the page), /code/phone.js, /code/phone.cs
 /code/sw.js, /code/manifest.webmanifest, /code/icon.png; with the device token:
 GET /api/code/phone/home, /api/code/phone/options, /api/code/phone/session?id&after&seen&v&wait;
 POST /api/code/phone/{send, answer, stop, mode, model, new, land, discard, unpin}.
+For the native iPhone app (Eden Code's own, 2026-10-16), on the same gate and switch:
+GET /api/code/phone/changes?id&view&path (the Changes pane's payload, code_hunks), receipts?id&tail
+(the turns' receipts, no pictures), todos (the to-do column and its queues), usage (the meter's
+glance); POST /api/code/phone/hunk {id, hunk | hunks, action: keep|unkeep|undo, view} (Keep and
+Undo, Undo all), comments {id, comments: [{path, line, side?, excerpt?, text}]} (as one message,
+code_api.comment_message), steer {id, text} (into the running step), todo_start {card} (never in
+Auto or Bypass: those start on the Mac).
 Settings (prefs.features): code_phone_web (bool, off), code_phone_offered (bool: the first-run
 card's offer was answered).
 
@@ -143,6 +150,11 @@ ZH = {
     "Pinned for your phone. No phone gets Eden's notifications yet: open the link on it.": "已为手机固定。还没有手机接收 Eden 的通知：请在手机上打开链接。",
     "Pinned for your phone. Turn on the phone companion in Settings › iPhone & Watch to reach it.": "已为手机固定。请在设置 › iPhone 与手表里打开手机伴侣，才能连上它。",
     "Open a session to hand it off.": "打开一个会话才能交给手机。",
+    "The Changes pane isn't available here.": "这里没有改动面板。",
+    "Say which change, and Keep or Undo.": "请说明是哪处改动，以及保留还是撤销。",
+    "Each comment needs a file, a line and what to say.": "每条评论都需要文件、行号和内容。",
+    "This card would start in Auto or Bypass permissions: start it on your Mac.": "这张卡片会以“自动”或“绕过权限”启动：请在 Mac 上启动它。",
+    "Couldn't read the usage meter.": "没能读取用量。",
 }  # fmt: skip
 lang.add_texts(ZH)
 

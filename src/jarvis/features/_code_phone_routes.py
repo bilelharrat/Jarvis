@@ -29,6 +29,27 @@ from .code_phone import (
 log = logging.getLogger("jarvis")
 
 OFF = "Turn on Eden Code on your phone in Eden Code › More › Hand off to phone first."
+NO_CHANGES = "The Changes pane isn't available here."
+HUNKS_AT_ONCE = 200  # hunks one Keep or Undo takes (the phone's Undo all)
+RECEIPTS_DEFAULT = 5
+RECEIPTS_MOST = 20
+TODOS_SHOWN = 300
+TODO_PHONE_MODES = ("ask", "edits", "plan")  # a to-do card never starts in Auto or Bypass here
+PICTURE_KEYS = ("thumb", "image", "picture", "screenshot", "data")
+
+
+def _phone_line(text: Any, limit: int) -> str:
+    return " ".join(str(text or "").split())[:limit]
+
+
+def _no_pictures(value: Any) -> Any:
+    """A receipt without the pictures in it (a check's thumbnail, a self-check's frame):
+    the phone shows the words; the window has the pictures."""
+    if isinstance(value, dict):
+        return {k: _no_pictures(v) for k, v in value.items() if k not in PICTURE_KEYS}
+    if isinstance(value, list):
+        return [_no_pictures(v) for v in value]
+    return value
 
 
 def routes(phone: Any, gate: Any) -> list[Route]:
@@ -380,6 +401,226 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         hub._spawn(phone.publish())
         return answer({"ok": True})
 
+    # ── for the iPhone app (Eden Code's own, docs/eden-code-phone.md): its changes, its
+    # receipts, line comments, steering, the to-do queue and the usage glance. The same gate
+    # and switch as the rest; what each may do is what the window's own pane does. ──
+
+    def hunks() -> Any:
+        return getattr(hub, "code_hunks", None)
+
+    async def changes(request: Request) -> Response:
+        _device, refused = admitted(request, "read")
+        if refused is not None:
+            return refused
+        query = request.query_params
+        task = phone.session(query.get("id"))
+        if task is None:
+            return bad("No such session.", 404)
+        pane = hunks()
+        if pane is None:
+            return bad(NO_CHANGES, 409)
+        from .. import code_changes
+        from .code_hunks import VIEWS
+
+        which = query.get("view") if query.get("view") in VIEWS else "session"
+        path = str(query.get("path") or "")[:1000]
+        view = await asyncio.to_thread(code_changes.task_view, task, which)
+        return answer(pane.payload(task, which, view, path))
+
+    async def hunk(request: Request) -> Response:
+        """Keep, un-keep or undo hunks by id, as the Changes pane's buttons do (code_hunks):
+        one ("hunk") or several at once ("hunks": the phone's Undo all, at most HUNKS_AT_ONCE),
+        the window's pane kept in step. Answers with the view as it is now."""
+        device, data, refused = await posted(request)
+        if refused is not None:
+            return refused
+        task = phone.session(data.get("id"))
+        if task is None:
+            return bad("No such session.", 404)
+        pane = hunks()
+        if pane is None:
+            return bad(NO_CHANGES, 409)
+        from .. import code_changes
+        from .code_hunks import VIEWS
+
+        action = str(data.get("action") or "")
+        many = data.get("hunks") if isinstance(data.get("hunks"), list) else [data.get("hunk")]
+        ids = [str(h)[:40] for h in many[:HUNKS_AT_ONCE] if isinstance(h, str) and h]
+        which = data.get("view") if data.get("view") in VIEWS else "session"
+        if not ids or action not in ("keep", "unkeep", "undo"):
+            return bad("Say which change, and Keep or Undo.")
+        said = ""
+        if action == "undo":
+            said = await pane.undo(task, which, ids)
+            await pane.changes({"id": task.id, "view": which})  # (the window's pane, again)
+            hub.emit("code_hunk_undone", id=task.id, undone=said.startswith("Undid"),
+                     file=str(data.get("path") or "")[:1000])  # fmt: skip
+        else:
+            pane.keep(task, ids, action == "keep")
+        record(device, f"code_hunk_{action}", f"#{task.id}")
+        view = await asyncio.to_thread(code_changes.task_view, task, which)
+        return answer({
+            "ok": action != "undo" or said.startswith("Undid"),
+            "said": phone.tr(said) if said else "",
+            "changes": pane.payload(task, which, view),
+        })  # fmt: skip
+
+    async def comments(request: Request) -> Response:
+        """Line comments, sent to the session as one message worded as the window's Changes
+        pane sends them (code_api.comment_message): queued like any message from the phone."""
+        device, data, refused = await posted(request, TEXT_BODY)
+        if refused is not None:
+            return refused
+        task = phone.session(data.get("id"))
+        if task is None:
+            return bad("No such session.", 404)
+        from .code_api import Refused, comment_message
+
+        try:
+            text = comment_message(data.get("comments"))
+        except Refused:
+            return bad("Each comment needs a file, a line and what to say.")
+        ok = bool(hub.tasks.send(task.id, text[:TEXT_CHARS]))
+        if ok:
+            record(device, "code_commented", f"#{task.id}")
+        return answer({"ok": ok})
+
+    async def receipts(request: Request) -> Response:
+        """The turns' receipts (code_receipts) still in the transcript, newest last: the
+        card's fields and its words, without pictures (the window has them)."""
+        _device, refused = admitted(request, "read")
+        if refused is not None:
+            return refused
+        query = request.query_params
+        task = phone.session(query.get("id"))
+        if task is None:
+            return bad("No such session.", 404)
+        tail = max(1, min(RECEIPTS_MOST, _int(query.get("tail")) or RECEIPTS_DEFAULT))
+        found = [e for e in task.transcript if isinstance(e.get("receipt"), dict)][-tail:]
+        out = [
+            {"i": _int(e.get("n")), "at": e.get("at") or "", "text": str(e.get("text") or "")[:4000],
+             "receipt": _no_pictures(e["receipt"])}
+            for e in found
+        ]  # fmt: skip
+        return answer({"id": task.id, "receipts": out})
+
+    async def steer(request: Request) -> Response:
+        """A message into the running step now, without stopping it (tasks.send steer=True:
+        Claude Code takes it up after the tool it's on); queued when the step can't take it."""
+        device, data, refused = await posted(request, TEXT_BODY)
+        if refused is not None:
+            return refused
+        task = phone.session(data.get("id"))
+        if task is None:
+            return bad("No such session.", 404)
+        text = str(data.get("text") or "").strip()[:TEXT_CHARS]
+        if not text:
+            return bad("Write something first.")
+        steered = bool(task.steerable)
+        ok = bool(hub.tasks.send(task.id, text, steer=True))
+        if ok:
+            record(device, "code_steered", f"#{task.id}")
+        return answer({"ok": ok, "steered": ok and steered})
+
+    def card_view(card: dict[str, Any]) -> dict[str, Any]:
+        from pathlib import Path
+
+        folder = str(card.get("folder") or "")
+        return {
+            "id": str(card.get("id") or ""),
+            "project": Path(folder).name if folder else "",
+            "directory": folder,
+            "title": _phone_line(card.get("title"), 200),
+            "prompt": str(card.get("prompt") or "")[:600],
+            "model": str(card.get("model") or ""),
+            "mode": str(card.get("mode") or ""),
+            "state": str(card.get("state") or "todo"),
+            "task_id": card.get("task") if type(card.get("task")) is int else None,
+            "untrusted": bool(card.get("untrusted")),
+        }
+
+    async def todos(request: Request) -> Response:
+        """The to-do column (code_todo): each project's cards in the owner's order, and each
+        project's queue (on, running, spent of its ceiling)."""
+        _device, refused = admitted(request, "read")
+        if refused is not None:
+            return refused
+        todo = getattr(hub, "code_todo", None)
+        if todo is None:
+            return answer({"cards": [], "queues": {}})
+        queue = getattr(hub, "code_queue", None)
+        try:
+            queues = queue.public() if queue is not None else {}
+        except Exception:
+            log.warning("Eden Code phone: couldn't read the queues", exc_info=True)
+            queues = {}
+        cards = [card_view(c) for c in list(todo.board.cards)[:TODOS_SHOWN]]
+        return answer({"cards": cards, "queues": queues if isinstance(queues, dict) else {}})
+
+    async def todo_start(request: Request) -> Response:
+        """Starts one to-do card as its session, as its Start button does, unless it would
+        start in Auto or Bypass permissions (its own mode, or the project's default when it
+        names none): those start on the Mac, as every session from the phone is Manual,
+        Accept edits or Plan."""
+        device, data, refused = await posted(request)
+        if refused is not None:
+            return refused
+        todo = getattr(hub, "code_todo", None)
+        card = todo.board.get(data.get("card")) if todo is not None else None
+        if card is None:
+            return bad("That card isn't there any more.", 404)
+        if card.get("state") in ("queued", "running"):
+            return bad("That card is already running.", 409)
+        mode = todo.message(card).get("mode") or ""
+        if not mode:
+            try:
+                mode = hub.tasks.defaults_for(card["folder"]).get("mode") or ""
+            except Exception:
+                mode = ""
+            mode = mode or getattr(hub.prefs, "code_mode", "") or "ask"
+        if mode not in TODO_PHONE_MODES:
+            return bad(
+                "This card would start in Auto or Bypass permissions: start it on your Mac.", 403
+            )
+        if todo.starting_now(card["id"]):
+            return bad("That card's session is still starting.", 409)
+        todo.starting.add(card["id"])
+        try:
+            task = await todo.start(card)
+        finally:
+            todo.starting.discard(card["id"])
+        if task is None:
+            return bad("The session didn't start.")
+        card["state"] = "started"
+        todo.save()
+        todo.emit(started=card["id"])
+        record(device, "code_started", f"#{task.id}")
+        return answer({"ok": True, "id": task.id})
+
+    async def usage(request: Request) -> Response:
+        """The usage glance (code_usage's meter): today's spending and the daily cap, the last
+        week, today's projects and Claude's usage windows (five-hour, weekly)."""
+        _device, refused = admitted(request, "read")
+        if refused is not None:
+            return refused
+        meter = getattr(hub, "code_usage", None)
+        if meter is None:
+            return answer(
+                {"today": 0.0, "day_cap": 0.0, "recent": [], "by_project": [], "windows": []}
+            )
+        try:
+            found = meter.public()
+        except Exception:
+            log.warning("Eden Code phone: couldn't read the usage meter", exc_info=True)
+            return bad("Couldn't read the usage meter.", 503)
+        return answer({
+            "today": float(found.get("today") or 0.0),
+            "day_cap": float((found.get("defaults") or {}).get("day") or 0.0),
+            "recent": list(found.get("recent") or [])[-7:],
+            "by_project": list(found.get("by_project") or [])[:8],
+            "windows": list(found.get("windows") or []),
+        })  # fmt: skip
+
     return [
         Route("/code", page),
         Route("/code/", page),
@@ -398,4 +639,12 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         Route("/api/code/phone/land", land, methods=["POST"]),
         Route("/api/code/phone/discard", discard, methods=["POST"]),
         Route("/api/code/phone/unpin", unpin, methods=["POST"]),
+        Route("/api/code/phone/changes", changes),
+        Route("/api/code/phone/receipts", receipts),
+        Route("/api/code/phone/todos", todos),
+        Route("/api/code/phone/usage", usage),
+        Route("/api/code/phone/hunk", hunk, methods=["POST"]),
+        Route("/api/code/phone/comments", comments, methods=["POST"]),
+        Route("/api/code/phone/steer", steer, methods=["POST"]),
+        Route("/api/code/phone/todo_start", todo_start, methods=["POST"]),
     ]

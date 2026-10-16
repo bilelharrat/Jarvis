@@ -56,6 +56,14 @@ capped body (413: 20 KB, a message 120 KB). Then the switch: `403 {"error", "off
 | `POST /api/code/phone/land` | act | `{id}` | `{ok, said: "Confirm on its card."}`; 409 while its sessions work; 403 when what it would commit looks like a secret |
 | `POST /api/code/phone/discard` | act | `{id}` | `{ok, said}`; 409 while its sessions work |
 | `POST /api/code/phone/unpin` | act | `{}` | `{ok}` |
+| `GET /api/code/phone/changes` | read | `id, view?, path?` | the Changes pane's payload (`code_hunks.payload`: files, hunks with `id`, `n`, `lines`, `kept`; totals) |
+| `POST /api/code/phone/hunk` | act | `{id, hunk \| hunks, action, view?}` | `{ok, said, changes}`; `action` `keep`, `unkeep` or `undo`; `hunks` (≤ 200) is Undo all |
+| `POST /api/code/phone/comments` | act | `{id, comments: [{path, line, side?, excerpt?, text}]}` | `{ok}`; one message, worded as the pane's (`code_api.comment_message`) |
+| `GET /api/code/phone/receipts` | read | `id, tail?` | `{id, receipts: [{i, at, text, receipt}]}` (newest last, no pictures) |
+| `POST /api/code/phone/steer` | act | `{id, text}` | `{ok, steered}`; into the running step (queued when it can't take it) |
+| `GET /api/code/phone/todos` | read | | `{cards: [{id, project, directory, title, prompt, model, mode, state, task_id, untrusted}], queues}` |
+| `POST /api/code/phone/todo_start` | act | `{card}` | `{ok, id}`; 403 when it would start in Auto or Bypass (its mode, or the default) |
+| `GET /api/code/phone/usage` | read | | `{today, day_cap, recent: [{day, total, turns}], by_project, windows}` |
 
 - **Summary**: `{id, title, project, status, mode, mode_label, model, cost_usd, updated_at}`; `status` is
   `working | needs_you | done | failed | idle | resting` (`companion_api.session_status`).
