@@ -101,6 +101,14 @@ capped body (413: 20 KB, a message 120 KB). Then the switch: `403 {"error", "off
 - **Modes**: `mode_label` is the full name for menus ("Bypass permissions"), `mode_short` the pill's words
   ("Bypass"; the others as their names), as the Mac's composer (`JC_MODES` short).
 
+- **Status words** (both apps, 2026-10-16, the Mac's phone page's words): `needs_you` "Needs your OK" (the only
+  status that says it waits), `working` "Working", `done` "Done", `failed` "Failed", `idle` "Idle", `resting`
+  "Resting". The drawer's rows show no status line and no dot for `idle` and `resting`: "Waiting" with a grey dot
+  read as "waits on you".
+- **Layout on the phones** (both apps): the transcript starts below the status bar (or cutout) and the floating
+  header, which sit over a frosted band; it ends above the input bar plus the keyboard or the gesture bar, and
+  follows the newest message (and the keyboard opening) unless the owner scrolled up to read.
+
 **The live transcript is a long poll.** Ask with what you have: `after` = the last `next`, `seen` = the last
 `seen`, `v` = the last `v`, and `wait` (seconds, at most 25). The answer comes at once when there is anything
 new (an entry after `after`, an entry up to `after` that changed since `seen`, or a different `v`: the
