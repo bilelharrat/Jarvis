@@ -358,6 +358,7 @@ EDEN_CODE_S_OWN = {
         "code_containers_tidy",
         "code_delegate",  # holds heads-ups for a break, starts easy cards: reads only what the hub already has
         "code_copies_sweeper",
+        "code_eden_cloud_watch",
         "code_handoff_watch",
         "code_index_tidy",
         "code_issue_watch",

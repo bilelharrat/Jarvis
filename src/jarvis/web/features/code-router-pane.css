@@ -1,0 +1,131 @@
+/* The Model Router pane (features/code-router-pane.js): askeden.com's Route tab in Eden Code's
+   workbench. Its colours are the glass look's tokens (eden-code-glass.css --ecg-*: light and
+   dark), with the window's own (--c-*) where the glass look is off (Eden Secretary's Code
+   panel, a skin). The provider colours are askeden.com's, the same in both themes. */
+
+.crp {
+  --crp-text: var(--ecg-text, rgb(var(--c-ink)));
+  --crp-text2: var(--ecg-text2, rgb(var(--c-muted)));
+  --crp-fill: var(--ecg-fill, rgb(var(--c-ink) / 0.08));
+  --crp-fill-soft: var(--ecg-fill-soft, rgb(var(--c-ink) / 0.05));
+  --crp-line: var(--ecg-line, rgb(var(--c-ink) / 0.1));
+  --crp-accent: var(--ecg-accent, rgb(var(--c-accent)));
+  --crp-on: var(--ecg-seg-on, rgb(var(--c-surface)));
+  --crp-mono: var(--ecg-mono, ui-monospace, Menlo, monospace);
+  display: flex; flex-direction: column; gap: 14px; padding-top: 4px; color: var(--crp-text);
+}
+.crp-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.crp .crp-label { margin: 0 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--crp-text2); }
+.crp .crp-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; }
+.crp .jc-card { min-width: 0; }
+
+/* the state pill in the pane's head */
+.crp-state { padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--ecg-text2, rgb(var(--c-muted))); background: var(--ecg-fill, rgb(var(--c-ink) / 0.08)); white-space: nowrap; }
+.crp-state.live { color: #fff; background: var(--ecg-accent, rgb(var(--c-accent))); }
+
+/* the prompt box and the pick */
+.crp-prompt {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; max-height: 240px;
+  padding: 10px 12px; border: 0; border-radius: 12px; font: inherit; font-size: 13px; line-height: 1.45;
+  color: var(--crp-text); background: var(--crp-fill-soft); box-shadow: inset 0 0 0 1px var(--crp-line); outline: none;
+}
+.crp-prompt:focus-visible { box-shadow: inset 0 0 0 2px var(--crp-accent); }
+.crp-prompt::placeholder { color: var(--crp-text2); }
+.crp .crp-pick { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; }
+.crp-pick-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.crp-pick-head strong { font-size: 14px; font-weight: 600; }
+.crp-pick-head .crp-badge { margin-left: auto; }
+.crp-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.crp-num { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--crp-fill-soft); min-width: 0; }
+.crp-num small { font-size: 11px; color: var(--crp-text2); }
+.crp-num b { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crp-why { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--crp-text); }
+.crp-notes { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.45; color: var(--crp-text2); }
+.crp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.crp .crp-actions .jc-btn { padding: 5px 12px; font-size: 12px; }
+.crp-status { margin: 0 4px; min-height: 0; }
+.crp-status:empty { display: none; }
+.crp-badge { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--crp-text2); background: var(--crp-fill); }
+.crp-badge.rated { color: #fff; background: #5b7fd0; }
+.crp-problem { margin: 0; padding: 8px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.45; color: var(--ecg-red, rgb(var(--c-danger-ink))); background: color-mix(in srgb, var(--ecg-red, #ff3b30) 10%, transparent); }
+.crp-problem[hidden] { display: none; }
+
+/* the provider marks */
+.crp-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #8e8e93; }
+.crp-dot.anthropic { background: #d08159; }
+.crp-dot.openai { background: #4d9f8a; border-radius: 2px; }
+.crp-dot.gemini { background: #5b7fd0; border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.crp-dot.kimi { background: #8b6fc0; border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+
+/* the scatter */
+.crp .crp-scatter { padding: 10px 8px 6px; border-radius: 14px; }
+.crp-plot { display: block; width: 100%; height: auto; overflow: visible; color: var(--crp-text); }
+.crp-axis { stroke: var(--crp-text2); stroke-opacity: 0.4; stroke-width: 1; }
+.crp-frontier { fill: none; stroke: var(--crp-text2); stroke-opacity: 0.55; stroke-width: 1; stroke-dasharray: 3 3; }
+.crp-tick { font-size: 9px; fill: var(--crp-text2); }
+.crp-tick.faint { font-size: 8px; fill-opacity: 0.8; font-variant-numeric: tabular-nums; }
+.crp-mark { stroke: var(--ecg-panel, rgb(var(--c-surface))); stroke-width: 1.4; }
+.crp-ring { fill: none; stroke: var(--crp-accent); stroke-width: 1.6; }
+.crp-pt-label { font-size: 9px; fill: var(--crp-text2); }
+.crp-pt-label.chosen { fill: var(--crp-accent); font-weight: 600; }
+.crp-empty { margin: 14px 8px; text-align: center; }
+.crp-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 4px; font-size: 11px; color: var(--crp-text2); }
+.crp-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Optimize for: the five levels, the sliders */
+.crp-seg { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 2px; border-radius: 10px; background: var(--crp-fill); }
+.crp-seg-btn { border: 0; border-radius: 8px; padding: 5px 0; font: inherit; font-size: 12.5px; font-weight: 500; color: var(--crp-text); background: transparent; cursor: pointer; }
+.crp-seg-btn.on { background: var(--crp-on); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.crp-seg-btn.on.near { box-shadow: inset 0 0 0 1px var(--crp-line); background: transparent; }
+.crp-seg-btn:focus-visible { outline: 2px solid var(--crp-accent); outline-offset: 1px; }
+.crp-caps { display: flex; justify-content: space-between; margin-top: -4px; font-size: 10.5px; color: var(--crp-text2); }
+.crp-level-name { margin: 0; font-size: 13px; font-weight: 600; color: var(--crp-accent); }
+.crp .crp-level-desc { margin: -6px 0 0; line-height: 1.45; }
+.crp-slider { display: flex; flex-direction: column; gap: 4px; }
+.crp-slider-head { display: flex; justify-content: space-between; font-size: 12.5px; }
+.crp-slider-val { font-variant-numeric: tabular-nums; }
+.crp .crp-slider-note { margin: 0; line-height: 1.45; font-size: 11.5px; }
+.crp-range { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer; }
+.crp-range::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--crp-accent) var(--v, 50%), var(--crp-fill) var(--v, 50%)); }
+.crp-range::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.08); }
+.crp-range::-moz-range-track { height: 4px; border-radius: 2px; background: var(--crp-fill); }
+.crp-range::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--crp-accent); }
+.crp-range::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+.crp-range:focus-visible { outline: 2px solid var(--crp-accent); outline-offset: 2px; border-radius: 4px; }
+
+/* rows with a switch: providers, linked sliders, pricing */
+.crp-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.crp-row[hidden] { display: none; }
+.crp-row > .crp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.crp-row > .crp-text small { font-size: 11.5px; line-height: 1.4; color: var(--crp-text2); }
+.crp-provider + .crp-provider { padding-top: 10px; border-top: 1px solid var(--crp-line); }
+.crp-provider.na { opacity: 0.6; }
+.crp-provider.off > .crp-text { color: var(--crp-text2); }
+.crp .crp-switch[disabled] { opacity: 0.5; cursor: default; }
+.crp .crp-select { max-width: 100%; width: 100%; }
+.crp .crp-note { margin: 0; line-height: 1.45; }
+.crp .crp-note[hidden] { display: none; }
+
+/* recent routed messages */
+.crp-recent-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.crp .crp-recent-head .jc-btn { padding: 3px 10px; font-size: 11.5px; }
+.crp .crp-recent li.crp-recent-row { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 12px; }
+.crp-recent-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.crp-recent-top strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.crp .crp-recent-top small, .crp .crp-recent-foot small { flex: none; font-size: 11px; color: var(--crp-text2); }
+.crp-recent-foot { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.crp-kind { flex: none; padding: 0 7px; border-radius: 6px; font-size: 10.5px; font-weight: 600; color: var(--crp-accent); background: color-mix(in srgb, var(--ecg-accent, #007aff) 14%, transparent); }
+.crp-kind.shadow { color: var(--crp-text2); background: var(--crp-fill); }
+.crp .crp-signal { color: var(--ecg-orange, rgb(var(--c-warning-ink))); }
+.crp .crp-recent li.crp-empty-row { display: block; font-size: 12px; line-height: 1.45; color: var(--crp-text2); }
+
+.crp-foot { margin: 2px 4px 4px; text-align: center; }
+.crp-link { border: 0; padding: 0; font: inherit; font-size: 11.5px; color: var(--crp-text2); background: none; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.crp-link:hover { color: var(--crp-accent); }
+
+/* the glass look's cards in the pane: soft fills on the pane's white (or dark) panel */
+body.eden-code:not([data-skin]) .deck.jc .crp .jc-card { border-radius: 14px; }
+body.eden-code:not([data-skin]) .deck.jc .crp .crp-num { background: var(--ecg-panel); }
+/* (the window's .jc-list stretches every span in a row: not these tags) */
+.crp .crp-recent li .crp-kind, .crp .crp-recent li .crp-badge { flex: none; overflow: visible; }
+.crp .crp-recent li .crp-recent-foot small { flex: 0 1 auto; min-width: 0; }

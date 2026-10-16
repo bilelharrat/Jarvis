@@ -107,7 +107,7 @@ def list_files(folder: Path, user_dir: Path) -> list[dict[str, Any]]:
                 names = sorted(p.parent.name for p in where.glob("*/SKILL.md"))
             elif kind == "commands":
                 names = sorted(
-                    str(p.relative_to(where).with_suffix(""))
+                    p.relative_to(where).with_suffix("").as_posix()
                     for p in [*where.glob("*.md"), *where.glob("*/*.md")]
                 )
             else:

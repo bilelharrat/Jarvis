@@ -1,0 +1,14 @@
+/* Eden Code settings › General › On this PC (code-windows.js): each row's state, a quiet pill
+   in the settings' own colours, light, dark and the glass look alike. */
+.cw-parity .jcs-row { align-items: flex-start; }
+.cw-state {
+  flex: none;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: rgb(var(--c-muted));
+  background: rgb(var(--c-fill));
+}
+.cw-state.cw-mac { color: rgb(var(--c-ink)); }

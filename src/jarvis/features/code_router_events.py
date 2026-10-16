@@ -70,7 +70,10 @@ Window commands:
 - model_router_call {rid, op, ...} -> model_router_reply {rid, ok, data | error}: op
   "learned" (the report rows), "reset" (delete learned.json; the learner then only reads
   what comes after), "freeze" {frozen}, "spend" (this calendar month from the log),
-  "budget" {usd}.
+  "budget" {usd}, "recent" {limit?} (the newest routed and Shadow messages from the log,
+  newest first, at most RECENT_MAX: when, the pick, the model the session was on, Gemini's
+  rating, what the turn cost and what a Shadow pick would have saved; numbers and model ids
+  only, as the log has them), for the Model Router pane (web/features/code-router-pane.js).
 
 Settings (prefs.features): code_router_agentic_calls (model calls per message in an agentic
 session, default 8), code_router_budget (USD a month, 0: none), code_router_projects
@@ -138,6 +141,8 @@ BUDGET_BOOST = 40  # efficiency points added at 100% of the budget (linear from 
 LEARN_EVERY = 50
 LEARN_GAP_SECONDS = 3600.0
 LEARN_TIMEOUT = 180.0
+RECENT_MAX = 50  # routed messages the Model Router pane lists ("recent")
+RECENT_DAYS = 30  # and how far back it reads the log for them
 NIGHTLY = (3, 40)  # local time: the learner and the log's retention
 STATE_EVERY = 0.5  # pushes of model_router_state, at most this often
 MAX_LEARNED_BYTES = 1_000_000
@@ -1192,7 +1197,68 @@ class Events:
             self.hub.set_feature_prefs({PREF_BUDGET: usd})
             self._push_now()
             return {"budgetUSD": usd}
+        if op == "recent":
+            limit = msg.get("limit")
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+                limit = 20
+            await self.log.flush()
+            return await asyncio.to_thread(self.recent_now, min(limit, RECENT_MAX))
         raise ValueError(f"unknown op {str(op)[:40]!r}")
+
+    def recent_now(self, limit: int = 20) -> list[dict[str, Any]]:
+        """The newest routed (and Shadow) messages, newest first: each route record with what
+        its later updates say the turn used (the last "actual": cumulative) and the owner's
+        verdict signals. Only what the log keeps: never a prompt's words (there are none)."""
+        since = self.clock() - RECENT_DAYS * 86400.0
+        routes: dict[str, dict[str, Any]] = {}
+        actual: dict[str, dict[str, Any]] = {}
+        signals: dict[str, dict[str, Any]] = {}
+        for record in self.log.read(since=since):
+            msg = str(record.get("msg") or "")
+            if not msg:
+                continue
+            if record.get("kind") is None:
+                routes[msg] = record
+                while len(routes) > limit:
+                    routes.pop(next(iter(routes)))
+            elif record.get("kind") == "update":
+                if isinstance(record.get("actual"), dict):
+                    actual[msg] = record["actual"]
+                if isinstance(record.get("signals"), dict):
+                    signals.setdefault(msg, {}).update(record["signals"])
+        out = []
+        for msg, route in reversed(routes.items()):
+            settings = route.get("settings") or {}
+            rating = route.get("rating") or {}
+            used = actual.get(msg) or {}
+            said = signals.get(msg) or {}
+            profile = (route.get("prompt") or {}).get("profile") or {}
+            row: dict[str, Any] = {
+                "ts": route.get("ts"),
+                "shadow": bool(settings.get("shadow")),
+                "pick": route.get("pick") or {},
+                "applied": route.get("applied") or {},
+                "rated": rating.get("used") is True,
+                "ratedBy": rating.get("by") if rating.get("used") is True else None,
+                "complexity": rating.get("complexity") or profile.get("complexity"),
+                "level": settings.get("level"),
+                "project": settings.get("project") is True,
+                "skipped": (route.get("route") or {}).get("skipped"),
+            }
+            cost = used.get("costUSD")
+            if isinstance(cost, int | float) and math.isfinite(cost):
+                row["costUSD"] = float(cost)
+            if used.get("model"):
+                row["ranOn"] = used["model"]
+            if row["shadow"]:
+                row["wouldSaveUSD"] = shadow_saving(route)
+            verdict = [k for k in ("wrongPick", "override", "retry", "reverted") if said.get(k)]
+            if said.get("thumbs") in ("up", "down"):
+                verdict.append("thumbs-" + said["thumbs"])
+            if verdict:
+                row["signals"] = verdict
+            out.append({k: v for k, v in row.items() if v is not None})
+        return out
 
     def _reset(self) -> None:
         """Reset learning: learned.json goes, and the learner reads only what comes after."""

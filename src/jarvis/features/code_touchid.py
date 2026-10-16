@@ -182,6 +182,44 @@ RISKY = [
         + r"\s([^\n]*\s)?(-\w*[ceEr]\w*|--eval)\s[^\n]*"
         r"(rmtree|removedirs|\bremove\s*\(|unlink|rmdir|\brm_r|rmSync|rimraf|\brm\s+-\w*[rRf])"
     ),
+    # Windows (item 49), in any case as PowerShell and cmd read it: a folder deleted or a
+    # delete forced (Remove-Item -Recurse, rd /s, del /f); the PC itself changed (format,
+    # the registry, scheduled tasks, services, the firewall, Defender's exclusions) or
+    # processes ended; a download run as a script (iwr … | iex); a command hidden from the
+    # card (powershell -EncodedCommand); and Windows' own downloaders and script runners.
+    re.compile(
+        _B
+        + _P
+        + r"(Remove-Item|ri|rd|rmdir|del|erase)"
+        + _Q
+        + _OPTS
+        + r"(-Recurse|-r|-Force|-fo\w*|/s|/f)\b",
+        re.I,
+    ),
+    re.compile(
+        _B
+        + _P
+        + r"(format(\.com)?\s+[a-z](?=:)|diskpart|bcdedit|vssadmin\s+delete|wbadmin\s+delete"
+        r"|cipher\s+/w|reg(\.exe)?\s+(add|delete|import|restore|load)"
+        r"|schtasks(\.exe)?\s+/(create|delete|change)|sc(\.exe)?\s+(delete|config|create|stop)"
+        r"|netsh|takeown|icacls\s[^;&|\n]*/(grant|reset|setowner|remove)|Set-ExecutionPolicy"
+        r"|Format-Volume|Clear-Disk|Remove-Partition|Stop-Computer|Restart-Computer|Stop-Process"
+        r"|taskkill|New-Service|Remove-Service|Set-MpPreference|Add-MpPreference)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(iwr|irm|Invoke-WebRequest|Invoke-RestMethod|curl(\.exe)?|wget)\b[^\n]*"
+        r"\|\s*(iex|Invoke-Expression)\b",
+        re.I,
+    ),
+    re.compile(
+        _B + _P + r"(powershell|pwsh)(\.exe)?" + _Q + r"\s([^\n]*\s)?-(e|ec|enc\w*)\s", re.I
+    ),
+    re.compile(
+        _B + _P + r"(certutil(\.exe)?\s[^\n]*-urlcache|bitsadmin(\.exe)?\s[^\n]*/transfer|mshta"
+        r"|regsvr32|rundll32)\b",
+        re.I,
+    ),
 ]
 
 
@@ -270,6 +308,11 @@ RUNS_ANYTHING = frozenset(
         # Round 3 (S3-9): what runs a file or a script the session can write, or anything in a
         # container or on GitHub's machines: a Makefile, a jar, uv run, docker run, gh's own.
         "make", "gmake", "docker", "podman", "gh", "uv", "java",
+        # Windows (item 49), looked up in lower case: its shells, what runs a line or a
+        # script it's given, and WSL (another computer's whole shell).
+        "powershell", "powershell.exe", "pwsh", "pwsh.exe", "cmd", "cmd.exe", "wsl", "wsl.exe",
+        "bash.exe", "iex", "invoke-expression", "start-process", "start", "cscript", "wscript",
+        "mshta",
     }
 )  # fmt: skip
 # Programs that run anything with one of their subcommands (npm run's script is the session's
@@ -301,13 +344,18 @@ def broad_rule(text: Any) -> bool:
         if not prefix:
             return True
         words = prefix.split()
-        first = words[0].strip("\"'").rsplit("/", 1)[-1]
+        first = re.split(r"[/\\]", words[0].strip("\"'"))[-1]  # (a Windows path's too)
         plain = re.sub(r"[\d.]+$", "", first)
         runs = RUNS_WITH.get(first)
         second = words[1].strip("\"'") if len(words) > 1 else ""
         if runs is not None and (not second or second in runs):
             return True
-        return first in RUNS_ANYTHING or plain in RUNS_ANYTHING or risky_command(prefix)
+        return (
+            first in RUNS_ANYTHING
+            or plain in RUNS_ANYTHING
+            or first.lower() in RUNS_ANYTHING
+            or risky_command(prefix)
+        )
     if tool in EDITS:
         if not content:
             return True

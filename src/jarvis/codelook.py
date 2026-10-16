@@ -11,6 +11,12 @@ look() gathers, without touching the clipboard:
   the app's name comes from lsappinfo, the picture is of the whole screen, and there is
   no title or selected text; that's said once in the log.
 
+On Windows (item 49) there's no helper to build: the window in front and its title come from
+Windows itself (windows_front: user32's foreground window and the program that owns it), the
+picture is of the whole screen (the caller's screen(), as What's-this sends it), and there is
+no selected text yet (UI Automation's text selection is a later step: codeparity.REPORT says
+so).
+
 message() turns it and the owner's spoken question into the words for the session, the
 picture going along as an image. What was on screen is marked as data, never
 instructions. Nothing here is kept: the picture and the text go only with the request.
@@ -56,8 +62,13 @@ class Look:
 
 def ensure_helper(bin_dir: Path | None = None, source: Path = HELPER_SOURCE) -> Path | None:
     """The helper, built once with swiftc (a few seconds) and cached by the source's hash.
-    None when it can't be built."""
+    None when it can't be built (and on Windows, which has no swiftc: windows_front)."""
     import hashlib
+
+    from . import osplat
+
+    if osplat.IS_WIN:
+        return None
 
     from .prefs import APP_SUPPORT
     from .swift_helper import prebuilt
@@ -104,8 +115,46 @@ async def _output(*argv: str, timeout: float) -> bytes:
     return out if proc.returncode == 0 else b""
 
 
+def windows_front(user32: Any = None, kernel32: Any = None) -> dict[str, Any]:
+    """Windows: the app in front (its program's name: Code, chrome) and its window's title,
+    as the helper's {app, title}; {} when Windows won't say. No window number: the picture is
+    the whole screen."""
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        user32 = user32 or ctypes.windll.user32
+        kernel32 = kernel32 or ctypes.windll.kernel32
+    except (AttributeError, OSError):
+        return {}
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return {}
+    size = max(0, int(user32.GetWindowTextLengthW(hwnd) or 0)) + 1
+    title = ctypes.create_unicode_buffer(min(size, 1024))
+    user32.GetWindowTextW(hwnd, title, len(title))
+    pid = wintypes.DWORD(0)
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    app = ""
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if handle:
+        try:
+            name = ctypes.create_unicode_buffer(1024)
+            length = wintypes.DWORD(len(name))
+            if kernel32.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(length)):
+                base = re.split(r"[\\/]", name.value)[-1]
+                app = base[:-4] if base.lower().endswith(".exe") else base
+        finally:
+            kernel32.CloseHandle(handle)
+    return {"app": app, "title": title.value} if (app or title.value) else {}
+
+
 async def front(helper: Path | None) -> dict[str, Any]:
-    """What the helper says is in front ({} when it can't say)."""
+    """What the helper says is in front ({} when it can't say); on Windows, windows_front."""
+    from . import osplat
+
+    if osplat.IS_WIN:
+        return await asyncio.to_thread(windows_front)
     if helper is None:
         return {}
     try:

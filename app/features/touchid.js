@@ -22,9 +22,17 @@
 // On a Mac without Touch ID (or with it turned off), confirm() asks with the app's own dialog
 // instead (the same fixed words, never the page's), and signs that yes the same way: the
 // page alone still can't make a proof.
+//
+// On Windows (item 49), Windows Hello asks instead (windowsHello below: the face, fingerprint
+// or PIN sheet of Windows' own UserConsentVerifier, through Windows PowerShell 5.1, which is
+// on every Windows 10 and 11 and knows WinRT types; PowerShell 7 doesn't). Its reason is the
+// same fixed words. A PC without Windows Hello set up (or with it turned off by policy) says
+// so, and the app's own dialog asks then, signed the same: prompt() falls back to confirm()'s
+// dialog itself, so the window's question never changes.
 'use strict';
 
 const crypto = require('crypto');
+const path = require('path');
 
 const PROOF_MS = 2 * 60 * 1000;
 
@@ -61,11 +69,77 @@ const CONFIRM = {
   zh: { allow: '允许', cancel: '取消', detail: 'Eden Code 需要你的确认。' },
 };
 
-function handlers({ systemPreferences, secret = () => '', dialog = null, parent = () => null }) {
-  let busy = false;
-  const available = () => {
-    try { return Boolean(systemPreferences && systemPreferences.canPromptTouchID()); } catch { return false; }
+// Windows Hello through Windows PowerShell: one line out, 'result:<UserConsentVerificationResult>'
+// or 'unavailable:<why>'. The reason comes in an environment variable, never on the command
+// line, so no quoting of it can go wrong (and it's the app's fixed words anyway).
+const HELLO_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  'try {',
+  '  Add-Type -AssemblyName System.Runtime.WindowsRuntime',
+  '  $null = [Windows.Security.Credentials.UI.UserConsentVerifier, Windows.Security.Credentials.UI, ContentType = WindowsRuntime]',
+  "  $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1",
+  '  function Wait-Op($op, [Type]$type) { $task = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $null = $task.Wait(-1); $task.Result }',
+  '  $have = Wait-Op ([Windows.Security.Credentials.UI.UserConsentVerifier]::CheckAvailabilityAsync()) ([Windows.Security.Credentials.UI.UserConsentVerifierAvailability])',
+  "  if ([string]$have -ne 'Available') { Write-Output ('unavailable:' + $have); exit 0 }",
+  '  $said = Wait-Op ([Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync($env:EDEN_HELLO_REASON)) ([Windows.Security.Credentials.UI.UserConsentVerificationResult])',
+  "  Write-Output ('result:' + $said)",
+  "} catch { Write-Output 'unavailable:error' }",
+].join('\n');
+const HELLO_MS = 3 * 60 * 1000;  // the sheet waits for the owner; then it's a no
+// What Windows Hello's answer means here: 'ok', 'cancelled' (a no, a cancel, too many tries,
+// busy), or 'unavailable' (not set up, no device, turned off by policy: the dialog asks then).
+function helloAnswer(out) {
+  const line = String(out || '').trim().split(/\r?\n/).pop() || '';
+  if (line === 'result:Verified') return 'ok';
+  if (/^unavailable:/.test(line) || /^result:(DeviceNotPresent|NotConfiguredForUser|DisabledByPolicy)$/.test(line)) return 'unavailable';
+  if (/^result:/.test(line)) return 'cancelled';
+  return 'unavailable';  // (PowerShell missing or broken: nothing said yes; the dialog asks)
+}
+// The Windows PowerShell of this PC, by its full path (System32's: never one found on the PATH).
+function windowsPowerShell(env = process.env) {
+  const root = env.SystemRoot || env.windir || 'C:\\Windows';
+  return path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+function windowsHello({ execFile = require('child_process').execFile, env = process.env } = {}) {
+  let absent = false;  // Windows Hello said it isn't set up: the dialog from then on
+  return {
+    get available() { return !absent; },
+    verify(reason) {
+      return new Promise((resolve) => {
+        execFile(windowsPowerShell(env), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', HELLO_SCRIPT],
+          { env: { ...env, EDEN_HELLO_REASON: `Eden Code: ${reason}` }, windowsHide: true, timeout: HELLO_MS },
+          (error, stdout) => {
+            const said = error && !stdout ? 'unavailable' : helloAnswer(stdout);
+            if (said === 'unavailable') absent = true;
+            resolve(error && error.killed ? 'cancelled' : said);
+          });
+      });
+    },
   };
+}
+
+function handlers({ systemPreferences, secret = () => '', dialog = null, parent = () => null, hello = null }) {
+  let busy = false;
+  const touchId = () => {
+    try { return Boolean(systemPreferences && systemPreferences.canPromptTouchID && systemPreferences.canPromptTouchID()); } catch { return false; }
+  };
+  const available = () => touchId() || Boolean(hello && hello.available);
+  // The app's own dialog (the same fixed words), its Allow signed: { ok, proof } or { cancelled }.
+  async function askDialog(kind, lang, subject) {
+    if (!dialog) return { ok: false, cancelled: true };
+    const words = REASONS[lang] ? lang : 'en';
+    const reason = REASONS[words][kind];
+    const c = CONFIRM[words];
+    const options = {
+      type: 'warning', buttons: [c.allow, c.cancel], defaultId: 1, cancelId: 1, noLink: true,
+      message: reason.charAt(0).toUpperCase() + reason.slice(1) + '?', detail: c.detail,
+    };
+    const win = parent();
+    const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+    if (response !== 0) return { ok: false, cancelled: true };
+    const proof = makeProof(secret(), kind, { subject });
+    return proof ? { ok: true, proof } : { ok: true };
+  }
   return {
     available,
     // { ok } once the owner's finger says yes; { unavailable } where there's no Touch ID (the
@@ -79,7 +153,13 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
       if (busy) return { ok: false, busy: true };
       busy = true;
       try {
-        await systemPreferences.promptTouchID(reason);
+        if (!touchId() && hello) {  // Windows Hello, or the dialog where it isn't set up
+          const said = await hello.verify(reason);
+          if (said === 'unavailable') return await askDialog(kind, lang, subject);
+          if (said !== 'ok') return { ok: false, cancelled: true };
+        } else {
+          await systemPreferences.promptTouchID(reason);
+        }
         const proof = makeProof(secret(), kind, { subject });
         return proof ? { ok: true, proof } : { ok: true };
       } catch {
@@ -99,16 +179,7 @@ function handlers({ systemPreferences, secret = () => '', dialog = null, parent 
       if (busy) return { ok: false, busy: true };
       busy = true;
       try {
-        const c = CONFIRM[words];
-        const options = {
-          type: 'warning', buttons: [c.allow, c.cancel], defaultId: 1, cancelId: 1, noLink: true,
-          message: reason.charAt(0).toUpperCase() + reason.slice(1) + '?', detail: c.detail,
-        };
-        const win = parent();
-        const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-        if (response !== 0) return { ok: false, cancelled: true };
-        const proof = makeProof(secret(), kind, { subject });
-        return proof ? { ok: true, proof } : { ok: true };
+        return await askDialog(kind, words, subject);
       } catch {
         return { ok: false, cancelled: true };
       } finally {
@@ -128,6 +199,7 @@ function install(ctx) {
   const { systemPreferences, dialog, BrowserWindow } = require('electron');
   const h = handlers({
     systemPreferences, dialog, secret: () => (ctx.proofKey ? ctx.proofKey() : ''),
+    hello: process.platform === 'win32' ? windowsHello() : null,
     parent: () => (BrowserWindow && BrowserWindow.getFocusedWindow ? BrowserWindow.getFocusedWindow() : null),
   });
   ctx.ipcMain.handle('feature:touchid:available', (event) => (ctx.fromWindow(event) ? h.available() : false));
@@ -137,4 +209,4 @@ function install(ctx) {
   if (ctx.onProofAsk) ctx.onProofAsk((kind, lang, subject) => h.ask(String(kind), String(lang), subj(subject)));
 }
 
-module.exports = { install, handlers, makeProof, REASONS, CONFIRM, PROOF_MS };
+module.exports = { install, handlers, makeProof, windowsHello, helloAnswer, windowsPowerShell, HELLO_SCRIPT, REASONS, CONFIRM, PROOF_MS };

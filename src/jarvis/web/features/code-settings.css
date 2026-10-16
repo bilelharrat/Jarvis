@@ -1,0 +1,276 @@
+/* Eden Code settings as macOS System Settings (features/code-settings.js; the owner's mockup
+   "S1 · Settings like System Settings"): the glass frame, the frosted sidebar of sections, the
+   white panel with a hero card and inset lists, and Apple's switches, pop-ups, segmented
+   controls and buttons for the controls the features draw. Only Eden Code's own window
+   (code-settings.js adds .ecs there); Eden Secretary's settings keep their look. Light and dark
+   (dark from eden-code-glass.css's dark tokens). The composer is not touched. */
+
+body.eden-code .jc-settings.ecs-sheet {
+  --ecs-frame: rgba(255, 255, 255, 0.32);
+  --ecs-frame-rim: rgba(255, 255, 255, 0.6);
+  --ecs-frame-sh: 0 30px 80px rgba(30, 45, 90, 0.25);
+  --ecs-side: rgba(255, 255, 255, 0.5);
+  --ecs-side-rim: rgba(255, 255, 255, 0.75);
+  --ecs-side-sh: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 24px rgba(30, 40, 80, 0.08);
+  --ecs-panel: rgba(255, 255, 255, 0.86);
+  --ecs-panel-rim: rgba(255, 255, 255, 0.9);
+  --ecs-list: #ffffff;
+  --ecs-list-rim: rgba(0, 0, 0, 0.05);
+  --ecs-line: rgba(0, 0, 0, 0.06);
+  --ecs-fill: rgba(120, 120, 128, 0.12);
+  --ecs-field: rgba(120, 120, 128, 0.14);
+  --ecs-hero: rgba(120, 120, 128, 0.08);
+  --ecs-off: rgba(120, 120, 128, 0.24);
+  --ecs-seg-on: #ffffff;
+  --ecs-text: #1d1d1f;
+  --ecs-text2: #6e6e73;
+  --ecs-text3: #3a3a3c;
+  --ecs-accent: #007aff;
+  --ecs-green: #34c759;
+  --ecs-hit: rgba(255, 204, 0, 0.45);
+  --ecs-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  padding: 28px;
+  background: rgba(30, 40, 80, 0.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  body.eden-code .jc-settings.ecs-sheet {
+    --ecs-frame: rgba(30, 32, 44, 0.42);
+    --ecs-frame-rim: rgba(255, 255, 255, 0.16);
+    --ecs-frame-sh: 0 30px 80px rgba(0, 0, 0, 0.5);
+    --ecs-side: rgba(255, 255, 255, 0.1);
+    --ecs-side-rim: rgba(255, 255, 255, 0.2);
+    --ecs-side-sh: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.3);
+    --ecs-panel: rgba(28, 28, 32, 0.86);
+    --ecs-panel-rim: rgba(255, 255, 255, 0.14);
+    --ecs-list: rgba(255, 255, 255, 0.06);
+    --ecs-list-rim: rgba(255, 255, 255, 0.08);
+    --ecs-line: rgba(255, 255, 255, 0.1);
+    --ecs-fill: rgba(120, 120, 128, 0.24);
+    --ecs-field: rgba(120, 120, 128, 0.24);
+    --ecs-hero: rgba(120, 120, 128, 0.16);
+    --ecs-off: rgba(120, 120, 128, 0.36);
+    --ecs-seg-on: rgba(255, 255, 255, 0.2);
+    --ecs-text: #f5f5f7;
+    --ecs-text2: #aeaeb2;
+    --ecs-text3: #d1d1d6;
+    --ecs-accent: #0a84ff;
+    --ecs-green: #30d158;
+    --ecs-hit: rgba(255, 214, 10, 0.4);
+    background: rgba(0, 0, 0, 0.2);
+    color-scheme: dark;
+  }
+}
+
+/* ── the frame: glass, 8px around and between its two panels ── */
+body.eden-code .jcs-card.ecs {
+  width: min(1120px, 100%); height: min(800px, 100%); max-height: none;
+  flex-direction: row; gap: 8px; padding: 8px; border-radius: 26px; overflow: hidden;
+  background: var(--ecs-frame); border: 1px solid var(--ecs-frame-rim); box-shadow: var(--ecs-frame-sh);
+  backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 13px; line-height: normal; letter-spacing: 0; color: var(--ecs-text);
+}
+body.eden-code .jcs-card.ecs.glass-panel::before { display: none; }
+body.eden-code .jcs-card.ecs > .jcs-head, body.eden-code .jcs-card.ecs > .jcs-tabs { display: none; }
+body.eden-code .jcs-card.ecs button, body.eden-code .jcs-card.ecs select, body.eden-code .jcs-card.ecs input { font-family: inherit; }
+.ecs-vh { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ── the sidebar ── */
+.jcs-card.ecs .ecs-side {
+  flex: 0 0 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; overflow-y: auto;
+  border-radius: 18px; background: var(--ecs-side); border: 1px solid var(--ecs-side-rim); box-shadow: var(--ecs-side-sh);
+}
+.jcs-card.ecs .ecs-lights { display: flex; align-items: center; gap: 8px; padding: 0 2px 10px; }
+/* Close: an X in a rounded square (the window's own buttons close the window; this closes Settings). */
+body.eden-code .jc-settings .jcs-card.ecs .ecs-close, body.eden-code .jc-settings .jcs-card.ecs .ecs-close:hover {
+  width: 28px; height: 28px; min-width: 0; padding: 0; border: 0; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--ecs-close-bg, rgba(255, 255, 255, 0.55)); color: var(--ecs-close-ink, #3a3a3c);
+  box-shadow: inset 0 1px 0 var(--ecs-close-rim, rgba(255, 255, 255, 0.9)), inset 0 0 0 1px var(--ecs-close-edge, rgba(0, 0, 0, 0.1));
+}
+body.eden-code .jc-settings .jcs-card.ecs .ecs-close:hover { filter: brightness(0.96); }
+body.eden-code .jc-settings .jcs-card.ecs .ecs-close svg { width: 12px; height: 12px; stroke-width: 2; }
+.jcs-card.ecs .ecs-close:focus-visible { outline: 2px solid var(--ecs-accent); outline-offset: 2px; }
+@media (prefers-color-scheme: dark) {
+  body.eden-code .jc-settings .jcs-card.ecs { --ecs-close-bg: rgba(255, 255, 255, 0.1); --ecs-close-ink: #e5e5ea; --ecs-close-rim: rgba(255, 255, 255, 0.16); --ecs-close-edge: rgba(255, 255, 255, 0.1); }
+}
+.jcs-card.ecs .ecs-search {
+  flex: 1; min-width: 0; height: 28px; box-sizing: border-box; margin: 0; padding: 0 10px; border: 0; border-radius: 8px; background: var(--ecs-field);
+  font: inherit; font-size: 13px; color: var(--ecs-text); outline: none; -webkit-appearance: none; appearance: none;
+}
+.jcs-card.ecs .ecs-search::placeholder { color: var(--ecs-text2); }
+.jcs-card.ecs .ecs-search:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ecs-accent) 35%, transparent); }
+.jcs-card.ecs .ecs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.jcs-card.ecs .ecs-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 5px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ecs-text); font-size: 13px; text-align: left; cursor: default;
+}
+.jcs-card.ecs .ecs-item:hover { background: var(--ecs-fill); }
+.jcs-card.ecs .ecs-item[aria-current="page"] { background: var(--ecs-accent); color: #fff; }
+.jcs-card.ecs .ecs-item[aria-current="page"] .ecs-tile { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5); }
+.jcs-card.ecs .ecs-item:focus-visible { outline: 2px solid var(--ecs-accent); outline-offset: 1px; }
+.jcs-card.ecs .ecs-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcs-card.ecs .ecs-tile { width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+
+/* ── the panel: the section's title, then a centred column ── */
+.jcs-card.ecs .ecs-main {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 18px; background: var(--ecs-panel); border: 1px solid var(--ecs-panel-rim);
+}
+.jcs-card.ecs .ecs-head { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--ecs-line); }
+.jcs-card.ecs .ecs-back {
+  width: 28px; height: 28px; flex: none; padding: 0 0 2px; border: 0; border-radius: 8px; background: var(--ecs-fill);
+  color: var(--ecs-text3); font-size: 18px; line-height: 1; cursor: default;
+}
+.jcs-card.ecs .ecs-back:disabled { opacity: 0.45; }
+.jcs-card.ecs .ecs-back:focus-visible { outline: 2px solid var(--ecs-accent); outline-offset: 2px; }
+.jcs-card.ecs .ecs-title { font-family: inherit; margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--ecs-text); }
+.jcs-card.ecs .ecs-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 0; display: flex; justify-content: center; }
+.jcs-card.ecs .ecs-col { width: 100%; max-width: 640px; height: max-content; padding: 0 24px; box-sizing: border-box; display: flex; flex-direction: column; }
+/* the features' panels and #jcs-general: their blocks are the column's own items (CSS order) */
+.jcs-card.ecs .ecs-col > #jcs-general { display: contents; }
+.jcs-card.ecs .ecs-col > .jcs-body:not(#jcs-general) { display: block; overflow: visible; padding: 0; }
+.jcs-card.ecs .ecs-col > .jcs-body:not(#jcs-general) > :first-child { margin-top: 22px; }
+.jcs-card.ecs .ecs-col > .jcs-body[hidden], .jcs-card.ecs .ecs-out, .jcs-card.ecs .ecs-miss { display: none !important; }
+
+/* the hero card */
+.jcs-card.ecs .ecs-hero { display: flex; gap: 16px; align-items: center; padding: 18px; border-radius: 14px; background: var(--ecs-hero); }
+.jcs-card.ecs .ecs-hero[hidden] { display: none; }
+.jcs-card.ecs .ecs-hero-tile { width: 52px; height: 52px; flex: none; border-radius: 13px; display: flex; align-items: center; justify-content: center; }
+.jcs-card.ecs .ecs-hero-slot { display: contents; }
+.jcs-card.ecs .ecs-hero-text { flex: 1; min-width: 0; }
+.jcs-card.ecs .ecs-hero-title { font-size: 15px; font-weight: 600; }
+.jcs-card.ecs .ecs-hero-line { color: var(--ecs-text2); line-height: 1.45; margin-top: 2px; }
+.jcs-card.ecs .ecs-none { margin: 40px 0; text-align: center; color: var(--ecs-text2); }
+.jcs-card.ecs .ecs-none[hidden] { display: none; }
+
+/* group headers: small caps grey; groups: white inset lists with hairlines */
+.jcs-card.ecs .jcs-label, .jcs-card.ecs .jcs-label.in {
+  margin: 22px 12px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: uppercase; color: var(--ecs-text2);
+}
+.jcs-card.ecs .jcs-group {
+  margin: 22px 0 0; padding: 0; border-radius: 12px; background: var(--ecs-list); box-shadow: 0 0 0 1px var(--ecs-list-rim);
+}
+.jcs-card.ecs .jcs-label + .jcs-group, .jcs-card.ecs .jcs-group .jcs-group { margin-top: 0; }
+.jcs-card.ecs .jcs-group .jcs-group { box-shadow: none; background: transparent; border-radius: 0; }
+.jcs-card.ecs .jcs-group > :not(.jcs-row):not(.jcs-label):not(.jcs-group):not(button):not([hidden]) { padding-left: 14px; padding-right: 14px; }
+.jcs-card.ecs .jcs-group > :first-child:not(.jcs-row) { margin-top: 0; padding-top: 11px; }
+.jcs-card.ecs .jcs-group > :last-child:not(.jcs-row) { margin-bottom: 0; padding-bottom: 11px; }
+.jcs-card.ecs .jcs-group > .jcs-label { margin: 14px 0 6px; padding: 0 14px; }
+.jcs-card.ecs .jcs-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 0; padding: 11px 14px;
+  font-size: 13px; line-height: normal; color: var(--ecs-text);
+}
+.jcs-card.ecs .jcs-row + .jcs-row, .jcs-card.ecs .jcs-add .jcs-row + .jcs-row { border-top: 1px solid var(--ecs-line); }
+.jcs-card.ecs .jcs-group > * + .jcs-row { border-top: 1px solid var(--ecs-line); }
+.jcs-card.ecs .jcs-row > span:first-child { flex: 1; min-width: 0; }
+.jcs-card.ecs .jcs-row small { margin-top: 1px; font-size: 11px; line-height: 1.35; color: var(--ecs-text2); }
+.jcs-card.ecs .jcs-foot { margin: 22px 12px 0; font-size: 11px; color: var(--ecs-text2); }
+.jcs-card.ecs .jcs-actions { margin-top: 10px; }
+.jcs-card.ecs .jcs-intro, .jcs-card.ecs .jcs-advice { margin: 22px 12px 0; }
+.jcs-card.ecs .jcs-intro { font-size: 12px; color: var(--ecs-text2); line-height: 1.45; }
+.jcs-card.ecs .jc-dim, .jcs-card.ecs .jcs-blurb, .jcs-card.ecs .jcs-help { font-size: 11px; color: var(--ecs-text2); }
+.jcs-card.ecs .jcs-providers { margin: 22px 0 0; gap: 8px; }
+.jcs-card.ecs .jcs-provider { border-radius: 12px; background: var(--ecs-list); box-shadow: 0 0 0 1px var(--ecs-list-rim); padding: 11px 14px; }
+.jcs-card.ecs .jcs-p-title strong { font-size: 13px; font-weight: 400; }
+.jcs-card.ecs .jcs-p-title small, .jcs-card.ecs .jcs-p-status { font-size: 11px; color: var(--ecs-text2); }
+.jcs-card.ecs .jcs-add { padding: 0 0 11px; }
+.jcs-card.ecs .jcs-add > .jcs-label.in { margin: 0; padding: 11px 14px 6px; }
+.jcs-card.ecs .jcs-add > .jcs-kinds, .jcs-card.ecs .jcs-add > .jcs-blurb, .jcs-card.ecs .jcs-add > .jcs-help, .jcs-card.ecs .jcs-add > .jcs-actions { padding: 0 14px; }
+
+/* loose notes and buttons in the features' panels line up with the headers */
+.jcs-card.ecs .ecs-col > .jcs-body:not(#jcs-general) > :is(p:not(.jcs-label), .jc-btn, code) { margin-left: 12px; margin-right: 12px; }
+.jcs-card.ecs .ecs-col > .jcs-body:not(#jcs-general) > p:not(.jcs-label):not(.jcs-advice) { font-size: 12px; color: var(--ecs-text2); line-height: 1.45; }
+.jcs-card.ecs .ecs-col > .jcs-body:not(#jcs-general) > .jc-btn { align-self: flex-start; margin-top: 8px; }
+.jcs-card.ecs .cs-empty, .jcs-card.ecs .jch-empty { list-style: none; padding: 0 12px; font-size: 12px; color: var(--ecs-text2); }
+.jcs-card.ecs .jcs-add > .jc-btn { margin: 8px 14px 0; }
+
+/* ── Apple's controls, for the generic ones the features draw ── */
+/* switches: 38×22, green when on */
+.jcs-card.ecs .jcs-switch {
+  width: 38px; height: 22px; flex: none; border-radius: 11px; border: 0; padding: 0; background: var(--ecs-off);
+  transition: background-color 200ms ease;
+}
+.jcs-card.ecs .jcs-switch::after { top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.jcs-card.ecs .jcs-switch[aria-checked="true"] { background: var(--ecs-green); }
+.jcs-card.ecs .jcs-switch[aria-checked="true"]::after { left: 18px; }
+.jcs-card.ecs .jcs-switch:disabled { opacity: 0.45; }
+.jcs-card.ecs .jcs-group input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; width: 38px; height: 22px; flex: none; margin: 0; border-radius: 11px; cursor: pointer;
+  background: radial-gradient(circle at 11px 11px, #fff 0 8.5px, transparent 9.5px), var(--ecs-off);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.04); transition: background-color 200ms ease, background-position 200ms ease;
+}
+.jcs-card.ecs .jcs-group input[type="checkbox"]:checked { background: radial-gradient(circle at 27px 11px, #fff 0 8.5px, transparent 9.5px), var(--ecs-green); }
+.jcs-card.ecs .jcs-group input[type="checkbox"]:focus-visible, .jcs-card.ecs .jcs-switch:focus-visible { outline: 2px solid var(--ecs-accent); outline-offset: 2px; }
+/* pop-up menus */
+.jcs-card.ecs .jcs-select, .jcs-card.ecs .jcs-group select {
+  -webkit-appearance: none; appearance: none; max-width: 60%; border: 0; border-radius: 7px; padding: 4px 24px 4px 8px; box-shadow: none;
+  font-size: 13px; color: var(--ecs-text); cursor: pointer;
+  background: var(--ecs-fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='10' viewBox='0 0 8 10'%3E%3Cpath d='M1 3.5L4 1l3 2.5M1 6.5L4 9l3-2.5' fill='none' stroke='%238e8e93' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center;
+}
+.jcs-card.ecs .jcs-select:focus-visible, .jcs-card.ecs .jcs-group select:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ecs-accent) 35%, transparent); outline: none; }
+/* text fields */
+.jcs-card.ecs .jcs-input, .jcs-card.ecs .jcs-group input[type="text"], .jcs-card.ecs .jcs-group input[type="number"], .jcs-card.ecs .jcs-group input[type="password"], .jcs-card.ecs .jcs-group input[type="url"], .jcs-card.ecs .jcs-group input:not([type]) {
+  border: 0; border-radius: 7px; padding: 5px 8px; background: var(--ecs-fill); box-shadow: none; font-size: 13px; color: var(--ecs-text); outline: none;
+}
+.jcs-card.ecs .jcs-input:focus, .jcs-card.ecs .jcs-group input:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ecs-accent) 35%, transparent); }
+/* buttons: grey, a filled one in the accent */
+.jcs-card.ecs .jc-btn {
+  border: 0; border-radius: 7px; padding: 5px 12px; background: var(--ecs-fill); box-shadow: none; color: var(--ecs-text);
+  font-size: 13px; font-weight: 400; line-height: normal;
+}
+.jcs-card.ecs .jc-btn:hover { background: color-mix(in srgb, var(--ecs-fill) 100%, rgba(120, 120, 128, 0.1)); filter: brightness(0.97); }
+.jcs-card.ecs .jc-btn.filled { background: var(--ecs-accent); color: #fff; }
+.jcs-card.ecs .jc-btn.danger { color: #ff3b30; }
+/* segmented controls: a grey track, the chosen one a white raised segment */
+.jcs-card.ecs .jcs-kinds { display: flex; flex-wrap: wrap; gap: 0; width: max-content; max-width: calc(100% - 28px); margin: 0 14px; padding: 2px; border-radius: 8px; background: var(--ecs-fill); }
+.jcs-card.ecs .jcs-add > .jcs-kinds { padding: 2px; }
+.jcs-card.ecs .jcs-kind { border: 0; border-radius: 6px; padding: 4px 10px; font-size: 12px; background: transparent; color: var(--ecs-text); }
+.jcs-card.ecs .jcs-kind[aria-checked="true"] { background: var(--ecs-seg-on); color: var(--ecs-text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+.jcs-card.ecs [role="radiogroup"]:not(.jcs-kinds) > button { border: 0; border-radius: 6px; padding: 4px 10px; font-size: 12px; background: transparent; color: var(--ecs-text); }
+.jcs-card.ecs [role="radiogroup"]:not(.jcs-kinds) > button[aria-checked="true"] { background: var(--ecs-seg-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+.jcs-card.ecs .jcs-effort output { color: var(--ecs-accent); font-size: 12px; }
+.jcs-card.ecs code, .jcs-card.ecs .jcs-model-chip { font-family: var(--ecs-mono); }
+
+/* ── search results: each section's head, then its matching rows; the words found marked ── */
+.jcs-card.ecs .ecs-result-head {
+  display: flex; align-items: center; gap: 8px; margin: 22px 0 -10px; padding: 0 2px; border: 0; background: transparent;
+  font-size: 13px; font-weight: 600; color: var(--ecs-text); text-align: left; cursor: pointer;
+}
+.jcs-card.ecs .ecs-result-head:first-of-type { margin-top: 0; }
+.jcs-card.ecs.ecs-searching .ecs-col > .ecs-result-head:not(:hover) { text-decoration: none; }
+.jcs-card.ecs .ecs-result-head:hover span { text-decoration: underline; }
+::highlight(ecs-hit) { background-color: var(--ecs-hit, rgba(255, 204, 0, 0.45)); color: inherit; }
+
+/* ── narrow: the sidebar is a list that pushes the section, with Back ── */
+@media (max-width: 759px) {
+  body.eden-code .jc-settings.ecs-sheet { padding: 0; }
+  body.eden-code .jcs-card.ecs { width: 100%; height: 100%; border-radius: 0; border: 0; padding: 8px; }
+  .jcs-card.ecs .ecs-side, .jcs-card.ecs .ecs-main { flex: 1 1 auto; }
+  .jcs-card.ecs[data-ecs-view="list"] .ecs-main, .jcs-card.ecs[data-ecs-view="pane"] .ecs-side { display: none; }
+  .jcs-card.ecs .ecs-item { padding: 9px 8px; font-size: 15px; }
+  .jcs-card.ecs .ecs-item[aria-current="page"] { background: transparent; color: var(--ecs-text); }
+  .jcs-card.ecs .ecs-item::after { content: "›"; margin-left: auto; color: var(--ecs-text2); font-size: 17px; }
+  .jcs-card.ecs .ecs-head { padding: 12px 16px; }
+  .jcs-card.ecs .ecs-col { padding: 0 16px; }
+  .jcs-card.ecs .jcs-row { flex-wrap: wrap; }
+  .jcs-card.ecs .jcs-select, .jcs-card.ecs .jcs-group select { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jcs-card.ecs .jcs-switch, .jcs-card.ecs .jcs-group input[type="checkbox"] { transition: none; }
+}
+@media (prefers-color-scheme: dark) {
+  .jcs-card.ecs .ecs-tile, .jcs-card.ecs .ecs-hero-tile { box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18); }
+}
+
+/* S1b, compact: the header carries the section — its tile, title and one line — and the big
+   card at the top of the column is gone, so the settings start right under the header. */
+.jcs-card.ecs .ecs-head { gap: 10px; padding: 10px 20px; }
+.jcs-card.ecs .ecs-head-text { min-width: 0; display: flex; flex-direction: column; }
+.jcs-card.ecs .ecs-head .ecs-title { margin: 0; font-size: 15px; line-height: 1.25; }
+.jcs-card.ecs .ecs-head .ecs-hero-line { font-size: 11px; line-height: 1.35; color: var(--ecs-text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jcs-card.ecs .ecs-head .ecs-hero-line[hidden], .jcs-card.ecs .ecs-head .ecs-hero-slot[hidden] { display: none; }
+.jcs-card.ecs .ecs-head .ecs-hero-slot { display: contents; }
+.jcs-card.ecs .ecs-head-tile { width: 26px; height: 26px; flex: none; border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+.jcs-card.ecs .ecs-hero { display: none; }
