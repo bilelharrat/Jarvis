@@ -381,6 +381,7 @@
 		D8C6A6D7A61EF8F916404D82 /* goals.json in Resources */ = {isa = PBXBuildFile; fileRef = E5624090F33FAEF900499544 /* goals.json */; };
 		D8EC76ADE8655BC1F151256E /* PhoneMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F36CE4DA900BCA398D478BB /* PhoneMenuTests.swift */; };
 		D954D212CF659C164A712E44 /* MainTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46CDF77E69B96A427B73499 /* MainTabs.swift */; };
+		D9A8FBC547FBE42E52A03AE6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6ED99B1455659BA06782E789 /* PrivacyInfo.xcprivacy */; };
 		D9DBB20DDCF250A22D45E8B5 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		DA77AE7873ADFA625A56654C /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		DB774D905CDD138114CEDB94 /* music.json in Resources */ = {isa = PBXBuildFile; fileRef = 6473B16C7BA82D54F15DA456 /* music.json */; };
@@ -683,6 +684,7 @@
 		6BE5DE502A3F52A1E60A6509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6CFB10102E3E7A1C17013304 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
 		6ECA27370A798BC1A1141CC2 /* JarvisVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisVoice.swift; sourceTree = "<group>"; };
+		6ED99B1455659BA06782E789 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7043728A836B23F017D41FAC /* ChatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatsView.swift; sourceTree = "<group>"; };
 		70D197DFFFF2B68A02AD7A58 /* ShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
 		70D990AEDC24EFE1E6C86FCF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -1311,6 +1313,7 @@
 				E03778FF4ABDA35B16E235C1 /* EdenCode.entitlements */,
 				CD87459FCD36E28352991CA7 /* EdenCodeApp.swift */,
 				B9A6497B02470A8CDDCA69B4 /* Info.plist */,
+				6ED99B1455659BA06782E789 /* PrivacyInfo.xcprivacy */,
 				F8B1004130A1B7A867522A3E /* Model */,
 				CDEF75A5B3D530027EDE5CC7 /* Services */,
 				F47E5DE6715E6A52387C6692 /* Views */,
@@ -1661,6 +1664,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				53D813155B6FAF7309B5DBE3 /* Assets.xcassets in Resources */,
+				D9A8FBC547FBE42E52A03AE6 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
