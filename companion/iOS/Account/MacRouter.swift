@@ -20,6 +20,10 @@ actor MacRouter: MacRoute.Router {
         return .relay
     }
 
+    /// Which pairing the relay is for: the companion's one pairing (PairingStore), or, in the
+    /// Eden Code app, the Mac chosen among its own (EdenCode/MacStore sets this at launch).
+    nonisolated(unsafe) static var pairingSource: @Sendable () -> Pairing? = { PairingStore.load() }
+
     static let probeTimeout: TimeInterval = 1.5
     static let probeLife: TimeInterval = 30
 
@@ -47,7 +51,7 @@ actor MacRouter: MacRoute.Router {
     /// Reads the pairing and the account again (after pairing, unpairing, signing in or out,
     /// or learning the Mac's device id).
     func reload() {
-        let pairing = PairingStore.load()
+        let pairing = Self.pairingSource()
         configure(direct: pairing?.baseURL, macDeviceID: pairing?.macDeviceID, signedIn: AccountKeychain.load() != nil)
     }
 

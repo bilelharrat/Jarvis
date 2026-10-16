@@ -272,6 +272,13 @@ class CodePhone:
 
         shown = public_approval(card)
         shown["mac_only"] = self.mac_only(card)
+        # The iPhone app asks for Face ID before a yes here (as the Mac asks Touch ID before
+        # its risky ones, which stay the Mac's): a command to run, or an answer that allows
+        # from now on ("Always allow…"). The page has no Face ID; it shows the same buttons.
+        shown["tool"] = str(card.get("tool") or "")[:40]
+        shown["face_id"] = shown["tool"] == "Bash" or any(
+            "always" in f"{c.get('id')} {c.get('label')}".lower() for c in shown["choices"]
+        )
         copy = self.copy_cards.get(str(card.get("id")))
         if copy is not None:
             shown["copy"] = copy["slug"]

@@ -222,3 +222,19 @@ def test_the_usage_glance(phone, monkeypatch):  # noqa: F811
     found = phone.get("/api/code/phone/usage").json()
     assert found["today"] == 3.25 and found["day_cap"] == 20.0
     assert len(found["recent"]) == 7 and found["windows"][0]["percent"] == 42
+
+
+def test_cards_say_when_the_app_asks_face_id(phone, tmp_path):  # noqa: F811
+    session(phone.hub, 5, tmp_path / "alpha")
+    hub = phone.hub
+    choices = [{"id": "allow", "label": "Allow"}, {"id": "deny", "label": "Deny"}]
+    hub.approvals["c1"] = {"id": "c1", "task_id": 5, "tool": "Bash", "question": "Run a command?",
+                           "detail": "$ ls", "choices": choices}  # fmt: skip
+    hub.approvals["c2"] = {"id": "c2", "task_id": 5, "tool": "Read", "question": "Read a file?",
+                           "choices": choices}  # fmt: skip
+    hub.approvals["c3"] = {"id": "c3", "task_id": 5, "tool": "WebFetch", "question": "Fetch?",
+                           "choices": [*choices, {"id": "always", "label": "Always allow"}]}  # fmt: skip
+    cards = {c["id"]: c for c in phone.get("/api/code/phone/home").json()["attention"]}
+    assert cards["c1"]["face_id"] is True and cards["c1"]["tool"] == "Bash"
+    assert cards["c2"]["face_id"] is False
+    assert cards["c3"]["face_id"] is True
