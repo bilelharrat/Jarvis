@@ -1,0 +1,16 @@
+/* Eden Code settings › Production alerts: tokens, the hook's address, links, the scope, fixes lately. */
+
+.jcx-alr-service { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); padding: 6px 0; }
+.jcx-alr-head { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 2px 0 4px; }
+.jcx-alr-steps { margin: 2px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.jcx-alr-tools { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.jcx-alr-tools .jcs-input { width: 170px; }
+.jcx-alr-tools code { font: 11px var(--mono); color: rgb(var(--c-accent-ink)); overflow-wrap: anywhere; max-width: 300px; }
+.jcx-alr-form { display: flex; flex-direction: column; }
+.jcx-alr-actions { display: flex; align-items: center; padding: 6px 0 2px; }
+.jcx-alr-summary { margin: 2px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.jcx-alr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.jcx-alr-list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 8px; border-radius: 8px; background: rgb(var(--c-surface) / 0.7); }
+.deck.jc .jcx-alr .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-alr .jc-btn.filled { color: #fff; }
+.jcx-alr-error { margin: 2px 0 0; font-size: 12px; color: rgb(var(--c-danger-ink)); }
