@@ -58,3 +58,13 @@
 .jcx-pr-connect p { margin: 0; }
 .jcx-pr-others .jc-list li { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
 .jcx-pr-others code { font: 11px var(--mono); color: rgb(var(--c-accent-ink)); }
+
+/* Keep it green (code_pr_green.py) */
+.jcx-pr-green-status { align-items: center; }
+.jcx-pr-green-status > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jcx-pr-green-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.jcx-pr-num { width: 5.5em; }
+.jcx-pr-green-preview { margin: 0 2px; overflow-wrap: anywhere; }
+.jcx-pr-green-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.jcx-pr-green-log li { display: flex; gap: 8px; padding: 4px 8px; border-radius: 8px; background: rgb(var(--c-surface) / 0.7); }
+.jcx-pr-green-log time { flex: none; font: 11px var(--mono); }

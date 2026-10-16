@@ -25,8 +25,9 @@ everything else. Linear and Slack can't reach 127.0.0.1, so the owner runs a tun
 address with the hook's path and token; the settings show both. The port stays put across
 launches, so the tunnel does too, and the tunnel carries only these doors: never the
 window's pages, its /f/ links or its WebSocket, as one pointed at the window's own server
-(on a new port every launch) did. The listener runs only while Linear or Slack is turned
-on, and stops when both are off and when the app quits. A port another app has is said in
+(on a new port every launch) did. The listener runs only while Linear or Slack (or another
+feature's door on it: production alerts' Sentry and Datadog) is turned on, and stops when
+all are off and when the app quits. A port another app has is said in
 the settings and the log, never swapped for another (the tunnel and the pasted addresses
 name it).
 
@@ -80,7 +81,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from .. import code_ai, jsonstore, lang, linear, outside_text, prefs, slack
-from ..hook_listener import HookListener, came_through
+from ..hook_listener import HookListener, came_through, extra_doors
 from ..proactive import Alert
 from ..webhooks import LOOPBACK, _hostname
 from .code_unattended import Scope, allowed_commands, end_hooks_of
@@ -397,11 +398,18 @@ class Triggers:
     def port(self) -> int:
         return _port(self.hub.prefs.feature(PREF_PORT)) or PORT
 
+    def wanted(self) -> bool:
+        """Whether any door on the listener is wanted: Linear or Slack on, or another
+        feature's (hook_listener.extra_doors: Sentry and Datadog alerts)."""
+        if any(self.config(s) for s in SERVICES):
+            return True
+        return any(want() for want in list(extra_doors(self.hub).values()))
+
     def on_prefs(self, _event: Any = None) -> Any:
         """A settings change (any of them, from any window): the listener follows only when
         it isn't already where it should be, and only in the app's loop."""
         lis = self.listener
-        want = any(self.config(s) for s in SERVICES)
+        want = self.wanted()
         if (lis.running, lis.port) == ((True, self.port()) if want else (False, 0)):
             return None
         try:
@@ -419,8 +427,12 @@ class Triggers:
                 self.hub._spawn(self.tell_cut_off())
         async with self._syncing:
             lis = self.listener
-            want = any(self.config(s) for s in SERVICES)
+            want = self.wanted()
             before = (lis.running, lis.port, lis.error)
+            doors = frozenset((*ROUTES.values(), *extra_doors(self.hub)))
+            if doors != lis.names:
+                lis.names = doors
+                await lis.stop()  # (built with the names it answers: a new door, a new server)
             if want:
                 await lis.start(self.port())
             else:

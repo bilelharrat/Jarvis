@@ -46,6 +46,9 @@ class FakeGitHub:
         # (repo, number) -> its changed files ({filename, status, patch}), for a review
         self.files: dict[tuple[str, int], list[dict[str, Any]]] = {}
         self.posted_reviews: list[dict[str, Any]] = []  # reviews created, with their comments
+        self.posted_comments: list[dict[str, Any]] = []  # conversation comments made
+        self.deployments: dict[str, list[dict[str, Any]]] = {}  # sha -> deployments
+        self.deployment_statuses: dict[int, list[dict[str, Any]]] = {}  # id -> statuses
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -215,7 +218,19 @@ class FakeGitHub:
                 return self.reply(200, {"total_count": len(runs), "check_runs": runs})
             statuses = self.statuses.get(sha, [])
             return self.reply(200, {"state": "pending", "statuses": statuses})
+        if rest == "/deployments" and method == "GET":
+            return self.reply(200, self.deployments.get(url.params.get("sha", ""), []))
+        m = re.match(r"^/deployments/(\d+)/statuses$", rest)
+        if m:
+            return self.reply(200, self.deployment_statuses.get(int(m.group(1)), []))
         m = re.match(r"^/issues/(\d+)(/comments)?$", rest)
+        if m and m.group(2) and method == "POST":
+            body = json.loads(request.content)
+            entry = {"id": next(self.ids), "body": body["body"], "user": {"login": self.login},
+                     "author_association": "OWNER", "created_at": "2026-09-29T11:00:00Z"}  # fmt: skip
+            self.posted_comments.append({"repo": repo, "number": int(m.group(1)), **entry})
+            self.issue_comments.setdefault((repo, int(m.group(1))), []).append(entry)
+            return self.reply(201, entry)
         if m:
             number = int(m.group(1))
             if m.group(2):

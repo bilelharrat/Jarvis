@@ -8,7 +8,8 @@ the /f/ links, the WebSocket) to anyone on the internet who has its address. Thi
 on a port the owner chooses (code_triggers_port, 8766 unless they say otherwise) and
 answers only:
 
-- POST /hooks/<name>, for the names it was given (eden-linear, eden-slack): handed to
+- POST /hooks/<name>, for the names it was given (eden-linear, eden-slack, and the doors
+  other features add with extra_doors: eden-sentry and eden-datadog): handed to
   hub.inbound_hook, so the feature's own door checks its token, signature, timestamp,
   Origin, size, rate, lockout and each delivery once, exactly as before. The request is
   marked as having come through here (VIA, in its ASGI scope: nothing a client sends can
@@ -148,6 +149,18 @@ def build_app(names: frozenset[str], dispatch: Callable[[str, Any], Awaitable[An
             Route("/{path:path}", anything_else, methods=every),
         ]
     )
+
+
+def extra_doors(hub: Any) -> dict[str, Callable[[], bool]]:
+    """The hub's doors on this listener beyond Linear's and Slack's (made on first ask):
+    name -> whether that door is wanted now. A feature adds its own at install (production
+    alerts: features/code_alerts.py), whichever installs first; the listener runs while any
+    door is wanted, so there is one fixed port and one tunnel for all of them."""
+    found = getattr(hub, "hook_listener_doors", None)
+    if found is None:
+        found = {}
+        hub.hook_listener_doors = found
+    return found
 
 
 def came_through(request: Any) -> bool:
