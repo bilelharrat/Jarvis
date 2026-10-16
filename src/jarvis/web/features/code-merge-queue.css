@@ -26,3 +26,8 @@
 .jc-dot.mq-fixing { background: rgb(var(--c-purple)); }
 .jc-dot.mq-owner { background: rgb(var(--c-warning, var(--c-danger))); }
 .jc-dot.mq-paused { background: rgb(var(--c-fill-3)); }
+/* Held by the semantic conflict guard: what collides, a line each. */
+.mq-card.held { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-purple, var(--c-warning)) / 0.5); }
+.jc-dot.mq-held { background: rgb(var(--c-purple, var(--c-warning))); }
+.mq-guard { margin: 2px 0 0; padding: 6px 8px 6px 22px; border-radius: 8px; font-size: 11.5px; line-height: 1.4; color: rgb(var(--c-ink-2)); background: rgb(var(--c-fill-3) / 0.55); overflow-wrap: anywhere; }
+.mq-guard li + li { margin-top: 3px; }

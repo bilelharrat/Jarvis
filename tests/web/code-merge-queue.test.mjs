@@ -53,3 +53,22 @@ test('the merge queue is a lane of the board’s, placed after the to-do column'
   const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code-merge-queue.json', import.meta.url), 'utf8'));
   for (const label of Object.values(mq.STATES)) assert.ok(zh.strings[label], label);
 });
+
+test('the merge queue: an item the semantic conflict guard holds lists what collides', () => {
+  const item = {
+    kind: 'copy', title: 'tax in totals', state: 'held', note: 'Held: it collides with session 4 in 1 place(s) git doesn’t see; both sessions were told.',
+    guard: [
+      { kind: 'contract', text: 'this one changed the signature of total in calc.py (…), and session 4 adds calls to it that don’t fit (first at shop.py:3).' },
+      { kind: 'body', text: 'set aside by the owner', overridden: true },
+      null,
+    ],
+  };
+  assert.equal(mq.stateLabel(item), 'Held: overlapping changes');
+  assert.deepEqual(mq.collisions(item), [item.guard[0].text]);
+  assert.deepEqual(mq.collisions({}), []);
+  assert.deepEqual(mq.actionsFor(item, 0, 1).map(([a]) => a), ['override', 'retry', 'pause', 'remove']);
+  assert.equal(mq.actionsFor(item, 0, 1)[0][1], 'Land anyway');
+  const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code-merge-queue.json', import.meta.url), 'utf8'));
+  for (const [, label] of [...mq.GUARD_MODES, ...mq.CONFLICT_MODES]) assert.ok(zh.strings[label], label);
+  for (const label of ['Land anyway', 'Check again', 'Overlapping changes']) assert.ok(zh.strings[label], label);
+});

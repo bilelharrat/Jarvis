@@ -37,8 +37,13 @@ safe changes first, the ones that touch tests later. The owner can move any item
 down (a moved item keeps its place), pause or resume one, pause a whole project's queue,
 take an item off, or try one again.
 
+Held: before a waiting item is taken, the semantic conflict guard (code_semantic_guard.py)
+compares the symbols and contracts it changed with the project's other work; when they
+collide in a way git doesn't see, the item is "held" (set aside, as one sent back is) until
+the guard finds nothing or the owner lands it anyway (override).
+
 Window commands: code_mq {}, code_mq_add {kind: copy|pr, slug | key}, code_mq_item {id,
-action: up|down|remove|pause|resume|retry}, code_mq_project {repo, paused}.
+action: up|down|remove|pause|resume|retry|override}, code_mq_project {repo, paused}.
 Events: code_mq {queues: [{repo, project, paused, items}], attention}.
 Settings (prefs.features): code_mq_conflicts ("session" | "owner").
 Loop: code_merge_queue.
@@ -76,7 +81,7 @@ CHECKS_WAIT = 3 * 3600.0  # a pull request's checks waited for this long, then t
 DONE_KEPT = 20
 ITEMS_MAX = 100
 WAITING = ("queued",)
-OPEN = ("queued", "working", "checks", "fixing", "paused", "owner")
+OPEN = ("queued", "working", "checks", "fixing", "paused", "owner", "held")
 _TESTS = re.compile(
     r"(^|/)(tests?|__tests__|spec|specs)/|(^|/)test_[^/]*$|_test\.\w+$|\.(test|spec)\.\w+$"
 )
@@ -264,6 +269,9 @@ class MergeQueue:
         self._wake: asyncio.Event | None = None
         self._busy: set[str] = set()  # repos whose head item is being worked on now
         self._told: set[str] = set()  # "<id>:<state>" the owner heard about
+        # The semantic conflict guard (code_semantic_guard.py), when it's installed: asked
+        # before a waiting item is taken, and about a held one each tick.
+        self.guard: Any = None
         # (Tests replace it.) The project's tests in a folder: {status: passed | failed |
         # error | none, summary, fix_message}.
         self.run_tests = self._run_tests
@@ -472,10 +480,16 @@ class MergeQueue:
             if item["state"] == "working":
                 return "It's being landed just now; wait for it."
             self.items.remove(item)
-        elif action == "pause" and item["state"] in ("queued", "fixing", "owner"):
+        elif action == "pause" and item["state"] in ("queued", "fixing", "owner", "held"):
             item["state"], item["note"] = "paused", "Paused."
-        elif action in ("resume", "retry") and item["state"] in ("paused", "owner", "fixing"):
+        elif action in ("resume", "retry") and item["state"] in ("paused", "owner", "fixing",
+                                                                 "held"):  # fmt: skip
             item["state"], item["note"], item["since"] = "queued", "", ""
+        elif action == "override" and item["state"] in ("held", "queued", "paused"):
+            # Land anyway: what the guard found so far no longer holds it (a new finding does).
+            item["overridden"] = list(item.get("guard_keys") or [])
+            if item["state"] == "held":
+                item["state"], item["note"] = "queued", ""
         self.save()
         self.publish()
         self.wake()
@@ -526,15 +540,21 @@ class MergeQueue:
             if item["state"] == "fixing" and await self._fixed(item):
                 item["state"], item["note"], item["since"] = "queued", "", ""
                 changed = True
+            elif item["state"] == "held" and not await self._held(item):
+                item["state"], item["note"] = "queued", ""
+                changed = True
         if changed:
             self.save()
             self.publish()
         for repo in list(dict.fromkeys(i["repo"] for i in self.items)):
             if self.paused.get(repo) or repo in self._busy:
                 continue
-            head = next(
-                (i for i in self.queue_of(repo) if i["state"] in ("queued", "checks")), None
-            )
+            head = None
+            for waiting in [i for i in self.queue_of(repo) if i["state"] in ("queued", "checks")]:
+                if waiting["state"] == "queued" and await self._held(waiting):
+                    continue  # (held: set aside like an item sent back; the next one goes)
+                head = waiting
+                break
             if head is None:
                 continue
             # Ahead of it, only items set aside (fixing, paused, the owner's): the queue
@@ -544,6 +564,22 @@ class MergeQueue:
                 await (self.step_copy(head) if head["kind"] == "copy" else self.step_pr(head))
             finally:
                 self._busy.discard(repo)
+
+    async def _held(self, item: dict[str, Any]) -> bool:
+        """Whether the semantic conflict guard holds an item: it then waits as "held", with
+        what collides on its card, until the guard finds nothing or the owner overrides."""
+        if self.guard is None:
+            return False
+        try:
+            why = await self.guard.hold(item)
+        except Exception:
+            log.exception("the semantic conflict guard failed; the item isn't held")
+            return False
+        if not why:
+            return False
+        if item["state"] != "held" or item.get("note") != why:
+            self._set(item, "held", why)
+        return True
 
     def _finish(self, item: dict[str, Any], note: str) -> None:
         if item in self.items:
@@ -558,7 +594,7 @@ class MergeQueue:
         item.update(state=state, note=note, **kw)
         self.save()
         self.publish()
-        if state in ("owner", "fixing"):
+        if state in ("owner", "fixing", "held"):
             self.attention(item)
 
     # ── an isolated copy ──
@@ -926,7 +962,7 @@ class MergeQueue:
 
     def cmd_item(self, msg: dict[str, Any]) -> None:
         action = str(msg.get("action") or "")
-        if action in ("up", "down", "remove", "pause", "resume", "retry"):
+        if action in ("up", "down", "remove", "pause", "resume", "retry", "override"):
             self.caption(self.act(str(msg.get("id") or "")[:20], action))
 
     def cmd_project(self, msg: dict[str, Any]) -> None:
