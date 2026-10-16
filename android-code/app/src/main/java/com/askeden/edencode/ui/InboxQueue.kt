@@ -118,7 +118,7 @@ private fun TodoRow(card: PhoneTodoCard, modelName: String, starting: String?, o
         }
         val task = card.taskID
         when {
-            task != null && !card.waiting -> GlassButton("Open", false, style = sf(13f, Semibold), height = 34.dp) { onOpen(task) }
+            task != null && !card.waiting -> GlassButton("Open", false, style = sf(13f, Semibold), height = 34.dp, tinted = true) { onOpen(task) }
             card.waiting && card.startsOnMacOnly -> T(
                 "On your Mac", sf(12f), c.muted,
                 Modifier.semantics { contentDescription = "Starts on your Mac: its mode is ${CodeModes.name(card.mode)}" }, maxLines = 1,

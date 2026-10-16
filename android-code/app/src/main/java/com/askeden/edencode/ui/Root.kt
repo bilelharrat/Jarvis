@@ -122,6 +122,9 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
 /**
  * iOS 26's floating glass tab bar: 21 in from the sides, 22 above the bottom edge, 60 tall, four
  * equal segments, the selected one in a tinted capsule, SF's filled symbols over 10 pt labels.
+ * In dark the iPhone's glass takes on the teal at the foot of the backdrop (which is always there:
+ * the backdrop is a fixed gradient), so its fill, rim and symbols are teal and cyan, not grey;
+ * these are the colours measured off the iPhone screenshots.
  */
 @Composable
 private fun TabBar(store: EdenCodeStore) {
@@ -134,9 +137,9 @@ private fun TabBar(store: EdenCodeStore) {
             .fillMaxWidth()
             .height(60.dp)
             .boxShadow(if (dark) Color.Black.copy(alpha = 0.45f) else hex(0x1E2850, 0.14f), y = 8.dp, blur = 28.dp, radius = 30.dp)
-            .glass(env.screen, shape, if (dark) hex(0x2C2C30, 0.5f) else hex(0xFFFFFF, 0.42f), blur = 24.dp, saturate = 2.1f)
+            .glass(env.screen, shape, if (dark) hex(0x008A90, 0.5f) else hex(0xFFFFFF, 0.42f), blur = 24.dp, saturate = 2.1f)
             .topRim(30.dp, if (dark) Color.White.copy(alpha = 0.22f) else Color.White, Color.Transparent)
-            .border(1.dp, if (dark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.7f), shape)
+            .border(1.dp, if (dark) hex(0x3CE0F0, 0.45f) else Color.White.copy(alpha = 0.7f), shape)
             .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -150,10 +153,10 @@ private fun TabBar(store: EdenCodeStore) {
 @Composable
 private fun RowScope.TabItem(label: String, icon: ImageVector, selected: Boolean, badge: Int, onClick: () -> Unit) {
     val c = Eden.colors
-    val ink = if (selected) c.accent else c.ink
+    val ink = if (Eden.dark) (if (selected) hex(0x17CFFF) else hex(0x9EFFFF)) else if (selected) c.accent else c.ink
     Box(
         Modifier.weight(1f).fillMaxHeight()
-            .background(if (selected) (if (Eden.dark) Color.White.copy(alpha = 0.12f) else hex(0x1D1D1F, 0.06f)) else Color.Transparent, RoundedCornerShape(50))
+            .background(if (selected) (if (Eden.dark) hex(0x2BC4C8, 0.45f) else hex(0x1D1D1F, 0.06f)) else Color.Transparent, RoundedCornerShape(50))
             .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
             .semantics { role = Role.Tab; this.selected = selected; contentDescription = if (badge > 0) "$label, $badge" else label },
         contentAlignment = Alignment.Center,

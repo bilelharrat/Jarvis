@@ -207,9 +207,11 @@ fun GlassMenuItem(text: String, checked: Boolean = false, enabled: Boolean = tru
 
 /** iOS 26's .glass / .glassProminent buttons: a capsule of glass, or of the accent. */
 @Composable
-fun GlassButton(text: String, prominent: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, height: androidx.compose.ui.unit.Dp = 36.dp, style: TextStyle = sf(15f, Semibold), onClick: () -> Unit) {
+fun GlassButton(text: String, prominent: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, height: androidx.compose.ui.unit.Dp = 36.dp, style: TextStyle = sf(15f, Semibold), tinted: Boolean = false, onClick: () -> Unit) {
     val c = Eden.colors
     val shape = RoundedCornerShape(50)
+    // tinted: a plain .glass button that takes the app's blue tint on iOS (Queue's Open): blue
+    // words, and in dark a faint blue cast to the glass.
     // Disabled, a prominent button is plain glass with grey words, as iOS 26 draws it.
     val bright = prominent && enabled
     Box(
@@ -217,12 +219,12 @@ fun GlassButton(text: String, prominent: Boolean, modifier: Modifier = Modifier,
             .height(height)
             .then(
                 if (bright) Modifier.background(c.accent, shape)
-                else Modifier.background(if (Eden.dark) hex(0xFFFFFF, 0.12f) else hex(0xFFFFFF, 0.62f), shape).border(1.dp, c.cardRim, shape),
+                else Modifier.background(if (Eden.dark) (if (tinted) c.accent.copy(alpha = 0.16f) else hex(0xFFFFFF, 0.12f)) else hex(0xFFFFFF, 0.62f), shape).border(1.dp, c.cardRim, shape),
             )
             .pressable(0.96f, enabled = enabled, label = text, dim = !prominent, onClick = onClick)
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
-    ) { T(text, style, if (bright) Color.White else if (enabled) c.ink else placeholderInk(), maxLines = 1) }
+    ) { T(text, style, if (bright) Color.White else if (!enabled) placeholderInk() else if (tinted) c.accent else c.ink, maxLines = 1) }
 }
 
 /** The segmented control (Turn | Session): a capsule track with a white thumb. */
