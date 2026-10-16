@@ -13,6 +13,7 @@ import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { checkSignups } from './turnstile.js';
 import { redeemPromo } from './promo.js';
+import { mintCloudToken } from './cloud-token.js';
 import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
@@ -126,6 +127,11 @@ export async function api(request, env, ctx) {
       const token = auth(request);
       await limited(env, 'AUTH_RATE', `promo:${token.account}`);
       return json(await redeemPromo(env, { account: token.account, token }, (await readJson(request, 4096)).code, call));
+    }
+    if (path === '/cloud/token' && method === 'POST') { // a linked Mac: a token for Eden Cloud alone (cloud-token.js)
+      const token = auth(request);
+      await limited(env, 'API_RATE', `cloud:${token.account}`);
+      return json(await mintCloudToken(env, await call(env, token.account, 'get', {}, token)));
     }
     if (path === '/subscription' && method === 'POST') return json(await subscription(request, env));
     if (path === '/appstore/notifications' && method === 'POST') return await appStoreNotification(request, env);

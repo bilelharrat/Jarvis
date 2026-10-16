@@ -357,6 +357,7 @@ EDEN_CODE_S_OWN = {
         "code_answers_digest",
         "code_containers_tidy",
         "code_copies_sweeper",
+        "code_eden_cloud_watch",
         "code_handoff_watch",
         "code_index_tidy",
         "code_issue_watch",
