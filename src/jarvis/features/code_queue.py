@@ -34,12 +34,19 @@ Window commands: todo_queue_run {directory, parallel?, ceiling?, routes?: {card 
 more cards start; those running go on). The queues' state goes with code_todo's todo_state
 {queues: {folder: {on, parallel, ceiling, spent, running, note}}}.
 Settings (prefs.features): code_queue_ladder (model refs, cheapest first).
-Labs: off until turned on in Settings › Eden Code › Labs ("Routing queue").
+Quota-aware (features/code_forecast): before a card starts, the forecast's plan says
+whether it fits Claude's 5-hour and weekly windows and the money left; a card that doesn't
+waits for the reset (keeping its place, while the next that fits starts), goes to a cheaper
+rung of the ladder or, with the owner's leave, to another provider's model, and a big one
+waits for the night (code_queue_overnight). Each card says why. No plan (nothing learned
+yet): the cards go in their order, as before.
+Out of Labs since 2026-10-16: on for everyone, with the forecast beside it.
 
 Cost policy: the queue calls no model of its own: each card is one session on the model
 picked as above, and a card whose checks fail goes on in that session on the next model up
 (that model's price), at most once per rung of the ladder, all within the caps and the
-queue's ceiling. Picking reads the local event log; the checks run the project's own tools.
+queue's ceiling. Picking reads the local event log; the checks run the project's own tools;
+the plan is statistics (features/code_forecast), no model call.
 """
 
 from __future__ import annotations
@@ -305,20 +312,40 @@ class Queue:
                     self.changed()
                 return
             why = self.blocked(run)
+            plan = self.plan(run.folder)
+            ready = [c for c in waiting if not holds(plan.get(c["id"]))]
+            if not why and not ready:  # (each waits for a reset, or the night: the first's why)
+                why = str(plan.get(waiting[0]["id"], {}).get("why") or "")
             if why != run.note:
                 run.note = why
                 self.changed()
             if why:
                 return
-            card = waiting[0]
+            card = ready[0]
             card["state"] = "running"
             card["attempts"] = []
             card.pop("verified", None)
             self.spawn(self._start(run, card))
 
+    def plan(self, folder: str) -> dict[str, dict[str, Any]]:
+        """The forecast's plan for the project's waiting cards (features/code_forecast):
+        card id -> {action, ref, until, why}; empty without it, and every card goes in turn."""
+        forecast = getattr(self.hub, "code_forecast", None)
+        if forecast is None:
+            return {}
+        try:
+            return forecast.plan(folder)
+        except Exception:  # (a plan is a guide: the queue goes on in order without one)
+            log.warning("Eden Code queue: couldn't read the plan", exc_info=True)
+            return {}
+
     async def _start(self, run: Run, card: dict[str, Any]) -> None:
         try:
+            decision = self.plan(run.folder).get(card["id"]) or {}
             ref, why = await self.pick(run.folder, card)
+            if decision.get("action") in ("cheaper", "other") and decision.get("ref"):
+                if not card.get("model"):  # (the owner's own pick is never changed)
+                    ref, why = str(decision["ref"]), str(decision["action"])
             # Its own start's token: the late session taken up is this start's, never another
             # pending one of the same card's (by card id it could be a manual Start's: REL3-5).
             token = launches.token()
@@ -612,6 +639,15 @@ class _Budget:
         # The card it runs, not the figure: the share is taken up at the next connection,
         # never by reopening one mid-card.
         return self.queue.card_of(task)
+
+
+def holds(decision: dict[str, Any] | None) -> bool:
+    """Whether the plan keeps a card waiting now: for a window's reset or the night, till
+    then (a reset whose time isn't known: till the plan says otherwise)."""
+    if not decision or decision.get("action") not in ("wait", "overnight"):
+        return False
+    until = decision.get("until")
+    return not until or float(until) > time.time()
 
 
 def _log_failure(job: asyncio.Task) -> None:

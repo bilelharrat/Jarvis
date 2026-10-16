@@ -16,8 +16,9 @@ or web tools; commands in the sandbox with no network). Cards in a project can a
 queue").
 
 Window commands:
-- todo_state {} -> todo_state {cards, queues, queue} (queue: whether the routing queue is
-  on in Labs).
+- todo_state {} -> todo_state {cards, queues, queue, plans} (queue: whether the routing
+  queue is installed; plans: the forecast's plan for each waiting card, features/
+  code_forecast: {card id: {action, ref, label, until, why, low, mid, high, windows}}).
 - todo_add {directory, title?, prompt, model?, mode?, isolated?, cloud?} -> todo_state
   {added: id}, or todo_error {text}.
 - todo_edit {id, title?, prompt?, model?, mode?, isolated?, cloud?}, todo_delete {id},
@@ -266,11 +267,17 @@ class Todo:
     def emit(self, **extra: Any) -> None:
         queue = getattr(self.hub, "code_queue", None)
         queues = queue.public() if queue is not None else {}
+        forecast = getattr(self.hub, "code_forecast", None)
+        plans: dict[str, Any] = {}
+        if forecast is not None:
+            with contextlib.suppress(Exception):  # (a plan is a guide: the board shows anyway)
+                plans = forecast.plans()
         self.hub.emit(
             "todo_state",
             cards=list(self.board.cards),
             queues=queues,
-            queue=queue is not None,  # (the routing queue is a Labs feature: off, no button)
+            queue=queue is not None,  # (no routing queue installed: no button)
+            plans=plans,
             **extra,
         )
 

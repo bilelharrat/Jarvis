@@ -1,0 +1,59 @@
+{
+ "strings": {
+  "Cost forecast under the composer": "在输入框下方显示花费预测",
+  "While you write, what the message is likely to cost and how much of Claude’s 5-hour limit it’s likely to take, from similar messages in the project. Statistics only: no model is asked.": "边写边显示这条消息大概要花多少，以及大概会占用 Claude 5 小时额度的多少，依据是这个项目里类似的消息。只做统计，不调用任何模型。",
+  "Big queued cards wait for the night": "队列里的大卡片等到夜里再运行",
+  "In the routing queue, a card likely to take a quarter of the 5-hour limit or more waits for the night, leaving the day’s limits to you. Start it to run it now.": "在路由队列里，预计会用掉 5 小时额度四分之一或更多的卡片会等到夜里运行，把白天的额度留给你。点“开始”可立即运行。",
+  "Forecast and queue": "预测和队列",
+  "It may not fit what’s left of the 5-hour limit.": "5 小时额度剩下的部分可能不够。",
+  "A rough guess: few messages to go by yet.": "粗略估计：可参考的消息还不多。",
+  "A forecast from statistics: no model is asked.": "这是统计预测：没有调用任何模型。",
+  "Runs now": "现在运行",
+  "Waits for a reset": "等额度重置",
+  "Waits for tomorrow": "等到明天",
+  "Cheaper model": "更便宜的模型",
+  "Other provider": "其他服务商",
+  "Overnight": "夜里运行",
+  "In its turn": "按顺序",
+  "What the routing queue would do with this card now. Start runs it now, whatever the plan.": "路由队列现在会怎样处理这张卡片。点“开始”会立即运行，不管计划如何。",
+  "With Claude’s limits and your spending limits as they stand:": "按 Claude 的额度和你的花费上限目前的情况："
+ },
+ "patterns": [
+  [
+   "^≈ (\\S+) · (\\S+) of the 5-hour limit$",
+   "≈ $1 · 占 5 小时额度的 $2"
+  ],
+  [
+   "^From (\\d+) similar messages in this project\\.$",
+   "依据这个项目里 $1 条类似的消息。"
+  ],
+  [
+   "^From (\\d+) similar messages in your projects\\.$",
+   "依据你各项目里 $1 条类似的消息。"
+  ],
+  [
+   "^From this project’s (\\d+) latest messages \\(none much like this one\\)\\.$",
+   "依据这个项目最近的 $1 条消息（都不太像这一条）。"
+  ],
+  [
+   "^Likely (\\S+), typically (\\S+)\\.$",
+   "预计 $1，通常 $2。"
+  ],
+  [
+   "^(\\S+) of Claude’s 5-hour limit \\(now (\\S+)\\)\\.$",
+   "占 Claude 5 小时额度的 $1（现在已用 $2）。"
+  ],
+  [
+   "^(\\S+) of Claude’s 5-hour limit\\.$",
+   "占 Claude 5 小时额度的 $1。"
+  ],
+  [
+   "^(\\S+) of the weekly limit \\(now (\\S+)\\)\\.$",
+   "占每周额度的 $1（现在已用 $2）。"
+  ],
+  [
+   "^(\\S+) of the weekly limit\\.$",
+   "占每周额度的 $1。"
+  ]
+ ]
+}

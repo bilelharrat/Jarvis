@@ -46,3 +46,11 @@
 .ct-dialog-acts { display: flex; justify-content: flex-end; gap: 8px; }
 
 @media (prefers-reduced-motion: reduce) { .ct-card { transition: none; } }
+
+/* The forecast's plan on a waiting card (features/code_forecast.py) and its summary in the
+   Run dialog. */
+.ct-plan { line-height: 1.4; }
+.ct-plan .ct-plan-tag { font-weight: 600; margin-right: 4px; }
+.ct-plan.wait .ct-plan-tag, .ct-plan.overnight .ct-plan-tag { color: rgb(var(--c-warning-ink)); }
+.ct-plan.cheaper .ct-plan-tag, .ct-plan.other .ct-plan-tag { color: rgb(var(--c-accent)); }
+.ct-plan-sum { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }

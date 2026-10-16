@@ -21,11 +21,13 @@ KEY = "labs"
 LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_acp": ("Other agents (ACP)", "Run Gemini CLI, Codex and other ACP agents as sessions.", ("code-acp",)),
     "code_plugins": ("Plugins", "Claude Code plugins: their commands, agents and hooks in sessions.", ("code-plugins",)),
-    "code_queue": ("Routing queue", "Run a project's to-do cards in the background, each on the cheapest model that passes its checks, within a dollar ceiling.", ()),
     "code_spec": ("Spec mode", "Requirements, design and tasks in the repo, each OK'd, then checked against the spec.", ("code-spec",)),
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
     "code_share": ("Share live", "A read-only live view of a session for a teammate, by link, on your network.", ("code_share",)),
 }  # fmt: skip
+# Out of Labs (on for everyone now; a name still in an owner's list is dropped by _clean):
+# code_queue, the routing queue, on 2026-10-16, with the cost forecast beside it
+# (features/code_forecast).
 
 
 def _clean(value: Any) -> list[str] | None:

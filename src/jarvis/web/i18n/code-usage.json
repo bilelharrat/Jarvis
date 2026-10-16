@@ -50,7 +50,15 @@
     "On hold": "已暂停",
     "Spending limits changed; it goes on with the new ones.": "花费上限已更改；会话会按新的上限继续。",
     "It stopped at its spending limit.": "它在花费上限处停下了。",
-    "Within the limit": "在额度内"
+    "Within the limit": "在额度内",
+    "Daily spending limit": "每日花费上限",
+    "Eden Code has no daily spending limit yet. Set one, so a runaway session can’t spend a lot while you’re not looking? Sessions stop at the limit and go on tomorrow, or when you raise it.": "Eden Code 还没有每日花费上限。设一个吧，免得有会话失控，在你没注意时花掉很多？会话到上限就停，第二天或你调高上限后继续。",
+    "Set the limit": "设定上限",
+    "No thanks": "不用了",
+    "A day": "每天",
+    "Proposed from what your sessions spent the last two weeks. You can change it any time in Eden Code settings › Limits.": "根据你的会话最近两周的花费建议。随时可在 Eden Code 设置 › 上限里修改。",
+    "Eden Code’s limit a day, in dollars": "Eden Code 每天的上限（美元）",
+    "A starting point: nothing spent yet to go by. You can change it any time in Eden Code settings › Limits.": "先从这个数开始：还没有花费可参考。随时可在 Eden Code 设置 › 上限里修改。"
   },
   "patterns": [
     [

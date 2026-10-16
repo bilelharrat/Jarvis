@@ -3,9 +3,11 @@
 // a model or the Model Router's pick, a mode, an isolated copy, the cloud), first in the
 // board's lanes. Drag a card up or down to reorder it (or its ↑ ↓ buttons), drag it onto
 // any other lane or press Start to start it; it then links to the session it started. A card
-// can come from a GitHub issue's address. With the routing queue on in Labs, "Run my queue"
-// starts the project's cards one or more at a time, each on the cheapest model that passed
-// Eden's checks there, within a dollar ceiling.
+// can come from a GitHub issue's address. "Run my queue" starts the project's cards one or
+// more at a time, each on the cheapest model that passed Eden's checks there, within a
+// dollar ceiling. Each waiting card says what the queue would do with it now (the forecast's
+// plan, features/code_forecast.py): run now, wait for Claude's limit to reset, go to a
+// cheaper model or another provider, or run overnight, and why.
 // The editors are modal dialogs (the board redraws under them as sessions work). Its pure
 // logic is exported for node's tests.
 (function codeTodo(root) {
@@ -61,6 +63,29 @@
     return q.note || '';
   }
 
+  // A plan's short tag: what the queue would do with the card.
+  const PLAN_TAGS = {
+    now: 'Runs now', cheaper: 'Cheaper model', other: 'Other provider', overnight: 'Overnight',
+  };
+  function planTag(plan) {
+    if (!plan || !plan.action) return '';
+    if (plan.action === 'now') return plan.reason === 'no_data' ? 'In its turn' : PLAN_TAGS.now;
+    if (plan.action === 'wait') return plan.reason === 'money' ? 'Waits for tomorrow' : 'Waits for a reset';
+    return PLAN_TAGS[plan.action] || '';
+  }
+
+  // The Run dialog's summary of the plan: [tag, how many cards], in the tags' order.
+  function planSummary(cards, plans) {
+    const counts = new Map();
+    for (const card of cards || []) {
+      if (card.state !== 'todo') continue;
+      const tag = planTag((plans || {})[card.id]);
+      if (tag) counts.set(tag, (counts.get(tag) || 0) + 1);
+    }
+    const order = ['Runs now', 'In its turn', 'Cheaper model', 'Other provider', 'Overnight', 'Waits for a reset', 'Waits for tomorrow'];
+    return order.filter((tag) => counts.has(tag)).map((tag) => [tag, counts.get(tag)]);
+  }
+
   const issueAddress = (text) => ISSUE.test(String(text || '').trim());
 
   // Where a card's link goes: the open session, else its Claude Code session to reopen.
@@ -80,13 +105,13 @@
     return withCards || paths[0] || ((cards || [])[0] || {}).folder || '';
   }
 
-  const api = { cardsFor, moved, stateLabel, attemptsLine, queueLine, issueAddress, sessionLink, projectFor, MODE_NAMES, OUTSIDE_MODES };
+  const api = { cardsFor, moved, stateLabel, attemptsLine, queueLine, issueAddress, sessionLink, projectFor, planTag, planSummary, MODE_NAMES, OUTSIDE_MODES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   const F = root.jarvisFeatures;
   if (!F || !F.codeBoard) return;
 
   const t = (text) => F.t(text);
-  const T = { cards: [], queues: {}, queueOn: false, projects: [], folder: '', error: '' };
+  const T = { cards: [], queues: {}, queueOn: false, plans: {}, projects: [], folder: '', error: '' };
   const DRAG = 'application/x-eden-todo';
   const models = () => (typeof modelList !== 'undefined' ? modelList : []);
   const nameOf = (ref) => { const m = models().find((x) => x.ref === ref); return m ? (m.label || m.name || ref) : ref; };
@@ -220,6 +245,13 @@
     }
     const state = F.el('p', 'cs-card-doing ct-state', stateLabel(card));
     parts.push(state);
+    const plan = (card.state === 'todo' || card.state === 'queued') ? T.plans[card.id] : null;
+    if (plan && plan.why) {
+      const line = F.el('p', `cs-card-stats ct-plan ${plan.action}`);
+      line.append(F.el('span', 'ct-plan-tag', planTag(plan)), own(F.el('span', '', plan.why)));  // (the backend's words, in the window's language)
+      line.title = t('What the routing queue would do with this card now. Start runs it now, whatever the plan.');
+      parts.push(line);
+    }
     const tries = attemptsLine(card, nameOf);
     if (tries) parts.push(own(F.el('p', 'cs-card-stats ct-tries', tries)));
     if (card.cost) parts.push(F.el('p', 'cs-card-stats', money(card.cost)));
@@ -391,6 +423,17 @@
       ceiling.max = '1000';
       ceiling.step = '0.5';
       ceiling.value = String(q.ceiling || 5);
+      const summary = planSummary(cardsFor(T.cards, T.folder), T.plans);
+      if (summary.length) {
+        body.append(F.el('p', 'ct-note', t('With Claude’s limits and your spending limits as they stand:')));
+        const list = F.el('ul', 'ct-plan-sum');
+        for (const [tag, n] of summary) {
+          const li = F.el('li');
+          li.append(F.el('span', '', tag), document.createTextNode(': '), own(F.el('b', '', String(n))));
+          list.append(li);
+        }
+        body.append(list);
+      }
     }, () => {
       const usd = Number(ceiling.value);
       if (!Number.isFinite(usd) || usd <= 0) { ceiling.focus(); return false; }
@@ -411,6 +454,7 @@
     T.cards = ev.cards || [];
     T.queues = ev.queues || {};
     T.queueOn = ev.queue === true;
+    T.plans = ev.plans && typeof ev.plans === 'object' ? ev.plans : {};
     T.error = '';
     if (ev.added) { const c = T.cards.find((x) => x.id === ev.added); if (c) T.folder = c.folder; }
     draw();
