@@ -24,6 +24,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -105,24 +109,31 @@ fun GHeader(backdrop: Backdrop?, onMenu: () -> Unit, onNew: (() -> Unit)?, modif
     }
 }
 
-/** The title pill: the session's title, and a dot with its one word and its project. */
+/**
+ * The title pill: the session's title, and a dot with its one word and its project. A tap opens
+ * its menu ([menu]: the changes, read aloud, stop, your sessions), as the iPhone's does.
+ */
 @Composable
-fun RowScope.GTitlePill(title: String, status: CodeStatus, project: String, backdrop: Backdrop?, onClick: (() -> Unit)? = null) {
+fun RowScope.GTitlePill(title: String, status: CodeStatus, project: String, backdrop: Backdrop?, menu: @Composable ColumnScope.(close: () -> Unit) -> Unit) {
     val g = gInk
+    var open by remember { mutableStateOf(false) }
     val word = com.askeden.edencode.model.SessionList.word(status)
     val line = listOf(word, project).filter { it.isNotEmpty() }.joinToString(" · ")
-    Column(
-        Modifier.weight(1f).height(44.dp).gGlass(backdrop, 22.dp)
-            .then(if (onClick != null) Modifier.pressable(0.98f, label = "Changes", onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp)
-            .semantics(mergeDescendants = true) { heading() },
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-    ) {
-        T(title, sf(15f, Semibold, lineHeight = 18f), g.ink, Modifier.widthIn(max = 200.dp), maxLines = 1)
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (word.isNotEmpty()) Box(Modifier.size(6.dp).background(g.of(status), CircleShape))
-            T(line, sf(11f, lineHeight = 13f), g.words(status), maxLines = 1)
+    Box(Modifier.weight(1f)) {
+        Column(
+            Modifier.fillMaxWidth().height(44.dp).gGlass(backdrop, 22.dp)
+                .pressable(0.98f, label = "$title. $line. Session actions") { open = true }
+                .padding(horizontal = 12.dp)
+                .semantics(mergeDescendants = true) { heading() },
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+        ) {
+            T(title, sf(15f, Semibold, lineHeight = 18f), g.ink, Modifier.widthIn(max = 200.dp), maxLines = 1)
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(6.dp).background(g.of(status), CircleShape))
+                T(line, sf(11f, lineHeight = 13f), g.words(status), maxLines = 1)
+            }
         }
+        GlassMenu(open, { open = false }, offset = androidx.compose.ui.unit.DpOffset(0.dp, 50.dp)) { menu { open = false } }
     }
 }
 

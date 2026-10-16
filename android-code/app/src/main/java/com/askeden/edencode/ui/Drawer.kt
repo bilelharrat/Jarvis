@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,10 +48,11 @@ import com.askeden.edencode.store.EdenCodeStore
 val DrawerWidth: Dp = 320.dp
 
 /**
- * Your sessions (the GDrawer mockup), sliding in from the left over the screen it moves aside:
- * search, New session, the Inbox and the Queue (the tab bar's other pages, now here), every
- * session in one flat list by day with one coloured word for where it is, Exterminator Mode's runs,
- * and at the foot the Mac (tap to switch or pair another) and Settings.
+ * Your sessions (G2, SessionsView.swift's SessionDrawer), sliding in from the left over the screen
+ * it moves aside: search, New session, then one flat list grouped Today, Yesterday and Earlier
+ * (what waits on the owner leads Today; today's rows say one coloured word), Exterminator Mode's
+ * runs; below, the Inbox and the Queue with their counts, then the Mac in use (tap to switch or
+ * pair another) and Settings.
  *
  * Kept in its own file on purpose: the owner may swap the sessions list's design again.
  */
@@ -78,14 +80,10 @@ fun SessionsDrawer(store: EdenCodeStore, onClose: () -> Unit) {
     ) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = top - 6.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             DrawerSearch(store.search) { store.search = it }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                NavRow(Glyphs.compose, "New session", selected = store.path.isEmpty() && store.tab == EdenCodeStore.Tab.New) { store.newSession() }
-                NavRow(Glyphs.inboxLine, "Inbox", count = store.home.needsYouCount, selected = store.path.isEmpty() && store.tab == EdenCodeStore.Tab.Inbox) { store.show(EdenCodeStore.Tab.Inbox) }
-                NavRow(Glyphs.queueLine, "Queue", selected = store.path.isEmpty() && store.tab == EdenCodeStore.Tab.Queue) { store.show(EdenCodeStore.Tab.Queue) }
-            }
+            NavRow(Glyphs.compose, "New session") { store.newSession() }
         }
-        val open = (store.path.firstOrNull() as? EdenCodeStore.Route.Session)?.id
-        val groups = SessionList.groups(store.home.sessions, store.search)
+        val open = store.openSession
+        val groups = SessionList.groups(store.home, store.search)
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -93,13 +91,15 @@ fun SessionsDrawer(store: EdenCodeStore, onClose: () -> Unit) {
             store.problem?.let { Box(Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) { ProblemBanner(it) } }
             groups.forEachIndexed { index, group ->
                 T(group.title, sf(13f, Semibold), g.grey, Modifier.padding(start = 12.dp, end = 12.dp, top = if (index == 0) 10.dp else 14.dp, bottom = 4.dp).semantics { heading() }, maxLines = 1)
-                for (s in group.sessions) DrawerRow(s, today = group.title == "Today", selected = s.id == open) { store.open(session = s.id) }
+                for (s in group.sessions) {
+                    DrawerRow(s, showsStatus = group.title == "Today", waiting = SessionList.needsYou(store.home, s), selected = s.id == open) { store.open(session = s.id) }
+                }
             }
             if (store.loaded && groups.isEmpty()) {
                 T(if (store.search.isBlank()) "No sessions yet. Start one with New session, or on your Mac." else "No session has “${store.search.trim()}”.",
                     sf(14f), g.grey, Modifier.padding(horizontal = 12.dp, vertical = 14.dp))
             }
-            if (store.home.exterminator.isNotEmpty()) {
+            if (store.home.exterminator.isNotEmpty() && store.search.isBlank()) {
                 T("Exterminator Mode", sf(13f, Semibold), g.grey, Modifier.padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 4.dp).semantics { heading() }, maxLines = 1)
                 for (run in store.home.exterminator) {
                     Row(
@@ -114,7 +114,11 @@ fun SessionsDrawer(store: EdenCodeStore, onClose: () -> Unit) {
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
+        }
+        Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)) {
+            Shortcut(Glyphs.inboxLine, "Inbox", store.home.attention.size, grey = false) { store.show(EdenCodeStore.Panel.Inbox) }
+            Shortcut(Glyphs.queueLine, "Queue", store.todos.cards.count { it.waiting }, grey = true) { store.show(EdenCodeStore.Panel.Queue) }
         }
         MacFoot(store, bottom)
     }
@@ -141,42 +145,58 @@ private fun DrawerSearch(value: String, onChange: (String) -> Unit) {
     }
 }
 
-/** New session (and Inbox, Queue): an icon and a semibold word, as the mockup's New session row. */
+/** New session: the pencil and a semibold word. */
 @Composable
-private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int = 0, selected: Boolean, onClick: () -> Unit) {
+private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val g = gInk
     Row(
-        Modifier.fillMaxWidth().selectedFill(selected).pressable(0.98f, label = if (count > 0) "$label, $count" else label, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().pressable(0.98f, label = label, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
         Glyph(icon, 20.dp, g.ink)
-        T(label, sf(16f, Semibold), g.ink, Modifier.weight(1f), maxLines = 1)
-        if (count > 0) Box(Modifier.height(20.dp).background(g.orange, RoundedCornerShape(10.dp)).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-            T("$count", sf(13f, Semibold, lineHeight = 15f), Color.White, maxLines = 1)
+        T(label, sf(16f, Semibold), g.ink, maxLines = 1)
+    }
+}
+
+/** The Inbox or the Queue at the drawer's foot: a small grey glyph, the word, its count. */
+@Composable
+private fun Shortcut(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int, grey: Boolean, onClick: () -> Unit) {
+    val g = gInk
+    Row(
+        Modifier.fillMaxWidth().pressable(0.98f, label = if (count > 0) "$label, $count" else label, onClick = onClick).padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(20.dp), contentAlignment = Alignment.Center) { Glyph(icon, 16.dp, g.grey2) }
+        T(label, sf(15f, lineHeight = 18f), g.ink, Modifier.weight(1f), maxLines = 1)
+        if (count > 0) {
+            Box(
+                Modifier.height(20.dp).defaultMinSize(minWidth = 20.dp).background(if (grey) g.fill else g.orange, RoundedCornerShape(10.dp)).padding(horizontal = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) { T("$count", sf(12f, Semibold, lineHeight = 14f), if (grey) g.grey2 else Color.White, maxLines = 1) }
         }
     }
 }
 
-/** One session: its title, the coloured word for where it is, and its dot (or the ring while it works). */
+/** One session: its name and (today) its one coloured word, the dot or spinner at the end; the open one sits on a lighter glass. */
 @Composable
-private fun DrawerRow(s: PhoneSummary, today: Boolean, selected: Boolean, onClick: () -> Unit) {
+private fun DrawerRow(s: PhoneSummary, showsStatus: Boolean, waiting: Boolean, selected: Boolean, onClick: () -> Unit) {
     val g = gInk
-    val line = SessionList.statusLine(s.status, today)
+    val status = if (waiting) CodeStatus.NeedsYou else s.status
+    val word = SessionList.drawerWord(status)
     Row(
         Modifier.fillMaxWidth().selectedFill(selected)
-            .pressable(0.98f, label = listOfNotNull(s.title, line).joinToString(", "), onClick = onClick)
+            .pressable(0.98f, label = "${s.title}, $word", onClick = onClick)
             .semantics { this.selected = selected }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             T(s.title, sf(16f, lineHeight = 20f), g.ink, maxLines = 1)
-            if (line != null) T(line, sf(13f, lineHeight = 16f), g.words(s.status), maxLines = 1)
+            if (showsStatus) T(word, sf(13f, lineHeight = 16f), g.words(status), maxLines = 1)
         }
-        if (line != null) {
-            if (s.status == CodeStatus.Working) RingSpinner()
-            else Box(Modifier.size(9.dp).background(g.of(s.status), CircleShape))
+        if (showsStatus) {
+            if (status == CodeStatus.Working) RingSpinner()
+            else Box(Modifier.size(9.dp).background(g.of(status), CircleShape))
         }
     }
 }
@@ -211,7 +231,7 @@ private fun MacFoot(store: EdenCodeStore, bottom: Dp) {
                     T(store.current?.macLabel ?: "Your Mac", sf(15f, Medium, lineHeight = 18f), g.ink, maxLines = 1)
                     T(
                         when {
-                            store.switchedOff -> "Eden Code is off on it"
+                            store.switchedOff -> "Turned off on the Mac"
                             store.problem != null -> "Can’t reach it"
                             store.loaded -> "Connected"
                             else -> "Connecting…"
@@ -235,7 +255,7 @@ private fun MacFoot(store: EdenCodeStore, bottom: Dp) {
         }
         Box(
             Modifier.size(36.dp).background(g.fill, CircleShape)
-                .pressable(0.94f, label = "Settings") { store.show(EdenCodeStore.Tab.Settings) }
+                .pressable(0.94f, label = "Settings") { store.show(EdenCodeStore.Panel.Settings) }
                 .semantics { contentDescription = "Settings" },
             contentAlignment = Alignment.Center,
         ) { Glyph(Glyphs.gear, 18.dp, g.ink) }

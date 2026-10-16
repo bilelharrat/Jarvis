@@ -35,8 +35,8 @@ import kotlinx.coroutines.launch
  *     adb shell am start -n com.askeden.edencode/.MainActivity --es EDENCODEFixtures YES --es EDENCODEOpen session:5
  *
  * EDENCODEFixtures YES: sample sessions instead of a Mac (to look at the screens).
- * EDENCODEOpen session:<id> | changes:<id> | ask (session 6 and its card) | approve (a card over the screen)
- *   | drawer | inbox | queue | settings | new | pair
+ * EDENCODEOpen session:<id> | changes:<id> | approve (the first card, in its session) | overlay (a card over
+ *   the screen, as one with no session shows) | drawer[:<id>] | inbox | queue | settings | new | pair
  * EDENCODEServer host:port, EDENCODECode 123456: pairs with a test Mac at launch.
  * EDENCODEReset YES: forgets every paired Mac. EDENCODETyped <text>, EDENCODEComposerOpen YES.
  * None of this exists in release builds (src/release has an empty one).
@@ -69,12 +69,12 @@ object DebugLaunch {
             when (parts.first()) {
                 "session" -> store.open(session = id)
                 "changes" -> store.openChanges(id)
-                "ask" -> store.open(session = 6)
-                "approve" -> store.sheetCard = store.home.attention.firstOrNull()
-                "drawer", "sessions" -> { store.open(session = 5); store.drawerOpen = true }
-                "inbox" -> store.show(EdenCodeStore.Tab.Inbox)
-                "queue" -> store.show(EdenCodeStore.Tab.Queue)
-                "settings" -> store.show(EdenCodeStore.Tab.Settings)
+                "approve" -> store.home.attention.firstOrNull()?.let { store.showCard(it) }
+                "overlay" -> store.sheetCard = store.home.attention.firstOrNull()
+                "drawer" -> { if (parts.size > 1) store.open(session = id); store.drawerOpen = true }
+                "inbox" -> store.show(EdenCodeStore.Panel.Inbox)
+                "queue" -> store.show(EdenCodeStore.Panel.Queue)
+                "settings" -> store.show(EdenCodeStore.Panel.Settings)
                 "new" -> store.newSession()
                 "pair" -> store.showPairing = true
             }
@@ -82,15 +82,7 @@ object DebugLaunch {
     }
 }
 
-private fun today(minutesAgo: Int): Long {
-    val now = System.currentTimeMillis()
-    val midnight = java.util.Calendar.getInstance().apply {
-        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
-    }.timeInMillis
-    return maxOf(midnight + 60_000L * (60 - minutesAgo / 2), now - 60_000L * minutesAgo).coerceAtMost(now)
-}
-
-private fun daysAgo(days: Int): Long = System.currentTimeMillis() - days * 86_400_000L - 3_600_000L
+private fun ago(minutes: Int): Long = System.currentTimeMillis() - minutes * 60_000L
 
 /** Sample data for every screen, as a Mac would answer it (the iPhone app's FixtureBackend, the same data). */
 class FixtureBackend : CodeBackend {
@@ -135,16 +127,17 @@ class FixtureBackend : CodeBackend {
 
     val homeNow: PhoneHome
         get() = PhoneHome(
-            // The G mockups' sessions (GDrawer): four today, two yesterday, two earlier.
+            // The G mockups' sessions (GDrawer), as the iPhone's fixtures: one waits on the owner,
+            // two work, the rest are done today, yesterday and earlier.
             sessions = listOf(
-                PhoneSummary(6, "Passkey sign-in", "askeden", CodeStatus.NeedsYou, "edits", "Accept edits", "Sonnet 5.5", 0.61, today(5)),
-                PhoneSummary(5, "Fix share-sheet crash", "askeden", CodeStatus.Working, "ask", "Manual", "Opus 5.5", 1.42, today(12)),
-                PhoneSummary(7, "Chat list redesign", "eden messenger", CodeStatus.Done, model = "Opus 5.5", costUSD = 2.10, updatedAt = today(40)),
-                PhoneSummary(8, "VoiceOver labels", "eden messenger", CodeStatus.Working, model = "Sonnet 5.5", costUSD = 0.20, updatedAt = today(55)),
-                PhoneSummary(4, "No-zoom lock for iPad", "askeden", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.38, updatedAt = daysAgo(1)),
-                PhoneSummary(9, "Router log cleanup", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.05, updatedAt = daysAgo(1)),
-                PhoneSummary(3, "README refresh", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.02, updatedAt = daysAgo(3)),
-                PhoneSummary(10, "Windows installer check", "jarvis", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.44, updatedAt = daysAgo(6)),
+                PhoneSummary(5, "Fix share-sheet crash", "askeden", CodeStatus.Working, "ask", "Manual", "Opus 5.5", 1.42, ago(2)),
+                PhoneSummary(6, "Passkey sign-in", "askeden", CodeStatus.NeedsYou, "edits", "Accept edits", "Sonnet 5.5", 0.61, ago(9)),
+                PhoneSummary(4, "Chat list redesign", "eden messenger", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.38, updatedAt = ago(25)),
+                PhoneSummary(7, "VoiceOver labels", "askeden", CodeStatus.Working, model = "Opus 5.5", costUSD = 0.20, updatedAt = ago(40)),
+                PhoneSummary(3, "No-zoom lock for iPad", "askeden", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.52, updatedAt = ago(24 * 60)),
+                PhoneSummary(8, "Router log cleanup", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.09, updatedAt = ago(25 * 60)),
+                PhoneSummary(9, "README refresh", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.05, updatedAt = ago(3 * 24 * 60)),
+                PhoneSummary(10, "Windows installer check", "jarvis", CodeStatus.Failed, model = "Opus 5.5", costUSD = 2.10, updatedAt = ago(6 * 24 * 60)),
             ),
             attention = listOf(migrationCard, questionCard),
         )
@@ -155,8 +148,8 @@ class FixtureBackend : CodeBackend {
             PhoneOptions.Model("claude:haiku", "Haiku 5", "Claude"), PhoneOptions.Model("gemini:pro", "Gemini 3 Pro", "Gemini", needsKey = true),
         ),
         projects = listOf(
-            PhoneOptions.Project("askeden / site", "main", 2), PhoneOptions.Project("eden messenger", "redesign", 0),
-            PhoneOptions.Project("jarvis", "eden-code-hardening", 0),
+            PhoneOptions.Project("askeden", "main", 2), PhoneOptions.Project("eden messenger", "redesign", 0),
+            PhoneOptions.Project("jarvis", "eden-code-hardening", 1),
         ),
         defaultModel = "claude:opus",
     )
@@ -168,8 +161,8 @@ class FixtureBackend : CodeBackend {
 
     val todosNow = PhoneTodos(
         listOf(
-            PhoneTodoCard("t1", "askeden / site", "Dark mode for the pricing page", "Add a dark mode to /pricing", mode = "edits"),
-            PhoneTodoCard("t2", "askeden / site", "Lighthouse to 95+", "Raise the Lighthouse score", mode = "ask", state = "queued"),
+            PhoneTodoCard("t1", "askeden", "Dark mode for the pricing page", "Add a dark mode to /pricing", mode = "edits"),
+            PhoneTodoCard("t2", "askeden", "Lighthouse to 95+", "Raise the Lighthouse score", mode = "ask", state = "queued"),
             PhoneTodoCard("t3", "eden messenger", "Rewrite the build scripts", "Move the build to Bun", mode = "auto"),
             PhoneTodoCard("t4", "eden messenger", "Typing indicator", "Show who is typing", mode = "ask", state = "started", taskID = 3),
         ),
@@ -195,7 +188,7 @@ class FixtureBackend : CodeBackend {
         if (status == CodeStatus.Working) entries += PhoneEntry(7, PhoneEntry.Role.Tool, "Running tests · 3 of 41…")
         val mode = summary?.mode ?: "ask"
         return PhoneView(
-            id = id, title = summary?.title ?: "Fix share-sheet crash", project = summary?.project ?: "askeden / site", status = status,
+            id = id, title = summary?.title ?: "Fix share-sheet crash", project = summary?.project ?: "askeden", status = status,
             doing = if (status == CodeStatus.Working) "Running tests · 3 of 41" else "", mode = mode, modeLabel = CodeModes.name(mode),
             model = "claude:opus", modelLabel = summary?.model ?: "Opus 5.5", cards = homeNow.attention.filter { it.taskID == id },
             next = entries.last().i, v = "fixture", entries = entries,

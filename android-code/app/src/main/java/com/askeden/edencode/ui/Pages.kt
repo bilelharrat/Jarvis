@@ -50,35 +50,22 @@ import com.askeden.edencode.store.EdenCodeStore
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * A page the drawer opens (Inbox, Queue): the G header's ☰ and ✎ floating over it, then its large
- * title and content, 16 in from the sides; pull to refresh.
- */
+/** A page the drawer opens in a sheet (Inbox, Queue): its large title and content, 16 in from the sides; pull to refresh. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabPage(onRefresh: suspend () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    val store = LocalEnv.current.store
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
-    val top = safeTop()
     val bottom = safeBottom()
-    val backdrop = rememberBackdrop()
-    Box(Modifier.fillMaxSize()) {
-        PullToRefreshBox(refreshing, onRefresh = {
-            refreshing = true
-            scope.launch { onRefresh(); refreshing = false }
-        }, Modifier.fillMaxSize().backdropSource(backdrop)) {
-            EdenBackground()
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(top = top - 6.dp + 44.dp + 12.dp, start = 16.dp, end = 16.dp, bottom = 24.dp + bottom),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                content = content,
-            )
-        }
-        GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp)) {
-            Spacer(Modifier.weight(1f))
-        }
+    PullToRefreshBox(refreshing, onRefresh = {
+        refreshing = true
+        scope.launch { onRefresh(); refreshing = false }
+    }, Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp + bottom),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            content = content,
+        )
     }
 }
 

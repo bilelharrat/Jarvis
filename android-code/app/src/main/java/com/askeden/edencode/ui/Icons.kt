@@ -82,6 +82,8 @@ object Glyphs {
     )
     val pencil = icon("pencil", 24f, 1.8f, "M4 20h4L19 9l-4-4L4 16z", "M13 20h7")
     // The G design's own SVGs (GChat, GDrawer, GNew mockups).
+    /** arrowshape.turn.up.left.fill: "Replying to". */
+    val replyArrow = icon("reply", 24f, 0f, filled = listOf("M10 4.5L2.5 11l7.5 6.5v-4c5.5 0 9 1.5 11.5 6c-0.8-6-4-11-11.5-11.5z"))
     /** ☰: three lines of 16, 10 and 13, the drawer's button. */
     val menu = icon("menu", 24f, 2f, "M4 7h16M4 12h10M4 17h13")
     /** ✎ with its base line: New session. */

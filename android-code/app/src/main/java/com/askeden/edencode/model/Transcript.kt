@@ -10,6 +10,19 @@ object Transcript {
         class Note(val entry: PhoneEntry) : Row("n${entry.i}")
     }
 
+    /**
+     * What the G session draws: the rows without the step that is running now, which the one
+     * live status line under the transcript says instead ("Running tests · 3 of 41").
+     */
+    fun visibleRows(rows: List<Row>, working: Boolean): List<Row> {
+        val last = rows.lastOrNull() as? Row.Steps ?: return rows
+        if (!working || last.steps.lastOrNull()?.stepRunning != true) return rows
+        val kept = rows.dropLast(1).toMutableList()
+        val steps = last.steps.dropLast(1)
+        if (steps.isNotEmpty()) kept += Row.Steps(steps)
+        return kept
+    }
+
     /** One answer of the long poll: new entries appended, changed ones replaced in place, in order of i. */
     fun merge(entries: List<PhoneEntry>, next: PhoneView): List<PhoneEntry> {
         val byI = LinkedHashMap<Int, PhoneEntry>()

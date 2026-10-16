@@ -196,10 +196,10 @@ fun GlassMenu(open: Boolean, onDismiss: () -> Unit, modifier: Modifier = Modifie
 }
 
 @Composable
-fun GlassMenuItem(text: String, checked: Boolean = false, enabled: Boolean = true, footnote: Boolean = false, onClick: () -> Unit) {
+fun GlassMenuItem(text: String, checked: Boolean = false, enabled: Boolean = true, footnote: Boolean = false, destructive: Boolean = false, onClick: () -> Unit) {
     val c = Eden.colors
     DropdownMenuItem(
-        text = { T(text, sf(if (footnote) 13f else 17f), if (footnote) c.muted else if (enabled) c.ink else c.muted, maxLines = 2) },
+        text = { T(text, sf(if (footnote) 13f else 17f), if (footnote) c.muted else if (!enabled) c.muted else if (destructive) c.red else c.ink, maxLines = 2) },
         leadingIcon = if (footnote) null else ({ Box(Modifier.width(18.dp)) { if (checked) Glyph(Glyphs.check, 15.dp, c.ink) } }),
         onClick = onClick, enabled = enabled && !footnote,
     )
@@ -312,6 +312,28 @@ fun FormSheet(
                 }
             }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 4.dp, bottom = 40.dp), content = content)
+        }
+    }
+}
+
+/**
+ * The Inbox, the Queue or Settings opened from the drawer (PanelSheet in RootView.swift): an iOS
+ * sheet at its large detent with Done at the right; the page under it draws its large title.
+ */
+@Composable
+fun PanelSheet(onDone: () -> Unit, content: @Composable () -> Unit) {
+    val top = safeTop()
+    val shape = RoundedCornerShape(topStart = 38.dp, topEnd = 38.dp)
+    Box(
+        Modifier.fillMaxSize().padding(top = top + 1.dp).clip(shape)
+            .clickable(remember { MutableInteractionSource() }, null) {},
+    ) {
+        EdenBackground()
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 16.dp)) {
+                GlassButton("Done", false, Modifier.align(Alignment.CenterEnd), height = 44.dp, style = sf(17f, Semibold), onClick = onDone)
+            }
+            Box(Modifier.fillMaxSize()) { content() }
         }
     }
 }

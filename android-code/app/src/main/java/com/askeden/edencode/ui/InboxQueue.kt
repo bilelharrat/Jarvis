@@ -32,7 +32,7 @@ fun InboxScreen() {
     val store = LocalEnv.current.store
     val c = Eden.colors
     TabPage({ store.refreshHome() }) {
-        LargeTitle("Inbox", Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp).semantics { heading() })
+        LargeTitle("Inbox", Modifier.padding(start = 4.dp, end = 4.dp).semantics { heading() })
         val cards = store.home.attention
         if (cards.isEmpty()) {
             EmptyCard(Glyphs.checkCircle, c.green, "Nothing waits on you", "Approvals and questions from your sessions show up here, and as notifications.")
@@ -76,7 +76,7 @@ fun QueueScreen() {
     var starting by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { store.refreshTodos() }
     TabPage({ store.refreshTodos(); store.refreshUsage() }) {
-        LargeTitle("Queue", Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp).semantics { heading() })
+        LargeTitle("Queue", Modifier.padding(start = 4.dp, end = 4.dp).semantics { heading() })
         problem?.let { ProblemBanner(it) }
         if (store.todos.cards.isEmpty()) {
             EmptyCard(Glyphs.tabQueue, c.accent, "No to-dos", "Write work ahead on your Mac’s agent board; it waits here to start.")
@@ -118,7 +118,7 @@ private fun TodoRow(card: PhoneTodoCard, modelName: String, starting: String?, o
         }
         val task = card.taskID
         when {
-            task != null && !card.waiting -> GlassButton("Open", false, style = sf(13f, Semibold), height = 34.dp, tinted = true) { onOpen(task) }
+            task != null && !card.waiting -> GlassButton("Open", false, style = sf(13f, Semibold), height = 34.dp) { onOpen(task) }
             card.waiting && card.startsOnMacOnly -> T(
                 "On your Mac", sf(12f), c.muted,
                 Modifier.semantics { contentDescription = "Starts on your Mac: its mode is ${CodeModes.name(card.mode)}" }, maxLines = 1,

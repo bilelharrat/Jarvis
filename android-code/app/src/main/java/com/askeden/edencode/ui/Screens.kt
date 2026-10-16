@@ -62,9 +62,8 @@ fun SettingsScreen() {
     LaunchedEffect(Unit) { store.refreshUsage() }
     val top = safeTop()
     val bottom = safeBottom()
-    val backdrop = rememberBackdrop()
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().backdropSource(backdrop).verticalScroll(rememberScrollState()).padding(top = top - 6.dp + 44.dp + 12.dp, bottom = bottom + 40.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = bottom + 40.dp)) {
             LargeTitle("Settings", Modifier.padding(start = 16.dp, top = 0.dp, bottom = 16.dp))
             FormSection(
                 header = "Macs",
@@ -107,9 +106,6 @@ fun SettingsScreen() {
                 }
             }
             FormSection { FormValueRow("Version", BuildConfig.VERSION_NAME, divider = false) }
-        }
-        GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp)) {
-            Spacer(Modifier.weight(1f))
         }
         removing?.let { mac ->
             ConfirmDialog(

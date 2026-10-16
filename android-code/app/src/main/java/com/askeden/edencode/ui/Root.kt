@@ -38,6 +38,17 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.runtime.key
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
@@ -59,19 +70,33 @@ class Env(val store: EdenCodeStore, val screen: Backdrop, val speech: com.askede
 val LocalEnv = androidx.compose.runtime.staticCompositionLocalOf<Env> { error("no Env") }
 
 /**
- * The G design (2026-10-16): no tab bar. A session fills the screen, or with none open the New
- * page; ☰ slides the sessions drawer in from the left (moving the screen aside, as the ChatGPT and
- * Claude apps do), which also reaches the Inbox, the Queue and Settings; a session's changes are
- * pushed over it; a card from no session we know, and pairing, rise over everything.
+ * The G design (2026-10-16; RootView.swift): no tab bar. One session fills the screen (or "What
+ * should we build?" when none is open); ☰ or a swipe from the left edge slides the sessions
+ * drawer over it, moving the screen's content aside; the Inbox, the Queue and Settings open from
+ * the drawer as sheets; a session's changes push over it; pairing shows until a Mac is paired.
  */
 @Composable
 fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
     val screen = rememberBackdrop()
     val background = rememberBackdrop()
     val env = remember(store, screen, voice) { Env(store, screen, voice) }
-    val drawer by animateFloatAsState(if (store.drawerOpen && store.paired) 1f else 0f, tween(320), label = "drawer")
-    CompositionLocalProvider(LocalEnv provides env, LocalBackground provides background) {
-        BackHandler(enabled = store.sheetCard != null || store.showPairing || store.drawerOpen || store.path.isNotEmpty() || store.tab != EdenCodeStore.Tab.New) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val width = with(density) { DrawerWidth.toPx() }
+    // The finger's travel while it drags the drawer open or shut.
+    var drag by remember { mutableFloatStateOf(0f) }
+    val target = if (store.drawerOpen && store.paired) 1f else 0f
+    val settled by animateFloatAsState(target, spring(dampingRatio = 0.88f, stiffness = 300f), label = "drawer")
+    val progress = if (drag != 0f) (target + drag / width).coerceIn(0f, 1f) else settled
+    LaunchedEffect(store.drawerOpen) { drag = 0f }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(store.drawerOpen) { if (store.drawerOpen) keyboard?.hide() }
+    fun release(velocity: Float, opening: Boolean) {
+        val travel = drag
+        drag = 0f
+        store.drawerOpen = if (opening) travel > 80 * density.density || velocity > 600f else !(travel < -80 * density.density || velocity < -600f)
+    }
+    CompositionLocalProvider(LocalEnv provides env, LocalBackground provides background, LocalDrawer provides progress) {
+        BackHandler(enabled = store.sheetCard != null || store.showPairing || store.panel != null || store.drawerOpen || store.path.isNotEmpty()) {
             store.back()
         }
         Box(Modifier.fillMaxSize()) {
@@ -80,45 +105,57 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
                 if (!store.paired) {
                     PairingScreen(first = true, onDone = {})
                 } else {
-                    val route = store.path.lastOrNull()
-                    Box(Modifier.fillMaxSize().graphicsLayer { translationX = drawer * 300.dp.toPx() }) {
-                        AnimatedContent(
-                            targetState = route to store.tab,
-                            transitionSpec = {
-                                val pushing = targetState.first is EdenCodeStore.Route.Changes && initialState.first is EdenCodeStore.Route.Session
-                                val popping = initialState.first is EdenCodeStore.Route.Changes && targetState.first is EdenCodeStore.Route.Session
-                                when {
-                                    pushing -> slideInHorizontally(tween(320)) { it } togetherWith slideOutHorizontally(tween(320)) { -it / 3 }
-                                    popping -> slideInHorizontally(tween(320)) { -it / 3 } togetherWith slideOutHorizontally(tween(320)) { it }
-                                    else -> fadeIn(tween(180)) togetherWith fadeOut(tween(140))
-                                }
-                            },
-                            label = "screens",
-                        ) { (r, tab) ->
-                            Box(Modifier.fillMaxSize()) {
-                                when (r) {
-                                    is EdenCodeStore.Route.Session -> SessionScreen(r.id)
-                                    is EdenCodeStore.Route.Changes -> ChangesScreen(r.id)
-                                    null -> when (tab) {
-                                        EdenCodeStore.Tab.New -> NewScreen()
-                                        EdenCodeStore.Tab.Inbox -> InboxScreen()
-                                        EdenCodeStore.Tab.Queue -> QueueScreen()
-                                        EdenCodeStore.Tab.Settings -> SettingsScreen()
-                                    }
-                                }
+                    val changes = store.path.lastOrNull() as? EdenCodeStore.Route.Changes
+                    AnimatedContent(
+                        targetState = changes?.id to store.openSession,
+                        transitionSpec = {
+                            val pushing = targetState.first != null && initialState.first == null
+                            val popping = initialState.first != null && targetState.first == null
+                            when {
+                                pushing -> slideInHorizontally(tween(320)) { it } togetherWith slideOutHorizontally(tween(320)) { -it / 3 }
+                                popping -> slideInHorizontally(tween(320)) { -it / 3 } togetherWith slideOutHorizontally(tween(320)) { it }
+                                else -> fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+                            }
+                        },
+                        label = "screens",
+                    ) { (changesOf, session) ->
+                        Box(Modifier.fillMaxSize()) {
+                            when {
+                                changesOf != null -> ChangesScreen(changesOf)
+                                session != null -> key(session) { SessionScreen(session) }
+                                else -> NewScreen()
                             }
                         }
                     }
                 }
             }
-            if (drawer > 0f) {
-                // The scrim right of the drawer (rgba(0,0,0,.08)): a tap closes it.
+            if (store.paired) {
+                if (progress > 0f) {
+                    // The scrim right of the drawer (rgba(0,0,0,.08)): a tap closes it, a drag left shuts it.
+                    Box(
+                        Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (Eden.dark) 0.3f else 0.08f) * progress))
+                            .clickable(remember { MutableInteractionSource() }, null) { store.drawerOpen = false }
+                            .draggable(rememberDraggableState { drag = (drag + it).coerceAtMost(0f) }, Orientation.Horizontal, onDragStopped = { release(it, opening = false) })
+                            .semantics { contentDescription = "Close your sessions" },
+                    )
+                }
                 Box(
-                    Modifier.fillMaxSize().graphicsLayer { alpha = drawer }.background(Color.Black.copy(alpha = if (Eden.dark) 0.3f else 0.08f))
-                        .clickable(remember { MutableInteractionSource() }, null) { store.drawerOpen = false },
-                )
-                Box(Modifier.graphicsLayer { translationX = (drawer - 1f) * (DrawerWidth.toPx() + 60.dp.toPx()) }) {
-                    SessionsDrawer(store) { store.drawerOpen = false }
+                    Modifier.graphicsLayer { translationX = -(width + 50.dp.toPx()) * (1f - progress) }
+                        .draggable(rememberDraggableState { drag = (drag + it).coerceAtMost(0f) }, Orientation.Horizontal, onDragStopped = { release(it, opening = false) }),
+                ) {
+                    if (progress > 0f) SessionsDrawer(store) { store.drawerOpen = false }
+                }
+                if (!store.drawerOpen && store.path.isEmpty() && store.panel == null && store.sheetCard == null) {
+                    // The left edge: a swipe opens the drawer. Android's back gesture owns that edge;
+                    // it lets an app keep at most 200 dp of it, so the drawer keeps the middle 200.
+                    Box(
+                        Modifier.width(14.dp).fillMaxHeight().systemGestureExclusion { c ->
+                            val band = with(density) { 100.dp.toPx() }
+                            val mid = c.size.height / 2f
+                            androidx.compose.ui.geometry.Rect(0f, mid - band, c.size.width.toFloat(), mid + band)
+                        }
+                            .draggable(rememberDraggableState { drag = (drag + it).coerceAtLeast(0f) }, Orientation.Horizontal, onDragStopped = { release(it, opening = true) }),
+                    )
                 }
             }
             Sheets(store)
@@ -126,10 +163,20 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
     }
 }
 
-/** The sheets over everything: an approval, a new session, pairing another Mac. */
+/** How far the drawer is open (0 shut, 1 open): the screen's content moves 300 aside under it. */
+val LocalDrawer = androidx.compose.runtime.compositionLocalOf { 0f }
+
+/** A screen's content (not its wallpaper) moving aside for the drawer, as GDrawer draws it. */
+@Composable
+fun Modifier.movesForDrawer(): Modifier {
+    val progress = LocalDrawer.current
+    return this.graphicsLayer { translationX = 300.dp.toPx() * progress }
+}
+
+/** The sheets over everything: the Inbox, the Queue or Settings; a card with no session; pairing another Mac. */
 @Composable
 private fun BoxScope.Sheets(store: EdenCodeStore) {
-    val showing = store.sheetCard != null || store.showPairing
+    val showing = store.sheetCard != null || store.showPairing || store.panel != null
     AnimatedVisibility(showing, enter = fadeIn(tween(220)), exit = fadeOut(tween(200))) {
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (store.sheetCard != null) 0.35f else 0.25f))
@@ -142,6 +189,22 @@ private fun BoxScope.Sheets(store: EdenCodeStore) {
     ) {
         store.sheetCard?.let { card ->
             AskCard(card, LocalEnv.current.screen, Modifier.padding(start = 12.dp, end = 12.dp, bottom = safeBottom() + 8.dp).imePadding(), onAnswered = { store.sheetCard = null })
+        }
+    }
+    // The panel keeps showing what it showed while it slides away.
+    var shown by remember { mutableStateOf(store.panel) }
+    if (store.panel != null) shown = store.panel
+    AnimatedVisibility(
+        store.panel != null, Modifier.align(Alignment.BottomCenter),
+        enter = slideInVertically(tween(340)) { it }, exit = slideOutVertically(tween(260)) { it },
+    ) {
+        PanelSheet(onDone = { store.panel = null }) {
+            when (shown) {
+                EdenCodeStore.Panel.Inbox -> InboxScreen()
+                EdenCodeStore.Panel.Queue -> QueueScreen()
+                EdenCodeStore.Panel.Settings -> SettingsScreen()
+                null -> {}
+            }
         }
     }
     AnimatedVisibility(

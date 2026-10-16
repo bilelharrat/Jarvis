@@ -8,6 +8,10 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import com.askeden.edencode.model.CodeStatus
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,13 +90,14 @@ fun SessionScreen(id: Int) {
     val model = remember(id, backend) { SessionModel(id, backend) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var text by remember { mutableStateOf(DebugComposer.typed ?: "") }
     var pictures by remember { mutableStateOf(emptyList<Picture>()) }
     var confirmCopy by remember { mutableStateOf<String?>(null) }
-    // The card the input bar answers after Reply instead (its id), and the card that waits.
+    // Cards answered here, hidden before the Mac's next answer drops them; and "Reply instead":
+    // the card whose question the input bar answers in words.
+    var answered by remember(id) { mutableStateOf(emptySet<String>()) }
     var replyingTo by remember(id) { mutableStateOf<String?>(null) }
-    val asking = model.view.cards.firstOrNull()
-    val replyCard = model.view.cards.firstOrNull { it.id == replyingTo }
     val backdrop = rememberBackdrop()
     val c = Eden.colors
 
@@ -113,12 +118,26 @@ fun SessionScreen(id: Int) {
         scope.launch { pictures = pictures + loadPictures(context, uris) }
     }
 
+    // The first card of this session's that waits on the owner.
+    val pending = (model.view.cards + store.home.attention.filter { it.taskID == id }).firstOrNull { it.id !in answered }
+    val replyCard = pending?.takeIf { it.id == replyingTo }
+    // The summary from the session list until the session's own view comes.
+    val summary = store.home.sessions.firstOrNull { it.id == id }
+    val status = when {
+        pending != null -> CodeStatus.NeedsYou
+        model.view.status != CodeStatus.Unknown -> model.view.status
+        else -> summary?.status ?: CodeStatus.Unknown
+    }
+    val title = model.view.title.ifEmpty { summary?.title ?: "Session" }
+    val project = model.view.project.ifEmpty { summary?.project ?: "" }
+    val filesChanged = model.latestReceipt?.fileCount ?: 0
+    val lastReply = model.entries.lastOrNull { it.role == PhoneEntry.Role.Assistant }
+
     val top = safeTop()
     var composerHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val list = rememberLazyListState()
-    val rows = model.rows
-    val lastReply = model.entries.lastOrNull { it.role == PhoneEntry.Role.Assistant }?.i
+    val rows = Transcript.visibleRows(model.rows, model.working)
 
     LaunchedEffect(model.entries.size, model.view.live.length) {
         val count = list.layoutInfo.totalItemsCount
@@ -129,26 +148,26 @@ fun SessionScreen(id: Int) {
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
             EdenBackground()
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().movesForDrawer(),
                 state = list,
                 contentPadding = PaddingValues(
                     start = 20.dp, end = 20.dp, top = top - 6.dp + 44.dp + 12.dp,
-                    bottom = with(density) { composerHeight.toDp() } + 18.dp,
+                    bottom = with(density) { composerHeight.toDp() } + 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(if (pending == null) 18.dp else 16.dp),
             ) {
-                model.problem?.let { item("problem") { ProblemBanner(it) } }
+                (model.problem ?: store.problem)?.let { item("problem") { ProblemBanner(it) } }
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is Transcript.Row.User -> UserBubble(row.entry.text)
-                        is Transcript.Row.Steps -> Steps(row.steps, model.working)
-                        is Transcript.Row.Reply -> Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                            ReplyBubble(row.entry.text, typing = false, speaking = voice.speaking == "r${row.entry.i}") {
-                                voice.toggle(row.entry.text, "r${row.entry.i}")
+                        is Transcript.Row.Steps -> Steps(row.steps)
+                        is Transcript.Row.Reply -> {
+                            val e = row.entry
+                            ReplyBubble(e.text, typing = false, speaking = voice.speaking == "r${e.i}") { close ->
+                                GlassMenuItem("Copy") { close(); clipboard.setText(androidx.compose.ui.text.AnnotatedString(e.text)) }
+                                GlassMenuItem(if (voice.speaking == "r${e.i}") "Stop reading" else "Read aloud") { close(); voice.toggle(e.text, "r${e.i}") }
+                                if (filesChanged > 0) GlassMenuItem("See the changes") { close(); store.push(EdenCodeStore.Route.Changes(id)) }
                             }
-                            // "2 files changed ›" under the last reply, when its turn changed files.
-                            val files = model.latestReceipt?.fileCount ?: 0
-                            if (row.entry.i == lastReply && files > 0) FilesChanged(files) { store.push(EdenCodeStore.Route.Changes(id)) }
                         }
                         is Transcript.Row.Note -> T(
                             row.entry.text, sf(13f), c.muted,
@@ -157,31 +176,60 @@ fun SessionScreen(id: Int) {
                     }
                 }
                 if (model.view.live.isNotEmpty()) item("live") { ReplyBubble(model.view.live, typing = true, speaking = false) {} }
-                if (model.working && model.view.doing.isNotEmpty() && rows.lastOrNull() !is Transcript.Row.Steps) item("doing") { Running(model.view.doing) }
+                if (filesChanged > 0) item("files") { FilesChanged(filesChanged) { store.push(EdenCodeStore.Route.Changes(id)) } }
                 model.view.copy?.let { copy -> item("copy") { CopyBar(copy) { confirmCopy = it } } }
                 if (model.view.todos.isNotEmpty()) item("todos") { TodoList(model.view.todos) }
-                // What the title pill's word says, for TalkBack as it changes.
-                item("bottom") { Box(Modifier.fillMaxWidth().height(1.dp).semantics { contentDescription = model.statusLine; liveRegion = LiveRegionMode.Polite }) }
+                // The one live status line (with what TalkBack says as it changes).
+                if (model.working) item("doing") {
+                    Box(Modifier.semantics { contentDescription = model.statusLine; liveRegion = LiveRegionMode.Polite }) {
+                        Running(model.view.doing.replace("…", "").ifEmpty { "Working" })
+                    }
+                }
             }
         }
 
-        // The floating header: ☰, the title pill, ✎.
-        GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp)) {
-            GTitlePill(model.title, model.view.status, model.view.project, backdrop) { store.push(EdenCodeStore.Route.Changes(id)) }
+        // The floating header: ☰, the title pill (its menu), ✎.
+        GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp).movesForDrawer()) {
+            GTitlePill(title, status, project, backdrop) { close ->
+                if (filesChanged > 0 || model.latestReceipt != null) GlassMenuItem("See the changes") { close(); store.push(EdenCodeStore.Route.Changes(id)) }
+                lastReply?.let { last ->
+                    GlassMenuItem(if (voice.speaking == "last") "Stop reading" else "Read the last reply aloud") { close(); voice.toggle(last.text, "last") }
+                }
+                if (model.working) GlassMenuItem("Stop", destructive = true) { close(); scope.launch { model.stop() } }
+                GlassMenuItem("Your sessions") { close(); store.drawerOpen = true }
+            }
         }
 
-        // The composer.
+        // The bottom: a card that waits, or the input bar.
         val bottom = safeBottom()
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().padding(bottom = bottom + 8.dp)
-                .onSizeChanged { composerHeight = it.height },
+                .onSizeChanged { composerHeight = it.height }.movesForDrawer(),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (pending != null && replyingTo != pending.id) {
+                AskCard(pending, backdrop, Modifier.padding(horizontal = 12.dp),
+                    onReplyInstead = if (pending.macOnly) null else ({ replyingTo = pending.id }),
+                    onAnswered = { answered = answered + pending.id })
+                return@Column
+            }
+            if (replyCard != null) {
+                Row(
+                    Modifier.padding(horizontal = 24.dp).gGlass(backdrop, 999.dp)
+                        .pressable(0.97f, label = "Replying to ${replyCard.approval.question}. Back to the question") { replyingTo = null }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Glyph(Glyphs.replyArrow, 12.dp, c.ink2)
+                    T("Replying to: ${replyCard.approval.question}", sf(12f, Medium), c.ink2, Modifier.weight(1f, fill = false), maxLines = 1)
+                    Glyph(Glyphs.xmark, 10.dp, c.ink2)
+                }
+            }
             model.said?.let { T(it, sf(12f), c.muted) }
             voice.problem?.let { T(it, sf(12f), c.failInk, Modifier.padding(horizontal = 20.dp), align = TextAlign.Center) }
             if (pictures.isNotEmpty()) {
                 Row(
-                    Modifier.edenCard(backdrop, 999.dp).padding(horizontal = 10.dp, vertical = 5.dp),
+                    Modifier.gGlass(backdrop, 999.dp).padding(horizontal = 10.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Glyph(Glyphs.photo, 13.dp, c.ink2)
@@ -192,30 +240,27 @@ fun SessionScreen(id: Int) {
                 }
             }
             val view = model.view
-            if (asking != null && replyingTo != asking.id) {
-                AskCard(asking, backdrop, Modifier.padding(horizontal = 12.dp), onReplyInstead = { replyingTo = asking.id })
-                return@Column
-            }
-            if (replyCard != null) {
-                T("Answer the question instead", sf(13f), gInk.blue, Modifier.pressable(0.97f, label = "Answer the question instead") { replyingTo = null })
-            }
             EdenComposer(
                 text = text, onText = { text = it }, working = model.working,
                 modeID = view.mode, modeLabel = view.modeLabel, modelLabel = view.modelLabel,
                 modes = store.options.modes, models = store.options.models,
                 dictating = voice.listening, talking = voice.speaking == "last", attachments = pictures.size,
                 backdrop = backdrop, startExpanded = DebugComposer.open,
-                placeholder = if (replyCard != null) "Tell it what to do instead…" else null,
                 onSend = {
                     if (replyCard != null) {
+                        // "Reply instead": the card's no, with the owner's words for what to do instead.
                         val said = text.trim()
-                        if (said.isNotEmpty()) scope.launch { if (store.answer(replyCard, replyCard.noChoice, said)) { text = ""; replyingTo = null } }
+                        voice.stopDictation()
+                        text = ""
+                        scope.launch {
+                            if (store.answer(replyCard, replyCard.noChoice, said)) { answered = answered + replyCard.id; replyingTo = null } else text = said
+                        }
                     } else submit(model, text, pictures, false, scope, voice) { t, p -> text = t; pictures = p }
                 },
                 onSteer = { submit(model, text, pictures, true, scope, voice) { t, p -> text = t; pictures = p } },
                 onStop = { scope.launch { model.stop() } },
                 onDictate = { scope.launch { voice.toggleDictation() } },
-                onTalk = { model.entries.lastOrNull { it.role == PhoneEntry.Role.Assistant }?.let { voice.toggle(it.text, "last") } },
+                onTalk = { lastReply?.let { voice.toggle(it.text, "last") } },
                 onMode = { scope.launch { model.setMode(it) } },
                 onModel = { scope.launch { model.setModel(it) } },
                 onPictures = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
@@ -247,7 +292,7 @@ private fun submit(model: SessionModel, text: String, pictures: List<Picture>, s
 }
 
 /** Pictures from the photo picker as JPEGs the Mac's composer takes (at most 2048 on a side, 8 MB each). */
-private suspend fun loadPictures(context: android.content.Context, uris: List<Uri>): List<Picture> = com.askeden.edencode.store.io {
+internal suspend fun loadPictures(context: android.content.Context, uris: List<Uri>): List<Picture> = com.askeden.edencode.store.io {
     uris.take(6).mapIndexedNotNull { index, uri ->
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@mapIndexedNotNull null
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@mapIndexedNotNull null
@@ -279,30 +324,23 @@ private fun UserBubble(text: String) {
     }
 }
 
-/** The steps so far in one glass panel, ✓ each; the one running now is its own line with the ring. */
+/** The steps so far in one glass panel, ✓ each (the running one is the status line under the transcript). */
 @Composable
-private fun Steps(steps: List<PhoneEntry>, working: Boolean) {
+private fun Steps(steps: List<PhoneEntry>) {
     val g = gInk
-    val runningLast = working && steps.lastOrNull()?.stepRunning == true
-    val done = if (runningLast) steps.dropLast(1) else steps
-    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        if (done.isNotEmpty()) {
-            Column(
-                Modifier.gGlass(LocalBackground.current, 16.dp).padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+    Column(
+        Modifier.gGlass(LocalBackground.current, 16.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        for (step in steps) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = (if (step.stepFailed) "Failed: " else "Done: ") + step.stepLine },
             ) {
-                for (step in done) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = (if (step.stepFailed) "Failed: " else "Done: ") + step.stepLine },
-                    ) {
-                        if (step.stepFailed) T("✗", sf(14f), g.red, maxLines = 1) else Glyph(Glyphs.check, 13.dp, g.green)
-                        T(step.stepLine.replace("…", ""), sf(14f, lineHeight = 17f), g.steps, maxLines = 2)
-                    }
-                }
+                if (step.stepFailed) T("✗", sf(14f), g.red, maxLines = 1) else Glyph(Glyphs.check, 13.dp, g.green)
+                T(step.stepLine.replace("…", ""), sf(14f, lineHeight = 17f), g.steps, maxLines = 2)
             }
         }
-        if (runningLast) Running(steps.last().stepLine.replace("…", ""))
     }
 }
 
@@ -318,28 +356,44 @@ private fun Running(text: String) {
     }
 }
 
-/** Eden's reply in frosted glass, at most 88 % of the width; a long press reads it aloud (or stops). */
+/** Eden's reply in frosted glass, at most 88 % of the width; a long press opens [menu] (copy, read aloud, the changes). */
 @Composable
-fun ReplyBubble(text: String, typing: Boolean, speaking: Boolean, onRead: () -> Unit) {
+fun ReplyBubble(text: String, typing: Boolean, speaking: Boolean, menu: @Composable androidx.compose.foundation.layout.ColumnScope.(close: () -> Unit) -> Unit) {
     val g = gInk
+    var open by remember { mutableStateOf(false) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-        Column(
-            Modifier.widthIn(max = maxWidth * 0.88f).gGlass(LocalBackground.current, 20.dp)
-                .semantics { customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction(if (speaking) "Stop reading" else "Read aloud") { onRead(); true }) }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SelectionContainer { T(text, sf(16f, lineHeight = 24f), g.ink) }
-            if (typing) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.semantics { contentDescription = "Writing" }) {
-                    repeat(3) { Box(Modifier.size(5.dp).background(g.grey, CircleShape)) }
-                }
-            } else if (speaking) {
-                Row(Modifier.pressable(0.96f, label = "Stop reading", onClick = onRead), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Glyph(Glyphs.stop, 12.dp, g.blue)
-                    T("Stop reading", sf(13f, Medium), g.blue, maxLines = 1)
+        val most = maxWidth * 0.88f
+        Box {
+            Column(
+                Modifier.widthIn(max = most).gGlass(LocalBackground.current, 20.dp)
+                    // The menu opens when the finger lifts after a long press: opened while it is
+                    // still down, the release would land on whichever item came up under it.
+                    .then(if (typing) Modifier else Modifier
+                        .semantics { onLongClick(label = "Reply actions") { open = true; true } }
+                        .pointerInput(Unit) {
+                            var held = false
+                            detectTapGestures(
+                                onLongPress = { held = true; haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
+                                onPress = { tryAwaitRelease(); if (held) { held = false; open = true } },
+                            )
+                        })
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                T(text, sf(16f, lineHeight = 24f), g.ink)
+                if (typing) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.semantics { contentDescription = "Writing" }) {
+                        repeat(3) { Box(Modifier.size(5.dp).background(g.grey, CircleShape)) }
+                    }
+                } else if (speaking) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Glyph(Glyphs.speaker, 13.dp, g.blue)
+                        T("Reading aloud", sf(13f, Medium), g.blue, maxLines = 1)
+                    }
                 }
             }
+            GlassMenu(open, { open = false }) { menu { open = false } }
         }
     }
 }

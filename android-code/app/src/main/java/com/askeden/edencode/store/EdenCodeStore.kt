@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.askeden.edencode.model.PhoneCard
+import com.askeden.edencode.model.SessionList
 import com.askeden.edencode.model.PhoneHome
 import com.askeden.edencode.model.PhoneOptions
 import com.askeden.edencode.model.PhoneTodoCard
@@ -51,14 +52,11 @@ interface Platform {
  * (a push, a handoff, the ongoing notification tapped). One per app.
  */
 class EdenCodeStore(context: Context, private val platform: Platform, fixtures: Fixtures?) {
-    /**
-     * What shows when no session is open (the G design, 2026-10-16: no tab bar; the drawer reaches
-     * all of them). New is the "What should we build?" page, the app's home.
-     */
-    enum class Tab { New, Inbox, Queue, Settings }
+    /** What opens over the session from the drawer, as a sheet with Done (the G design, 2026-10-16). */
+    enum class Panel { Inbox, Queue, Settings }
 
+    /** What pushes onto the session: its changes (the receipt, keep/undo, comments). */
     sealed class Route {
-        data class Session(val id: Int) : Route()
         data class Changes(val id: Int) : Route()
     }
 
@@ -80,9 +78,15 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     var switchedOff by mutableStateOf(false)
     var loaded by mutableStateOf(false)
 
-    var tab by mutableStateOf(Tab.New)
-    /** The glass drawer from the left: search, New session, every session, the Mac and Settings. */
+    /** The session on screen; null shows the New page ("What should we build?"). */
+    var openSession by mutableStateOf<Int?>(null)
+    /** The glass drawer from the left: search, New session, every session, Inbox, Queue, the Mac, Settings. */
     var drawerOpen by mutableStateOf(false)
+    /** The Inbox, the Queue or Settings, over everything. */
+    var panel by mutableStateOf<Panel?>(null)
+    /** True once the app has chosen what to show first (or the owner chose): picked once, never over the owner's choice. */
+    var landed = false
+        private set
     var path by mutableStateOf(emptyList<Route>())
     var sheetCard by mutableStateOf<PhoneCard?>(null)
     var showPairing by mutableStateOf(false)
@@ -127,6 +131,8 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         backend = fixtures.backend
         loaded = false
         path = emptyList()
+        openSession = null
+        landed = false
         scope.launch { refreshAll() }
     }
 
@@ -162,6 +168,8 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         loaded = false
         problem = null
         path = emptyList()
+        openSession = null
+        landed = false
         if (pairing != null) scope.launch { refreshAll() }
     }
 
@@ -223,6 +231,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
             val found = io { b.home() }
             home = found
             loaded = true
+            land()
             problem = null
             switchedOff = false
             openPinIfNew(found.pinned)
@@ -283,33 +292,51 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         open(session = pinned.id)
     }
 
+    /**
+     * The first screen: the session that needs the owner, else the newest; the New page when
+     * there are none. Once only, and never over a session the owner opened.
+     */
+    fun land() {
+        if (landed) return
+        landed = true
+        if (openSession == null) SessionList.landingID(home)?.let { openSession = it }
+    }
+
     fun open(session: Int) {
+        landed = true
+        openSession = session
+        path = emptyList()
         drawerOpen = false
-        path = listOf(Route.Session(session))
+        panel = null
     }
 
     fun openChanges(id: Int) {
-        drawerOpen = false
-        path = listOf(Route.Session(id), Route.Changes(id))
+        open(session = id)
+        path = listOf(Route.Changes(id))
     }
 
-    /** A page the drawer reaches (New, Inbox, Queue, Settings), with no session over it. */
-    fun show(page: Tab) {
-        drawerOpen = false
+    /** ✎: the New page. */
+    fun newSession() {
+        landed = true
+        openSession = null
         path = emptyList()
-        tab = page
+        drawerOpen = false
+        panel = null
     }
 
-    /** The New page ("What should we build?"): the ✎ in a session's header and the drawer's New session. */
-    fun newSession() = show(Tab.New)
+    /** The Inbox, the Queue or Settings, from the drawer. */
+    fun show(panel: Panel) {
+        drawerOpen = false
+        this.panel = panel
+    }
 
-    /**
-     * A card to answer: in its session, where it waits as a glass card above the transcript (the
-     * GAsk mockup); a card from no session we know rises over the screen instead.
-     */
+    /** A card from the Inbox or a push: inside its session (where it waits), or on its own when it has none. */
     fun showCard(card: PhoneCard) {
         val id = card.taskID
-        if (id != null && home.sessions.any { it.id == id }) open(session = id) else sheetCard = card
+        if (id != null) open(session = id) else {
+            panel = null
+            sheetCard = card
+        }
     }
 
     fun push(route: Route) {
@@ -321,9 +348,9 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         when {
             sheetCard != null -> sheetCard = null
             showPairing -> showPairing = false
+            panel != null -> panel = null
             drawerOpen -> drawerOpen = false
             path.isNotEmpty() -> path = path.dropLast(1)
-            tab != Tab.New -> tab = Tab.New
             else -> return false
         }
         return true
@@ -349,7 +376,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         }
     }
 
-    /** edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue, edencode://new, edencode://sessions (the drawer) */
+    /** edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue, edencode://settings, edencode://new; anything else opens the drawer */
     fun open(url: String) {
         val uri = try {
             java.net.URI(url)
@@ -361,12 +388,11 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         when (parts.firstOrNull()) {
             "session" -> parts.getOrNull(1)?.toIntOrNull()?.let { open(session = it) }
             "changes" -> parts.getOrNull(1)?.toIntOrNull()?.let { openChanges(it) }
-            "inbox" -> show(Tab.Inbox)
-            "queue" -> show(Tab.Queue)
-            "settings" -> show(Tab.Settings)
+            "inbox" -> show(Panel.Inbox)
+            "queue" -> show(Panel.Queue)
+            "settings" -> show(Panel.Settings)
             "new" -> newSession()
-            "sessions" -> drawerOpen = true
-            else -> {}
+            else -> { panel = null; path = emptyList(); drawerOpen = true }
         }
     }
 
@@ -404,12 +430,16 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         }
     }
 
-    suspend fun newSession(directory: String, prompt: String, mode: String, model: String?, isolated: Boolean): String? {
+    /** Starts a session on the Mac (and sends its pictures after), then opens it. Null when it started, else what went wrong. */
+    suspend fun newSession(directory: String, prompt: String, mode: String, model: String?, isolated: Boolean,
+                           pictures: List<com.askeden.edencode.net.Picture> = emptyList()): String? {
         val b = backend ?: return "Pair a Mac first."
         return try {
-            val ok = io { b.newSession(directory, prompt, mode, model, isolated) }
-            ok.id?.let { open(session = it) }
-            scope.launch { refreshHome() }
+            val ok = io { b.newSession(directory, prompt.ifEmpty { "Look at these pictures." }, mode, model, isolated) }
+            val id = ok.id
+            if (id != null && pictures.isNotEmpty()) runCatching { io { b.send(id, "", pictures) } }
+            refreshHome()
+            id?.let { open(session = it) }
             null
         } catch (e: CancellationException) {
             throw e

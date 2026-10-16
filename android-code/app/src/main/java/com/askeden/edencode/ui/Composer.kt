@@ -72,8 +72,6 @@ fun EdenComposer(
     attachments: Int,
     backdrop: Backdrop?,
     startExpanded: Boolean = false,
-    /** What the empty field says; null keeps Eden chat's ("Message Eden Code…", "Steer or reply…"). */
-    placeholder: String? = null,
     onSend: () -> Unit,
     onSteer: () -> Unit,
     onStop: () -> Unit,
@@ -142,7 +140,7 @@ fun EdenComposer(
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
-                        if (text.isEmpty()) T(placeholder ?: if (working) "Steer or reply…" else "Message Eden Code…", sf(14.5f, lineHeight = 24f), ink.subtle, maxLines = 1)
+                        if (text.isEmpty()) T(if (working) "Steer or reply…" else "Message Eden Code…", sf(14.5f, lineHeight = 24f), ink.subtle, maxLines = 1)
                         inner()
                     }
                 },
