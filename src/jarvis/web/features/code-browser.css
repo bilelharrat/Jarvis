@@ -1,0 +1,129 @@
+/* Eden Code's Browser pane (code-browser.js): the built-in browser as a workbench pane, in the
+   glass look (eden-code-glass.css tokens, light and dark). The page itself is a native view laid
+   over .cb-slot; everything here is the chrome around it. */
+
+/* wider than the other panes: half the window by default, the left edge dragged to change it */
+@media (min-width: 761px) {
+  body.eden-code .deck.jc .jc-pane[data-kind="browser"] { width: var(--cb-w, 50%); max-width: none; }
+  body.eden-code:not([data-skin]) .deck.jc:has(#jc-pane[data-kind="browser"]:not([hidden])) .jc-main { right: calc(var(--cb-w, 50%) + 16px); }
+}
+.jc-pane[data-kind="browser"] .jc-pane-body { display: flex; flex-direction: column; overflow: hidden; padding: 0 10px 10px; }
+.jc-pane .cb-resize { display: none; }
+.jc-pane[data-kind="browser"] .cb-resize {
+  display: block; position: absolute; left: 0; top: 14px; bottom: 14px; width: 8px; z-index: 3;
+  cursor: col-resize; touch-action: none; border-radius: 4px;
+}
+.jc-pane[data-kind="browser"] .cb-resize::after {
+  content: ""; position: absolute; left: 2px; top: 50%; width: 3px; height: 36px; margin-top: -18px;
+  border-radius: 2px; background: var(--ecg-text2, #8e8e93); opacity: 0; transition: opacity 0.15s;
+}
+.jc-pane[data-kind="browser"] .cb-resize:hover::after, .jc-pane[data-kind="browser"] .cb-resize:focus-visible::after, body.cb-resizing .cb-resize::after { opacity: 0.5; }
+body.cb-resizing, body.cb-resizing * { cursor: col-resize !important; user-select: none; }
+
+.cb { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 6px; }
+
+/* the tab strip: Safari-like pills, + at the end */
+.cb-strip { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.cb-tabs { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.cb-tabs::-webkit-scrollbar { display: none; }
+.cb-tab {
+  position: relative; display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 56px; max-width: 200px;
+  height: 26px; padding: 0 6px 0 9px; border-radius: 8px; cursor: default; font-size: 11.5px;
+  color: var(--ecg-text2, #6e6e73); background: transparent; transition: background 0.12s, color 0.12s;
+}
+.cb-tab:hover { background: var(--ecg-fill-soft, rgba(120, 120, 128, 0.1)); color: var(--ecg-text, #1d1d1f); }
+.cb-tab.on { background: var(--ecg-seg-on, #fff); color: var(--ecg-text, #1d1d1f); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.cb-tab:focus-visible { outline: 2px solid var(--ecg-accent, #007aff); outline-offset: -2px; }
+.cb-tab > svg, .cb-fav { flex: none; width: 12px; height: 12px; }
+.cb-tab.loading > svg, .cb-tab.loading .cb-fav { animation: cb-spin 1s linear infinite; }
+.cb-tab-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cb-tab-agent {
+  flex: none; padding: 1px 5px; border-radius: 999px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--ecg-accent, #007aff); background: color-mix(in srgb, var(--ecg-accent, #007aff) 14%, transparent);
+}
+.cb-tab-x {
+  flex: none; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: inherit; opacity: 0; cursor: default;
+}
+.cb-tab:hover .cb-tab-x, .cb-tab.on .cb-tab-x, .cb-tab-x:focus-visible { opacity: 0.75; }
+.cb-tab-x:hover { opacity: 1; background: var(--ecg-fill, rgba(120, 120, 128, 0.12)); }
+
+/* the toolbar: round buttons and one capsule field, as the title bar's */
+.cb-bar { display: flex; align-items: center; gap: 2px; margin: 0; }
+.cb-btn {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--ecg-text2, #6e6e73); cursor: default;
+}
+.cb-btn:hover:not(:disabled) { background: var(--ecg-fill, rgba(120, 120, 128, 0.12)); color: var(--ecg-text, #1d1d1f); }
+.cb-btn:disabled { opacity: 0.35; }
+.cb-btn[aria-pressed="true"] { background: var(--ecg-accent, #007aff); color: #fff; }
+.cb-btn.cb-off { opacity: 0.45; }
+.cb-btn:focus-visible { outline: 2px solid var(--ecg-accent, #007aff); outline-offset: 1px; }
+.cb-newtab { width: 26px; height: 26px; }
+.cb-field {
+  flex: 1; min-width: 80px; display: flex; align-items: center; gap: 6px; height: 30px; margin: 0 4px; padding: 0 10px;
+  border-radius: 999px; background: var(--ecg-fill, rgba(120, 120, 128, 0.12)); color: var(--ecg-text2, #6e6e73);
+}
+.cb-field:focus-within { background: var(--ecg-card, #fff); box-shadow: 0 0 0 3px var(--ecg-lg-focus, rgba(0, 122, 255, 0.22)); }
+.cb-kind { display: grid; place-items: center; flex: none; }
+.cb-url {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent;
+  font: 12px/1 var(--ecg-mono, ui-monospace, Menlo, monospace); color: var(--ecg-text, #1d1d1f);
+}
+.cb-url::placeholder { color: var(--ecg-text2, #8e8e93); font-family: inherit; }
+
+.cb-progress { position: relative; height: 2px; margin: -4px 6px 0; border-radius: 1px; overflow: hidden; }
+.cb-progress::after {
+  content: ""; position: absolute; inset: 0; width: 35%; border-radius: inherit;
+  background: var(--ecg-accent, #007aff); animation: cb-load 1.1s ease-in-out infinite;
+}
+.cb-progress[hidden] { display: none; }
+
+/* a strip above the page: the dev server, Eden at the wheel, a page that didn't load */
+.cb-offer, .cb-agent, .cb-msg {
+  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 6px 5px 10px; border-radius: 12px;
+  font-size: 12px; color: var(--ecg-text, #1d1d1f); background: var(--ecg-fill-soft, rgba(120, 120, 128, 0.1));
+}
+.cb-offer[hidden], .cb-agent[hidden], .cb-msg[hidden] { display: none; }
+.cb-offer-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cb-offer code { font-family: var(--ecg-mono, ui-monospace, Menlo, monospace); font-size: 11px; color: var(--ecg-text2, #6e6e73); }
+.cb-agent { background: var(--ecg-lg-fill, rgba(0, 122, 255, 0.12)); box-shadow: inset 0 0 0 1px var(--ecg-lg-rim, rgba(255, 255, 255, 0.6)); }
+.cb-agent.held { background: color-mix(in srgb, var(--ecg-orange, #ff9500) 16%, transparent); }
+.cb-agent-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ecg-accent, #007aff); animation: cb-pulse 1.4s ease-in-out infinite; }
+.cb-agent.held .cb-agent-dot { background: var(--ecg-orange, #ff9500); animation: none; }
+.cb-agent-pic { flex: none; width: 64px; height: 40px; object-fit: cover; object-position: top; border-radius: 6px; box-shadow: 0 0 0 1px var(--ecg-line, rgba(0, 0, 0, 0.08)); }
+.cb-agent-pic[hidden] { display: none; }
+.cb-agent-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.cb-agent-text strong { font-weight: 600; font-size: 12px; }
+.cb-agent-text small { color: var(--ecg-text2, #6e6e73); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cb-agent .jc-mini[hidden] { display: none; }
+.cb-msg { background: color-mix(in srgb, var(--ecg-red, #ff3b30) 12%, transparent); }
+.cb-msg span { flex: 1; min-width: 0; }
+
+/* the page's place: the native view lies exactly over .cb-slot */
+.cb-stage { position: relative; flex: 1; min-height: 120px; border-radius: 12px; overflow: hidden; background: var(--ecg-card, #fff); box-shadow: 0 0 0 1px var(--ecg-line, rgba(0, 0, 0, 0.06)); }
+.cb-slot { position: absolute; inset: 0; }
+.cb-snap { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.cb-snap[hidden] { display: none; }
+.cb-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; text-align: center; color: var(--ecg-text2, #6e6e73); font-size: 13px; }
+.cb-empty[hidden] { display: none; }
+
+/* the globe in the title bar: a dot while Eden uses the browser */
+#jc-browser { position: relative; }
+#jc-browser.cb-busy::after {
+  content: ""; position: absolute; top: 4px; right: 6px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ecg-accent, #007aff); box-shadow: 0 0 0 2px var(--ecg-fill, rgba(120, 120, 128, 0.12)); animation: cb-pulse 1.4s ease-in-out infinite;
+}
+
+/* a page's own full screen (a video): the pane takes the window */
+body.cb-page-full .deck.jc .jc-pane[data-kind="browser"] { position: fixed; inset: 0 !important; width: auto !important; z-index: 50; border-radius: 0; }
+body.cb-page-full .jc-pane[data-kind="browser"] .jc-pane-head, body.cb-page-full .cb-strip, body.cb-page-full .cb-bar, body.cb-page-full .cb-offer, body.cb-page-full .cb-agent { display: none; }
+body.cb-page-full .jc-pane[data-kind="browser"] .jc-pane-body { padding: 0; }
+body.cb-page-full .cb-stage { border-radius: 0; }
+
+@keyframes cb-load { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+@keyframes cb-spin { to { transform: rotate(360deg); } }
+@keyframes cb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .cb-progress::after, .cb-agent-dot, #jc-browser.cb-busy::after, .cb-tab.loading > svg { animation: none; }
+}

@@ -283,8 +283,29 @@ async function call({ session: key, action, args = {} } = {}) {
   }
 }
 
+// A look at a session's hidden preview, for Eden Code's Browser pane to show while the check
+// runs ("Eden is checking its work": web/features/code-browser.js): the page's address and a
+// small picture of it as it is now. Read only: it neither keeps the preview open longer nor
+// counts as a step of the check.
+const PEEK_WIDTH = 640;
+async function peek(key) {
+  const entry = previews.get(String(key || ''));
+  if (!entry || entry.win.isDestroyed()) return { ok: false };
+  const wc = entry.win.webContents;
+  let jpeg = '';
+  try {
+    const image = await wc.capturePage();
+    if (image && !image.isEmpty()) jpeg = (image.getSize().width > PEEK_WIDTH ? image.resize({ width: PEEK_WIDTH, quality: 'good' }) : image).toJPEG(70).toString('base64');
+  } catch { /* mid-load: the address alone */ }
+  return { ok: true, url: wc.getURL(), title: wc.getTitle(), jpeg };
+}
+
 module.exports = {
   install(ctx) {
+    ctx.ipcMain.handle('feature:self-check:peek', (event, msg) => {
+      if (!ctx.fromWindow(event)) return { ok: false };
+      return peek(msg && msg.session);
+    });
     ctx.ipcMain.handle('feature:self-check:call', (event, msg) => {
       if (!ctx.fromWindow(event)) return { error: 'not allowed' };
       return call(msg || {});
@@ -293,6 +314,7 @@ module.exports = {
   },
   // For the tests (tests/web/self-check.e2e.cjs).
   call,
+  peek,
   closeAll,
   previews,
 };

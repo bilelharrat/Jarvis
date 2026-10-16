@@ -11,7 +11,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { backendCommand, bundledEnv, BackendLog, engineMissing } = require('../../app/backend-launch.js');
+const { backendCommand, bundledEnv, BackendLog, engineMissing, engineMissingText } = require('../../app/backend-launch.js');
 
 const RES = '/Applications/J.A.R.V.I.S.app/Contents/Resources';
 const PY = `${RES}/backend/python/bin/python3`;
@@ -202,4 +202,23 @@ test("an installed app built from the owner's repo isn't missing its engine; one
   assert.equal(engineMissing({ packaged: true, bundled: false, env: { JARVIS_HOME: '/r' }, bakedHome: false }), false);
   assert.equal(engineMissing({ packaged: true, bundled: true, env: {}, bakedHome: false }), false);
   assert.equal(engineMissing({ packaged: false, bundled: false, env: {}, bakedHome: false }), false);
+});
+
+test('the missing-engine message blames Windows Security only on Windows', () => {
+  const dir = '/Applications/Eden Code.app/Contents/Resources/backend';
+  const mac = engineMissingText({ name: 'Eden Code', dir, platform: 'darwin' });
+  assert.doesNotMatch(mac, /Windows|antivirus/);
+  assert.match(mac, /This copy of Eden Code is incomplete/);
+  assert.match(mac, /Applications folder, or reinstall it\./);
+  assert.ok(mac.includes(dir));
+  const win = engineMissingText({ name: 'Eden Code', dir: 'C:\\Eden\\backend', platform: 'win32' });
+  assert.match(win, /Windows Security/);
+  const linux = engineMissingText({ name: 'Eden Code', dir: '/opt/eden/backend', platform: 'linux' });
+  assert.doesNotMatch(linux, /Windows|Applications folder/);
+});
+
+test('main.js says the missing engine by platform, never the Windows words outright', () => {
+  const main = fs.readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /showProblem\(engineMissingText\(/);
+  assert.doesNotMatch(main, /allow it in Windows Security/);
 });

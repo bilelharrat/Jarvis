@@ -1,0 +1,19 @@
+{
+  "strings": {
+    "Browser (⌥⌘B)": "浏览器（⌥⌘B）",
+    "Select element: send it with your next message": "选取元素：随下一条消息一起发送",
+    "Open in your default browser": "在默认浏览器中打开",
+    "Resize the browser": "调整浏览器宽度",
+    "Opened by": "打开者",
+    "is running at": "正在运行，地址",
+    "is starting…": "正在启动…",
+    "isn’t running.": "没有运行。",
+    "Eden is using the browser": "Eden 正在使用浏览器",
+    "Eden is checking its work in a hidden preview": "Eden 正在隐藏的预览里检查自己的工作",
+    "You have the browser. Eden waits until you hand it back.": "浏览器由你接管。Eden 会等你交还后再继续。",
+    "You have the browser. Eden’s browser steps wait until you hand it back.": "浏览器由你接管。Eden 的浏览器操作会等你交还后再继续。",
+    "Handed back: Eden can use the browser again.": "已交还：Eden 可以再次使用浏览器。",
+    "Select element works on your dev server’s page (an address on this Mac) or a file you opened yourself.": "选取元素只能用在你的开发服务器页面（这台 Mac 上的地址）或你自己打开的文件上。",
+    "The browser shows pages in the Eden Code app.": "浏览器只在 Eden Code 应用里显示网页。"
+  }
+}

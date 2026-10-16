@@ -12,11 +12,12 @@ const os = require('os');
 const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
-const { backendCommand, BackendLog, engineMissing } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
+const { backendCommand, BackendLog, engineMissing, engineMissingText } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
 const pages = require('./page-path'); // the app's own pages, from inside app.asar on eden-app:// (S3-4)
 protocol.registerSchemesAsPrivileged(pages.PRIVILEGES); // (before ready, as Electron asks)
 const { isCertError, riskyClick } = require('./browser-lib');
+const paneLib = require('./browser-pane-lib'); // Eden Code's Browser pane: where its view goes, what opens outside
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const proofPipe = require('./proof-pipe'); // Touch ID's proof key, on the backend's own stdin (A1)
@@ -198,7 +199,7 @@ function startBackend() {
   if (engineMissing({ packaged: app.isPackaged, bundled: how.bundled, env: process.env, bakedHome: fs.existsSync(path.join(__dirname, 'jarvis-home.json')) })) {
     // An installed app with no engine of its own: its files were removed (security software does that) or the install was cut short.
     trace.write(`the engine is missing: no ${path.join(process.resourcesPath, 'backend', 'python')}`);
-    showProblem(`${FLAVOR.name}'s engine files are missing (${path.join(process.resourcesPath, 'backend')}). Windows Security or another antivirus may have removed them. Install ${FLAVOR.name} again, and allow it in Windows Security if it asks.`);
+    showProblem(engineMissingText({ name: FLAVOR.name, dir: path.join(process.resourcesPath, 'backend') })); // (Windows Security only on Windows)
     log.end();
     return;
   }
@@ -628,7 +629,8 @@ function researchPath(url) {
 function tabList() {
   return tabs.map((view) => {
     const wc = view.webContents;
-    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView, favicon: view.favicon || '', ...parity.tabInfo(view) };
+    // owner: who opened it ('code:<session>' for an Eden Code session's own tab), for the pane's label.
+    return { id: wc.id, title: wc.getTitle(), url: wc.getURL(), loading: wc.isLoading(), research: onResearch(wc.getURL()), active: view === browserView, favicon: view.favicon || '', owner: String(view.agentOwner || ''), ...parity.tabInfo(view) };
   });
 }
 
@@ -1714,6 +1716,62 @@ ipcMain.handle('browser:command', async (event, command) => {
   } catch (err) {
     return { error: String(err && err.message ? err.message : err) };
   }
+});
+// ── Eden Code's Browser pane (web/features/code-browser.js) ──
+// The same engine and tabs as the dock, laid over the workbench pane's slot instead.
+// place: shown at the slot (browser-pane-lib.viewRect: zoomed, kept in the window), or taken
+// off when nothing of the slot would show. park: a picture of the page, then taken off, for
+// the pane to show while a menu, a dialog or Settings is over it (a native view is always
+// drawn above the page's own elements, so it steps aside; the picture keeps the pane from
+// going blank). external: the page in the Mac's default browser (web pages only). devtools:
+// the tab's DevTools, open or closed.
+function placeView(bounds) {
+  const view = ensureBrowser();
+  const [width, height] = win.getContentSize();
+  const rect = paneLib.viewRect(bounds, win.webContents.getZoomFactor() || 1, { width, height });
+  if (!rect) {
+    if (browserShown) { win.contentView.removeChildView(view); browserShown = false; }
+    return false;
+  }
+  mainWants = true;
+  mainBounds = bounds;
+  if (!browserShown) { win.contentView.addChildView(view); browserShown = true; }
+  lastBounds = rect;
+  view.setBounds(rect);
+  if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL(homeUrl());
+  return true;
+}
+ipcMain.handle('browser:place', (event, bounds) => {
+  if (!fromWindow(event) || dockWin) return false;
+  const shown = placeView(bounds);
+  sendBrowserState();
+  return shown;
+});
+ipcMain.handle('browser:park', async (event) => {
+  if (!fromWindow(event) || !browserView) return '';
+  let picture = '';
+  if (browserShown) {
+    try {
+      const image = await browserView.webContents.capturePage();
+      if (image && !image.isEmpty()) picture = `data:image/jpeg;base64,${(image.getSize().width > 1600 ? image.resize({ width: 1600 }) : image).toJPEG(80).toString('base64')}`;
+    } catch { /* a page mid-load: no picture */ }
+  }
+  if (browserView && browserShown && !dockWin) { win.contentView.removeChildView(browserView); browserShown = false; }
+  mainWants = false;
+  return picture;
+});
+ipcMain.handle('browser:external', (event) => {
+  if (!fromWindow(event) || !browserView) return false;
+  const url = paneLib.externalUrl(browserView.webContents.getURL());
+  if (url) shell.openExternal(url);
+  return Boolean(url);
+});
+ipcMain.handle('browser:devtools', (event) => {
+  if (!fromWindow(event) || !browserView) return false;
+  const wc = browserView.webContents;
+  if (wc.isDevToolsOpened()) { wc.closeDevTools(); return false; }
+  wc.openDevTools({ mode: 'detach' });
+  return true;
 });
 ipcMain.on('browser:hand', (event, message) => {
   if (!fromWindow(event) || !browserView || !browserShown || !message) return;

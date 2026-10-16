@@ -163,4 +163,19 @@ function engineMissing({ packaged, bundled, env, bakedHome }) {
   return Boolean(packaged && !bundled && !env.JARVIS_HOME && !bakedHome);
 }
 
-module.exports = { backendCommand, bundledEnv, bundledPython, engineMissing, BackendLog, BUNDLED_PYTHON };
+// What the window says when the engine is missing, by platform. Only Windows has Windows
+// Security (which has quarantined the bundled Python before); on a Mac the usual cause is a
+// copy that isn't the whole app (one run from a disk image or a half-copied folder, or one
+// whose bundle was changed), so it says to open the one in Applications or reinstall, and
+// never blames a Windows program the Mac doesn't have.
+function engineMissingText({ name, dir, platform = process.platform }) {
+  if (platform === 'win32') {
+    return `${name}'s engine files are missing (${dir}). Windows Security or another antivirus may have removed them. Install ${name} again, and allow it in Windows Security if it asks.`;
+  }
+  if (platform === 'darwin') {
+    return `This copy of ${name} is incomplete: its engine files are missing (${dir}). Open the ${name} in your Applications folder, or reinstall it.`;
+  }
+  return `This copy of ${name} is incomplete: its engine files are missing (${dir}). Install ${name} again.`;
+}
+
+module.exports = { backendCommand, bundledEnv, bundledPython, engineMissing, engineMissingText, BackendLog, BUNDLED_PYTHON };

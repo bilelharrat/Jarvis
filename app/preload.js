@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('jarvisApp', {
   browser: {
     show: (bounds) => ipcRenderer.invoke('browser:show', bounds),
     hide: () => ipcRenderer.invoke('browser:hide'),
+    // Eden Code's Browser pane (web/features/code-browser.js): laid over its slot, stepped aside with a picture, the page outside, DevTools.
+    place: (bounds) => ipcRenderer.invoke('browser:place', bounds),
+    park: () => ipcRenderer.invoke('browser:park'),
+    external: () => ipcRenderer.invoke('browser:external'),
+    devtools: () => ipcRenderer.invoke('browser:devtools'),
     setBounds: (bounds) => ipcRenderer.invoke('browser:bounds', bounds),
     nav: (action, url) => ipcRenderer.invoke('browser:nav', { action, url }),
     command: (command) => ipcRenderer.invoke('browser:command', command),

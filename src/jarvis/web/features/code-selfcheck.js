@@ -46,12 +46,18 @@
   F.on('sc_call', async (ev) => {
     const app = root.jarvisApp;
     if (!app || !app.feature) return;  // a window without the app: the app window answers
+    // Eden Code's Browser pane shows the check as it runs, and holds it while the owner has
+    // taken the browser over (features/code-browser.js).
+    const pane = root.jarvisCodeBrowser;
+    const held = pane ? pane.checkStart(ev) : '';
+    if (held) { F.send({ type: 'sc_result', call: ev.call, result: { ok: false, message: held } }); return; }
     let result;
     try {
       result = await app.feature.invoke('feature:self-check:call', { session: ev.session, action: ev.action, args: ev.args || {} });
     } catch (err) {
       result = { error: String(err && err.message ? err.message : err) };
     }
+    if (pane) pane.checkEnd(ev, result);
     F.send({ type: 'sc_result', call: ev.call, result });
   });
 

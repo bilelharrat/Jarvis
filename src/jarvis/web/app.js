@@ -3571,7 +3571,7 @@ const JC_KEYS = [
   ['⌘F', 'Search the transcript'], ['⌘⇧F', 'Project files'], ['⌘,', 'Settings'],
   ['Esc', 'Interrupt, or close a menu or pane'], ['1–9', 'Answer an approval'], ['/', 'Commands'],
   ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
-  ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⌘⇧B', 'Agent board: arrows, Home, End, Enter or Space, 1–4'],
+  ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⌘⇧B', 'Agent board: arrows, Home, End, Enter or Space, 1–4'], ['⌥⌘B', 'Browser'],
   // What else there is, where to find it (features owners miss: features/code-getstarted.js has the same tips).
   ['⌘⇧A', 'Needs attention: everything waiting for you'], ['/diff', 'Changes: keep or undo each hunk; Deep review there'],
   ['/spec', 'Spec mode: requirements, design and tasks first'], ['/plugins', 'Plugins, skills and hooks'],
@@ -5146,14 +5146,16 @@ let mcpAsked = null; // the session an MCP question is out for
 let rules = [];
 
 document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.addEventListener('click', () => {
+  // The globe: Eden Code's Browser pane (features/code-browser.js); beside Eden Secretary, its dock.
+  if (b.dataset.pane === 'browser' && !inEdenCode) { if (typeof toggleBrowser === 'function') toggleBrowser(true); return; }
   if (currentPane === b.dataset.pane) closePane(); else openPane(b.dataset.pane);
 }));
-$('jc-browser').addEventListener('click', () => { if (typeof toggleBrowser === 'function') toggleBrowser(true); });
 $('jc-pane-close').addEventListener('click', closePane);
 
 function openPane(kind) {
   if (currentPane === 'sim' && kind !== 'sim') closeSimPanel();
   currentPane = kind;
+  $('jc-pane').dataset.kind = kind;  // (a pane's own look and width: code-browser.css)
   $('jc-pane').hidden = false;
   $('jc-pane-title').textContent = PANE_TITLES[kind] || kind;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pane === kind)));
@@ -5170,6 +5172,7 @@ function closePane() {
   if (currentPane === 'sim') closeSimPanel();
   if (currentPane === 'terminal' && term.id) { send({ type: 'term_close', term: term.id }); term.id = null; }
   currentPane = null;
+  delete $('jc-pane').dataset.kind;
   $('jc-pane').hidden = true;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
 }
@@ -5558,6 +5561,13 @@ function watchSlot() {
 
 function toggleBrowser(open) {
   if (!app || !app.browser) return;
+  // Eden Code's window has no dock: the browser is its Browser pane (features/code-browser.js),
+  // for the owner's clicks, a session's browser tools and the Preview's links alike.
+  if (inEdenCode) {
+    if (open && currentPane !== 'browser') openPane('browser');
+    else if (!open && currentPane === 'browser') closePane();
+    return;
+  }
   browserOpenNow = open;
   $('browser').hidden = !open;
   document.body.classList.toggle('browser-open', open);
@@ -5643,6 +5653,7 @@ function renderTabs(list) {
 // The same shortcuts as Chrome, whether the page or Eden Secretary's window has the keyboard (the
 // page's come from the main process as 'browser:shortcut').
 function browserKey(action) {
+  if (inEdenCode) { if (window.jarvisCodeBrowser) window.jarvisCodeBrowser.key(action); return; }  // (its Browser pane)
   switch (action) {
     case 'address': $('br-url').focus(); $('br-url').select(); break;
     case 'find': openFind(); break;
@@ -5908,6 +5919,7 @@ if (app && app.browser && app.browser.find) {
 }
 
 function showBrowserError(text) {
+  if (inEdenCode) return;  // (Eden Code's Browser pane says it in the pane: code-browser.js)
   $('br-message-text').textContent = browserState.research || /Research Center/.test(text)
     ? `${text} Start it, or set its address in Settings › Research Center.` : text;
   $('br-message').hidden = false;
@@ -5941,6 +5953,11 @@ const pageTarget = {
 
 async function runBrowserCommand(ev) {
   if (!app || !app.browser) return;
+  // Eden Code's Browser pane watches a session drive it, and holds its commands while the
+  // owner has taken over (features/code-browser.js).
+  const pane = window.jarvisCodeBrowser;
+  const held = pane ? pane.agentStart(ev) : '';
+  if (held) { send({ type: 'browser_result', id: ev.id, result: { error: held } }); return; }
   $('br-jarvis').hidden = false;
   const behind = ev.args && (ev.args.background || ev.args.op === 'list'); // work in a tab behind, or a list
   if (!browserOpenNow && !behind && !['read', 'snapshot', 'describe', 'wait', 'console', 'network'].includes(ev.action)) toggleBrowser(true); // looks don't open it
@@ -5951,6 +5968,7 @@ async function runBrowserCommand(ev) {
     result = { error: String(err) };
   }
   $('br-jarvis').hidden = true;
+  if (pane) pane.agentEnd(ev, result);
   send({ type: 'browser_result', id: ev.id, result });
 }
 

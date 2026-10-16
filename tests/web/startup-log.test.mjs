@@ -265,7 +265,8 @@ test('the engine is started with no console window of its own, and the app trace
     assert.ok(main.includes(what) || main.includes(what.replace('single-instance lock', 'another copy is already running')), what);
   }
   // an engine missing from an installed app is said, not left to a "spawn uv ENOENT"
-  assert.match(main, /engine files are missing/);
+  assert.match(main, /showProblem\(engineMissingText\(/);  // (its words by platform: backend-launch.js)
+  assert.match(appFile('backend-launch.js'), /engine files are missing/);
   // the window is shown even if it never paints
   assert.match(main, /setTimeout\(\(\) => show\('not painted after 4 s: showing it anyway'\), 4000\)/);
 });
