@@ -19,6 +19,7 @@ body.eden-code:not([data-skin]) {
   --ecg-fill: rgba(120, 120, 128, 0.12);
   --ecg-fill-soft: rgba(120, 120, 128, 0.1);
   --ecg-seg-on: #ffffff;
+  --ecg-card: #ffffff;
   --ecg-text: #1d1d1f; --ecg-text2: #6e6e73; --ecg-text-step: #3a3a3c;
   --ecg-accent: #007aff;
   --ecg-orange: #ff9500; --ecg-green: #34c759; --ecg-red: #ff3b30;
@@ -41,6 +42,7 @@ body.eden-code:not([data-skin]) {
     --ecg-fill: rgba(120, 120, 128, 0.24);
     --ecg-fill-soft: rgba(120, 120, 128, 0.2);
     --ecg-seg-on: rgba(255, 255, 255, 0.2);
+    --ecg-card: #2c2c2e;
     --ecg-text: #f5f5f7; --ecg-text2: #aeaeb2; --ecg-text-step: #d1d1d6;
     --ecg-accent: #0a84ff;
     --ecg-term: rgba(10, 10, 14, 0.7); --ecg-term-rim: rgba(255, 255, 255, 0.14);
@@ -194,3 +196,41 @@ body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .xterm-viewport, b
   body.eden-code:not([data-skin]) .deck.jc .jc-body { position: relative; }
   body.eden-code:not([data-skin]) .deck.jc .jc-pane { position: absolute; inset: 8px; width: auto; z-index: 4; box-shadow: inset 0 0 0 1px var(--ecg-panel-rim), 0 12px 32px rgba(0, 0, 0, 0.18); }
 }
+
+/* ── editing a message you sent (code-sessions.js, .cs-editing): an Apple edit card, not a blue
+   bubble — a plain card, a borderless text field, a switch for the files, grey pills on the left
+   and Cancel · Resend on the right (Resend in the accent, ⌘⏎). ── */
+body.eden-code:not([data-skin]) .deck.jc .jc-user.cs-editing {
+  align-self: stretch; width: auto; max-width: none; padding: 14px; border-radius: 18px;
+  background: var(--ecg-card, #fff); color: var(--ecg-text);
+  box-shadow: 0 0 0 1px var(--ecg-line), 0 8px 24px rgba(30, 40, 80, 0.10);
+}
+body.eden-code:not([data-skin]) .deck.jc .cs-editor { gap: 12px; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-text {
+  border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.45;
+  background: var(--ecg-fill-soft); color: var(--ecg-text); box-shadow: none;
+}
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-text:focus { box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.28); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files { gap: 10px; font-size: 13px; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 38px; height: 22px; margin: 0;
+  border-radius: 11px; background: rgba(120, 120, 128, 0.24); cursor: pointer; transition: background 160ms ease;
+}
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: left 160ms ease;
+}
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input:checked { background: #34c759; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input:checked::after { left: 18px; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row { gap: 8px; align-items: center; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn {
+  height: 30px; padding: 0 14px; border: 0; border-radius: 999px; font-size: 13px; font-weight: 500;
+  background: var(--ecg-fill); color: var(--ecg-text); box-shadow: none;
+}
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:hover { background: var(--ecg-fill); filter: brightness(0.96); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(2) { order: 1; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(3) { order: 2; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(4) { order: 3; margin-left: auto; background: transparent; color: var(--ecg-accent); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn.filled { order: 4; background: var(--ecg-accent); color: #fff; font-weight: 600; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:disabled { opacity: 0.45; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-hint { font-size: 11px; color: var(--ecg-text2); }
