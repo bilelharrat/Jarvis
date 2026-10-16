@@ -10,6 +10,7 @@ import pytest
 from conftest import FakeClient
 
 from jarvis import openai_relay, utility_model
+from jarvis import providers as providers_mod
 from jarvis.features import local_models
 from jarvis.hub import Hub
 from jarvis.prefs import MODELS
@@ -138,8 +139,8 @@ async def test_servers_running_on_this_mac_are_found(settings, quiet_speaker, is
     events = []
     hub.emit = lambda kind, **data: events.append((kind, data))
     await finder.scan()
-    [(kind, data)] = events
-    assert kind == "local_models"
+    (kind, data), *after = events
+    assert kind == "local_models" and "providers" in [k for k, _ in after]  # the pickers too
     assert data == {
         "servers": [
             {
@@ -221,3 +222,177 @@ async def test_the_hub_starts_the_relay_for_an_added_server(
     await hub._relay_if_needed()
     await hub._gemini_ready("custom:abcdef123456")
     assert started == [None, "custom:abcdef123456"]
+
+
+# ── Eden Code's pickers: models on this Mac, with their size and context ──
+
+
+def ollama_client(seen: list[str] | None = None) -> httpx.AsyncClient:
+    """Ollama on 11434 as it answers: /v1/models, /api/tags, /api/show; nothing elsewhere."""
+    tags = {
+        "models": [
+            {"name": "qwen2.5-coder:7b", "model": "qwen2.5-coder:7b", "size": 4_683_087_332,
+             "details": {"parameter_size": "7.6B", "quantization_level": "Q4_K_M"}},
+            {"name": "nomic-embed-text:latest", "model": "nomic-embed-text:latest", "size": 274_302_450,
+             "details": {"parameter_size": "137M", "quantization_level": "F16"}},
+            {"name": "llama3.2:3b", "model": "llama3.2:3b", "size": "huge", "details": "odd"},
+        ]
+    }  # fmt: skip
+    show = {
+        "qwen2.5-coder:7b": {"model_info": {"qwen2.context_length": 32768}, "capabilities": ["completion", "tools"]},
+        "nomic-embed-text:latest": {"model_info": {"nomic-bert.context_length": 2048}, "capabilities": ["embedding"]},
+        "llama3.2:3b": {"capabilities": ["completion"]},
+    }  # fmt: skip
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "127.0.0.1"
+        if seen is not None:
+            seen.append(request.url.path)
+        if request.url.port != 11434:
+            raise httpx.ConnectError("refused", request=request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": m["model"]} for m in tags["models"]]})
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json=tags)
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json=show[json.loads(request.content)["model"]])
+        return httpx.Response(404)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(answer))
+
+
+async def test_the_pickers_list_models_on_this_mac_with_size_and_context(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    finder = local_models.LocalModels(hub, ollama_client())
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    await finder.scan()
+    providers = [d for k, d in events if k == "providers"][-1]
+    unadded = providers["on_this_mac"]
+    # the embedding model can't chat: it isn't offered
+    assert [m["model"] for m in unadded] == ["qwen2.5-coder:7b", "llama3.2:3b"]
+    qwen, llama = unadded
+    assert qwen["group"] == "On this Mac" and qwen["server"] == "Ollama" and qwen["needs_add"]
+    assert (qwen["size"], qwen["context"], qwen["params"], qwen["quant"], qwen["tools"]) == (
+        4_683_087_332,
+        32768,
+        "7.6B",
+        "Q4_K_M",
+        True,
+    )
+    assert qwen["ref"] == "local:11434/qwen2.5-coder:7b"
+    # what a server said oddly is left out; the catalog's context stands in
+    assert llama["size"] is None and llama["params"] == "" and llama["tools"] is False
+    assert llama["context"] is None or llama["context"] > 0
+    # not a model ref: nothing runs it as it is, and the picker proper doesn't list it
+    assert not hub.providers.known("local:11434/qwen2.5-coder:7b")
+    assert all(not m["ref"].startswith("local:") for m in providers["picker"])
+    events.clear()
+    await finder.scan()  # nothing changed: the pickers aren't told again
+    assert [k for k, _ in events] == ["local_models"]
+
+
+async def test_picking_one_adds_its_server_and_says_which_ref_to_use(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    finder = local_models.LocalModels(hub, ollama_client())
+    started = []
+
+    async def ready(store, ref=None):
+        started.append(ref)
+
+    monkeypatch.setattr(openai_relay, "ready", ready)
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    await finder.scan()
+    events.clear()
+    await finder.use({"port": 11434, "model": "llama3.2:3b"})
+    [provider] = hub.providers.providers.values()
+    assert provider.name == "Ollama" and provider.base_url == "http://localhost:11434"
+    models = [e.model for e in hub.providers.models_of(provider.id)]
+    assert models[0] == "llama3.2:3b" and "qwen2.5-coder:7b" in models
+    ready_ev = [d for k, d in events if k == "local_model_ready"][-1]
+    entry = next(e for e in hub.providers.models_of(provider.id) if e.model == "llama3.2:3b")
+    assert ready_ev == {"ref": f"custom:{entry.id}", "model": "llama3.2:3b", "port": 11434}
+    assert started == [None]
+    # once added, it's in the picker under On this Mac, with what was found about it
+    picker = hub.providers.public()["picker"]
+    qwen = next(m for m in picker if m["model"] == "qwen2.5-coder:7b")
+    assert qwen["local"] and qwen["group"] == "On this Mac" and qwen["context"] == 32768
+    assert qwen["ref"].startswith("custom:") and "needs_add" not in qwen
+    assert hub.providers.public()["on_this_mac"] == []
+    # again: the same server, no second provider
+    events.clear()
+    await finder.use({"port": 11434, "model": "qwen2.5-coder:7b"})
+    assert len(hub.providers.providers) == 1
+    assert [d for k, d in events if k == "local_model_ready"][-1]["ref"] == qwen["ref"]
+    # a model the server doesn't list, or a server not running: said, nothing added
+    events.clear()
+    await finder.use({"port": 11434, "model": "gpt-oss:120b"})
+    await finder.use({"port": "x", "model": "qwen2.5-coder:7b"})
+    assert [k for k, _ in events] == ["providers_error", "providers_error"]
+    assert "local_models_use" in hub._commands
+
+
+async def test_a_real_fake_ollama_on_this_mac_is_found_without_ollama(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """The same look, over real HTTP, against a stand-in Ollama on a free port here: no
+    Ollama needs to be installed or running, and no other port is asked."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    asked = []
+
+    class FakeOllama(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def _json(self, data):
+            out = json.dumps(data).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def do_GET(self):
+            asked.append(self.path)
+            if self.path == "/v1/models":
+                self._json({"object": "list", "data": [{"id": "gemma3:4b"}]})
+            elif self.path == "/api/tags":
+                self._json({"models": [{"model": "gemma3:4b", "size": 3_338_801_804,
+                                        "details": {"parameter_size": "4.3B"}}]})  # fmt: skip
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            asked.append(self.path)
+            self.rfile.read(int(self.headers.get("content-length") or 0))
+            self._json(
+                {"model_info": {"gemma3.context_length": 131072}, "capabilities": ["completion"]}
+            )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeOllama)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    monkeypatch.setattr(local_models, "LOCAL_SERVERS", {port: "Ollama"})
+    monkeypatch.setitem(providers_mod.LOCAL_SERVERS, port, "Ollama")
+    hub = make_hub(settings, quiet_speaker, isolated)
+    try:
+        await local_models.LocalModels(hub).scan()
+    finally:
+        server.shutdown()
+    [found] = hub.providers.public()["on_this_mac"]
+    assert (found["model"], found["server"], found["size"], found["context"], found["tools"]) == (
+        "gemma3:4b",
+        "Ollama",
+        3_338_801_804,
+        131072,
+        False,
+    )
+    assert sorted(set(asked)) == ["/api/show", "/api/tags", "/v1/models"]

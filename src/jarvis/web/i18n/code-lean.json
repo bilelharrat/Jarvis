@@ -1,0 +1,10 @@
+{
+  "strings": {
+    "Lean mode": "精简模式",
+    "A short prompt and six tools, for smaller and local models": "简短的提示词和六个工具，适合较小的模型和本机模型",
+    "Smaller models": "较小的模型",
+    "On this Mac": "这台 Mac 上",
+    "A short prompt and six tools instead of Claude Code’s full set: about 2,000 tokens a turn instead of 30,000. Automatic: on for models on this Mac. Each session’s More menu can switch it.": "用简短的提示词和六个工具代替 Claude Code 的整套内容：每轮约 2,000 个 token，而不是 30,000 个。自动：这台 Mac 上的模型开启。每个会话的“更多”菜单都可以切换。",
+    "Every session": "所有会话"
+  }
+}
