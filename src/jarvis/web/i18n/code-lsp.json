@@ -1,0 +1,12 @@
+{
+  "strings": {
+    "Language servers": "语言服务器",
+    "Starts when a session first needs it": "在会话首次需要时启动",
+    ": not installed. Eden Code never installs one; to use it, run": "：未安装。Eden Code 从不自行安装；要使用它，请运行",
+    "Live problems after each edit are off in Settings.": "每次编辑后的实时问题已在设置中关闭。",
+    "Language servers for sessions": "会话使用语言服务器",
+    "Sessions can ask the project’s language server where a symbol is defined, everywhere it’s used, its type, how to rename it, and a file’s errors. Only servers you installed are used; Eden Code never installs one.": "会话可以向项目的语言服务器询问符号的定义位置、所有用到它的地方、它的类型、如何重命名，以及文件中的错误。只使用你自己安装的服务器；Eden Code 从不自行安装。",
+    "Live problems after each edit": "每次编辑后的实时问题",
+    "When a session edits a file, its language server checks it and what it finds shows in the Problems pane.": "会话编辑文件后，由它的语言服务器检查，发现的问题显示在“问题”面板中。"
+  }
+}

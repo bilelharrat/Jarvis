@@ -361,6 +361,7 @@ EDEN_CODE_S_OWN = {
         "code_index_tidy",
         "code_issue_watch",
         "code_linear_agents_progress",
+        "code_lsp",  # (idle and oversized language servers stop; all of them at quit)
         "code_merge_queue",
         "code_pairing",
         "code_pr_review_watch",
