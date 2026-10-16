@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from code_session_fakes import events_of, make_hub, until
-from import_fixtures import SECRET, SECRET2, SECRET3, SECRETS, build, tree_hash
+from import_fixtures import SECRET, SECRET2, SECRET3, SECRETS, SESSION, build, tree_hash
 
 from jarvis import code_import as ci
 from jarvis import import_mcp_launch
@@ -205,6 +205,30 @@ def test_past_chats_are_read_back_from_each_tool(home, tree):
     )
 
 
+def test_cursor_agent_chats_are_read_from_its_transcripts(home, tree):
+    """The Cursor of 2026 keeps its agent chats as ~/.cursor/projects/<folder>/agent-transcripts/<id>/<id>.jsonl
+    (Claude-style turns, the question inside <user_query>); a subagent's own record is not a chat."""
+    folder = home / ".cursor" / "projects" / "Users-x-code-alpha" / "agent-transcripts" / "c0ffee"
+    turns = [
+        {"role": "user", "message": {"content": [{"type": "text", "text": "<timestamp>Mon</timestamp>\n<user_query>\nadd a retry\n</user_query>"}]}},
+        {"role": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {}}]}},
+        {"role": "assistant", "message": {"content": [{"type": "text", "text": "Added a retry."}, {"type": "tool_use", "name": "Edit", "input": {}}]}},
+        {"status": "done", "type": "result"},
+    ]  # fmt: skip
+    folder.mkdir(parents=True)
+    (folder / "c0ffee.jsonl").write_text("\n".join(json.dumps(t) for t in turns) + "\n")
+    (folder / "subagents").mkdir()
+    (folder / "subagents" / "sub1.jsonl").write_text(json.dumps(turns[0]) + "\n")
+    item = _scan("cursor", home, tree)["chats:cursor"]
+    assert item.count == 2  # (the database's chat and this one; the subagent's record is not a third)
+    entry = next(c for c in item.payload["chats"] if c.get("agent"))
+    assert entry["title"] == "add a retry"
+    assert ci.source_by_id("cursor").read_chat(entry) == [
+        {"role": "user", "text": "add a retry"},
+        {"role": "assistant", "text": "Added a retry."},
+    ]
+
+
 # ── into Eden Code, and back out ──
 
 
@@ -225,10 +249,15 @@ def _hub(settings, quiet_speaker, isolated, home, tree):
 
 
 async def _ask(hub, seen, msg, answer):
-    before = len([e for e in seen() if e["type"] == answer])
+    # (An answer for this tool: an import's own fresh preview can still be on its way when the
+    # next tool's preview is asked for, and must not be taken for that one.)
+    def mine():
+        return [e for e in seen() if e["type"] == answer and e.get("source", msg.get("source")) == msg.get("source")]
+
+    before = len(mine())
     await hub._handle(msg)
-    assert await until(lambda: len([e for e in seen() if e["type"] == answer]) > before, 2000)
-    return [e for e in seen() if e["type"] == answer][-1]
+    assert await until(lambda: len(mine()) > before, 2000)
+    return mine()[-1]
 
 
 def _ticked(preview, also=()):
@@ -418,3 +447,32 @@ def test_the_launcher_starts_a_server_with_its_keys_from_the_keychain(tmp_path, 
     assert import_mcp_launch.main(["x", str(path), "search"]) == 0
     assert ran == [("search-mcp", ["search-mcp", "--fast"], SECRET3)]
     assert import_mcp_launch.main(["x", str(path), "nope"]) == 1
+
+
+async def test_what_was_brought_over_takes_effect_in_a_real_session(
+    settings, quiet_speaker, isolated, home, tree
+):
+    """Not just ledger rows: the imported project lists its Claude Code conversations, and a session
+    opened in it is made with the imported MCP servers (the project's only in that project)."""
+    hub = _hub(settings, quiet_speaker, isolated, home, tree)
+    imp = hub.code_import
+    claude = {i.id: i for i in await imp.preview("claude_code")}
+    imp.apply("claude_code", [claude[f"project:{tree['alpha']}"]])
+    codex = {i.id: i for i in await imp.preview("codex")}
+    cursor = {i.id: i for i in await imp.preview("cursor")}
+    imp.apply("codex", [codex["mcp:search"]])
+    imp.apply("cursor", [cursor["mcp:alpha-db"], cursor["mcp:linear"]])
+    assert "alpha" in hub.tasks.projects()
+    # (Claude Code files a project's conversations under its path with every non-letter a dash.)
+    slug = "".join(c if c.isalnum() else "-" for c in str(tree["alpha"].resolve()))
+    kept = home / ".claude" / "projects"
+    (kept / slug).mkdir()
+    (kept / "-Users-x-code-alpha" / f"{SESSION}.jsonl").rename(kept / slug / f"{SESSION}.jsonl")
+    assert [s["session_id"] for s in hub.tasks.past_sessions("alpha")] == [SESSION]
+    here = hub.tasks.start("", "alpha")
+    servers = hub.tasks.options_for(here).mcp_servers
+    assert {"search", "alpha-db", "linear"} <= set(servers)
+    assert SECRET3 not in json.dumps(servers["search"])
+    imp.undo("codex")
+    imp.undo("cursor")
+    assert not {"search", "alpha-db", "linear"} & set(hub.tasks.options_for(here).mcp_servers)

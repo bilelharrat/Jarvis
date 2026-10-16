@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,10 @@ from ..code_import import (
     error_item,
     existing,
     is_file,
+    jsonl,
+    listing,
+    mtime,
+    text_of_content,
     mcp_file,
     message,
     note,
@@ -73,6 +78,43 @@ def _chats(db: Path) -> list[dict[str, Any]]:
     return chats
 
 
+QUERY = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.S)
+TAGS = re.compile(r"<(timestamp|image_files|attached_files|open_and_recently_viewed_files)>.*?</\1>", re.S)
+
+
+def _transcript_text(role: str, content: Any) -> str:
+    """One transcript turn's words: a user turn is its <user_query>, an assistant turn its text blocks
+    (tool calls and Cursor's own context tags are left out)."""
+    if role == "user":
+        text = text_of_content(content)
+        if found := QUERY.search(text):
+            return found.group(1)
+        return TAGS.sub("", text).strip()
+    if isinstance(content, list):
+        return "\n".join(b["text"] for b in content
+                         if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str))  # fmt: skip
+    return text_of_content(content)
+
+
+def _agent_chats(env: Env) -> list[dict[str, Any]]:
+    """Cursor's agent chats (the Glass / agent window): ~/.cursor/projects/<folder>/agent-transcripts/<id>/<id>.jsonl,
+    a Claude-style record of each. Only the first question is read here, for the title."""
+    chats = []
+    for path in listing(env.home / ".cursor" / "projects", "*/agent-transcripts/*/*.jsonl", 3000):
+        title = ""
+        for line in jsonl(path, 4_000_000):
+            if line.get("role") not in ("user", "assistant") or not isinstance(line.get("message"), dict):
+                continue
+            if line["role"] == "user" and (
+                title := _transcript_text("user", line["message"].get("content"))
+            ):
+                break
+        if title or path.stat().st_size > 0:
+            chats.append(chat_entry(f"cursor-agent:{path.stem}", title or "Cursor agent chat",
+                                    mtime(path), path, agent=True))  # fmt: skip
+    return chats
+
+
 def scan(env: Env, ctx: Context) -> list[Item]:
     items: list[Item] = []
     user = env.vscode_user("Cursor")
@@ -98,10 +140,16 @@ def scan(env: Env, ctx: Context) -> list[Item]:
             ctx,
         )
     db = _db(env)
+    chats = _agent_chats(env)
     if is_file(db):
         try:
-            if found := chats_item("cursor", "Cursor", _chats(db), ctx):
-                items.append(found)
+            chats += _chats(db)
+        except ReadError as exc:
+            items.append(error_item("cursor", db, exc))
+    if found := chats_item("cursor", "Cursor", chats, ctx):
+        items.append(found)
+    if is_file(db):
+        try:
             rows = sqlite_rows(
                 db, "SELECT value FROM ItemTable WHERE key = 'aicontext.personalContext' LIMIT 1"
             )
@@ -115,6 +163,15 @@ def scan(env: Env, ctx: Context) -> list[Item]:
 
 
 def read_chat(entry: dict[str, Any]) -> list[dict[str, str]]:
+    if entry.get("agent"):
+        out = []
+        for line in jsonl(Path(entry["path"])):
+            msg = line.get("message")
+            if line.get("role") in ("user", "assistant") and isinstance(msg, dict) and (
+                m := message(line["role"], _transcript_text(line["role"], msg.get("content")))
+            ):
+                out.append(m)
+        return out
     db, cid = Path(entry["path"]), entry.get("composer", "")
     rows = sqlite_rows(db, "SELECT value FROM cursorDiskKV WHERE key = ?", (f"composerData:{cid}",))
     data = json.loads(rows[0][0]) if rows and rows[0][0] else {}
