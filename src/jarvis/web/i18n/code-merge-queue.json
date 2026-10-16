@@ -20,6 +20,19 @@
     "Move down": "下移",
     "pull request": "拉取请求",
     "isolated copy": "独立副本",
-    "Nothing to land. Copies and pull requests with work show here.": "没有要合并的。有工作的副本和拉取请求会显示在这里。"
+    "Nothing to land. Copies and pull requests with work show here.": "没有要合并的。有工作的副本和拉取请求会显示在这里。",
+    "Held: overlapping changes": "已暂缓：改动重叠",
+    "Land anyway": "仍然合并",
+    "Check again": "再次检查",
+    "Overlapping changes": "重叠的改动",
+    "Hold the item and tell both sessions": "暂缓这一项并告诉两个会话",
+    "Tell both sessions, don’t hold": "告诉两个会话，不暂缓",
+    "Off": "关闭",
+    "Back to its session": "已交回它的会话",
+    "To me": "交给我",
+    "Conflicts and failing tests": "冲突和失败的测试",
+    "Before an item lands, Eden compares the functions and signatures it changed with the other sessions’ work, on this Mac (no model). Two changing one function, a new signature against new calls the old way, or something removed that the other still uses: both sessions are told.": "合并一项之前，Eden 会在这台 Mac 上（不用模型）把它改过的函数和签名与其他会话的工作对比。两边改了同一个函数、一边改了签名而另一边按旧方式新加调用、或者一边删掉的东西另一边还在用：两个会话都会被告知。",
+    "Where the queue sends an item it can’t land: back to the session that made it (a turn of its model), or to you.": "队列没法合并的项交给谁：交回做它的会话（用它的模型一轮），或者交给你。",
+    "To its own session": "交给它自己的会话"
   }
 }

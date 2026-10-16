@@ -6,7 +6,11 @@
 // card). The owner moves an item up or down, pauses or resumes it, tries one again or
 // takes it off, and pauses a whole project's queue. An item that needs the owner (a
 // conflict it couldn't send back, failing tests, secrets) is marked, counted in the lane's
-// head, and also a heads-up in the attention list.
+// head, and also a heads-up in the attention list. An item the semantic conflict guard
+// holds (features/code_semantic_guard.py: its symbols collide with another session's work in
+// a way git doesn't see) lists what collides, with Land anyway and Check again.
+// Settings › General › Merge queue: what the guard does (code_mq_semantic) and who a
+// conflict goes to (code_mq_conflicts).
 //
 // For a screen reader: the lane is a list, each item one list item that says in one line
 // its place, what it is, where it stands and why; its buttons are named with the item.
@@ -22,6 +26,7 @@
     fixing: 'Back with its session',
     paused: 'Paused',
     owner: 'Needs you',
+    held: 'Held: overlapping changes',
   };
 
   function stateLabel(item) {
@@ -61,14 +66,24 @@
     if (item.state === 'working') return acts;
     if (n > 0) acts.push(['up', '↑']);
     if (n < total - 1) acts.push(['down', '↓']);
+    if (item.state === 'held') acts.push(['override', 'Land anyway'], ['retry', 'Check again']);
     if (item.state === 'owner' || item.state === 'fixing') acts.push(['retry', 'Try again']);
     if (item.state === 'paused') acts.push(['resume', 'Resume']);
-    else if (item.state === 'queued' || item.state === 'fixing' || item.state === 'owner') acts.push(['pause', 'Pause']);
+    else if (['queued', 'fixing', 'owner', 'held'].includes(item.state)) acts.push(['pause', 'Pause']);
     acts.push(['remove', 'Remove']);
     return acts;
   }
 
-  const api = { STATES, stateLabel, candidates, itemSpeech, actionsFor };
+  // What the semantic conflict guard found, still in force (the owner landing it anyway
+  // sets those aside), as the sentences its card lists.
+  function collisions(item) {
+    return ((item && item.guard) || []).filter((f) => f && !f.overridden && f.text).map((f) => String(f.text));
+  }
+
+  const GUARD_MODES = [['hold', 'Hold the item and tell both sessions'], ['warn', 'Tell both sessions, don’t hold'], ['off', 'Off']];
+  const CONFLICT_MODES = [['session', 'To its own session'], ['owner', 'To me']];
+
+  const api = { STATES, stateLabel, candidates, itemSpeech, actionsFor, collisions, GUARD_MODES, CONFLICT_MODES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   const F = root.jarvisFeatures;
   if (!F || !F.codeBoard) return;
@@ -148,10 +163,18 @@
       card.append(own(F.el('p', 'cs-card-project', `${item.branch} → ${item.into} · ${(item.risk_why || []).join(' · ')}`)));
       card.append(F.el('p', 'cs-card-doing mq-state', stateLabel(item)));
       if (item.note) card.append(own(F.el('p', 'cs-card-stats mq-note', item.note)));
+      const found = collisions(item);
+      if (found.length) {
+        const ul = own(F.el('ul', 'mq-guard'));
+        ul.setAttribute('aria-label', `${t('Overlapping changes')}: ${item.title}`);
+        for (const line of found) ul.append(F.el('li', '', line));
+        card.append(ul);
+      }
       const acts = F.el('div', 'cs-card-acts');
       for (const [action, label] of actionsFor(item, n, items.length)) {
         const aria = `${t(action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : label)}: ${item.title}`;
-        acts.append(button(label, action === 'remove' ? 'danger' : action === 'retry' ? 'filled' : '', () => F.send({ type: 'code_mq_item', id: item.id, action }), `${item.id}:${action}`, aria));
+        const look = action === 'remove' ? 'danger' : action === 'retry' || action === 'override' ? 'filled' : '';
+        acts.append(button(label, look, () => F.send({ type: 'code_mq_item', id: item.id, action }), `${item.id}:${action}`, aria));
       }
       card.append(acts);
       list.append(card);
@@ -166,4 +189,46 @@
   F.on('hello', () => { F.send({ type: 'code_mq' }); F.send({ type: 'code_copies' }); F.send({ type: 'code_prs' }); }, { replay: true });
   F.codeBoard.addLane({ order: 1, shows: () => `mq:${M.queues.length}:${M.attention}`, element: () => lane });
   draw();
+
+  // ── Eden Code settings › General › Merge queue ──
+  const picks = {};
+  function settingRow(id, pref, title, small, modes) {
+    const row = F.el('label', 'jcs-row');
+    const words = F.el('span');
+    words.append(document.createTextNode(t(title)), F.el('small', '', t(small)));
+    const pick = F.el('select', 'jcs-select');
+    pick.id = id;
+    for (const [value, label] of modes) {
+      const o = F.el('option', '', t(label));
+      o.value = value;
+      pick.append(o);
+    }
+    pick.addEventListener('change', () => F.send({ type: 'feature_prefs', changes: { [pref]: pick.value } }));
+    picks[pref] = pick;
+    row.append(words, pick);
+    return row;
+  }
+  function buildSettings() {
+    const general = typeof document !== 'undefined' && document.getElementById('jcs-general');
+    if (!general || document.getElementById('mq-semantic')) return;
+    const label = F.el('p', 'jcs-label', t('Merge queue'));
+    const group = F.el('div', 'jcs-group');
+    group.append(
+      settingRow('mq-semantic', 'code_mq_semantic', 'Overlapping changes',
+        'Before an item lands, Eden compares the functions and signatures it changed with the other sessions’ work, on this Mac (no model). Two changing one function, a new signature against new calls the old way, or something removed that the other still uses: both sessions are told.', GUARD_MODES),
+      settingRow('mq-conflicts', 'code_mq_conflicts', 'Conflicts and failing tests',
+        'Where the queue sends an item it can’t land: back to the session that made it (a turn of its model), or to you.', CONFLICT_MODES),
+    );
+    const foot = general.querySelector('.jcs-foot');
+    if (foot) general.insertBefore(label, foot); else general.append(label);
+    general.insertBefore(group, label.nextSibling);
+  }
+  const takePrefs = (features) => {
+    const f = features || {};
+    if (picks.code_mq_semantic) picks.code_mq_semantic.value = ['warn', 'off'].includes(f.code_mq_semantic) ? f.code_mq_semantic : 'hold';
+    if (picks.code_mq_conflicts) picks.code_mq_conflicts.value = f.code_mq_conflicts === 'owner' ? 'owner' : 'session';
+  };
+  buildSettings();
+  F.on('prefs', (ev) => takePrefs(ev.features), { replay: true });
+  F.on('hello', (ev) => takePrefs(ev.prefs && ev.prefs.features), { replay: true });
 })(typeof window === 'object' ? window : globalThis);
