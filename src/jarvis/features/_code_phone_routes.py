@@ -19,16 +19,23 @@ from .code_phone import (
     FILES,
     HEADERS,
     PHONE_MODES,
+    ROUTER_NAME,
+    ROUTER_NOTE,
+    ROUTER_REF,
     TEXT_BODY,
     TEXT_CHARS,
     WAITS_PER_DEVICE,
     WEB_DIR,
     _int,
+    mode_short,
+    router_on,
+    set_router,
 )
 
 log = logging.getLogger("jarvis")
 
 OFF = "Turn on Eden Code on your phone in Eden Code › More › Open on my phone first."
+ROUTED = "Model Router picks the model for each message."
 NO_CHANGES = "The Changes pane isn't available here."
 HUNKS_AT_ONCE = 200  # hunks one Keep or Undo takes (the phone's Undo all)
 RECEIPTS_DEFAULT = 5
@@ -99,22 +106,37 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         return found
 
     def models() -> list[dict[str, Any]]:
-        """Eden Code's pickers' list (Eden chat's models first), as the phone shows it."""
+        """Eden Code's pickers' list as the phones show it (docs/eden-code-phone.md): Model
+        Router first, as the Mac's model menu has it, then Eden chat's models under their
+        headings, "On this Mac", then "Your models" (the owner's own, each with its
+        provider as the note), every one by a name a person reads (providers.friendly_name),
+        never a raw id."""
+        from ..providers import friendly_name
+
         try:
             picker = hub.providers.picker()
         except Exception:
             log.warning("Eden Code phone: no model list", exc_info=True)
             picker = []
-        return [
-            {
-                "ref": str(m.get("ref") or ""),
-                "name": str(m.get("label") or m.get("name") or m.get("ref") or ""),
-                "group": str(m.get("group") or m.get("provider_name") or ""),
+        out = [{"ref": ROUTER_REF, "name": ROUTER_NAME, "group": "", "note": ROUTER_NOTE,
+                "needs_key": False, "router": True}]  # fmt: skip
+        for m in picker:
+            if not m.get("ref"):
+                continue
+            mine = not m.get("eden") and not m.get("builtin") and not m.get("local")
+            out.append({
+                "ref": str(m["ref"]),
+                "name": friendly_name(str(m.get("model") or ""), str(m.get("label") or ""))
+                or str(m.get("name") or m["ref"]),
+                "group": "Your models" if mine else str(m.get("group") or "Anthropic Claude"),
+                "note": (
+                    "Needs " + str(m.get("key_what") or "an API key") if m.get("needs_key")
+                    else str(m.get("provider_name") or "") if mine else ""
+                ),
                 "needs_key": bool(m.get("needs_key")),
-            }
-            for m in picker
-            if m.get("ref")
-        ]
+                "router": False,
+            })  # fmt: skip
+        return out
 
     def runnable(ref: str) -> bool:
         return any(m["ref"] == ref and not m["needs_key"] for m in models())
@@ -191,10 +213,16 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         return answer(
             {
                 "models": models(),
-                "modes": [{"id": m, "name": MODE_LABELS.get(m, m)} for m in PHONE_MODES],
+                "modes": [
+                    {"id": m, "name": MODE_LABELS.get(m, m), "short": mode_short(m)}
+                    for m in PHONE_MODES
+                ],
                 "projects": projects,
+                "router": router_on(hub),
                 "defaults": {
-                    "model": getattr(hub.prefs, "code_model", "") or "",
+                    "model": ROUTER_REF
+                    if router_on(hub)
+                    else getattr(hub.prefs, "code_model", "") or "",
                     "mode": mode if mode in PHONE_MODES else "ask",
                 },
             }
@@ -302,12 +330,17 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         ref = str(data.get("ref") or "")[:200]
         if not runnable(ref):
             return bad("That model isn't on the list, or needs a key on the Mac first.")
+        # As the Mac's model menu: Model Router routes every session's messages from here on;
+        # a model picked turns it off (code-router.js picked: setOn(false)).
+        set_router(hub, ref == ROUTER_REF)
+        record(device, "code_model", f"#{task.id}")
+        if ref == ROUTER_REF:
+            return answer({"ok": True, "said": phone.tr(ROUTED)})
         heard = await desk().run(
             {"type": "task_model", "id": task.id, "ref": ref}, ("caption", "error"), 4
         )
         said = next((str(e.get("text") or "") for e in heard), "")
         failed = any(e.get("type") == "error" for e in heard)
-        record(device, "code_model", f"#{task.id}")
         return answer({"ok": not failed, "said": said})
 
     async def new(request: Request) -> Response:
@@ -331,7 +364,9 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         if ref:
             if not runnable(ref):
                 return bad("That model isn't on the list, or needs a key on the Mac first.")
-            command["model"] = ref
+            set_router(hub, ref == ROUTER_REF)  # (as the Mac's menu; the router isn't a ref)
+            if ref != ROUTER_REF:
+                command["model"] = ref
         if isinstance(data.get("isolated"), bool):
             command["isolated"] = data["isolated"]
         # Found by its launch token, never "whichever is new" (REL3-10, as companion_code).

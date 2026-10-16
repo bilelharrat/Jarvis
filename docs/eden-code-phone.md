@@ -45,14 +45,14 @@ capped body (413: 20 KB, a message 120 KB). Then the switch: `403 {"error", "off
 | Call | Kind | Body / query | Answer |
 |---|---|---|---|
 | `GET /api/code/phone/home` | read | | `{sessions: [Summary], attention: [Card], pinned: {id, title, at} \| null, exterminator: [Run]}` |
-| `GET /api/code/phone/options` | read | | `{models: [{ref, name, group, needs_key}], modes: [{id, name}], projects: [{name, branch, running}], defaults: {model, mode}}` |
+| `GET /api/code/phone/options` | read | | `{models: [Model], modes: [{id, name, short}], projects: [{name, branch, running}], router, defaults: {model, mode}}`; `defaults.model` is `"router"` while Model Router is on |
 | `GET /api/code/phone/session` | read | `id, after, seen, v, wait` | `View` (below); 404 when the session is gone |
 | `POST /api/code/phone/send` | act | `{id, text}` | `{ok}` (queued as the composer queues it) |
 | `POST /api/code/phone/stop` | act | `{id}` | `{ok}` (interrupts the step; the session stays open) |
 | `POST /api/code/phone/answer` | act | `{approval, choice, feedback?}` | `{ok}`; 403 for a yes on a Mac-only card; 404 for a card that isn't Eden Code's or is gone |
 | `POST /api/code/phone/mode` | act | `{id, mode}` | `{ok, said}`; 400 unless `mode` is `ask` or `edits` |
-| `POST /api/code/phone/model` | act | `{id, ref}` | `{ok, said}`; 400 unless `ref` is on the list and has its key |
-| `POST /api/code/phone/new` | act | `{directory, prompt, mode?, model?, isolated?}` | `{ok, id}`; `mode` `ask` (default) or `edits`, always named |
+| `POST /api/code/phone/model` | act | `{id, ref}` | `{ok, said}`; 400 unless `ref` is on the list and has its key; `ref: "router"` turns Model Router on (every session), any other ref turns it off, as the Mac's model menu |
+| `POST /api/code/phone/new` | act | `{directory, prompt, mode?, model?, isolated?}` | `{ok, id}`; `mode` `ask` (default) or `edits`, always named; `model: "router"` turns Model Router on and starts with no model named |
 | `POST /api/code/phone/land` | act | `{id}` | `{ok, said: "Confirm on its card."}`; 409 while its sessions work; 403 when what it would commit looks like a secret |
 | `POST /api/code/phone/discard` | act | `{id}` | `{ok, said}`; 409 while its sessions work |
 | `POST /api/code/phone/unpin` | act | `{}` | `{ok}` |
@@ -65,15 +65,41 @@ capped body (413: 20 KB, a message 120 KB). Then the switch: `403 {"error", "off
 | `POST /api/code/phone/todo_start` | act | `{card}` | `{ok, id}`; 403 when it would start in Auto or Bypass (its mode, or the default) |
 | `GET /api/code/phone/usage` | read | | `{today, day_cap, recent: [{day, total, turns}], by_project, windows}` |
 
-- **Summary**: `{id, title, project, status, mode, mode_label, model, cost_usd, updated_at}`; `status` is
+- **Summary**: `{id, title, project, status, mode, mode_label, mode_short, model, routed_label, router, cost_usd,
+  updated_at}` (`model` here is a name: "Model Router" while routing is on); `status` is
   `working | needs_you | done | failed | idle | resting` (`companion_api.session_status`).
 - **Card**: `companion_api.public_approval` (`id, question, detail, choices, source, task_id?, ask_kind?,
   options?, multi?, free_choices?`) plus `mac_only` (only `deny` is taken from the phone) and `copy` (the
   isolated copy's slug, for a Land or Discard card the phone put up).
 - **Run** (Exterminator Mode): `{id, project, state, why, round, rounds, step, spent, spend_cap, task_id,
   found, fixed, open, landed}`.
-- **View**: `{id, title, project, status, doing, mode, mode_label, model, model_label, live, todos, cards,
+- **View**: `{id, title, project, status, doing, mode, mode_label, mode_short, model, model_label, routed_label, router,
+  live, todos, cards,
   copy: {branch, into, busy} | null, next, seen, v, entries, changed, more}`.
+
+- **Model** (2026-10-16; old clients that read only `ref, name, group, needs_key` keep working):
+
+  ```json
+  {"ref": "router", "name": "Model Router", "group": "", "note": "Picks the model and effort for each message",
+   "needs_key": false, "router": true}
+  {"ref": "opus", "name": "Claude Opus 5.5", "group": "Anthropic Claude", "note": "", "needs_key": false, "router": false}
+  {"ref": "eden:kimi-k3", "name": "Kimi K3", "group": "Moonshot Kimi", "note": "Needs a Moonshot (Kimi) API key",
+   "needs_key": true, "router": false}
+  {"ref": "custom:ab12cd", "name": "Kimi K2.7 Code", "group": "Your models", "note": "Moonshot", "needs_key": false,
+   "router": false}
+  ```
+
+  Model Router is always first, as on the Mac's model menu; then Eden chat's models under their headings, "On this
+  Mac", then "Your models" (the owner's own, `note` = the provider). `name` is always a name to show
+  (`providers.friendly_name`: the owner's label, the catalog's name, else the id worded: "kimi-k2.7-code" is "Kimi
+  K2.7 Code"), so a client shows `name` and `note` only, never `ref`. Group rows by `group` in order (an empty group:
+  no heading). Check the row whose `ref` equals the session's `model` (View) or `defaults.model` (a new session).
+- **Model Router on a session** (View): while routing is on, `model` is `"router"`, `model_label` "Model Router",
+  `router` true and `routed_label` the model it last put the session on ("" before its first message); otherwise
+  `model` is the session's ref, `model_label` its name, `router` false, `routed_label` "". Routing is the Mac
+  window's (its router runs there): a message typed on the phone goes on the model the router last chose.
+- **Modes**: `mode_label` is the full name for menus ("Bypass permissions"), `mode_short` the pill's words
+  ("Bypass"; the others as their names), as the Mac's composer (`JC_MODES` short).
 
 **The live transcript is a long poll.** Ask with what you have: `after` = the last `next`, `seen` = the last
 `seen`, `v` = the last `v`, and `wait` (seconds, at most 25). The answer comes at once when there is anything
