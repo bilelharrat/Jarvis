@@ -238,24 +238,6 @@ struct StreamAssembler {
 }
 
 extension JSONValue {
-    var intValue: Int? {
-        switch self {
-        case .int(let value): value
-        case .double(let value): Int(value)
-        default: nil
-        }
-    }
-
-    var arrayValue: [JSONValue]? {
-        if case .array(let value) = self { return value }
-        return nil
-    }
-
-    var boolValue: Bool? {
-        if case .bool(let value) = self { return value }
-        return nil
-    }
-
     /// The block without the fields this app adds for itself (every key starting with _).
     var forAPI: JSONValue {
         guard case .object(let object) = self else { return self }

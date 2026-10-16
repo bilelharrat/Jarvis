@@ -282,6 +282,119 @@ targets:
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       GENERATE_INFOPLIST_FILE: true
 
+  # Eden Code for iPhone: its own App Store app (2026-10-16), on the companion's API, pairing,
+  # pinned TLS and relay (Shared, iOS/Account's router and tunnel), with its own screens.
+  EdenCode:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: Activity/JarvisActivity.swift
+      - path: iOS/Account/Account.swift
+      - path: iOS/Account/AccountClient.swift
+      - path: iOS/Account/MacRouter.swift
+      - path: iOS/Account/RelayTunnel.swift
+      - path: iOS/Code/CodeAPI.swift
+      - path: iOS/Code/OwnerCheck.swift
+      - path: EdenCodeCommon
+      - path: EdenCode
+    dependencies:
+      - target: EdenCodeWidgets
+        embed: true
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode
+      PRODUCT_NAME: EdenCode
+      INFOPLIST_FILE: EdenCode/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      TARGETED_DEVICE_FAMILY: "1"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: EdenCode/Info.plist
+      properties:
+        CFBundleDisplayName: Eden Code
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        # Only Apple's own encryption: HTTPS through URLSession (pinned by the certificate's
+        # SHA-256), the Keychain.
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: Eden Code finds Eden on your Mac and talks to it over your network.
+        NSBonjourServices:
+          - _jarvis._tcp
+        NSSpeechRecognitionUsageDescription: Turns what you say into a message for your Eden Code session, on your iPhone when it can.
+        NSMicrophoneUsageDescription: Listens while you dictate a message to Eden Code.
+        NSFaceIDUsageDescription: Before your iPhone lets an Eden Code session run a command on your Mac, or allows something from now on, Face ID makes sure it’s you.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.askeden.jarvis.edencode.open
+            CFBundleURLSchemes:
+              - edencode
+        UILaunchScreen:
+          UIColorName: AccentColor
+          UIImageRespectsSafeAreaInsets: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIBackgroundModes:
+          - remote-notification
+        NSSupportsLiveActivities: true
+    entitlements:
+      path: EdenCode/EdenCode.entitlements
+      properties:
+        # Development builds push through APNs' sandbox; the App Store build is signed with
+        # "production" by its distribution profile.
+        aps-environment: development
+        # The companion's App Group: its keychain group carries the Eden account sign-in the
+        # relay needs (signed in once, in the Eden app). Eden Code's own pairings are its own items.
+        com.apple.security.application-groups:
+          - group.com.askeden.jarvis
+
+  EdenCodeWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: Activity/JarvisActivity.swift
+      - path: EdenCodeCommon
+      - path: EdenCodeWidgets
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode.widgets
+      INFOPLIST_FILE: EdenCodeWidgets/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+      TARGETED_DEVICE_FAMILY: "1"
+      APPLICATION_EXTENSION_API_ONLY: true
+    info:
+      path: EdenCodeWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Eden Code
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: EdenCodeWidgets/EdenCodeWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.askeden.jarvis
+
+  EdenCodeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: EdenCodeTests
+    dependencies:
+      - target: EdenCode
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode.tests
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+      GENERATE_INFOPLIST_FILE: true
+      TEST_HOST: $(BUILT_PRODUCTS_DIR)/EdenCode.app/EdenCode
+      BUNDLE_LOADER: $(TEST_HOST)
+
 schemes:
   JarvisCompanion:
     build:
@@ -303,3 +416,14 @@ schemes:
         JarvisCompanionWatch: all
     run:
       config: Debug
+  EdenCode:
+    build:
+      targets:
+        EdenCode: all
+        EdenCodeTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - EdenCodeTests

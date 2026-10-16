@@ -62,6 +62,26 @@ enum JSONValue: Codable, Equatable, Hashable, Sendable {
         }
     }
 
+    /// A whole number (a double that's out of Int's range is none). Shared with the Eden Code
+    /// app, which reads the Mac's receipts with these.
+    var intValue: Int? {
+        switch self {
+        case .int(let value): value
+        case .double(let value): value.isFinite && abs(value) < 9e15 ? Int(value) : nil
+        default: nil
+        }
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case .array(let value) = self { return value }
+        return nil
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let value) = self { return value }
+        return nil
+    }
+
     /// An object without its null members (optional fields left out rather than sent as null).
     static func object(dropping pairs: [String: JSONValue?]) -> JSONValue {
         .object(pairs.compactMapValues { $0 })
