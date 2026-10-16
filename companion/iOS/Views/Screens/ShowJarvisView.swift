@@ -158,7 +158,7 @@ struct ShowJarvisView: View {
             VStack(alignment: .leading, spacing: Space.xs) {
                 HStack(spacing: 7) {
                     OrbMark(size: 9)
-                    Eyebrow("Jarvis", color: Palette.ice.opacity(0.9))
+                    Eyebrow("Eden", color: Palette.ice.opacity(0.9))
                 }
                 Text(TranscriptRow.markdown(reply))
                     .font(.voice)

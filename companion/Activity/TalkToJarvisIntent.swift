@@ -2,7 +2,7 @@ import AppIntents
 import Foundation
 
 /// "Hey Siri, Eden Secretary", the Action Button, a Control Center or Lock Screen control, Back Tap
-/// or a Vocal Shortcut ("Hey Eden Secretary", trained in iOS): opens Eden Secretary already
+/// or a Vocal Shortcut ("Hey Eden", trained in iOS): opens Eden Secretary already
 /// listening. In the app and the widget extension, so a control can run it; it always runs
 /// in the app.
 struct TalkToJarvisIntent: AppIntent {

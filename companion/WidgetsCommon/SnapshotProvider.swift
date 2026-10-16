@@ -108,7 +108,7 @@ struct RectangularGlance: View {
                 Image(systemName: "sparkle")
                     .font(.caption2.weight(.bold))
                     .widgetAccentable()
-                Text("JARVIS")
+                Text("EDEN")
                     .font(.headline)
                     .widgetAccentable()
                 if let snapshot, snapshot.isStale() {

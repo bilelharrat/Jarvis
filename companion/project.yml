@@ -61,7 +61,7 @@ targets:
         NSBonjourServices:
           - _jarvis._tcp
         NSSpeechRecognitionUsageDescription: Turns what you say into a request for Eden Secretary, on your iPhone when it can.
-        NSMicrophoneUsageDescription: Listens when you talk to Eden Secretary, and for “Hey Eden Secretary” while you have that turned on.
+        NSMicrophoneUsageDescription: Listens when you talk to Eden Secretary, and for “Hey Eden” while you have that turned on.
         NSFaceIDUsageDescription: Before your iPhone runs a command on your Mac in Eden Code, or lets a session work without asking, Face ID makes sure it’s you. Also used for “Only answer when unlocked”.
         NSCalendarsFullAccessUsageDescription: So Eden Secretary can tell you what’s on your calendar and add events when you ask, on this iPhone. If you turn on Share my calendar, the next 14 days of events also go to Eden Secretary on your Mac.
         NSRemindersFullAccessUsageDescription: So Eden Secretary can read your reminders, add new ones and tick them off when you ask.

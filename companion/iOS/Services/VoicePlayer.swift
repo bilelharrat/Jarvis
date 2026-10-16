@@ -12,7 +12,7 @@ final class VoicePlayer {
     @ObservationIgnored private var fetch: Task<Void, Never>?
     @ObservationIgnored private let finishWatcher = FinishWatcher()
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
-    /// Called when a reply has finished playing (to listen for "Hey Eden Secretary" again).
+    /// Called when a reply has finished playing (to listen for "Hey Eden" again).
     @ObservationIgnored var onFinish: (() -> Void)?
     /// Voice mode: the microphone stays open while it speaks (to hear the owner cut in), with
     /// the session's echo cancellation, and the session stays active between turns.

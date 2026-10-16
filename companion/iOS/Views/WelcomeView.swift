@@ -16,7 +16,7 @@ struct WelcomeView: View {
                     ReactorView(mode: .idle, size: 240)
                         .padding(.top, Space.xl)
                     VStack(spacing: Space.s) {
-                        Text("J.A.R.V.I.S.")
+                        Text("Eden Secretary")
                             .font(.largeTitle.weight(.bold))
                         Text("Your assistant, on your iPhone and your Mac.")
                             .font(.title3)
@@ -24,7 +24,7 @@ struct WelcomeView: View {
                             .multilineTextAlignment(.center)
                     }
                     VStack(alignment: .leading, spacing: Space.l) {
-                        feature("waveform", .purple, "Just ask", "Say “Hey Eden Secretary”, press the Action Button, or tap the orb.")
+                        feature("waveform", .purple, "Just ask", "Say “Hey Eden”, press the Action Button, or tap the orb.")
                         feature("desktopcomputer", .blue, "Everything on your Mac", "Eden Code, files, mail, iMessage, routines and approvals, from anywhere.")
                         feature("iphone", .green, "Works on its own", "Calendar, reminders, weather, timers, music, Home and the web, right here.")
                     }

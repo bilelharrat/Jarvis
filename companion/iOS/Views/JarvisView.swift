@@ -1,7 +1,7 @@
 import PhotosUI
 import SwiftUI
 
-/// The conversation: the orb when there's nothing yet (tap it, or say "Hey Eden Secretary"), then
+/// The conversation: the orb when there's nothing yet (tap it, or say "Hey Eden"), then
 /// the transcript; approvals and what Eden Secretary prepared (a text, a call) above a glass
 /// composer with the microphone.
 struct JarvisView: View {
@@ -65,7 +65,7 @@ struct JarvisView: View {
                 .padding(.horizontal, Space.m)
                 .padding(.bottom, Space.xs)
             }
-            .navigationTitle("Jarvis")
+            .navigationTitle("Eden")
             .navigationSubtitle(model.brain.study && model.answersOnPhone ? "Study mode" : model.brain.temporary && model.answersOnPhone ? "Temporary chat" : model.answererLabel)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }

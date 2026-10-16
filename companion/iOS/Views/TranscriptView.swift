@@ -121,7 +121,7 @@ struct TranscriptRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 OrbMark(size: 12)
-                HUDText("Jarvis", color: Palette.ring)
+                HUDText("Eden", color: Palette.ring)
                 if line.onPhone {
                     Image(systemName: "iphone")
                         .font(.caption2)

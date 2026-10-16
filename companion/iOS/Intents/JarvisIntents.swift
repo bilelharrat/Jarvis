@@ -25,13 +25,13 @@ struct AskJarvisIntent: AppIntent {
     }
 }
 
-/// "Jarvis", and then what you want: hands-free from a Vocal Shortcut (iOS listens for the
+/// "Eden", and then what you want: hands-free from a Vocal Shortcut (iOS listens for the
 /// word itself, locked or not), Siri, the Action Button or Back Tap. Asks "Yes?", answers
 /// with the Mac (or Eden Secretary on the iPhone when the Mac can't be reached) and says the reply in
 /// the Eden Secretary voice, without opening the app; Siri reads it only when that voice can't.
 struct JarvisHandsFreeIntent: AppIntent {
-    static let title: LocalizedStringResource = "Jarvis"
-    static let description = IntentDescription("Say “Eden Secretary”, then what you want. Eden Secretary answers out loud in its own voice, even when locked. Make it a Vocal Shortcut to call Eden Secretary by name anytime.")
+    static let title: LocalizedStringResource = "Eden"
+    static let description = IntentDescription("Say “Eden”, then what you want. Eden answers out loud in its own voice, even when locked. Make it a Vocal Shortcut to call Eden by name anytime.")
 
     @Parameter(title: "Request", requestValueDialog: IntentDialog("Yes?"))
     var request: String
@@ -123,7 +123,7 @@ struct JarvisShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: JarvisHandsFreeIntent(),
             phrases: ["\(.applicationName)", "Hey \(.applicationName)", "OK \(.applicationName)"],
-            shortTitle: "Jarvis", systemImageName: "waveform.circle"
+            shortTitle: "Eden", systemImageName: "waveform.circle"
         )
         AppShortcut(
             intent: TalkToJarvisIntent(),

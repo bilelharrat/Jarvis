@@ -306,9 +306,9 @@ final class OfflineBrainTests: XCTestCase {
         let question = AppleClient.question(in: messages)
         XCTAssertTrue(question.hasPrefix("What is this?"))
         XCTAssertTrue(question.contains("can’t see"))
-        XCTAssertEqual(AppleClient.history(messages, limit: 1000), "\n\nThe conversation so far:\nOwner: Hi\nJarvis: Hello.")
+        XCTAssertEqual(AppleClient.history(messages, limit: 1000), "\n\nThe conversation so far:\nOwner: Hi\nEden: Hello.")
         XCTAssertEqual(AppleClient.history(messages, limit: 0), "")
-        XCTAssertEqual(AppleClient.history(messages, limit: 16), "\n\nThe conversation so far:\nJarvis: Hello.", "the newest that fit")
+        XCTAssertEqual(AppleClient.history(messages, limit: 16), "\n\nThe conversation so far:\nEden: Hello.", "the newest that fit")
     }
 
     @MainActor

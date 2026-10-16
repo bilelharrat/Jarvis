@@ -61,7 +61,7 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func registerIfAllowed() async {
-        // Someone to push: the paired Mac, or askeden.com for a Eden Secretary account.
+        // Someone to push: the paired Mac, or askeden.com for an Eden Secretary account.
         guard PairingStore.load()?.isPinned == true || AccountKeychain.load() != nil else { return }
         switch await authorization() {
         case .authorized, .provisional, .ephemeral:

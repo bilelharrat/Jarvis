@@ -89,7 +89,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>For the weather where you are, travel times and places nearby when you ask Eden Secretary.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Listens when you talk to Eden Secretary, and for “Hey Eden Secretary” while you have that turned on.</string>
+	<string>Listens when you talk to Eden Secretary, and for “Hey Eden” while you have that turned on.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>So Eden Secretary can read your reminders, add new ones and tick them off when you ask.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

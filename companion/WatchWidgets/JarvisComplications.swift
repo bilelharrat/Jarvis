@@ -10,7 +10,7 @@ struct JarvisComplications: Widget {
             ComplicationView(entry: entry)
                 .containerBackground(for: .widget) { Color.clear }
         }
-        .configurationDisplayName("Jarvis")
+        .configurationDisplayName("Eden Secretary")
         .description("What needs your OK, Eden Code, and what’s next.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
     }

@@ -26,7 +26,7 @@ struct LibraryView: View {
             Section {
                 link(.showJarvis, "Show Eden Secretary", symbol: "camera.fill", tint: .gray)
                 link(.phoneMemory, "What Eden Secretary Remembers", symbol: "brain.head.profile", tint: .pink)
-                link(.heyJarvis, "“Hey Eden Secretary” and the Action Button", symbol: "waveform", tint: .purple)
+                link(.heyJarvis, "“Hey Eden” and the Action Button", symbol: "waveform", tint: .purple)
             } header: {
                 Text("On This iPhone")
             } footer: {

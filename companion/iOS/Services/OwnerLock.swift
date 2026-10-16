@@ -2,7 +2,7 @@ import UIKit
 
 /// "Only answer when unlocked". iOS gives apps no way to recognise a voice, so Face ID (or
 /// the passcode) is how Eden Secretary knows the one asking is the owner: with this on, Siri, Vocal
-/// Shortcuts and "Hey Eden Secretary" in the background answer only once the iPhone has been
+/// Shortcuts and "Hey Eden" in the background answer only once the iPhone has been
 /// unlocked. Stop always works.
 @MainActor
 enum OwnerLock {

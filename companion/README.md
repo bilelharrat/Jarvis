@@ -48,7 +48,7 @@ when the other fails, and the Mac when both do.
   reminders slipping. On Today; only leaving and a clash within two hours become
   notifications (switch in Settings), also from background refresh.
 - **Only answer when unlocked** (`OwnerLock`): iOS has no speaker recognition for apps, so
-  with this on Siri, Vocal Shortcuts and "Hey Eden Secretary" answer only after Face ID or the
+  with this on Siri, Vocal Shortcuts and "Hey Eden" answer only after Face ID or the
   passcode; Stop always works.
 - **Watch** (`Watch/`): gets the Mac's address, token and certificate fingerprint from the
   iPhone over WatchConnectivity, then talks to the Mac on its own. Reactor → dictation →
@@ -356,18 +356,18 @@ them with a tap (`ActionCards`).
 - Replies are spoken in Eden Secretary's voice from the Mac when it's there, else the iPhone's best
   installed voice (British, Premium or Enhanced first).
 
-## “Hey Eden Secretary”, the side button and the Action Button
+## “Hey Eden”, the side button and the Action Button
 
 iOS gives third-party apps no always-on wake word and keeps the side button for Siri
-(outside Japan), so Eden Secretary is reachable every way iOS allows (Library › “Hey Eden Secretary” walks
+(outside Japan), so Eden Secretary is reachable every way iOS allows (Library › “Hey Eden” walks
 through each):
 
 - **In the app** (`WakeWordListener`): on-device speech recognition listening for the name
   while the app is open; optionally on in the background (audio background mode, the orange
-  dot) until a call, Siri or another app takes the microphone. "Hey Eden Secretary, what's next?" in
+  dot) until a call, Siri or another app takes the microphone. "Hey Eden, what's next?" in
   one breath sends the request straight away.
 - **Anywhere, Lock Screen included:** Vocal Shortcuts (Settings › Accessibility › Vocal
-  Shortcuts) trained on "Hey Eden Secretary" runs the **Talk to Eden Secretary** shortcut.
+  Shortcuts) trained on "Hey Eden" runs the **Talk to Eden Secretary** shortcut.
 - **Talk to Eden Secretary** (`Activity/TalkToJarvisIntent.swift`) opens the app listening: an App
   Shortcut ("Hey Siri, talk to Eden Secretary", so holding the side button and saying it works), a
   Control (`TalkToJarvisControl`) for Control Center, the Lock Screen and the Action Button,
@@ -469,7 +469,7 @@ when a complication is on the face. No model calls anywhere: `/api/state` only.
 
 ## Live Activities
 
-On the Lock Screen and in the Dynamic Island (compact, minimal and expanded): a Eden Secretary
+On the Lock Screen and in the Dynamic Island (compact, minimal and expanded): an Eden Secretary
 Code session working or waiting on you, a conversation held for you, a call, a video
 summary. The app starts them in front, from `/api/state` (sessions working or needing
 you; conversations, from `/api/delegations`, while the Mac says some are active) and from

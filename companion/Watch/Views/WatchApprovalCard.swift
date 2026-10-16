@@ -114,7 +114,7 @@ struct WatchUnpairedView: View {
                         .padding(.top, 4)
                 }
             }
-            .navigationTitle("JARVIS")
+            .navigationTitle("Eden")
             .containerBackground(for: .navigation) { WatchBackground() }
         }
     }
