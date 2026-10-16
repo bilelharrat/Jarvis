@@ -8,6 +8,9 @@ import com.askeden.edencode.model.PhoneSummary
 import com.askeden.edencode.model.SessionList
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.TimeZone
 
@@ -65,7 +68,13 @@ class SessionListTest {
     @Test fun theWords() {
         assertEquals("Working", SessionList.word(CodeStatus.Working))
         assertEquals("Needs your OK", SessionList.word(CodeStatus.NeedsYou))
-        assertEquals("Waiting", SessionList.word(CodeStatus.Idle))
+        assertEquals("Idle", SessionList.word(CodeStatus.Idle))
+        assertEquals("Resting", SessionList.word(CodeStatus.Resting))
+        // "Waiting" is never a session at rest's word: only one that needs the owner says it waits.
+        for (status in CodeStatus.entries) assertNotEquals("Waiting", SessionList.drawerWord(status))
+        assertFalse(SessionList.drawerShowsStatus(CodeStatus.Resting))
+        assertFalse(SessionList.drawerShowsStatus(CodeStatus.Idle))
+        assertTrue(SessionList.drawerShowsStatus(CodeStatus.NeedsYou))
         assertEquals("Session", SessionList.word(CodeStatus.Unknown))
         assertEquals("Working…", SessionList.drawerWord(CodeStatus.Working))
         assertEquals("Done · ready to review", SessionList.drawerWord(CodeStatus.Done))

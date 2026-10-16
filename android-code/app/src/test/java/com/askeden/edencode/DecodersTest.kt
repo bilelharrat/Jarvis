@@ -95,6 +95,33 @@ class DecodersTest {
         assertEquals("Opus 5.5", o.modelName("claude:opus"))
     }
 
+    @Test fun modelRouterAndShortModeWordsFromTheMac() {
+        // The 2026-10-16 shape (docs/eden-code-phone.md): Model Router first, names, notes, short mode words.
+        val o = PhoneOptions.from(j("""{"models": [
+            {"ref": "router", "name": "Model Router", "group": "", "note": "Picks the model and effort for each message", "needs_key": false, "router": true},
+            {"ref": "custom:k", "name": "Kimi K2.7 Code", "group": "Your models", "note": "Moonshot", "needs_key": false, "router": false}],
+            "modes": [{"id": "ask", "name": "Manual", "short": "Manual"}], "router": true, "defaults": {"model": "router", "mode": "ask"}}"""))
+        assertTrue(o.models[0].router)
+        assertEquals("Picks the model and effort for each message", o.models[0].note)
+        assertEquals("Moonshot", o.models[1].note)
+        assertFalse(o.models[1].router)
+        assertTrue(o.router)
+        assertEquals("Model Router", o.modelName("router"))
+        // An older Mac's list (no router field) still marks a "router" ref.
+        assertTrue(PhoneOptions.from(j("""{"models": [{"ref": "router", "name": "Model Router"}]}""")).models[0].router)
+        val v = PhoneView.from(j("""{"id": 11, "mode": "auto", "mode_label": "Bypass permissions", "mode_short": "Bypass",
+            "model": "router", "model_label": "Model Router", "routed_label": "Kimi K3", "router": true}"""))
+        assertEquals("Bypass", v.modeShort)
+        assertEquals("Bypass permissions", v.modeLabel)
+        assertTrue(v.router)
+        assertEquals("Kimi K3", v.routedLabel)
+        // An older Mac sends neither: the short words are worked out here, as the Mac's composer has them.
+        val old = PhoneView.from(j("""{"id": 3, "mode": "auto", "model": "opus", "model_label": "Claude Opus 5.5"}"""))
+        assertEquals("Bypass", old.modeShort)
+        assertFalse(old.router)
+        assertEquals("", old.routedLabel)
+    }
+
     @Test fun viewEntriesAndTheLongPollMerge() {
         val first = PhoneView.from(j("""{"id": 5, "title": "T", "status": "working", "doing": "Running tests", "mode": "ask", "model": "claude:opus", "model_label": "Opus 5.5",
             "live": "writing", "todos": [{"text": "a", "done": true}], "copy": {"branch": "b", "into": "main", "busy": false}, "next": 3, "seen": 2, "v": "x",

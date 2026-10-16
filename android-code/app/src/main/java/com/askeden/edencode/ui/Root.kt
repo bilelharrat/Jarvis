@@ -218,7 +218,7 @@ private fun BoxScope.Sheets(store: EdenCodeStore) {
         store.showPairing, Modifier.align(Alignment.BottomCenter),
         enter = slideInVertically(tween(340)) { it }, exit = slideOutVertically(tween(260)) { it },
     ) {
-        FormSheet(title = "", onCancel = { store.showPairing = false }) {
+        FormSheet(title = "", onCancel = { store.showPairing = false }, followKeyboard = true) {
             PairingScreen(first = false, onDone = { store.showPairing = false })
         }
     }

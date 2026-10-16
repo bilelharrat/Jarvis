@@ -242,24 +242,35 @@ data class PhoneOptions(
     val projects: List<Project> = emptyList(),
     val defaultModel: String = "",
     val defaultMode: String = "ask",
+    /** Whether Model Router picks each message's model (the Mac's code_router_on). */
+    val router: Boolean = false,
 ) {
-    data class Model(val ref: String, val name: String, val group: String = "", val needsKey: Boolean = false)
-    data class Mode(val id: String, val name: String)
+    /**
+     * One row of the model sheet: [name] is always a name to show (never the raw id; the Mac words
+     * one it has no name for), [note] the line under it (a provider, what it needs), [router] the
+     * Model Router row (ref "router"), always first, as on the Mac's model menu.
+     */
+    data class Model(val ref: String, val name: String, val group: String = "", val needsKey: Boolean = false,
+                     val note: String = "", val router: Boolean = false)
+    /** A mode: [name] for menus ("Bypass permissions"), [short] for the composer's pill ("Bypass"). */
+    data class Mode(val id: String, val name: String, val short: String = CodeModes.short(id))
     data class Project(val name: String, val branch: String = "", val running: Int = 0)
 
-    fun modelName(ref: String): String = models.firstOrNull { it.ref == ref }?.name ?: ref
+    fun modelName(ref: String): String =
+        models.firstOrNull { it.ref == ref }?.name ?: if (ref == CodeModels.ROUTER) CodeModels.ROUTER_NAME else ref
 
     companion object {
         fun from(o: JSONObject): PhoneOptions {
             val modes = o.list("modes") {
                 val id = it.text("id")?.takeIf { s -> s.isNotEmpty() } ?: throw Undecodable("mode without an id")
-                Mode(id, it.text("name") ?: CodeModes.name(id))
+                Mode(id, it.text("name") ?: CodeModes.name(id), it.text("short") ?: CodeModes.short(id))
             }
             val defaults = o.obj("defaults")
             return PhoneOptions(
                 models = o.list("models") {
                     val ref = it.text("ref")?.takeIf { s -> s.isNotEmpty() } ?: throw Undecodable("model without a ref")
-                    Model(ref, it.text("name") ?: ref, it.text("group") ?: "", it.flag("needs_key") ?: false)
+                    Model(ref, it.text("name") ?: ref, it.text("group") ?: "", it.flag("needs_key") ?: false,
+                        it.text("note") ?: "", it.flag("router") ?: (ref == CodeModels.ROUTER))
                 },
                 modes = modes.ifEmpty { CodeModes.phone },
                 projects = o.list("projects") {
@@ -268,6 +279,7 @@ data class PhoneOptions(
                 },
                 defaultModel = defaults?.text("model") ?: "",
                 defaultMode = defaults?.text("mode") ?: "ask",
+                router = o.flag("router") ?: false,
             )
         }
     }
@@ -285,6 +297,15 @@ object CodeModes {
         "auto" -> "Bypass permissions"
         else -> id
     }
+
+    /** The composer pill's words (the Mac's JC_MODES short): "Bypass permissions" doesn't fit a pill. */
+    fun short(id: String): String = if (id == "auto") "Bypass" else name(id)
+}
+
+/** Model Router as the phone API names it (docs/eden-code-phone.md). */
+object CodeModels {
+    const val ROUTER = "router"
+    const val ROUTER_NAME = "Model Router"
 }
 
 /** One transcript entry: `{i, role: user | assistant | tool | note, text, at}`. */
@@ -325,8 +346,12 @@ data class PhoneView(
     val doing: String = "",
     val mode: String = "ask",
     val modeLabel: String = "Manual",
+    val modeShort: String = CodeModes.short(mode),
     val model: String = "",
     val modelLabel: String = "",
+    /** While Model Router is on: the model it last put the session on ("" before its first message). */
+    val routedLabel: String = "",
+    val router: Boolean = model == CodeModels.ROUTER,
     val live: String = "",
     val todos: List<Todo> = emptyList(),
     val cards: List<PhoneCard> = emptyList(),
@@ -354,8 +379,11 @@ data class PhoneView(
                 doing = o.text("doing") ?: "",
                 mode = mode,
                 modeLabel = o.text("mode_label") ?: CodeModes.name(mode),
+                modeShort = o.text("mode_short") ?: CodeModes.short(mode),
                 model = model,
-                modelLabel = o.text("model_label") ?: model,
+                modelLabel = o.text("model_label") ?: if (model == CodeModels.ROUTER) CodeModels.ROUTER_NAME else model,
+                routedLabel = o.text("routed_label") ?: "",
+                router = o.flag("router") ?: (model == CodeModels.ROUTER),
                 live = o.text("live") ?: "",
                 todos = o.list("todos") { Todo(it.text("text") ?: "", it.flag("done") ?: false) },
                 cards = o.list("cards", PhoneCard::from),

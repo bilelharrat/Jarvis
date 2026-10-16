@@ -138,14 +138,25 @@ class FixtureBackend : CodeBackend {
                 PhoneSummary(8, "Router log cleanup", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.09, updatedAt = ago(25 * 60)),
                 PhoneSummary(9, "README refresh", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.05, updatedAt = ago(3 * 24 * 60)),
                 PhoneSummary(10, "Windows installer check", "jarvis", CodeStatus.Failed, model = "Opus 5.5", costUSD = 2.10, updatedAt = ago(6 * 24 * 60)),
+                // A long, resting session on Model Router in Bypass (the owner's 2026-10-16 screenshots):
+                // its transcript is taller than the screen, under the header and over the input bar.
+                PhoneSummary(11, "Restart pick-up", "jarvis", CodeStatus.Resting, "auto", "Bypass permissions", "Model Router", 0.88, ago(55)),
+                PhoneSummary(12, "Tidy the README", "jarvis", CodeStatus.Idle, model = "Kimi K2.6", costUSD = 0.0, updatedAt = ago(70)),
             ),
             attention = listOf(migrationCard, questionCard),
         )
 
+    // As the Mac's /api/code/phone/options sends them (docs/eden-code-phone.md): Model Router first.
     val optionsNow = PhoneOptions(
         models = listOf(
-            PhoneOptions.Model("claude:opus", "Opus 5.5", "Claude"), PhoneOptions.Model("claude:sonnet", "Sonnet 5.5", "Claude"),
-            PhoneOptions.Model("claude:haiku", "Haiku 5", "Claude"), PhoneOptions.Model("gemini:pro", "Gemini 3 Pro", "Gemini", needsKey = true),
+            PhoneOptions.Model("router", "Model Router", "", note = "Picks the model and effort for each message", router = true),
+            PhoneOptions.Model("claude:opus", "Claude Opus 5.5", "Anthropic Claude"), PhoneOptions.Model("claude:sonnet", "Claude Sonnet 5.5", "Anthropic Claude"),
+            PhoneOptions.Model("eden:gpt-6.1-sol", "GPT-6.1 Sol", "OpenAI GPT", needsKey = true, note = "Needs an OpenAI API key"),
+            PhoneOptions.Model("eden:gemini-3.8-flash", "Gemini 3.8 Flash", "Google Gemini", needsKey = true, note = "Needs a Google Gemini API key"),
+            PhoneOptions.Model("custom:k3", "Kimi K3", "Moonshot Kimi"),
+            PhoneOptions.Model("custom:k26", "Kimi K2.6", "Your models", note = "Moonshot"),
+            PhoneOptions.Model("custom:k27", "Kimi K2.7 Code", "Your models", note = "Moonshot"),
+            PhoneOptions.Model("custom:k27h", "Kimi K2.7 Code Highspeed", "Your models", note = "Moonshot"),
         ),
         projects = listOf(
             PhoneOptions.Project("askeden", "main", 2), PhoneOptions.Project("eden messenger", "redesign", 0),
@@ -172,7 +183,15 @@ class FixtureBackend : CodeBackend {
         val summary = homeNow.sessions.firstOrNull { it.id == id }
         val status = summary?.status ?: CodeStatus.Working
         // The GChat mockup's conversation (and GAsk's for the passkey session).
-        val entries = if (id == 6) mutableListOf(
+        val entries = if (id == 11) (1..9).flatMap { n ->
+            listOf(
+                PhoneEntry(n * 3 - 2, PhoneEntry.Role.Tool, "Reading TODO.md"),
+                PhoneEntry(n * 3 - 1, PhoneEntry.Role.Assistant, if (n == 1) "Hi Bilel, picking this up where we left it: the restart path, then the tests." else "Step $n: checked the restart path again and noted what changed in ROADMAP.md, so the next session can carry on without asking."),
+                PhoneEntry(n * 3, PhoneEntry.Role.User, if (n == 9) "Back after the restart: it picks up where it left off, with the transcript and the to-do list as they were?" else "Good, carry on."),
+            )
+        }.toMutableList().also {
+            it += PhoneEntry(28, PhoneEntry.Role.Assistant, "Back after the restart: it picks up where it left off, with the transcript, the to-do list and the mode as they were. Last line of the transcript, to check it isn't hidden behind the input bar.")
+        } else if (id == 6) mutableListOf(
             PhoneEntry(1, PhoneEntry.Role.User, "Add passkey sign-in to the site."),
             PhoneEntry(2, PhoneEntry.Role.Assistant, "Done with the code. The last step is the database: I need to add one table for passkeys."),
             PhoneEntry(3, PhoneEntry.Role.Tool, "Wrote the sign-in flow"),
@@ -190,7 +209,8 @@ class FixtureBackend : CodeBackend {
         return PhoneView(
             id = id, title = summary?.title ?: "Fix share-sheet crash", project = summary?.project ?: "askeden", status = status,
             doing = if (status == CodeStatus.Working) "Running tests · 3 of 41" else "", mode = mode, modeLabel = CodeModes.name(mode),
-            model = "claude:opus", modelLabel = summary?.model ?: "Opus 5.5", cards = homeNow.attention.filter { it.taskID == id },
+            model = if (id == 11) "router" else "claude:opus", modelLabel = summary?.model ?: "Claude Opus 5.5",
+            routedLabel = if (id == 11) "Kimi K3" else "", cards = homeNow.attention.filter { it.taskID == id },
             next = entries.last().i, v = "fixture", entries = entries,
         )
     }
