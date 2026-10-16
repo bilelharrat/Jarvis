@@ -14,6 +14,13 @@ goes while the app runs: the backend then stopped itself mid-session, and chats,
 list and the steer button all went with the socket.
 
 A backend nobody's app started (a terminal, the cloud server's systemd) has no app to watch.
+
+Shared: other Eden apps open their windows on this backend (share_record.py). When the app
+that started it quits while another app's window is still on it, the app asks it to stay
+(server's /share/release) instead of stopping it: release() then stops watching the app and
+watches the windows instead (Linger). The backend stops once no app has a window on it for
+LINGER_GRACE seconds, so the last app to quit takes it with it, and a window that only
+reloads (a few seconds without its socket) never does.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ log = logging.getLogger("jarvis")
 
 CHECK_EVERY = 3.0
 STOP_GRACE = 20.0
+LINGER_GRACE = 15.0  # no window on a released backend for this long: it stops
 LAUNCHER_PID = "JARVIS_LAUNCHER_PID"  # the app's own pid, set by main.js for its backend
 
 
@@ -90,8 +98,12 @@ class Watch:
         self.alive, self.stop, self.force, self.clock = alive, stop, force, clock
         self.stopping_since: float | None = None
 
+    released = False  # the app let go of it (release): the windows keep it up instead
+
     def check(self) -> str:
         """One look: "" (the app's there), "stop" (asked to stop), "force" (it hung)."""
+        if self.released and self.stopping_since is None:
+            return ""
         if self.stopping_since is not None:
             if self.clock() - self.stopping_since >= STOP_GRACE:
                 self.force()
@@ -103,6 +115,87 @@ class Watch:
         self.stopping_since = self.clock()
         self.stop()
         return "stop"
+
+
+class Linger:
+    """Keeps a released backend up while any app has a window on it: stops it once there has
+    been none for LINGER_GRACE seconds (and forces it after STOP_GRACE more if that hangs)."""
+
+    def __init__(
+        self,
+        windows: Callable[[], int],
+        stop: Callable[[], None],
+        force: Callable[[], None],
+        clock: Callable[[], float] = time.monotonic,
+        grace: float = LINGER_GRACE,
+    ) -> None:
+        self.windows, self.stop, self.force, self.clock, self.grace = (
+            windows,
+            stop,
+            force,
+            clock,
+            grace,
+        )
+        self.empty_since: float | None = None
+        self.stopping_since: float | None = None
+
+    def check(self) -> str:
+        """One look: "" (windows open, or not for long), "stop", "force"."""
+        now = self.clock()
+        if self.stopping_since is not None:
+            if now - self.stopping_since >= STOP_GRACE:
+                self.force()
+                return "force"
+            return ""
+        try:
+            open_now = int(self.windows())
+        except Exception:
+            open_now = 0
+        if open_now > 0:
+            self.empty_since = None
+            return ""
+        if self.empty_since is None:
+            self.empty_since = now
+            return ""
+        if now - self.empty_since < self.grace:
+            return ""
+        log.info("no Eden app has a window on this backend any more: stopping")
+        self.stopping_since = now
+        self.stop()
+        return "stop"
+
+
+_watch: Watch | None = None
+_linger: Linger | None = None
+
+
+def _stop_self() -> None:
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+def _force_self() -> None:
+    log.warning("stopping didn't finish in time: ending now")
+    os._exit(0)
+
+
+def release(windows: Callable[[], int]) -> Linger:
+    """The app that started this backend is quitting and another app's window is on it: stop
+    watching the app (its going no longer stops this) and keep going while `windows()` (how
+    many app windows are open on it) says anyone is here. Idempotent."""
+    global _linger
+    if _watch is not None:
+        _watch.released = True
+    if _linger is None:
+        _linger = Linger(windows, stop=_stop_self, force=_force_self)
+        linger = _linger
+
+        def loop() -> None:
+            while True:
+                time.sleep(CHECK_EVERY)
+                linger.check()
+
+        threading.Thread(target=loop, name="linger-watch", daemon=True).start()
+    return _linger
 
 
 def start() -> threading.Thread | None:
@@ -129,11 +222,8 @@ def start() -> threading.Thread | None:
         except Exception:
             return False
 
-    watch = Watch(
-        alive,
-        stop=lambda: os.kill(os.getpid(), signal.SIGTERM),
-        force=lambda: (log.warning("stopping didn't finish in time: ending now"), os._exit(0)),
-    )
+    global _watch
+    watch = _watch = Watch(alive, stop=_stop_self, force=_force_self)
 
     def loop() -> None:
         while True:

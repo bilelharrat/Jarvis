@@ -679,6 +679,7 @@ function install(ctx) {
     quitting = true;
     if (placeTimer) { clearTimeout(placeTimer); placeTimer = null; keepPlace(); } // a move just made
     if (released || ctx.dev || !ctx.backend) return;
+    if (ctx.holdingQuit && ctx.holdingQuit()) return; // main.js is asking whether it stays for another app: back here after
     const proc = ctx.backend();
     if (!proc || proc.exitCode !== null || proc.signalCode !== null) return; // nothing to wait for
     event.preventDefault();

@@ -69,9 +69,9 @@ def test_the_daredevil_window_gets_the_edition_marked_on_its_page(client):
 
 def test_health_counts_a_broken_busy_check_as_busy(client, hub):
     """The app's quiet update waits when the backend can't tell whether it is busy."""
-    assert client.get("/health").json() == {"ok": True, "busy": False}
+    assert client.get("/health").json() == {"ok": True, "busy": False, "protocol": 1}
     hub.busy = lambda: 1 / 0
-    assert client.get("/health").json() == {"ok": True, "busy": True}
+    assert client.get("/health").json() == {"ok": True, "busy": True, "protocol": 1}
 
 
 def test_the_chinese_strings_and_feature_list_are_served(client):
@@ -482,7 +482,14 @@ def faked_serve(monkeypatch, tmp_path):
             seen["settings"] = settings
 
     monkeypatch.setattr(server, "Hub", FakeHub)
-    monkeypatch.setattr(server, "create_app", lambda hub, token: ("APP", token))
+    def made(hub, token, **kw):
+        seen["share_folder"] = kw.get("share_folder")
+        seen["hub"] = hub
+        record = server.share_record.read(kw["share_folder"]) if kw.get("share_folder") else None
+        seen["record"] = record
+        return ("APP", token)
+
+    monkeypatch.setattr(server, "create_app", made)
     monkeypatch.setattr(server, "end_children", lambda: 2)
     monkeypatch.setattr(server, "thread_lock_for_progress_bars", lambda: None)
     monkeypatch.setattr(server.osplat, "IS_WIN", False)
@@ -520,6 +527,46 @@ def test_serve_starts_the_app_on_this_machine_only_and_cleans_up_after(
     assert "127.0.0.1:8123" in out and "tok3n" not in out
     assert (tmp_path / "logs").is_dir()
     assert logging.getLogger("httpx").level == logging.ERROR
+    # It said where it is once it held the folder (share_record.py), and took that away
+    # as it stopped, before letting go of the folder.
+    assert seen["share_folder"] == tmp_path / "support"
+    assert seen["record"]["port"] == 8123 and seen["record"]["token"] == "tok3n"
+    assert server.share_record.read(tmp_path / "support") is None
+
+
+def test_serve_ends_with_76_once_it_has_handed_the_data_over(faked_serve, tmp_path, monkeypatch):
+    """/share/shutdown (a newer app taking over): the app that started this backend reads
+    76 as "open on the new one", never as a crash to restart (app/main.js)."""
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: setattr(faked_serve["hub"], "handed_over", True))
+    with pytest.raises(SystemExit) as stop:
+        server.serve(8123, "tok3n")
+    assert stop.value.code == server.share_record.HANDED_OVER == 76
+    assert faked_serve["closed"] == 1
+    assert server.share_record.read(tmp_path / "support") is None
+
+
+def test_a_sigterm_still_cleans_up_before_the_process_ends(faked_serve, tmp_path, monkeypatch):
+    """uvicorn stops gently on SIGTERM, then raises it again with the handler it found: the
+    default one ended the process before the record was taken away and the children ended.
+    Now serve's own handler only notes it, cleans up, and raises it for real at the end."""
+    import signal
+
+    import uvicorn
+
+    before = signal.getsignal(signal.SIGTERM)
+    raised = []
+    monkeypatch.setattr(signal, "raise_signal", lambda sig: raised.append(sig))
+    # what uvicorn's capture_signals does after a SIGTERM: re-raise into the handler it found
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None))
+    try:
+        server.serve(8123, "tok3n")
+    finally:
+        signal.signal(signal.SIGTERM, before)
+    assert raised == [signal.SIGTERM]
+    assert faked_serve["closed"] == 1
+    assert server.share_record.read(tmp_path / "support") is None
 
 
 def test_serve_says_so_and_exits_75_when_another_backend_holds_the_folder(
