@@ -20,8 +20,10 @@ body.eden-code:not([data-skin]) {
   --ecg-fill-soft: rgba(120, 120, 128, 0.1);
   --ecg-seg-on: #ffffff;
   --ecg-card: #ffffff;
-  --ecg-glass-card: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(240, 244, 252, 0.5));
-  --ecg-glass-field: rgba(255, 255, 255, 0.55); --ecg-glass-rim: rgba(255, 255, 255, 0.95); --ecg-glass-edge: rgba(0, 0, 0, 0.06);
+  --ecg-lg-fill: linear-gradient(160deg, rgba(0, 122, 255, 0.16), rgba(120, 170, 255, 0.07) 55%, rgba(255, 255, 255, 0.35));
+  --ecg-lg-sheen: rgba(255, 255, 255, 0.55); --ecg-lg-spec: rgba(255, 255, 255, 0.95); --ecg-lg-low: rgba(255, 255, 255, 0.35);
+  --ecg-lg-rim: rgba(255, 255, 255, 0.65); --ecg-lg-drop: rgba(20, 60, 140, 0.16); --ecg-lg-field: rgba(255, 255, 255, 0.62);
+  --ecg-lg-focus: rgba(0, 122, 255, 0.22); --ecg-lg-cap: rgba(255, 255, 255, 0.55); --ecg-lg-track: rgba(120, 120, 128, 0.28);
   --ecg-text: #1d1d1f; --ecg-text2: #6e6e73; --ecg-text-step: #3a3a3c;
   --ecg-accent: #007aff;
   --ecg-orange: #ff9500; --ecg-green: #34c759; --ecg-red: #ff3b30;
@@ -45,8 +47,10 @@ body.eden-code:not([data-skin]) {
     --ecg-fill-soft: rgba(120, 120, 128, 0.2);
     --ecg-seg-on: rgba(255, 255, 255, 0.2);
     --ecg-card: #2c2c2e;
-    --ecg-glass-card: linear-gradient(180deg, rgba(70, 72, 84, 0.55), rgba(40, 42, 52, 0.45));
-    --ecg-glass-field: rgba(255, 255, 255, 0.08); --ecg-glass-rim: rgba(255, 255, 255, 0.16); --ecg-glass-edge: rgba(255, 255, 255, 0.08);
+    --ecg-lg-fill: linear-gradient(160deg, rgba(10, 132, 255, 0.30), rgba(60, 110, 220, 0.12) 55%, rgba(255, 255, 255, 0.04));
+    --ecg-lg-sheen: rgba(255, 255, 255, 0.10); --ecg-lg-spec: rgba(255, 255, 255, 0.28); --ecg-lg-low: rgba(0, 0, 0, 0.25);
+    --ecg-lg-rim: rgba(255, 255, 255, 0.14); --ecg-lg-drop: rgba(0, 0, 0, 0.45); --ecg-lg-field: rgba(0, 0, 0, 0.22);
+    --ecg-lg-focus: rgba(10, 132, 255, 0.35); --ecg-lg-cap: rgba(255, 255, 255, 0.12); --ecg-lg-track: rgba(255, 255, 255, 0.16);
     --ecg-text: #f5f5f7; --ecg-text2: #aeaeb2; --ecg-text-step: #d1d1d6;
     --ecg-accent: #0a84ff;
     --ecg-term: rgba(10, 10, 14, 0.7); --ecg-term-rim: rgba(255, 255, 255, 0.14);
@@ -201,43 +205,57 @@ body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .xterm-viewport, b
   body.eden-code:not([data-skin]) .deck.jc .jc-pane { position: absolute; inset: 8px; width: auto; z-index: 4; box-shadow: inset 0 0 0 1px var(--ecg-panel-rim), 0 12px 32px rgba(0, 0, 0, 0.18); }
 }
 
-/* ── editing a message you sent (code-sessions.js, .cs-editing): an Apple edit card, not a blue
-   bubble — a plain card, a borderless text field, a switch for the files, grey pills on the left
-   and Cancel · Resend on the right (Resend in the accent, ⌘⏎). ── */
-body.eden-code:not([data-skin]) .deck.jc .jc-user.cs-editing {
-  align-self: stretch; width: auto; max-width: none; padding: 14px; border-radius: 20px; color: var(--ecg-text);
-  background: var(--ecg-glass-card);
-  backdrop-filter: blur(30px) saturate(190%); -webkit-backdrop-filter: blur(30px) saturate(190%);
-  box-shadow: inset 0 1px 0 var(--ecg-glass-rim), inset 0 0 0 1px var(--ecg-glass-edge), 0 10px 30px rgba(30, 40, 80, 0.14);
+/* ── editing a message you sent (code-sessions.js, .cs-editing): your own blue bubble turned into
+   Liquid Glass — a blue-tinted, deeply blurred pane with a specular top edge and a light rim, the
+   words in a clear inset field, and glass capsules (Resend a tinted-glass blue, ⌘⏎). ── */
+body.eden-code:not([data-skin]) .deck.jc .jc-log .jc-user.cs-editing {
+  align-self: flex-end; width: min(760px, 92%); max-width: none; padding: 12px; border-radius: 24px;
+  color: var(--ecg-text); position: relative; overflow: hidden; isolation: isolate;
+  background: var(--ecg-lg-fill);
+  backdrop-filter: blur(40px) saturate(200%) brightness(1.05); -webkit-backdrop-filter: blur(40px) saturate(200%) brightness(1.05);
+  box-shadow: inset 0 1px 0 var(--ecg-lg-spec), inset 0 -1px 0 var(--ecg-lg-low), inset 0 0 0 1px var(--ecg-lg-rim), 0 18px 40px var(--ecg-lg-drop);
 }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor { gap: 12px; }
+/* the specular sheen across the top, as light catches the glass */
+body.eden-code:not([data-skin]) .deck.jc .jc-user.cs-editing::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 55%; z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg, var(--ecg-lg-sheen), rgba(255, 255, 255, 0));
+}
+body.eden-code:not([data-skin]) .deck.jc .cs-editor { gap: 10px; }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-text {
-  border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.45;
-  background: var(--ecg-glass-field); color: var(--ecg-text);
-  box-shadow: inset 0 1px 0 var(--ecg-glass-rim), inset 0 0 0 1px var(--ecg-glass-edge);
+  border: 0; border-radius: 16px; padding: 10px 14px; font-size: 14px; line-height: 1.45; resize: none;
+  background: var(--ecg-lg-field); color: var(--ecg-text);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12), inset 0 0 0 1px var(--ecg-lg-rim);
 }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-text:focus { box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.28); }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-files { gap: 10px; font-size: 13px; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-text:focus { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12), inset 0 0 0 1px var(--ecg-lg-rim), 0 0 0 3px var(--ecg-lg-focus); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files { gap: 10px; padding: 0 4px; font-size: 12.5px; color: var(--ecg-text2); }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input {
-  appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 38px; height: 22px; margin: 0;
-  border-radius: 11px; background: rgba(120, 120, 128, 0.24); cursor: pointer; transition: background 160ms ease;
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 32px; height: 20px; margin: 0;
+  border-radius: 10px; background: var(--ecg-lg-track); cursor: pointer; transition: background 160ms ease;
+  box-shadow: inset 0 0 0 1px var(--ecg-lg-rim);
 }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: left 160ms ease;
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: left 180ms cubic-bezier(.3, 1.4, .6, 1);
 }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input:checked { background: #34c759; }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input:checked::after { left: 18px; }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-row { gap: 8px; align-items: center; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-files input:checked::after { left: 14px; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row { gap: 6px; align-items: center; }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn {
-  height: 30px; padding: 0 14px; border: 0; border-radius: 999px; font-size: 13px; font-weight: 500;
-  background: var(--ecg-glass-field); color: var(--ecg-text);
-  box-shadow: inset 0 1px 0 var(--ecg-glass-rim), inset 0 0 0 1px var(--ecg-glass-edge), 0 1px 3px rgba(0, 0, 0, 0.08);
+  height: 28px; padding: 0 13px; border: 0; border-radius: 999px; font-size: 12.5px; font-weight: 500;
+  background: var(--ecg-lg-cap); color: var(--ecg-text);
+  box-shadow: inset 0 1px 0 var(--ecg-lg-spec), inset 0 0 0 1px var(--ecg-lg-rim), 0 1px 2px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  transition: transform 120ms ease, filter 120ms ease;
 }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:hover { filter: brightness(0.97); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:hover { filter: brightness(1.08); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:active { transform: scale(0.97); }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(2) { order: 1; }
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(3) { order: 2; }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(4) { order: 3; margin-left: auto; background: transparent; box-shadow: none; color: var(--ecg-accent); }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn.filled { order: 4; background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0)) , var(--ecg-accent); color: #fff; font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 12px rgba(0, 122, 255, 0.3); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:nth-child(4) { order: 3; margin-left: auto; }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn.filled {
+  order: 4; color: #fff; font-weight: 600;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 60%), rgba(10, 132, 255, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 4px 14px rgba(10, 132, 255, 0.35);
+}
 body.eden-code:not([data-skin]) .deck.jc .cs-editor-row .jc-btn:disabled { opacity: 0.45; }
-body.eden-code:not([data-skin]) .deck.jc .cs-editor-hint { font-size: 11px; color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .cs-editor-hint { padding: 0 4px; font-size: 11px; color: var(--ecg-text2); }

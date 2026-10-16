@@ -46,9 +46,10 @@ test('the composer’s mode pill says just “Bypass”, the menu keeps “Bypas
   assert.match(js, /setText\(\$\('jc-mode-label'\), mode\.short \|\| mode\.label\)/);
 });
 
-test('editing a sent message is a glass edit card: Resend last, in the accent, Cancel beside it', () => {
-  assert.match(rules, /\.jc-user\.cs-editing \{[^}]*background: var\(--ecg-glass-card\);[^}]*backdrop-filter: blur\(30px\)/);
-  assert.match(rules, /\.cs-editor-row \.jc-btn\.filled \{ order: 4; background: linear-gradient\([^}]*var\(--ecg-accent\); color: #fff;/);
+test('editing a sent message is a Liquid Glass pane: tinted, blurred, sheen, glass capsules, Resend last', () => {
+  assert.match(rules, /\.jc-user\.cs-editing \{[^}]*background: var\(--ecg-lg-fill\);[^}]*backdrop-filter: blur\(40px\)/);
+  assert.match(rules, /\.jc-user\.cs-editing::before \{[^}]*var\(--ecg-lg-sheen\)/);
+  assert.match(rules, /\.cs-editor-row \.jc-btn\.filled \{\s*order: 4;/);
   assert.match(rules, /\.cs-editor-files input:checked \{ background: #34c759; \}/);
-  assert.equal((rules.match(/--ecg-glass-card:/g) || []).length, 2, 'light and dark');
+  assert.equal((rules.match(/--ecg-lg-fill:/g) || []).length, 2, 'light and dark');
 });
