@@ -14,7 +14,9 @@ standup. Every Eden Code session gets the jarvis_life tool server (session_extra
 And when meeting notes are written, an action item that sounds like work in one of the
 owner's projects ("we'll ship the export fix Friday") becomes a card: "Start a session in
 <project> for it?" Yes starts one in Plan mode with the item and the meeting's summary, so
-nothing changes before the owner has seen the plan. At most MAX_DRAFTS a meeting.
+nothing changes before the owner has seen the plan. At most MAX_DRAFTS a meeting. With
+code_delegate_meeting_cards on (features/code_delegate.py), they become proposed to-do cards
+instead, one heads-up for them all.
 
 Consent, per project (since 2026-10-16; before, every session had the tool unasked): the
 first time a session in a project calls my_context, a card asks the owner whether sessions
@@ -309,6 +311,9 @@ class LifeContext:
         except OSError:
             return 0
         projects = self.hub.tasks.projects()
+        delegate = getattr(self.hub, "code_delegate", None)  # (features/code_delegate.py)
+        if delegate is not None and delegate.cards_on():
+            return await delegate.meeting_cards(path, title, notes, projects)  # cards, not asks
         started = 0
         for project, item in drafts_for(notes, projects):
             ok = await self.hub.request_approval(

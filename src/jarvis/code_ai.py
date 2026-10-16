@@ -36,6 +36,11 @@ is told, and nothing is called):
                                tool-less turn on that rule's words (features/
                                code_guardrails.py); it holds only once they confirm it
                                                                            30 a day
+  delegate_easy    Haiku 4.5   only with code_delegate_model on (off by default): a to-do
+                               card the word rules rate easy, before Eden starts it
+                               without the owner; one tool-less turn on at most 2,000
+                               characters of its title and prompt; it can only say no
+                               (features/code_delegate.py)                 20 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -67,6 +72,7 @@ POLICY: dict[str, tuple[str, int]] = {
     "spec_check": ("haiku", 40),
     "assume_risk": ("haiku", 100),  # features/code_assumptions.py, only when the owner turns it on
     "guardrail": ("haiku", 30),  # Suggest on a rule (features/code_guardrails.py)
+    "delegate_easy": ("haiku", 20),  # features/code_delegate.py, only when the owner turns it on
 }
 CALL_SECONDS = 90.0
 

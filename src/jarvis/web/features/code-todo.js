@@ -105,7 +105,20 @@
     return withCards || paths[0] || ((cards || [])[0] || {}).folder || '';
   }
 
-  const api = { cardsFor, moved, stateLabel, attemptsLine, queueLine, issueAddress, sessionLink, projectFor, planTag, planSummary, MODE_NAMES, OUTSIDE_MODES };
+  // Where Eden's own cards came from (features/code_delegate.py): a meeting's action item
+  // (proposed: it never starts on its own), or a card Eden started without the owner.
+  function originLine(card) {
+    if (!card) return null;
+    if (card.auto && card.auto.run) {
+      return { kind: 'auto', text: card.auto.moment === 'evening' ? 'Started by Eden as the day ended' : 'Started by Eden while you were away' };
+    }
+    if (card.meeting && typeof card.meeting === 'string') {
+      return { kind: 'meeting', text: 'From the meeting', meeting: card.meeting, proposed: card.proposed === true && card.state === 'todo' };
+    }
+    return null;
+  }
+
+  const api = { originLine, cardsFor, moved, stateLabel, attemptsLine, queueLine, issueAddress, sessionLink, projectFor, planTag, planSummary, MODE_NAMES, OUTSIDE_MODES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   const F = root.jarvisFeatures;
   if (!F || !F.codeBoard) return;
@@ -241,6 +254,13 @@
       const from = F.el('p', 'cs-card-project ct-from');
       from.append(document.createTextNode(`${t('From GitHub')} · `), own(F.el('span', '', `${card.issue.repo}#${card.issue.number}`)));
       from.title = t('Its text was written on GitHub: Eden treats it as data, and it never starts in Auto or Bypass.');
+      parts.push(from);
+    }
+    const origin = originLine(card);
+    if (origin) {
+      const from = F.el('p', `cs-card-project ct-from ct-${origin.kind}`, t(origin.text));
+      if (origin.meeting) from.append(document.createTextNode(' · '), own(F.el('span', '', origin.meeting)));
+      if (origin.proposed) from.title = t('Proposed: nothing runs until you start it.');
       parts.push(from);
     }
     const state = F.el('p', 'cs-card-doing ct-state', stateLabel(card));
