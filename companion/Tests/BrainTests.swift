@@ -61,7 +61,7 @@ final class BrainTests: XCTestCase {
     func testWakeWordFindsTheNameAndWhatFollows() {
         XCTAssertEqual(WakeWordListener.afterName(in: "Hey Eden"), "")
         XCTAssertEqual(WakeWordListener.afterName(in: "hey eden, what's next today?"), "what's next today")
-        XCTAssertEqual(WakeWordListener.afterName(in: "OK Jervis turn on the lights"), "turn on the lights")
+        XCTAssertEqual(WakeWordListener.afterName(in: "OK Edan turn on the lights"), "turn on the lights")
         XCTAssertNil(WakeWordListener.afterName(in: "what's the weather like"))
     }
 
