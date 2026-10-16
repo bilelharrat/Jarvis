@@ -1,0 +1,192 @@
+/* Eden Code's own window in the glass look of its mockup (the "A · Workbench" board): a
+   coloured wallpaper under frosted glass, a frosted sidebar, the conversation on a white
+   panel, the workbench pane as a panel of its own beside it (the terminal in dark glass).
+   Only Eden Code's window (server.eden_code_page marks the body .eden-code); the Code panel
+   inside Eden Secretary keeps eden-code.css alone. The composer is deliberately left as
+   eden-code.css draws it: nothing here touches .jc-composer or what is inside it. */
+
+body.eden-code:not([data-skin]) {
+  --ecg-wall: linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.32)),
+    radial-gradient(circle at 12% 18%, #9ccbff 0, rgba(156, 203, 255, 0) 42%),
+    radial-gradient(circle at 88% 12%, #d2b6ff 0, rgba(210, 182, 255, 0) 40%),
+    radial-gradient(circle at 72% 92%, #8be6d4 0, rgba(139, 230, 212, 0) 45%), #dce6f5;
+  --ecg-side: rgba(255, 255, 255, 0.5);
+  --ecg-side-rim: rgba(255, 255, 255, 0.75);
+  --ecg-side-sh: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 24px rgba(30, 40, 80, 0.08);
+  --ecg-panel: rgba(255, 255, 255, 0.86);
+  --ecg-panel-rim: rgba(255, 255, 255, 0.9);
+  --ecg-line: rgba(0, 0, 0, 0.06);
+  --ecg-fill: rgba(120, 120, 128, 0.12);
+  --ecg-fill-soft: rgba(120, 120, 128, 0.1);
+  --ecg-seg-on: #ffffff;
+  --ecg-text: #1d1d1f; --ecg-text2: #6e6e73; --ecg-text-step: #3a3a3c;
+  --ecg-accent: #007aff;
+  --ecg-orange: #ff9500; --ecg-green: #34c759; --ecg-red: #ff3b30;
+  --ecg-term: rgba(28, 28, 30, 0.84); --ecg-term-rim: rgba(255, 255, 255, 0.18);
+  --ecg-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  background: var(--ecg-wall) fixed;
+}
+@media (prefers-color-scheme: dark) {
+  body.eden-code:not([data-skin]) {
+    --ecg-wall: linear-gradient(rgba(30, 32, 44, 0.42), rgba(30, 32, 44, 0.42)),
+      radial-gradient(circle at 20% 20%, #3c5bd8 0, rgba(60, 91, 216, 0) 45%),
+      radial-gradient(circle at 85% 25%, #8a3fd1 0, rgba(138, 63, 209, 0) 40%),
+      radial-gradient(circle at 55% 95%, #138a8a 0, rgba(19, 138, 138, 0) 45%), #141a2e;
+    --ecg-side: rgba(255, 255, 255, 0.1);
+    --ecg-side-rim: rgba(255, 255, 255, 0.2);
+    --ecg-side-sh: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.3);
+    --ecg-panel: rgba(28, 28, 32, 0.86);
+    --ecg-panel-rim: rgba(255, 255, 255, 0.14);
+    --ecg-line: rgba(255, 255, 255, 0.1);
+    --ecg-fill: rgba(120, 120, 128, 0.24);
+    --ecg-fill-soft: rgba(120, 120, 128, 0.2);
+    --ecg-seg-on: rgba(255, 255, 255, 0.2);
+    --ecg-text: #f5f5f7; --ecg-text2: #aeaeb2; --ecg-text-step: #d1d1d6;
+    --ecg-accent: #0a84ff;
+    --ecg-term: rgba(10, 10, 14, 0.7); --ecg-term-rim: rgba(255, 255, 255, 0.14);
+  }
+}
+/* The page under the deck shows the wallpaper, not a plain fill. */
+body.eden-code:not([data-skin]) .deck.jc {
+  background: transparent; color: var(--ecg-text);
+  font-size: 13px; line-height: 1.4; letter-spacing: 0;
+  --jc-side-w: 250px; --jc-main-l: calc(var(--jc-side-w) + 16px);
+  --eden-accent: var(--ecg-accent);
+}
+
+/* ── the sidebar: frosted glass, 8px from the window's edges ── */
+body.eden-code:not([data-skin]) .deck.jc .jc-side {
+  top: 8px; left: 8px; bottom: 8px; border-radius: 18px; padding: 44px 10px 14px; gap: 2px;
+  background: var(--ecg-side);
+  backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid var(--ecg-side-rim); box-shadow: var(--ecg-side-sh);
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-side.glass-panel::before { display: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-field { background: var(--ecg-fill); border-radius: 10px; font-size: 13px; color: var(--ecg-text); margin-bottom: 6px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-projects-wrap::before { padding: 4px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-project { padding: 7px 10px; border-radius: 10px; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .jc-pname { font-size: 13px; font-weight: 600; }
+body.eden-code:not([data-skin]) .deck.jc .jc-branch { font-family: var(--ecg-mono); color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-sessions { margin: 1px 0 6px 0; }
+body.eden-code:not([data-skin]) .deck.jc .jc-session { grid-template-columns: 8px minmax(0, 1fr); column-gap: 10px; padding: 8px 10px; border-radius: 10px; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .jc-session:hover { background: var(--ecg-fill-soft); }
+body.eden-code:not([data-skin]) .deck.jc .jc-session .jc-stitle { font-size: 13px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-session small { font-size: 11px; color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-session.add { color: var(--ecg-accent); font-size: 13px; }
+/* status dots: blue running, orange waiting on you, green done, red failed */
+body.eden-code:not([data-skin]) .deck.jc .jc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ecg-green); }
+body.eden-code:not([data-skin]) .deck.jc .jc-dot.busy { background: var(--ecg-accent); box-shadow: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-dot.waiting { background: var(--ecg-orange); }
+body.eden-code:not([data-skin]) .deck.jc .jc-dot.failed { background: var(--ecg-red); }
+body.eden-code:not([data-skin]) .deck.jc .jc-dot.past { background: transparent; box-shadow: inset 0 0 0 1.3px var(--ecg-text2); }
+/* the selected session: a solid accent pill, its words in white */
+body.eden-code:not([data-skin]) .deck.jc .jc-glider { left: 0; right: 0; background: var(--ecg-accent); box-shadow: none; border-radius: 10px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-session[aria-current="true"],
+body.eden-code:not([data-skin]) .deck.jc .jc-session[aria-current="true"] .jc-stitle { color: #fff; font-weight: 400; }
+body.eden-code:not([data-skin]) .deck.jc .jc-session[aria-current="true"] small { color: rgba(255, 255, 255, 0.85); }
+body.eden-code:not([data-skin]) .deck.jc .jc-session[aria-current="true"] .jc-dot { background: #fff; box-shadow: none; animation: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-side-foot { border-top: 0; padding: 12px 4px 0 6px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-side-foot::after { color: var(--ecg-text); font-size: 12px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-icon { color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-icon:hover { background: var(--ecg-fill); color: var(--ecg-text); }
+
+/* ── the main column: one white panel holding the title bar, the conversation and the composer ── */
+body.eden-code:not([data-skin]) .deck.jc .jc-main { inset: 8px 8px 8px var(--jc-main-l); border-radius: 18px; background: var(--ecg-panel); box-shadow: inset 0 0 0 1px var(--ecg-panel-rim); }
+body.eden-code:not([data-skin]) .deck.jc.side-hidden .jc-main { left: 8px; }
+body.in-app.eden-code:not([data-skin]) .deck.jc.side-hidden .jc-main { top: 8px; }
+body.in-app.eden-code:not([data-skin]) .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; } /* clear of the window's buttons */
+/* the workbench pane open: the panel stops short of it, and the pane stands beside it */
+body.eden-code:not([data-skin]) .deck.jc .jc-body { position: static; padding: 0; gap: 0; }
+body.eden-code:not([data-skin]) .deck.jc .jc-find { top: 64px; }
+body.eden-code:not([data-skin]) .deck.jc:has(#jc-pane:not([hidden])) .jc-main { right: calc(min(40%, 480px) + 16px); }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane {
+  position: fixed; top: 8px; right: 8px; bottom: 8px; width: min(40%, 480px); margin: 0;
+  border-radius: 18px; background: var(--ecg-panel); box-shadow: inset 0 0 0 1px var(--ecg-panel-rim);
+  backdrop-filter: none; -webkit-backdrop-filter: none; overflow: hidden; color: var(--ecg-text);
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-pane.glass-panel::before { display: none; }
+
+/* the title bar: flat inside the panel, a hairline under it */
+body.eden-code:not([data-skin]) .deck.jc .jc-toolbar {
+  margin: 0; min-height: 0; padding: 12px 16px; gap: 10px; flex-wrap: wrap;
+  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-radius: 18px 18px 0 0; box-shadow: inset 0 -1px 0 var(--ecg-line);
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-titles { display: block; flex: 1 1 20px; min-width: 0; }
+body.eden-code:not([data-skin]) .deck.jc .jc-titles::before { display: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-title { margin: 0; font-size: 14px; line-height: 1.4; font-weight: 600; letter-spacing: 0; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .jc-sub { margin: 0; font-size: 11px; line-height: 1.4; color: var(--ecg-text2); }
+/* its tools: one grey segmented pill, like the mockup's Local / Cloud */
+body.eden-code:not([data-skin]) .deck.jc .jc-capsule { display: flex; gap: 0; padding: 2px; border-radius: 999px; background: var(--ecg-fill); box-shadow: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool { width: auto; min-width: 34px; height: 28px; padding: 0 9px; border-radius: 999px; color: var(--ecg-text-step); }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool:hover { background: transparent; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool[aria-pressed="true"], body.eden-code:not([data-skin]) .deck.jc .jc-tool.on, body.eden-code:not([data-skin]) .deck.jc .jc-tool[aria-expanded="true"] { background: var(--ecg-seg-on); color: var(--ecg-text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+/* the Voice switch: the mockup's Router pill (a grey capsule and a dot) */
+body.eden-code:not([data-skin]) .deck.jc .jc-voice { height: auto; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--ecg-fill); box-shadow: none; color: var(--ecg-text); font-size: 12px; font-weight: 400; }
+body.eden-code:not([data-skin]) .deck.jc .jc-voice .jc-reactor { display: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-voice::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-voice[aria-pressed="true"]::before { background: var(--ecg-accent); }
+
+/* ── the conversation ── */
+body.eden-code:not([data-skin]) .deck.jc .jc-scroll { padding: 20px 24px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-log { gap: 14px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-user { max-width: 78%; padding: 10px 14px; font-size: 14px; line-height: 1.45; border-radius: 18px; background: var(--ecg-accent); box-shadow: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-say { align-self: flex-start; max-width: 88%; padding: 12px 40px 12px 16px; font-size: 14px; line-height: 1.5; border-radius: 18px; background: var(--ecg-fill-soft); box-shadow: none; color: var(--ecg-text); }
+/* the steps it took: plain lines, not cards */
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row, body.eden-code:not([data-skin]) .deck.jc .jc-agent, body.eden-code:not([data-skin]) .deck.jc .jc-inline-todos { background: transparent; box-shadow: none; color: var(--ecg-text-step); font-size: 13px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-say > .jc-md { padding: 0; font-size: 14px; line-height: 1.5; }
+body.eden-code:not([data-skin]) .deck.jc .jc-say .jc-md > :first-child { margin-top: 0; }
+body.eden-code:not([data-skin]) .deck.jc .jc-say .jc-md > :last-child { margin-bottom: 0; }
+/* a step: "✓  Read share.js" — the tick first in green, the words in plain type */
+body.eden-code:not([data-skin]) .deck.jc .jc-toolwrap + .jc-toolwrap { margin-top: -8px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row { overflow: visible; }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row summary { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 0; font-size: 13px; color: var(--ecg-text-step); }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row .jc-ticon { display: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row .jc-tstate { order: -1; min-width: 12px; color: #248a3d; }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row .jc-tstate.failed { color: var(--ecg-red); }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row .jc-tlabel code { font: inherit; background: none; padding: 0; color: inherit; }
+body.eden-code:not([data-skin]) .deck.jc .jc-tool-row[open] .jc-tbody { margin-top: 8px; border-radius: 12px; background: var(--ecg-fill-soft); }
+/* the foot: Eden's mark and its buttons, without the name the window's title already says */
+body.eden-code:not([data-skin]) .deck.jc .jc-side-foot::after { content: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-side-foot .jc-eden-settings { margin-left: auto; }
+body.eden-code:not([data-skin]) .deck.jc .jc-plan,body.eden-code:not([data-skin]) .deck.jc .jc-card, body.eden-code:not([data-skin]) .deck.jc .jc-past { background: var(--ecg-fill-soft); box-shadow: none; border-radius: 18px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-md pre, body.eden-code:not([data-skin]) .deck.jc .jc-md code { font-family: var(--ecg-mono); }
+body.eden-code:not([data-skin]) .deck.jc .jc-md pre { border-radius: 12px; background: var(--ecg-fill-soft); box-shadow: none; }
+/* the empty state */
+body.eden-code:not([data-skin]) .deck.jc .jc-hero-title { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .jc-hero-sub { font-size: 14px; color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-starter { border-radius: 14px; background: var(--ecg-fill-soft); box-shadow: none; color: var(--ecg-text); font-weight: 600; }
+body.eden-code:not([data-skin]) .deck.jc .jc-starter:hover { transform: none; background: var(--ecg-fill); box-shadow: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-statusline { color: var(--ecg-text2); }
+
+/* ── the workbench pane: its own white panel; its head a segmented pill row ── */
+body.eden-code:not([data-skin]) .deck.jc .jc-pane-head { padding: 10px 12px; gap: 8px; font-size: 12px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane-head strong { font-family: var(--ecg-mono); font-size: 11px; font-weight: 400; color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane-body { padding: 0 0 12px; font-size: 12px; }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane-body.flush { padding: 0; }
+/* the terminal: dark glass */
+body.eden-code:not([data-skin]) .deck.jc .jc-pane[data-kind="terminal"], body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) {
+  background: var(--ecg-term); box-shadow: inset 0 0 0 1px var(--ecg-term-rim);
+  backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); color: #f2f2f7;
+}
+/* its tabs and buttons in the dark glass's own light ink */
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) {
+  --c-ink: 242 242 247; --c-ink-2: 209 209 214; --c-muted: 174 174 178; --c-subtle: 142 142 147;
+  --glass-pill: rgba(255, 255, 255, 0.16); --ecg-text: #f2f2f7; --ecg-text2: #aeaeb2; --ecg-fill: rgba(255, 255, 255, 0.12);
+  color-scheme: dark;
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .jc-term { background: transparent; }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .jc-mini { background: rgba(255, 255, 255, 0.14); color: #f2f2f7; box-shadow: none; }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .jc-mini:hover { background: rgba(255, 255, 255, 0.22); }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .jc-pane-head strong { color: #aeaeb2; }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .jc-icon { color: #aeaeb2; }
+body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .xterm-viewport, body.eden-code:not([data-skin]) .deck.jc .jc-pane:has(.xterm) .xterm-screen { background: transparent !important; }
+
+@media (max-width: 760px) {
+  body.eden-code:not([data-skin]) .deck.jc .jc-main { left: 8px; }
+  body.eden-code:not([data-skin]) .deck.jc:has(#jc-pane:not([hidden])) .jc-main { right: 8px; }
+  /* too narrow for two panels: the pane lies over the conversation, inside the panel, as
+     app.css has it there, and the composer stays in view under it */
+  body.eden-code:not([data-skin]) .deck.jc .jc-body { position: relative; }
+  body.eden-code:not([data-skin]) .deck.jc .jc-pane { position: absolute; inset: 8px; width: auto; z-index: 4; box-shadow: inset 0 0 0 1px var(--ecg-panel-rim), 0 12px 32px rgba(0, 0, 0, 0.18); }
+}

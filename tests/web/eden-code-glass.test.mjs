@@ -1,0 +1,33 @@
+// Eden Code's glass look (eden-code-glass.css, the "A · Workbench" mockup), checked in the
+// source: it loads after eden-code.css, only in Eden Code's own window, and it leaves the
+// composer exactly as eden-code.css draws it (the owner asked for the same input bar).
+// node --test tests/web/
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+const web = (f) => readFileSync(new URL(`../../src/jarvis/web/${f}`, import.meta.url), 'utf8');
+const css = web('eden-code-glass.css');
+const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+test('the glass sheet loads right after eden-code.css', () => {
+  const page = web('index.html');
+  assert.match(page, /href="\/static\/eden-code\.css">\n<link rel="stylesheet" href="\/static\/eden-code-glass\.css">/);
+});
+
+test('every rule is Eden Code’s own window, never the Code panel in Eden Secretary', () => {
+  for (const block of rules.match(/[^{}]+\{/g)) {
+    const sel = block.replace(/\{$/, '').trim();
+    if (sel.startsWith('@media')) continue;
+    for (const one of sel.split(',')) assert.match(one.trim(), /^body(\.in-app)?\.eden-code:not\(\[data-skin\]\)/, one);
+  }
+});
+
+test('the composer and its dock are left as they are', () => {
+  assert.doesNotMatch(rules, /jc-composer|jc-dock|jc-send|jc-orb|jc-pill|#jc-model|#deck-input/);
+});
+
+test('light and dark both have the wallpaper and the panels', () => {
+  assert.equal((rules.match(/--ecg-wall:/g) || []).length, 2);
+  assert.match(rules, /prefers-color-scheme: dark/);
+});
