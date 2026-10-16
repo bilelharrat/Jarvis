@@ -360,6 +360,8 @@ EDEN_CODE_S_OWN = {
         "code_handoff_watch",
         "code_index_tidy",
         "code_issue_watch",
+        "code_linear_agents_progress",
+        "code_merge_queue",
         "code_pairing",
         "code_pr_review_watch",
         "code_pr_watch",

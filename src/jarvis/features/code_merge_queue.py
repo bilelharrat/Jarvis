@@ -3,7 +3,9 @@ each other.
 
 When several isolated copies (code_isolation.py) or pull requests (code_pr.py) are ready,
 the owner puts them in their project's queue (one queue per repository, behind one card
-each: what it does, in what order). Eden then takes them one at a time, in order:
+each: what it does, in what order). Eden then takes them one at a time, in order (one
+step at a time across projects too: two projects' test runs never contend for the Mac; a
+pull request waiting for its checks on GitHub holds up nothing but its own queue):
 
 - an isolated copy: its uncommitted work committed, its branch brought onto the newest tip
   of the branch it lands in (rebased; merged instead when its session already resolved a
