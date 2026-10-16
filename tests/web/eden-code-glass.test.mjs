@@ -46,8 +46,9 @@ test('the composer’s mode pill says just “Bypass”, the menu keeps “Bypas
   assert.match(js, /setText\(\$\('jc-mode-label'\), mode\.short \|\| mode\.label\)/);
 });
 
-test('editing a sent message is an Apple edit card: Resend last, in the accent, Cancel beside it', () => {
-  assert.match(rules, /\.jc-user\.cs-editing \{[^}]*background: var\(--ecg-card, #fff\)/);
-  assert.match(rules, /\.cs-editor-row \.jc-btn\.filled \{ order: 4; background: var\(--ecg-accent\); color: #fff;/);
+test('editing a sent message is a glass edit card: Resend last, in the accent, Cancel beside it', () => {
+  assert.match(rules, /\.jc-user\.cs-editing \{[^}]*background: var\(--ecg-glass-card\);[^}]*backdrop-filter: blur\(30px\)/);
+  assert.match(rules, /\.cs-editor-row \.jc-btn\.filled \{ order: 4; background: linear-gradient\([^}]*var\(--ecg-accent\); color: #fff;/);
   assert.match(rules, /\.cs-editor-files input:checked \{ background: #34c759; \}/);
+  assert.equal((rules.match(/--ecg-glass-card:/g) || []).length, 2, 'light and dark');
 });
