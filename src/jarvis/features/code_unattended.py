@@ -213,7 +213,7 @@ class Run:
     commands: list[str]
     spend_cap: float
     hours: float
-    origin: str = "owner"  # owner | routine | issue | review | linear | slack | sentry | datadog | watch | webhook | delegate
+    origin: str = "owner"  # owner | routine | issue | review | linear | slack | sentry | datadog | watch | webhook | delegate | deps
     issue: dict[str, Any] = field(default_factory=dict)  # {repo, number, title, url}
     job: str = ""
     started: float = 0.0

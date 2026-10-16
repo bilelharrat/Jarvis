@@ -520,6 +520,9 @@ class PullDesk:
         if issue and f"#{issue}" not in body:
             body = f"{body}\n\nCloses #{issue}".strip()
         body = self.with_selfcheck_proof(task, self.with_spec_proof(task, body))
+        deps = getattr(self.hub, "code_deps", None)  # a dependency upgrade's receipt (code_deps)
+        if deps is not None:
+            body = deps.pr_section(task, body)
         prov = getattr(self.hub, "code_provenance", None)  # opt-in (code_provenance_pr)
         if prov is not None and plan.fork:
             body = await asyncio.to_thread(prov.pr_body, plan.top, plan.fork, body)

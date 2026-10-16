@@ -60,10 +60,22 @@ Events: code_triggers {linear, slack, listener: {port, on, error}}.
 Settings (prefs.features): code_linear, code_slack, code_triggers_port.
 Hooks: code_unattended's run end (the status posted back), the code_pr event (the link).
 
+The scheduled dependency check (DependencyCheck, below): every day or every week at the
+owner's time, each project they named is checked for outdated dependencies by its package
+managers' own commands (features/code_deps.py), and the owner hears what's out of date. With
+"and upgrade the patch and minor ones", the batch's upgrade starts by itself too (one a
+project a check), in an isolated copy and capped as the card said, its pull request waiting
+for the owner's OK; a major only ever starts when the owner picks it. Turned on, with that
+whole scope, on a card. Window commands: code_deps_schedule {}, code_deps_schedule_set
+{projects, every, day?, time, upgrade}, code_deps_schedule_off {}. Event:
+code_deps_schedule {config, last}. Setting: code_deps_check. The last check's time is in
+code_deps_check.json.
+
 Cost policy: each accepted ticket or message starts one run without the owner (the model
 the project's sessions use), capped at the service's spending cap (default $5) and an hour,
 at most RUNS_A_DAY (5) a day for each service. Reading webhooks and talking to Linear and
-Slack call no model.
+Slack call no model. The dependency check calls no model; its batch upgrade (when the owner
+chose it) is one session a project a check, capped at code_deps_spend.
 """
 
 from __future__ import annotations
@@ -77,6 +89,7 @@ import re
 import secrets
 import time
 from collections import OrderedDict, deque
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -205,6 +218,59 @@ def _port(value: Any) -> int | None:
 
 
 prefs.register_feature_pref(PREF_PORT, PORT, _port)
+
+PREF_DEPS = "code_deps_check"
+DEPS_EVERY = ("daily", "weekly")
+DEPS_UPGRADE = ("tell", "batch")
+DEPS_PROJECTS_MAX = 10
+DEPS_POLL = 60.0
+_CLOCK = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _deps_check(value: Any) -> dict[str, Any] | None:
+    """The scheduled dependency check's setting: {} (off), or {projects, every, day, time,
+    upgrade, since}."""
+    if value == {}:
+        return {}
+    if not isinstance(value, dict):
+        return None
+    projects = value.get("projects")
+    if not (isinstance(projects, list) and projects and all(isinstance(p, str) and p.strip() for p in projects)):
+        return None
+    day = value.get("day", 0)
+    every, clock, upgrade = value.get("every"), value.get("time"), value.get("upgrade", "tell")
+    if every not in DEPS_EVERY or not isinstance(clock, str) or not _CLOCK.match(clock):
+        return None
+    if upgrade not in DEPS_UPGRADE or type(day) is not int or not 0 <= day <= 6:
+        return None
+    since = value.get("since", 0)
+    return {"projects": [p.strip()[:500] for p in projects[:DEPS_PROJECTS_MAX]], "every": every,
+            "day": day, "time": clock, "upgrade": upgrade,
+            "since": float(since) if isinstance(since, (int, float)) and not isinstance(since, bool) else 0.0}  # fmt: skip
+
+
+prefs.register_feature_pref(PREF_DEPS, {}, _deps_check)
+
+
+def deps_slot(config: dict[str, Any], now: datetime) -> datetime:
+    """The last time the check was due at or before now (local time)."""
+    hour, minute = (int(x) for x in config["time"].split(":"))
+    slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if config["every"] == "weekly":
+        slot -= timedelta(days=(now.weekday() - config["day"]) % 7)
+        if slot > now:
+            slot -= timedelta(days=7)
+    elif slot > now:
+        slot -= timedelta(days=1)
+    return slot
+
+
+def deps_due(config: dict[str, Any], last: float, now: datetime) -> bool:
+    """Whether a check is due: its last time came since the last check, and since it was
+    turned on (turning it on after today's time waits for the next)."""
+    if not config:
+        return False
+    return deps_slot(config, now).timestamp() > max(last, float(config.get("since") or 0))
 
 
 # Someone else's words as data (outside_text: shared with code_prs's issue, review and CI
@@ -1033,7 +1099,176 @@ def _json(body: bytes) -> Any:
         return None
 
 
+DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+DEPS_ZH = {
+    "Dependency check": "依赖检查",
+    "Check the dependencies of {project} every day at {time}?": "要每天 {time} 检查 {project} 的依赖吗？",
+    "Check the dependencies of {project} every {day} at {time}?": "要每个{day} {time} 检查 {project} 的依赖吗？",
+    "Each check runs only the package managers' own outdated commands in the project's folder (npm outdated, pip list --outdated, cargo outdated and the like), calls no model, and tells you what's out of date.": "每次检查只在项目文件夹里运行包管理器自己的过时检查命令（npm outdated、pip list --outdated、cargo outdated 之类），不调用模型，然后告诉你哪些过时了。",
+    "Nothing is upgraded until you pick an upgrade yourself.": "在你自己选一个升级之前，什么都不会升级。",
+    "Then the patch and minor upgrades start by themselves, one session a project a check, in an isolated copy: it may run only the upgrade and test commands, stops at ${spend} or after {hours} hours, and its pull request waits for your OK. A major upgrade only starts when you pick it.": "然后补丁和小版本升级会自己开始，每次检查每个项目一个会话，在独立副本里进行：它只能运行升级和测试命令，花费达到 ${spend} 或 {hours} 小时后停下，它的拉取请求等你确认。大版本升级只在你选它时才开始。",
+    "The dependency check runs every day at {time}.": "依赖检查会在每天 {time} 运行。",
+    "The dependency check runs every {day} at {time}.": "依赖检查会在每个{day} {time} 运行。",
+    "The dependency check is off.": "依赖检查已关闭。",
+    "Pick at least one project, how often, and a time (HH:MM).": "至少选一个项目、多久一次和一个时间（HH:MM）。",
+    "Monday": "星期一", "Tuesday": "星期二", "Wednesday": "星期三", "Thursday": "星期四",
+    "Friday": "星期五", "Saturday": "星期六", "Sunday": "星期日",
+}  # fmt: skip
+lang.add_texts(DEPS_ZH)
+
+
+class DependencyCheck:
+    """The scheduled dependency check: when it's due, each project's outdated dependencies
+    (hub.code_deps.check), the owner told, and with "batch" its patch and minor upgrade
+    started (hub.code_deps.upgrade, approved on this card)."""
+
+    def __init__(self, hub: Any) -> None:
+        self.hub = hub
+        self.path = hub.feature_path("code_deps_check.json")
+        self.now = datetime.now  # (the tests' clock instead)
+        self._ticking = asyncio.Lock()
+
+    def tr(self, text: str) -> str:
+        return lang.translate(text, self.hub.language)
+
+    def config(self) -> dict[str, Any]:
+        return _deps_check(self.hub.prefs.feature(PREF_DEPS)) or {}
+
+    def last(self) -> float:
+        try:
+            data = jsonstore.load_json(self.path, dict) or {}
+        except jsonstore.Unreadable:
+            return time.time()  # (unreadable: as if just checked, never a check every minute)
+        last = data.get("last") if isinstance(data, dict) else 0
+        return float(last) if isinstance(last, (int, float)) else 0.0
+
+    def mark(self, when: float) -> None:
+        try:
+            jsonstore.save_json(self.path, {"last": when})
+        except OSError as exc:
+            log.info("dependency check: couldn't save (%s)", exc)
+
+    def publish(self) -> None:
+        self.hub.emit("code_deps_schedule", config=self.config(), last=self.last())
+
+    def when(self, config: dict[str, Any]) -> str:
+        if config["every"] == "daily":
+            return f"every day at {config['time']}"
+        return f"every {DAYS[config['day']]} at {config['time']}"
+
+    async def turn_on(self, msg: dict[str, Any]) -> str:
+        raw = {k: msg.get(k) for k in ("projects", "every", "day", "time", "upgrade")}
+        raw["day"] = raw["day"] if raw["day"] is not None else 0
+        raw["upgrade"] = raw["upgrade"] or "tell"
+        config = _deps_check(raw)
+        if not config:
+            return "Pick at least one project, how often, and a time (HH:MM)."
+        names = []
+        for project in config["projects"]:
+            try:
+                names.append(self.hub.tasks.resolve_dir(project).name)
+            except (ValueError, OSError):
+                return f"{project} isn't a folder Eden Code knows."
+        from .code_deps import HOURS, PREF_SPEND
+
+        spend = float(self.hub.prefs.feature(PREF_SPEND) or 5.0)
+        lines = [
+            "Each check runs only the package managers' own outdated commands in the project's "
+            "folder (npm outdated, pip list --outdated, cargo outdated and the like), calls no "
+            "model, and tells you what's out of date.",
+            (
+                "Then the patch and minor upgrades start by themselves, one session a project a "
+                f"check, in an isolated copy: it may run only the upgrade and test commands, stops at "
+                f"${spend:.2f} or after {HOURS:.0f} hours, and its pull request waits for your OK. A "
+                "major upgrade only starts when you pick it."
+                if config["upgrade"] == "batch"
+                else "Nothing is upgraded until you pick an upgrade yourself."
+            ),
+        ]
+        question = (
+            f"Check the dependencies of {', '.join(names)} every day at {config['time']}?"
+            if config["every"] == "daily"
+            else f"Check the dependencies of {', '.join(names)} every {DAYS[config['day']]} at {config['time']}?"
+        )
+        choice = await self.hub.request_approval(
+            self.tr(question), self.tr("\n\n".join(lines)),
+            [("on", self.tr("Turn it on")), ("deny", self.tr("Not now"))],
+        )  # fmt: skip
+        if choice != "on":
+            return "Not turned on."
+        self.hub.set_feature_prefs({PREF_DEPS: {**config, "since": time.time()}})
+        self.publish()
+        return f"The dependency check runs {self.when(config)}."
+
+    def turn_off(self) -> str:
+        self.hub.set_feature_prefs({PREF_DEPS: {}})
+        self.publish()
+        return "The dependency check is off."
+
+    async def tick(self) -> list[str]:
+        """A check when one is due: what each project heard (also as one heads-up)."""
+        async with self._ticking:
+            config = self.config()
+            now = self.now()
+            if not deps_due(config, self.last(), now):
+                return []
+            self.mark(now.timestamp())  # (first: a failing check never runs every minute)
+            deps = getattr(self.hub, "code_deps", None)
+            if deps is None:
+                return []
+            said: list[str] = []
+            for project in config["projects"]:
+                try:
+                    state = await deps.check(project)
+                except (ValueError, OSError) as exc:
+                    said.append(f"{project}: {exc}")
+                    continue
+                name = str(state.get("folder") or project).rstrip("/").rsplit("/", 1)[-1]
+                said.append(deps.summary(name, state))
+                if config["upgrade"] != "batch":
+                    continue
+                batch = next((g for g in state.get("groups") or [] if g.get("kind") == "batch"), None)
+                if batch is not None:
+                    said.append(await deps.upgrade(project, batch["id"], ask=False))
+            if said:
+                self.hub.notify(Alert(f"deps-check:{now:%Y%m%d%H%M}", "task", self.tr("Dependency check"),
+                                      " ".join(said)[:900], note="Eden Code's scheduled dependency check"))  # fmt: skip
+            self.publish()
+            return said
+
+    async def loop(self) -> None:
+        while True:
+            try:
+                await self.tick()
+            except Exception:  # a broken check never stops the next
+                log.exception("the dependency check failed")
+            await asyncio.sleep(DEPS_POLL)
+
+    def _reply(self, coro: Any) -> None:
+        async def run() -> None:
+            said = await coro
+            if said:
+                self.hub.emit("caption", text=self.tr(said))
+
+        self.hub._spawn(run())
+
+    def cmd_state(self, _msg: dict[str, Any]) -> None:
+        self.publish()
+
+    def cmd_set(self, msg: dict[str, Any]) -> None:
+        self._reply(self.turn_on(msg))
+
+    def cmd_off(self, _msg: dict[str, Any]) -> None:
+        self.hub.emit("caption", text=self.tr(self.turn_off()))
+
+
 def install(hub: Any) -> None:
+    check = DependencyCheck(hub)
+    hub.code_deps_schedule = check  # (for the tests)
+    hub.register_command("code_deps_schedule", check.cmd_state)
+    hub.register_command("code_deps_schedule_set", check.cmd_set)
+    hub.register_command("code_deps_schedule_off", check.cmd_off)
+    hub.register_loop("code_deps_check", check.loop)
     triggers = Triggers(hub)
     hub.code_triggers = triggers  # (for the tests)
     for service in SERVICES:
