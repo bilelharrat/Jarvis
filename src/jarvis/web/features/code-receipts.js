@@ -85,6 +85,9 @@
       box.append(list);
       li.append(box);
     }
+    // The turn's guesses made instead of asking, each with an Undo (code-assumptions.js).
+    const guessed = root.jarvisAssumptions && Array.isArray(r.assumptions) ? root.jarvisAssumptions.section(r.assumptions) : null;
+    if (guessed) li.append(guessed);
     const qa = el('button', 'rc-qa', F.t('Try it like a user'));
     qa.type = 'button';
     qa.title = F.t(own('Eden Secretary has the session use what it built in the browser or Simulator, then report what broke', 'Eden Code has the session use what it built in the browser or Simulator, then report what broke'));

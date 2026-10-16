@@ -1,7 +1,8 @@
 // Eden Code's "Needs attention" inbox (features/code_attention.py): one list of everything
 // waiting on the owner across every session — approval cards, sessions waiting for a reply,
 // failed sessions, Exterminator Mode and other runs that stopped, the queue's failed cards,
-// pull requests still failing, hand-offs waiting, pairing conflicts — each with its own way
+// pull requests still failing, hand-offs waiting, pairing conflicts, high-risk guesses a
+// session made instead of asking (code-assumptions.js: Keep or Undo) — each with its own way
 // in: an approval's answers right there (the window's own answerApproval, so Touch ID and
 // the settle time still apply), and Open for the session and the pane that has its buttons.
 //
@@ -27,6 +28,7 @@
     pr: 'Pull request',
     handoff: 'Another machine',
     conflict: 'Pairing conflict',
+    assumption: 'Assumption',
   };
 
   // The buttons an item has: an approval's answers (never "no", which wants a reason: Open
@@ -38,6 +40,10 @@
         if (!c || !c.id || c.id === 'deny' || c.id === 'plan_keep') continue;
         out.push({ label: c.label || c.id, choice: c.id });
       }
+    }
+    if (item && item.kind === 'assumption' && item.assumption) {
+      out.push({ label: 'Keep', choice: 'keep', command: { type: 'code_assume_keep', id: item.assumption } });
+      out.push({ label: 'Undo', choice: 'undo', command: { type: 'code_assume_undo', id: item.assumption } });
     }
     out.push({ label: 'Open', open: true });
     return out;
@@ -191,11 +197,11 @@
       const acts = el('div', 'ca-acts');
       for (const action of actionsOf(item)) {
         const b = el('button', `jc-btn small ${action.open ? 'tinted' : 'filled'}`, action.label);
-        if (!action.open) b.dataset.noI18n = '';  // (the card's own words)
+        if (!action.open && !action.command) b.dataset.noI18n = '';  // (the card's own words)
         b.type = 'button';
         b.dataset.ca = `${item.key}:${action.open ? 'open' : action.choice}`;
         b.setAttribute('aria-label', `${t(action.label)}: ${item.said || item.text || ''}`);
-        b.addEventListener('click', () => (action.open ? go(item) : answer(item, action.choice)));
+        b.addEventListener('click', () => (action.open ? go(item) : action.command ? F.send(action.command) : answer(item, action.choice)));
         acts.append(b);
       }
       li.append(acts);

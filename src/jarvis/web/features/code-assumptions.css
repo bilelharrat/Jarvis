@@ -1,0 +1,18 @@
+/* The assumption ledger (code-assumptions.js): a turn's guesses on its proof card, or a card
+   of their own. Colours come from the receipt's risk badges (code-receipts.css); the rest
+   inherits the window's text and line colours, so light, dark and the glass look all hold. */
+.asm-card { display: block; border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 10px; padding: 8px 10px; }
+.asm-box { margin-top: 8px; }
+.asm-box h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+.asm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.asm-row { border-left: 3px solid rgba(60,170,90,.5); padding: 2px 0 2px 8px; font-size: 12px; }
+.asm-row.asm-medium { border-left-color: #e0a030; }
+.asm-row.asm-high { border-left-color: #d9534f; }
+.asm-row.asm-done { opacity: .6; }
+.asm-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.asm-source { opacity: .8; }
+.asm-state { font-weight: 600; }
+.asm-qa, .asm-ev, .asm-why, .asm-said { margin: 2px 0 0; overflow-wrap: anywhere; }
+.asm-ev, .asm-why { opacity: .75; }
+.asm-said:empty { display: none; }
+.asm-undo { margin-top: 4px; font-size: 12px; }

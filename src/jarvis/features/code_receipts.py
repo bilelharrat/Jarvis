@@ -15,6 +15,9 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
   not, with its evidence (the tests named after its criteria that passed, the reviewer's
   reason, the video proof and the check's screenshot), waited for up to SPEC_WAIT (the
   spec's check runs the project's whole test suite);
+- "Assumptions": each guess made instead of asking the owner during the turn (Eden's own
+  auto-answers and the session's notes: features/code_assumptions.py), with its evidence,
+  risk and an Undo; an open high-risk one makes the receipt's risk high;
 - a risk level: high when it failed, tests failed, the check found problems, or it touched
   auth, billing, the database schema or secrets; medium when it changed many files or
   changed code with no tests run; else low. Said in words, with why.
@@ -128,6 +131,10 @@ def receipt_text(r: dict[str, Any]) -> str:
     if reqs:
         met = sum(1 for q in reqs if q.get("status") == "met")
         parts.append(f"requirements met {met} of {len(reqs)}")
+    guessed = r.get("assumptions")
+    if guessed:
+        high = sum(1 for a in guessed if a.get("risk") == "high")
+        parts.append(f"assumed {len(guessed)}" + (f" ({high} high risk)" if high else ""))
     parts.append(f"risk {r['risk']}: {r['why']}")
     return "Proof · " + " · ".join(parts)
 
@@ -232,6 +239,13 @@ class Receipts:
             rows = spec.attach_receipt(task.id, list(got["spec"] or []), receipt)
             if rows:
                 receipt["requirements"] = rows
+        ledger = getattr(self.hub, "code_assumptions", None)  # the turn's guesses
+        guessed = ledger.receipt_part(task.id) if ledger is not None else None
+        if guessed:
+            receipt["assumptions"] = guessed
+            risky = next((a for a in guessed if a["risk"] == "high" and a["state"] == "open"), None)
+            if risky is not None and receipt["risk"] != "high":
+                receipt["risk"], receipt["why"] = "high", f"it assumed “{risky['question'][:80]}”"
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

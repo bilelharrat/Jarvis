@@ -1,0 +1,22 @@
+{
+  "strings": {
+    "Assumptions": "假定",
+    "Assumption": "假定",
+    "Eden answered": "Eden 替你回答了",
+    "Chose while you were busy": "你在忙时它自己选了",
+    "The session assumed": "会话自己假定了",
+    "Kept": "已保留",
+    "Undone": "已撤销",
+    "You decide": "由你决定",
+    "Evidence": "依据",
+    "No evidence given": "没有给出依据",
+    "Undo": "撤销",
+    "Keep": "保留",
+    "Put the files back as they were before this turn (and every later turn), and tell the session to ask next time": "把文件恢复到这一轮（以及之后每一轮）之前的样子，并告诉会话下次先问你",
+    "High-risk guesses": "高风险的猜测",
+    "Every guess a session makes instead of asking you is on its turn’s receipt, with an Undo. A high-risk one (pushing, deleting, auth, money…) also waits for you.": "会话没问你而自己做的每个猜测都会列在这一轮的凭据上，并可撤销。高风险的（推送、删除、登录认证、钱……）还会等你处理。",
+    "Ask me first": "先问我",
+    "Rate guesses with a model too": "也用模型评估猜测",
+    "One Haiku call for each guess the rules rate low or medium, up to 100 a day; it can only raise the risk. Off: rules only, no cost.": "规则评为低或中风险的每个猜测调用一次 Haiku，每天最多 100 次；它只会调高风险。关闭：只用规则，不花钱。"
+  }
+}

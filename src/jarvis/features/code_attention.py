@@ -23,7 +23,10 @@ feature has let go of:
   off), or whose work waits to be pushed (features/code_pr.py);
 - handoff: a session handed off to another machine that finished its turn there or failed
   (features/code_handoff.py);
-- conflict: a pairing folder with files both sides changed (features/code_pairing.py).
+- conflict: a pairing folder with files both sides changed (features/code_pairing.py);
+- assumption: a high-risk guess a session made instead of asking (Eden's auto-answer or the
+  session's own note), waiting to be kept or undone (features/code_assumptions.py; with
+  code_assume_high "block" it's an approval card instead).
 
 Each item says what it is, what it's about, and how to get to it (the session, and the pane
 that has its buttons). The count is on the sidebar's inbox button and in the Dock's badge
@@ -60,7 +63,7 @@ TEXT_MAX = 200
 SEEN_KEPT = 500  # sessions remembered as unseen, at most
 
 # The order the inbox lists them in: what blocks a session first.
-ORDER = ("approval", "conflict", "failed", "exterminator", "run", "queue", "pr", "handoff", "reply")
+ORDER = ("approval", "conflict", "assumption", "failed", "exterminator", "run", "queue", "pr", "handoff", "reply")  # fmt: skip
 
 # A run without the owner that ended on its own: these ways of ending want a look.
 RUN_TROUBLE = {"spend", "time", "copy", "failed"}
@@ -143,7 +146,7 @@ class Attention:
         that fails is left out (logged), never the whole list."""
         items: list[dict[str, Any]] = []
         for source in (self._approvals, self._sessions, self._bugfix, self._runs, self._queue,
-                       self._prs, self._handoffs, self._pairs):  # fmt: skip
+                       self._prs, self._handoffs, self._pairs, self._assumptions):  # fmt: skip
             try:
                 items.extend(source())
             except Exception:
@@ -340,6 +343,22 @@ class Attention:
                                   pane="pairing", files=sorted(pair.conflicts)[:20]))  # fmt: skip
         return out
 
+    def _assumptions(self) -> list[dict[str, Any]]:
+        ledger = getattr(self.hub, "code_assumptions", None)
+        if ledger is None:
+            return []
+        out = []
+        for e in ledger.inbox():
+            task = self._code_task(e["task"])
+            title = _title(task) if task is not None else (e.get("title") or e["project"])
+            said = self.tr("{title} assumed: {question} → {answer}", title=title,
+                           question=_line(e["question"])[:120], answer=_line(e["answer"])[:80])  # fmt: skip
+            text = _line(f"{e['why']}. Evidence: {e['evidence'] or 'none'}")
+            out.append(self._item(f"assumption:{e['id']}", "assumption", task, title, text, said,
+                                  at=e["at"], assumption=e["id"]))  # fmt: skip
+            out[-1]["project"] = e["project"]
+        return out
+
     # ── said ──
 
     def summary(self, items: list[dict[str, Any]] | None = None) -> str:
@@ -431,6 +450,6 @@ def install(hub: Any) -> None:
     hub.add_task_sink(attention.on_task)
     hub.add_event_sink(
         ("approval", "approval_resolved", "code_bugfix", "code_runs", "todo_state",
-         "code_handoffs", "code_pair", "code_pr", "code_prs"),
+         "code_handoffs", "code_pair", "code_pr", "code_prs", "code_assumptions"),
         attention.soon,
     )  # fmt: skip
