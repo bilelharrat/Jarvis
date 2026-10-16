@@ -46,8 +46,11 @@ the session on them before the message goes.
   the hub's fallback sees it: hub._claude_back), and until when it can't (epoch ms), sent as
   it changes and on model_router_claude_get; the window's router leaves Claude out of its
   picks meanwhile, so it stops suggesting a model that would only fail.
-- model_router_open: the full Model Router page (its own small server from the Model Router
-  folder, started if it isn't running), in the browser.
+- model_router_open: the Model Router repo's own developer page (its own small server from
+  the Model Router folder, started if it isn't running), in the browser. Only the Model
+  Router pane's small "developer page" link asks for it now: the popover's "Open Model
+  Router", the More menu and /router open the pane inside Eden Code
+  (web/features/code-router-pane.js), on this window's own router and settings.
 
 Settings (prefs.features): code_router_on (every session's messages are routed until a model
 is picked from the menu), code_router_shadow (on: while code_router_on is off, the window
@@ -64,6 +67,9 @@ shadow (default off: with Model Router chosen too, every message's pick is logge
 session isn't moved; code_router_shadow covers the rest of the time); learn
 (default on) and learnFromPrompts (default off): see code_router_events, which also keeps
 the event log, the learned overrides, spend, the budget and per-project defaults.
+code_router_providers_off (default none): the router's providers (anthropic, openai,
+gemini, kimi) left out of routing from the Model Router pane; the window routes among the
+rest, or among all of them if that would leave none.
 
 Privacy: a route carries model ids, efforts and the router's numbers; the prompt's text
 goes only where it always went (the session; Google for a rating, with the key added here).
@@ -126,6 +132,10 @@ SHADOW_PREF = "code_router_shadow"
 SETTINGS_PREF = "code_router_settings"
 FALLBACK_PREF = "code_router_auto_fallback"
 CROSS_PREF = "code_router_cross_fallback"  # the fallback may go to another provider's pick
+# The providers the owner left out of routing in the Model Router pane (the router's
+# provider ids): the window routes among the other providers' models only. Empty: all.
+PROVIDERS_PREF = "code_router_providers_off"
+PROVIDERS = ("anthropic", "openai", "gemini", "kimi")
 DEFAULT_SETTINGS = {
     "efficiency": 50,
     "performance": 50,
@@ -161,11 +171,18 @@ def clean_settings(value: Any) -> dict[str, Any] | None:
     return out
 
 
+def clean_providers_off(value: Any) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    return [p for p in PROVIDERS if p in value]
+
+
 register_feature_pref(ON_PREF, False)
 register_feature_pref(SHADOW_PREF, True)
 register_feature_pref(SETTINGS_PREF, dict(DEFAULT_SETTINGS), clean_settings)
 register_feature_pref(FALLBACK_PREF, True)
 register_feature_pref(CROSS_PREF, False)
+register_feature_pref(PROVIDERS_PREF, [], clean_providers_off)
 utility_model.register_purpose(PURPOSE, RATINGS_PER_DAY)
 
 ZH = {
