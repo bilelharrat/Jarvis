@@ -1,0 +1,18 @@
+/* "Check it yourself" (code-selfcheck.js): a session's own check, one compact line in the
+   transcript that opens to its pictures, findings and steps. Built on the Preview check's
+   look (code-verify.css: cv-mark, cv-chip, cv-findings, cv-mini-thumb, cv-lightbox). */
+.sc-check { list-style: none; background: rgb(var(--c-surface)); border-radius: 12px; box-shadow: var(--shadow-card); font-size: 13px; }
+.sc-check.failed { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-danger) / 0.7); }
+.sc-check.passed { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-success) / 0.7); }
+.sc-summary { display: flex; align-items: center; gap: 7px; padding: 8px 12px; cursor: pointer; list-style: none; border-radius: 12px; }
+.sc-summary::-webkit-details-marker { display: none; }
+.sc-summary::after { content: '›'; margin-left: auto; color: rgb(var(--c-muted)); transition: transform 0.15s ease; }
+.sc-details[open] > .sc-summary::after { transform: rotate(90deg); }
+.sc-summary:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }
+.sc-summary strong { font-weight: 600; }
+.sc-body { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 10px 35px; }
+.sc-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0; font-size: 12.5px; line-height: 1.45; color: rgb(var(--c-ink-2)); word-break: break-word; }
+.sc-pictures { display: flex; flex-wrap: wrap; gap: 6px; }
+.sc-thumb:focus-visible, .sc-shot:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }
+.sc-steps { margin: 0; padding-left: 18px; font: 11.5px/1.5 var(--mono); color: rgb(var(--c-muted)); }
+@media (prefers-reduced-motion: reduce) { .sc-summary::after { transition: none; } }

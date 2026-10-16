@@ -1,0 +1,21 @@
+{
+  "strings": {
+    "Check it yourself": "自己检查",
+    "Before saying it’s done: open it, try it, look": "说完成之前：打开它、试一试、看一看",
+    "steps": "步",
+    "Passed": "通过",
+    "Found problems": "发现问题",
+    "Not finished": "未完成",
+    "Screenshot": "截图",
+    "What it found": "发现的问题",
+    "What it did": "做过的步骤",
+    "Asked for": "要求",
+    "What it saw": "看到的",
+    "Against the request": "与要求对照",
+    "The session checked its own work in a hidden preview": "会话在隐藏的预览中检查了自己的工作",
+    "The full picture isn’t kept anymore.": "完整图片已不再保存。",
+    "Close": "关闭",
+    "Check it yourself is on for this session.": "此会话已开启“自己检查”。",
+    "Check it yourself is off for this session.": "此会话已关闭“自己检查”。"
+  }
+}

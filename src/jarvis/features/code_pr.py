@@ -1,7 +1,8 @@
 """Eden Code: pull requests on GitHub (github.py), from opening one to merging it.
 
 Opening: from a session's branch (its isolated copy's, or the branch its folder is on).
-A Spec mode session's description ends with its "Requirements met" (code_spec.pr_proof).
+A Spec mode session's description ends with its "Requirements met" (code_spec.pr_proof),
+and a session that checked its own work with its "Checked by Eden Code" (code_selfcheck).
 Claude (Haiku) drafts the title and description from the branch's diff and the session's
 own summary; the owner edits both and picks the base branch. Opening pushes the branch
 behind the Git panel's card (where it goes, which commits, anything that looks like a
@@ -498,7 +499,7 @@ class PullDesk:
         issue = self.issue_of(task)
         if issue and f"#{issue}" not in body:
             body = f"{body}\n\nCloses #{issue}".strip()
-        body = self.with_spec_proof(task, body)
+        body = self.with_selfcheck_proof(task, self.with_spec_proof(task, body))
         draft = {
             "title": title,
             "body": body,
@@ -524,6 +525,19 @@ class PullDesk:
         if PROOF_MARK in body:
             return body
         proof = spec.pr_proof(task)
+        return f"{body}\n\n{proof}".strip() if proof else body
+
+    def with_selfcheck_proof(self, task: Any, body: str) -> str:
+        """The session's own check of its work (features/code_selfcheck.py, "Check it
+        yourself") at the end of the description, once: its line, verdict and findings."""
+        sc = getattr(self.hub, "code_selfcheck", None)
+        if sc is None:
+            return body
+        from .code_selfcheck import PR_MARK
+
+        if PR_MARK in body:
+            return body
+        proof = sc.pr_section(task)
         return f"{body}\n\n{proof}".strip() if proof else body
 
     def _emit_draft(self, key: str, draft: dict[str, Any] | None = None, note: str = "") -> dict:
@@ -605,7 +619,9 @@ class PullDesk:
     async def open(self, task: Any, msg: dict[str, Any]) -> str:
         """Open the session's pull request with the owner's title and description."""
         title = " ".join(str(msg.get("title") or "").split())[:256]
-        body = self.with_spec_proof(task, str(msg.get("body") or "")[:60_000])
+        body = self.with_selfcheck_proof(
+            task, self.with_spec_proof(task, str(msg.get("body") or "")[:60_000])
+        )
         if not title:
             return "Give the pull request a title first."
         key = f"id:{task.id}"
