@@ -769,9 +769,11 @@ class CodeEvals:
         finally:
             run.record["status"] = "stopped" if run.stopping else "done"
             run.record["finished"] = time.time()
-            self.runs.pop(run.id, None)
+            # (the run stays in self.runs, its record already done, until its file says so
+            # too: results() never reads a stale "running" in the gap)
             await asyncio.to_thread(shutil.rmtree, self.checkout_root() / run.id, True)
             self.save_run(run)
+            self.runs.pop(run.id, None)
             self.emit_run(run)
             self.publish(run.project)
             summary = ", ".join(
