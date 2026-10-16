@@ -253,6 +253,8 @@ async function startEngine() {
   if (process.env.ASK_EDEN_NO_ENGINE === '1') return;
   const found = await share.discover(DATA_DIR);
   if (found) { // Eden Secretary or Eden Code runs it already: one engine per Mac
+    // (Another version's: used as it is. This app has no window to ask in, and it only needs
+    // the socket; the apps with windows offer to restart it, backend-handover.js.)
     engine = { port: found.port, token: found.token, shared: true };
     stopWatching = share.watch(found.port, () => { engine = null; dropApprovalWin(); if (!quitting) startEngine(); });
     watchApprovals();
@@ -268,6 +270,7 @@ async function startEngine() {
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
+  how.env.JARVIS_LAUNCHER_APP = 'ask-eden'; // named in backend.json, which the engine writes once it owns the data (share_record.py)
   how.env.JARVIS_PROFILE = 'code'; // headless: no microphone until a Eden Secretary window joins
   // An Eden Code window on this engine (backend-share.js) asks Touch ID through it, and this
   // app shows the sheet and signs, with a key that goes on the engine's stdin alone
@@ -279,15 +282,16 @@ async function startEngine() {
   const sheet = touchid.handlers({ systemPreferences, dialog, secret: () => keys.key });
   proofPipe.attach(child, keys, sheet); // (the sheet itself: kind, lang and the subject, S3-3)
   engine = { port, token, shared: false, child };
-  if (child.pid) share.advertise(DATA_DIR, { port, token, pid: child.pid, app: 'ask-eden', launcher: process.pid });
   child.stdout.pipe(log, { end: false });
   child.stderr.pipe(log, { end: false });
   child.once('close', () => log.end());
   child.on('error', (err) => console.error(`engine: ${err.message}`));
-  child.on('exit', () => {
+  child.on('exit', (code) => {
     share.withdraw(DATA_DIR, process.pid);
     if (engine && engine.child === child) { engine = null; dropApprovalWin(); }
-    if (!quitting) setTimeout(startEngine, 3000);
+    // 75: another app's engine owns the data; 76: this one handed it over to a newer one.
+    // Either way startEngine finds that one (backend.json) and uses it.
+    if (!quitting) setTimeout(startEngine, code === 75 || code === 76 ? 500 : 3000);
   });
   if (await waitForEngine(port)) watchApprovals();
 }
@@ -346,7 +350,7 @@ function watchApprovals() {
   approvalWin.on('closed', () => { approvalWin = null; });
   approvalWin.loadURL(`http://127.0.0.1:${port}/health`).then(() => approvalWin.webContents.executeJavaScript(`
     (function open() {
-      const ws = new WebSocket('ws://127.0.0.1:${port}/ws?token=${token}');
+      const ws = new WebSocket('ws://127.0.0.1:${port}/ws?token=${token}&app=ask-eden');
       window.__edenWs = ws;
       ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (Array.isArray(d.approvals)) console.log('eden-approvals:' + d.approvals.length);
         if (d.type === 'account') console.log('eden-account:' + JSON.stringify({ linked: d.linked === true, server: d.server || '', link: d.link ? { state: d.link.state, code: d.link.code } : null })); } catch (e) {} };
@@ -499,7 +503,29 @@ app.whenReady().then(async () => {
 });
 
 app.on('activate', showMain);
-app.on('before-quit', () => { quitting = true; });
+// Quitting while an Eden Code or Eden Secretary window is on this app's engine: it stays up
+// for that window (server's /share/release), and will-quit leaves it running.
+let releaseAsked = false;
+app.on('before-quit', (event) => {
+  if (!releaseAsked && engine && engine.child && !engine.shared) {
+    event.preventDefault();
+    if (releaseAsked === null) return;
+    releaseAsked = null; // asking
+    const { child, port, token } = engine;
+    share.release(port, token, 'ask-eden').then((staying) => {
+      releaseAsked = true;
+      if (staying && engine && engine.child === child) {
+        child.removeAllListeners('exit');
+        try { child.unref(); } catch { /* gone */ }
+        engine = null;
+      }
+      app.quit();
+    });
+    return;
+  }
+  if (releaseAsked === null) return;
+  quitting = true;
+});
 app.on('window-all-closed', () => { /* stays in the menu bar */ });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();

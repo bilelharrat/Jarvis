@@ -147,7 +147,7 @@ def test_windows_say_which_app_they_are(client):
     # a name that isn't an app counts as none
     with client.websocket_connect(f"{WS}?token=s3cret&app=evil", headers={"origin": BASE}) as ws:
         assert ws.receive_json()["app_windows"] == {}
-    assert APPS == {"jarvis", "eden-code"}
+    assert APPS == {"jarvis", "eden-code", "ask-eden"}  # (Ask Eden: its socket, no page)
 
 
 # ── J.A.R.V.I.S. Daredevil: the same page, the same backend, opened in screen-reader mode ──

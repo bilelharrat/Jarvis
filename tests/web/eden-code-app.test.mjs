@@ -215,7 +215,8 @@ test('main.js gives Eden Code its own profile, no shortcuts or microphone, and s
   assert.match(main, /DEV_URL \|\| EDEN_CODE\) return; \/\/ Eden Code never listens/);
   assert.match(main, /if \(EDEN_CODE\) return; \/\/ Eden Code takes no global shortcuts/);
   assert.match(main, /how\.env\.JARVIS_PROFILE = FLAVOR\.profile/);
-  assert.match(main, /share\.advertise\(DATA_DIR/);
+  assert.match(main, /how\.env\.JARVIS_LAUNCHER_APP = FLAVOR\.id/);
+  assert.doesNotMatch(main, /share\.advertise\(/); // the backend says where it is, once it owns the data (share_record.py)
   assert.match(main, /share\.withdraw\(DATA_DIR, process\.pid\)/);
   // the profile is chosen before the single-instance lock, so the two apps don't take each other's
   assert.ok(main.indexOf("app.setPath('userData', path.join(app.getPath('appData'), 'Eden Code'))") < main.indexOf('requestSingleInstanceLock'));

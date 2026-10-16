@@ -18,7 +18,8 @@ const pages = require('./page-path'); // the app's own pages, from inside app.as
 protocol.registerSchemesAsPrivileged(pages.PRIVILEGES); // (before ready, as Electron asks)
 const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
-const share = require('./backend-share'); // one backend for both apps
+const share = require('./backend-share'); // one backend for every Eden app
+const handover = require('./backend-handover'); // what to do when the data is already owned
 const proofPipe = require('./proof-pipe'); // Touch ID's proof key, on the backend's own stdin (A1)
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
 const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
@@ -209,6 +210,7 @@ function startBackend() {
   // helper processes for the app. A helper quits while the app runs, and the backend went
   // with it mid-session, taking the chats, the session list and the steer button.
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
+  how.env.JARVIS_LAUNCHER_APP = FLAVOR.id; // named in backend.json, for what another app's window says (share_record.py)
   how.env.JARVIS_PROFILE = FLAVOR.profile; // Eden Code's: no microphone until Eden Secretary joins (hub.window_joined)
   how.env.JARVIS_EDITION = FLAVOR.edition || ''; // 'daredevil': screen-reader mode is the default (accessibility.py)
   // Touch ID's proof key goes on the backend's stdin, never in its environment (proof-pipe.js).
@@ -225,8 +227,8 @@ function startBackend() {
   trace.write(`engine process ${backend.pid || 'not started'}`);
   backend.stdout.on('data', (chunk) => backendTail.add(chunk));
   backend.stderr.on('data', (chunk) => backendTail.add(chunk));
-  // Where it is, for the other app (Eden Secretary or Eden Code) to open its window on it too.
-  if (!DEV_URL && backend.pid) share.advertise(DATA_DIR, { port, token: TOKEN, pid: backend.pid, app: FLAVOR.id, launcher: process.pid });
+  // Where it is, for the other apps to open their windows on it too, the backend writes itself
+  // once it holds the data folder (share_record.py): never this app, before it knows it won.
   // Both into the one log, which ends once both have (the backend gone, its pipes closed).
   backend.stdout.pipe(log, { end: false });
   backend.stderr.pipe(log, { end: false });
@@ -246,6 +248,9 @@ function startBackend() {
       reopenBackend();
       return;
     }
+    // 76: it stopped to hand the data over to a newer Eden app's engine (/share/shutdown, the
+    // owner's choice there): open on that one, never start this one again over it.
+    if (code === handover.HANDED_OVER) { openOnHandedOver(); return; }
     restartBackend(code, signal);
   });
 }
@@ -334,24 +339,20 @@ function reopenHidden() {
 // signal (macOS's memory pressure, Force Quit, a crash) has no exit code: the signal is named.
 let restarts = [];
 function restartBackend(code, signal) {
+  // 75: another backend holds the data folder (server.serve), still, after the 20 s it waited
+  // for one that was quitting: another Eden app's, or a `jarvis serve` in a terminal.
+  if (code === 75) { dataHeld(); return; }
   const now = Date.now();
   restarts = restarts.filter((t) => now - t < 5 * 60_000);
-  // 75: another backend holds the data folder (server.serve): one still quitting, or a
-  // `jarvis serve` started in a terminal.
-  const taken = code === 75;
   const how = signal ? `was stopped (${signal})` : `stopped (exit ${code})`;
   if (restarts.length >= 3) {
-    showProblem(taken
-      ? `Another Eden backend is still using your data (a \`jarvis serve\` in a terminal, or one that hasn’t finished quitting). Quit it, then open ${FLAVOR.name} again.`
-      : `The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, taken ? '' : backendTail.last());
+    showProblem(`The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, backendTail.last());
     return;
   }
   restarts.push(now);
-  showProblem(taken ? 'Another Eden backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
+  showProblem(`The backend ${how}. Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
-    // The other app's backend has the data folder (both started at once): share it instead.
-    if (taken && (await shareBackend())) { restarts = []; return; }
     startBackend();
     try {
       await waitForBackend();
@@ -412,6 +413,50 @@ function loadApp() {
   if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}${FLAVOR.query ? `&${FLAVOR.query}` : ''}`);
 }
 
+// The data folder is held and this app's backend was turned away (exit 75). First, the
+// owner's record, now that it may be there (both apps started at once: share it). Else say who
+// holds it and offer the one click that stops it gently and goes on (backend-handover.js).
+let askingHeld = false;
+async function dataHeld() {
+  if (quitting || backend || askingHeld) return;
+  showProblem('Another Eden app is using your Eden data. Opening on its engine…');
+  if (await shareBackend()) return;
+  const holderPid = handover.lockHolder(DATA_DIR);
+  const found = share.read(DATA_DIR);
+  const plan = handover.stopPlan({
+    record: found && found.pid === holderPid && share.alive(found.pid) ? found : null,
+    holder: holderPid ? handover.describeHolder(holderPid) : null,
+  });
+  const said = handover.heldMessage(plan, { name: FLAVOR.name }, holderPid);
+  trace.write(`the data folder is held by process ${holderPid || '?'}: ${plan ? `${plan.how} ${plan.owner}` : 'no way to stop it from here'}`);
+  if (!plan) { showProblem(said); return; }
+  askingHeld = true;
+  let choice = 1;
+  try {
+    ({ response: choice } = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+      type: 'warning', message: said,
+      detail: `Only one Eden engine can use your data at a time. ${plan.label.replace(/ and continue$/, '')} gently, and ${FLAVOR.name} starts its own with your chats and sessions as they are.`,
+      buttons: [plan.label, 'Not now'], defaultId: 0, cancelId: 1,
+    }));
+  } finally { askingHeld = false; }
+  if (choice !== 0) { showProblem(`${said} Quit it, then open ${FLAVOR.name} again.`); return; }
+  showProblem(`Stopping ${plan.owner === share.appName('terminal') ? 'that engine' : `${plan.owner}’s engine`}…`);
+  if (await handover.stopOwner(plan)) { await startOwnBackend(); return; }
+  showProblem(`${plan.owner} didn’t stop within half a minute. Quit it, then open ${FLAVOR.name} again.`);
+}
+
+// This app's engine handed the data over to a newer one (exit 76): the window opens on that
+// once it answers; if none comes, this app starts its own.
+async function openOnHandedOver() {
+  showProblem(`Eden's engine is restarting with a newer version. ${FLAVOR.name} reconnects in a moment…`);
+  const until = Date.now() + 60_000;
+  while (!quitting && Date.now() < until) {
+    if (await shareBackend({ asking: false })) return;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (!quitting && !backend) await startOwnBackend();
+}
+
 // Starts this app's own backend and opens the window on it.
 async function startOwnBackend() {
   port = await freePort();
@@ -434,10 +479,14 @@ async function openOnBackend() {
   if (!(await shareBackend())) await startOwnBackend();
 }
 
-// Opens the window on the other app's running backend: false when there's none to share.
-async function shareBackend() {
+// Opens the window on the other app's running backend: false when there's none to share (or
+// the owner chose to restart it with this version: it has been stopped, start this app's).
+async function shareBackend({ asking = true } = {}) {
   const found = DEV_URL ? null : await share.discover(DATA_DIR);
-  if (!found) return false;
+  const plan = handover.decide(found, { protocol: share.PROTOCOL, profile: FLAVOR.profile });
+  if (plan.action === 'start') return false;
+  if (plan.action === 'ask' && asking && (await restartWithThisVersion(found, plan.reason))) return false;
+  if (plan.upgrade) trace.write('the running engine is Eden Code’s: this window wakes it to the full profile (hub.window_joined)');
   port = found.port;
   TOKEN = found.token;
   PROOF_KEY = ''; // (that app's backend: its own app signs, asked through it)
@@ -449,10 +498,26 @@ async function shareBackend() {
     sharedFrom = '';
     if (quitting) return;
     TOKEN = crypto.randomBytes(24).toString('hex');
-    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'Eden Secretary'} quit, so ${FLAVOR.name} is starting its own backend…`);
+    showProblem(`${share.appName(found.app)} quit, so ${FLAVOR.name} is starting its own backend…`);
     startOwnBackend();
   }, { dataDir: DATA_DIR });
   return true;
+}
+
+// The running engine is of another version: the owner chooses (backend-handover.js
+// choiceDialog). True once it has been stopped for this version's; false to use it as it is.
+async function restartWithThisVersion(found, reason) {
+  let choice = 0;
+  try {
+    ({ response: choice } = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, handover.choiceDialog(found, reason, { name: FLAVOR.name })));
+  } catch { return false; }
+  if (choice !== 1) return false;
+  const holderPid = handover.lockHolder(DATA_DIR);
+  const plan = handover.stopPlan({ record: found, holder: holderPid ? handover.describeHolder(holderPid) : null });
+  trace.write(`restarting Eden's engine with this version: ${plan ? `${plan.how} ${plan.owner}` : 'nothing to stop it with'}`);
+  if (!plan) return false;
+  showProblem("Restarting Eden's engine with this version…");
+  return handover.stopOwner(plan);
 }
 
 // The boot-up sound (loading.js), once the window is on screen, unless the owner turned it off
@@ -1833,6 +1898,7 @@ const featureContext = {
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
   backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
+  holdingQuit: () => releasing, // the quit waits while main.js asks whether the backend stays for another app
   backendBusy, // whether a restart now would cut something off (updates.js, follow-repo.js)
   relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
   backendFromRepo: () => backendFromRepo,
@@ -1933,7 +1999,31 @@ ipcMain.on('jarvis:hand-hud', (event, update) => {
   if (hud && !hud.isDestroyed()) hud.webContents.send('hand-hud:update', update);
 });
 
-app.on('before-quit', () => {
+// Quitting while another app's window is on this app's backend: the backend stays for it
+// (server's /share/release) and this app leaves it running. Asked once, before the rest of
+// the quit (shell.js waits for the backend to stop, unless it's been handed on: holdingQuit).
+let releaseAsked = false;
+let releasing = false;
+app.on('before-quit', (event) => {
+  if (!releaseAsked && backend && port && !DEV_URL) {
+    event.preventDefault();
+    if (releasing) return;
+    releasing = true;
+    const child = backend;
+    share.release(port, TOKEN, FLAVOR.socketApp).then((staying) => {
+      releaseAsked = true;
+      releasing = false;
+      if (staying && backend === child) {
+        trace.write('quitting: another app has a window on the engine, so it stays up for it');
+        backend = null; // not ours to stop any more (shell.js and the lines below leave it)
+        child.removeAllListeners('exit');
+        try { child.unref(); } catch { /* gone */ }
+      }
+      app.quit();
+    });
+    return;
+  }
+  if (releasing) return; // (a second Quit while asking)
   quitting = true;
   if (stopWatching) stopWatching();
   share.withdraw(DATA_DIR, process.pid);
