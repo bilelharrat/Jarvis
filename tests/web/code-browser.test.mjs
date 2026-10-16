@@ -335,3 +335,8 @@ test('the window hands the browser to the pane in Eden Code (no dock there)', ()
   for (const ch of ['browser:place', 'browser:park', 'browser:external', 'browser:devtools']) assert.match(main, new RegExp(`ipcMain\\.handle\\('${ch}', `));
   assert.match(main, /paneLib\.viewRect\(/);
 });
+
+test('the address field is one pill: the input inside it has no box of its own', () => {
+  const css = readFileSync(new URL('../../src/jarvis/web/features/code-browser.css', import.meta.url), 'utf8');
+  assert.match(css, /\.cb-field input\.cb-url, \.cb-field input\.cb-url:focus \{[^}]*border: 0; border-radius: 0;[^}]*box-shadow: none;[^}]*background: transparent;/);
+});

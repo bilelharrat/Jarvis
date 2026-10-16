@@ -66,8 +66,10 @@ body.cb-resizing, body.cb-resizing * { cursor: col-resize !important; user-selec
 }
 .cb-field:focus-within { background: var(--ecg-card, #fff); box-shadow: 0 0 0 3px var(--ecg-lg-focus, rgba(0, 122, 255, 0.22)); }
 .cb-kind { display: grid; place-items: center; flex: none; }
-.cb-url {
-  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent;
+.cb-url, .cb-field input.cb-url, .cb-field input.cb-url:focus {
+  /* (beats app.css's input[type="url"|"text"] box, which drew a second square field inside the pill) */
+  flex: 1; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; outline: 0; box-shadow: none;
+  background: transparent; -webkit-appearance: none; appearance: none;
   font: 12px/1 var(--ecg-mono, ui-monospace, Menlo, monospace); color: var(--ecg-text, #1d1d1f);
 }
 .cb-url::placeholder { color: var(--ecg-text2, #8e8e93); font-family: inherit; }
