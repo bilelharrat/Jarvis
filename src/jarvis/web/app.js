@@ -13,6 +13,8 @@ const other = (e) => (IS_MAC ? e.ctrlKey : e.metaKey);
 const srMode = () => document.documentElement.dataset.sr === '1';
 const token = new URLSearchParams(location.search).get('token') || '';
 const app = window.jarvisApp || null;
+// The window in full screen (app/main.js): no window buttons to keep room for (eden-code-glass.css).
+if (app && app.onWindowFullscreen) app.onWindowFullscreen((on) => document.body.classList.toggle('win-fullscreen', on));
 if (app) document.body.classList.add('in-app');
 
 // Split view's right pane (features/code-split.js): this window again, in a frame of the main

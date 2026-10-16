@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('jarvisApp', {
   onSummon: (callback) => ipcRenderer.on('jarvis:summon', () => callback()),
+  onWindowFullscreen: (callback) => ipcRenderer.on('jarvis:window-fullscreen', (_e, on) => callback(Boolean(on))),
   onWhatsThis: (callback) => ipcRenderer.on('jarvis:whats-this', () => callback()),
   attention: () => ipcRenderer.send('jarvis:attention'),
   pickFolder: () => ipcRenderer.invoke('jarvis:pick-folder'),
