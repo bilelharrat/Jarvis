@@ -40,7 +40,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import code_editor, jsonstore, lang, mac_tools, pairsync, private_folders
+from .. import code_editor, jsonstore, lang, mac_tools, osplat, pairsync, private_folders
 from ..code_projects import in_app_data
 from ..codeplatform import code_task
 from ..computer import is_sensitive
@@ -408,8 +408,11 @@ class Pairing:
                 return "That editor isn't on this Mac."
             command = code_editor.open_command(editor, folder)
         try:
-            await mac_tools.run_command(*command, timeout=20)
-        except (mac_tools.ToolFailure, OSError) as exc:
+            if osplat.IS_WIN:  # (started and left running: code_editor.launch)
+                await asyncio.to_thread(code_editor.launch, command)
+            else:
+                await mac_tools.run_command(*command, timeout=20)
+        except (mac_tools.ToolFailure, OSError, ValueError) as exc:
             return f"Couldn't open it: {exc}"
         return ""
 

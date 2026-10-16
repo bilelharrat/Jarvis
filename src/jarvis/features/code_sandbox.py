@@ -27,6 +27,10 @@ What it adds, and where:
   branch of its own whose commands can't leave the project is where that is safe: nothing
   it does reaches the main folder until the owner lands it. Not for a run on untrusted text
   (an issue's), another agent (ACP), or a session started in Plan, Accept edits or Bypass.
+- On Windows, where Claude Code has no sandbox (codeparity.sandbox_available), nothing is
+  put on a connection (it would run unsandboxed without a word), a session that should be
+  in the sandbox has each command ask first instead (codeparity.NO_SANDBOX, said on its
+  card), and cs_state says so (available: false, why) for the Rules pane to show.
 
 The allowlists are JARVIS's, in code_sandbox.json beside the settings.
 
@@ -39,7 +43,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .. import prefs
+from .. import codeparity, prefs
 from ..codeplatform import add_rule_check, code_task, other_agent, project_of
 from ..codesandbox import PRESETS, DomainError, SandboxBook
 from ..tasks import MODE_LABELS, auto_capable
@@ -131,7 +135,8 @@ class SandboxDesk:
             return
         wanted = self.wanted(task)
         domains = self.domains(task) if wanted else ()
-        if wanted and options.sandbox is None:  # (another feature's own sandbox stands)
+        # (another feature's own sandbox stands; on Windows there's none to put on)
+        if wanted and options.sandbox is None and codeparity.sandbox_available():
             options.sandbox = {
                 "enabled": True,
                 "autoAllowBashIfSandboxed": False,  # JARVIS still decides what may run
@@ -145,6 +150,8 @@ class SandboxDesk:
         should have isn't on its connection yet (switched into Bypass mid-step)."""
         if tool != "Bash" or task.client is None or not self.wanted(task):
             return None
+        if not codeparity.sandbox_available():  # (Windows: no sandbox to wait for, ever)
+            return ("ask", codeparity.NO_SANDBOX)
         applied = self._applied.get(task.id)
         return None if applied is not None and applied[0] else ("ask", PENDING)
 
@@ -154,6 +161,8 @@ class SandboxDesk:
         applied = self._applied.get(task.id)
         if task.client is None or applied is None or task.kind != "code":
             return
+        if not codeparity.sandbox_available():
+            return  # (nothing a reopen could put on it: check() asks for each command)
         wanted = self.wanted(task)
         same = not wanted or applied[1] == self.domains(task)
         if applied[0] == wanted and same:
@@ -217,6 +226,8 @@ class SandboxDesk:
             name=Path(project).name,
             domains=self.book.domains(project),
             presets={k: list(v) for k, v in PRESETS.items()},
+            available=codeparity.sandbox_available(),
+            why="" if codeparity.sandbox_available() else codeparity.NO_SANDBOX,
             **extra,
         )
 

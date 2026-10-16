@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import runproc
+from . import osplat, runproc
 
 log = logging.getLogger("jarvis")
 
@@ -175,7 +175,9 @@ def python_runner(project: Path) -> tuple[str, ...]:
     for venv in (".venv", "venv"):
         if (project / venv / "bin" / "python").exists():
             return (f"{venv}/bin/python",)
-    return ("python3",)
+        if osplat.IS_WIN and (project / venv / "Scripts" / "python.exe").exists():
+            return (f"{venv}/Scripts/python.exe",)  # (a venv made on Windows)
+    return ("python",) if osplat.IS_WIN else ("python3",)  # (no python3 on a PC, as a rule)
 
 
 def _has_pytest(project: Path) -> str:
@@ -207,15 +209,17 @@ def discover(project: Path, xcode_schemes: list[tuple[str, str, str]] | None = N
             continue
         deps = {**(package.get("dependencies") or {}), **(package.get("devDependencies") or {})}
         script = str((package.get("scripts") or {}).get("test") or "")
-        rel = "" if folder == project else str(folder.relative_to(project))
+        rel = "" if folder == project else folder.relative_to(project).as_posix()
+        # On Windows npm's runnable shim is the .cmd beside the shell script (item 49).
+        shim = ".cmd" if osplat.IS_WIN else ""
         for runner in ("vitest", "jest"):
             if runner in deps or re.search(rf"\b{runner}\b", script):
-                binary = folder / "node_modules" / ".bin" / runner
+                binary = folder / "node_modules" / ".bin" / f"{runner}{shim}"
                 ready = binary.exists()
                 argv = (
-                    (f"node_modules/.bin/{runner}", "run")
+                    (f"node_modules/.bin/vitest{shim}", "run")
                     if runner == "vitest"
-                    else ("node_modules/.bin/jest",)
+                    else (f"node_modules/.bin/jest{shim}",)
                 )
                 why = f"{rel + '/' if rel else ''}package.json"
                 if not ready:
@@ -256,7 +260,7 @@ def xcode_container(project: Path) -> tuple[str, str] | None:
         for pattern, flag in (("*.xcworkspace", "-workspace"), ("*.xcodeproj", "-project")):
             for found in sorted(folder.glob(pattern)):
                 if found.name != "project.xcworkspace":
-                    return flag, str(found.relative_to(project))
+                    return flag, found.relative_to(project).as_posix()
     return None
 
 
@@ -379,7 +383,7 @@ def _suite_file(project: Path, raw: str, cwd: str = "") -> str:
     if not path.is_absolute():
         path = (project / cwd / path) if cwd else project / path
     with contextlib.suppress(ValueError, OSError):
-        return str(path.resolve().relative_to(project.resolve()))
+        return path.resolve().relative_to(project.resolve()).as_posix()  # (git's, on a PC too)
     return raw
 
 

@@ -54,6 +54,20 @@
     // An interpreter's one-liner that deletes: python -c "shutil.rmtree('/')", node -e "fs.rmSync(…)".
     re(B + P + '(python[\\d.]*|perl|ruby|node|deno|bun|php|osascript)' + Q + '\\s([^\\n]*\\s)?(-\\w*[ceEr]\\w*|--eval)\\s[^\\n]*'
       + '(rmtree|removedirs|\\bremove\\s*\\(|unlink|rmdir|\\brm_r|rmSync|rimraf|\\brm\\s+-\\w*[rRf])'),
+    // Windows (item 49), in any case as PowerShell and cmd read it: a folder deleted or a delete
+    // forced, the PC itself changed or processes ended, a download run as a script, a command
+    // hidden from the card (-EncodedCommand), Windows' own downloaders and script runners.
+    new RegExp(B + P + '(Remove-Item|ri|rd|rmdir|del|erase)' + Q + OPTS + '(-Recurse|-r|-Force|-fo\\w*|/s|/f)\\b', 'i'),
+    new RegExp(B + P + '(format(\\.com)?\\s+[a-z](?=:)|diskpart|bcdedit|vssadmin\\s+delete|wbadmin\\s+delete'
+      + '|cipher\\s+/w|reg(\\.exe)?\\s+(add|delete|import|restore|load)'
+      + '|schtasks(\\.exe)?\\s+/(create|delete|change)|sc(\\.exe)?\\s+(delete|config|create|stop)'
+      + '|netsh|takeown|icacls\\s[^;&|\\n]*/(grant|reset|setowner|remove)|Set-ExecutionPolicy'
+      + '|Format-Volume|Clear-Disk|Remove-Partition|Stop-Computer|Restart-Computer|Stop-Process'
+      + '|taskkill|New-Service|Remove-Service|Set-MpPreference|Add-MpPreference)\\b', 'i'),
+    /\b(iwr|irm|Invoke-WebRequest|Invoke-RestMethod|curl(\.exe)?|wget)\b[^\n]*\|\s*(iex|Invoke-Expression)\b/i,
+    new RegExp(B + P + '(powershell|pwsh)(\\.exe)?' + Q + '\\s([^\\n]*\\s)?-(e|ec|enc\\w*)\\s', 'i'),
+    new RegExp(B + P + '(certutil(\\.exe)?\\s[^\\n]*-urlcache|bitsadmin(\\.exe)?\\s[^\\n]*/transfer|mshta'
+      + '|regsvr32|rundll32)\\b', 'i'),
   ];
 
   // Round 3 (S3-6): a shell reads `\rm`, `r\m`, `r''m` and `rm${IFS}-rf` as rm -rf, so the
@@ -80,7 +94,10 @@
   const RUNS_ANYTHING = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'sudo', 'doas', 'env', 'eval', 'exec',
     'command', 'builtin', 'xargs', 'nohup', 'time', 'timeout', 'gtimeout', 'nice', 'watch', 'caffeinate', 'stdbuf',
     'python', 'perl', 'ruby', 'node', 'deno', 'bun', 'php', 'osascript', 'ssh', 'npx', 'bunx', 'uvx', 'pipx',
-    'make', 'gmake', 'docker', 'podman', 'gh', 'uv', 'java']);  // (round 3, S3-9: these too)
+    'make', 'gmake', 'docker', 'podman', 'gh', 'uv', 'java',  // (round 3, S3-9: these too)
+    // Windows (item 49), looked up in lower case: its shells, what runs a line or script, WSL.
+    'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe', 'cmd', 'cmd.exe', 'wsl', 'wsl.exe',
+    'bash.exe', 'iex', 'invoke-expression', 'start-process', 'start', 'cscript', 'wscript', 'mshta']);
   // Programs that run anything with one of their subcommands (S3-9; features/code_touchid.py RUNS_WITH).
   const RUNS_WITH = { npm: ['run', 'run-script', 'exec', 'x'], yarn: ['run', 'exec', 'dlx', 'node'], pnpm: ['run', 'exec', 'dlx'], cargo: ['run'], go: ['run'] };
   const EDITS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'];
@@ -94,11 +111,11 @@
       const prefix = content.replace(/:?\*$/, '').trim();
       if (!prefix) return true;
       const words = prefix.split(/\s+/);
-      const first = words[0].replace(/^["']+|["']+$/g, '').split('/').pop();
+      const first = words[0].replace(/^["']+|["']+$/g, '').split(/[/\\]/).pop();  // (a Windows path's too)
       const second = (words[1] || '').replace(/^["']+|["']+$/g, '');
       const runs = Object.prototype.hasOwnProperty.call(RUNS_WITH, first) ? RUNS_WITH[first] : null;
       if (runs && (!second || runs.includes(second))) return true;
-      return RUNS_ANYTHING.has(first) || RUNS_ANYTHING.has(first.replace(/[\d.]+$/, '')) || riskyCommand(prefix);
+      return RUNS_ANYTHING.has(first) || RUNS_ANYTHING.has(first.replace(/[\d.]+$/, '')) || RUNS_ANYTHING.has(first.toLowerCase()) || riskyCommand(prefix);
     }
     if (EDITS.includes(tool)) {
       if (!content) return true;
@@ -209,7 +226,14 @@
     return null;
   });
 
-  // Eden Code settings › General: its switch, in a Safety group of its own.
+  // Eden Code settings › General: its switch, in a Safety group of its own. On Windows the
+  // app asks with Windows Hello (app/features/touchid.js), so the switch says so.
+  const HELLO = /Win/i.test((root.navigator && root.navigator.platform) || '');
+  const WORDS = HELLO
+    ? { name: 'Windows Hello for Bypass and risky steps', off: 'Turn off Windows Hello for Bypass and risky steps?',
+      about: 'Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as administrator, asks for Windows Hello (your face, fingerprint or PIN). Without Windows Hello, it asks you to confirm.' }
+    : { name: 'Touch ID for Bypass and risky steps', off: 'Turn off Touch ID for Bypass and risky steps?',
+      about: 'Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as root, asks for your fingerprint. Without Touch ID, it asks you to confirm.' };
   let sw = null;
   function build() {
     const general = document.getElementById('jcs-general');
@@ -218,13 +242,12 @@
     const group = el('div', 'jcs-group');
     const row = el('div', 'jcs-row');
     const text = el('span');
-    text.append(document.createTextNode(t('Touch ID for Bypass and risky steps')),
-      el('small', '', 'Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as root, asks for your fingerprint. Without Touch ID, it asks you to confirm.'));
+    text.append(document.createTextNode(t(WORDS.name)), el('small', '', WORDS.about));
     sw = el('button', 'jcs-switch');
     sw.type = 'button';
     sw.id = 'ct-touchid';
     sw.setAttribute('role', 'switch');
-    sw.setAttribute('aria-label', 'Touch ID for Bypass and risky steps');
+    sw.setAttribute('aria-label', WORDS.name);
     sw.setAttribute('aria-checked', String(on));
     // Off asks for the fingerprint first, as Bypass does (the backend wants its proof). One
     // ask at a time: while it's out the switch is busy (aria-busy) and a second press does
@@ -239,7 +262,7 @@
       sw.setAttribute('aria-disabled', 'true');
       sw.setAttribute('aria-busy', 'true');
       fingerprint('touchid-off').then((ok) => {
-        const yes = ok === null ? root.confirm(t('Turn off Touch ID for Bypass and risky steps?')) : ok;
+        const yes = ok === null ? root.confirm(t(WORDS.off)) : ok;
         if (yes) F.send({ type: 'feature_prefs', changes: { code_touchid: false } });
       }).finally(() => {
         asking = false;

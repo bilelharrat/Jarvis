@@ -215,7 +215,10 @@ STACK_COMMANDS: dict[str, tuple[str, ...]] = {
     "python": ("pytest", "python -m pytest", "python3 -m pytest", "uv run pytest",
                "uv run python -m pytest", ".venv/bin/python -m pytest", "venv/bin/python -m pytest",
                "ruff check", "uv run ruff check", "mypy", "uv run mypy", "python -m build",
-               "uv build", "python3 -m compileall", "python -m compileall"),
+               "uv build", "python3 -m compileall", "python -m compileall",
+               # Windows (item 49): a venv made there, and the py launcher.
+               ".venv/Scripts/python -m pytest", "venv/Scripts/python -m pytest",
+               ".venv/Scripts/python.exe -m pytest", "py -m pytest"),
     "node": ("npm test", "npm run test", "npm run build", "npm run lint", "npm run typecheck",
              "npm run dev", "npm start", "node --test", "node_modules/.bin/vitest",
              "node_modules/.bin/jest", "node_modules/.bin/tsc", "node_modules/.bin/eslint",
@@ -225,7 +228,8 @@ STACK_COMMANDS: dict[str, tuple[str, ...]] = {
     "swift": ("swift test", "swift build"),
     "xcode": ("xcodebuild test", "xcodebuild build", "xcodebuild -list", "xcrun simctl list"),
 }  # fmt: skip
-RUNNERS = {"python": ("python", "python3", "uv run python", ".venv/bin/python"),
+RUNNERS = {"python": ("python", "python3", "uv run python", ".venv/bin/python",
+                      ".venv/Scripts/python", "py"),
            "node": ("node",)}  # fmt: skip
 
 NOTE = (
@@ -1966,7 +1970,7 @@ class BugFix:
             for name in ("node_modules", ".venv", "venv"):
                 if (folder / name).exists() and not (tmp / name).exists():
                     with contextlib.suppress(OSError):
-                        (tmp / name).symlink_to(folder / name)
+                        (tmp / name).symlink_to(folder / name, target_is_directory=True)
             for f in fixed[:PROOFS_MAX]:
                 await self.prove_one(f, folder, tmp, suites, run)
             for f in fixed[PROOFS_MAX:]:

@@ -48,7 +48,17 @@ from typing import Any
 
 from claude_agent_sdk import HookMatcher
 
-from .. import code_changes, container_run, devcontainer, jsonstore, lang, prefs, runproc
+from .. import (
+    code_changes,
+    codeparity,
+    container_run,
+    devcontainer,
+    jsonstore,
+    lang,
+    osplat,
+    prefs,
+    runproc,
+)
 from ..codeplatform import code_task, other_agent
 from ..devcontainer import Docker, Image, Setup
 from .code_isolation import _project_names
@@ -65,7 +75,11 @@ EMIT_EVERY = 0.25  # seconds between batches of output to the windows
 TIDY_EVERY = 3600.0
 # Where a setup in a container keeps its shell's pid (the container's own /tmp), so running
 # out of time stops that setup's processes only, never the container's others (REL-15).
-SETUP_PIDFILE = "/tmp/.eden-setup.pid"
+SETUP_PIDFILE = "/tmp/.eden-setup.pid"  # (inside the container: always Linux)
+NO_BASH = (
+    "The project's setup is a shell script, and this PC has no Git Bash to run it in: "
+    "install Git for Windows (Claude Code needs it too), then run the setup again."
+)
 
 
 def _images(value: Any) -> dict[str, str] | None:
@@ -571,6 +585,14 @@ class SetupDesk:
                 flush_at.append(loop.call_later(EMIT_EVERY, flush))
 
         command = found.command()
+        if container is None and osplat.IS_WIN:
+            # On a PC the script runs in Git for Windows' bash, as Claude Code's own commands
+            # do (item 49): there's no /bin/bash or /bin/sh of its own.
+            bash = codeparity.git_bash()
+            if bash is None:
+                self.note(task, NO_BASH)
+                return None
+            command = [bash, *command[1:]]
         env = await asyncio.to_thread(self.docker.env)
         env = {**env, "EDEN_MAIN_FOLDER": self.project_key(copy), "EDEN_COPY": str(copy.cwd)}
         if container is not None:

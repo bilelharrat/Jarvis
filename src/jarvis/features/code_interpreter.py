@@ -8,7 +8,8 @@ writes Python and runs it to calculate, analyse data and draw charts, and sees w
   read it (a CSV, a spreadsheet).
 
 Sandboxed (sandbox-exec): no network, nothing written outside its folder, nothing read in the
-owner's home but its folder and its Python. Two minutes a run, then the worker is stopped (its
+owner's home but its folder and its Python. Not on Windows, which has no such sandbox: there
+it isn't installed at all (install), never run unsandboxed. Two minutes a run, then the worker is stopped (its
 variables go; its files stay). A new conversation gets a new worker and folder.
 
 Its Python is its own (Application Support › Jarvis › interpreter), set up with uv on first use
@@ -37,6 +38,8 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
+
+from .. import osplat
 
 log = logging.getLogger("jarvis")
 
@@ -413,6 +416,11 @@ class Interpreter:
 
 def install(hub: Any) -> None:
     if os.environ.get("JARVIS_NO_INTERPRETER"):
+        return
+    if osplat.IS_WIN:
+        # Off on Windows (item 49): its Python is sandboxed by macOS's sandbox-exec (no
+        # network, none of the owner's files) and Windows has no such sandbox for a process;
+        # code Claude writes isn't run unsandboxed instead (codeparity.REPORT says so).
         return
     interpreter = Interpreter(hub)
     hub.interpreter = interpreter

@@ -52,7 +52,11 @@
     "A rule allows, asks or denies.": "规则只能是允许、询问或拒绝。",
     "That's as many rules of that kind as a project can have.": "这个项目的这类规则已经达到上限。",
     "Permission rules changed; it goes on with them.": "权限规则已更改；会话会按新规则继续。",
-    "Export adds Eden Code’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.": "导出会把 Eden Code 的规则和“不再询问”的命令加到文件里，保留原有内容；settings.json 会与项目的所有协作者共享。"
+    "Export adds Eden Code’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.": "导出会把 Eden Code 的规则和“不再询问”的命令加到文件里，保留原有内容；settings.json 会与项目的所有协作者共享。",
+    "There’s no sandbox on Windows, so each of its commands asks you first.": "Windows 上没有沙盒，所以它的每条命令都会先问你。",
+    "There’s no sandbox on Windows: its commands run as its mode lets them.": "Windows 上没有沙盒：它的命令按它的模式允许的方式运行。",
+    "Claude Code’s sandbox isn’t available on Windows.": "Claude Code 的沙盒在 Windows 上不可用。",
+    "Claude Code's sandbox isn't available on Windows (it's built on macOS's and Linux's own), so with the sandbox switch on each command of a Bypass or unattended session asks you first instead.": "Claude Code 的沙盒在 Windows 上不可用（它基于 macOS 和 Linux 自带的机制），所以开启沙盒开关后，绕过权限或无人值守会话的每条命令都会先问你。"
   },
   "patterns": [
     [
