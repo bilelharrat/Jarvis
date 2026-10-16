@@ -31,3 +31,17 @@ test('light and dark both have the wallpaper and the panels', () => {
   assert.equal((rules.match(/--ecg-wall:/g) || []).length, 2);
   assert.match(rules, /prefers-color-scheme: dark/);
 });
+
+test('in full screen the sidebar drops the room kept for the window buttons', () => {
+  assert.match(rules, /\.win-fullscreen \.deck\.jc \.jc-side \{ padding-top: 14px; \}/);
+  assert.match(web('app.js'), /onWindowFullscreen\(\(on\) => document\.body\.classList\.toggle\('win-fullscreen', on\)\)/);
+  const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /win\.on\('enter-full-screen', sendFull\)/);
+  assert.match(main, /win\.on\('leave-full-screen', sendFull\)/);
+});
+
+test('the composer’s mode pill says just “Bypass”, the menu keeps “Bypass permissions”', () => {
+  const js = web('app.js');
+  assert.match(js, /\{ id: 'auto', label: 'Bypass permissions', short: 'Bypass',/);
+  assert.match(js, /setText\(\$\('jc-mode-label'\), mode\.short \|\| mode\.label\)/);
+});

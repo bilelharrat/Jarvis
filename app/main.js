@@ -516,6 +516,12 @@ function createWindow() {
   });
   guards.guardContents(win.webContents);
   windowTyped = guards.inputClock(win.webContents); // what the address bar sends right after a key or a press is typed (S29)
+  // Full screen (the green button, ⌃⌘F): macOS hides the window's buttons, so the page drops the
+  // room it keeps for them (eden-code-glass.css, body.win-fullscreen) and the sidebar moves up.
+  const sendFull = () => { if (win && !win.isDestroyed()) win.webContents.send('jarvis:window-fullscreen', win.isFullScreen()); };
+  win.on('enter-full-screen', sendFull);
+  win.on('leave-full-screen', sendFull);
+  win.webContents.on('did-finish-load', sendFull);
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
   win.loadURL(pages.pageUrl('loading.html', { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) })).catch(() => {});

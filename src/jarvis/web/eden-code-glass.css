@@ -62,6 +62,10 @@ body.eden-code:not([data-skin]) .deck.jc .jc-side {
   border: 1px solid var(--ecg-side-rim); box-shadow: var(--ecg-side-sh);
 }
 body.eden-code:not([data-skin]) .deck.jc .jc-side.glass-panel::before { display: none; }
+/* In full screen macOS hides the window's buttons, so the sidebar drops the 44px it keeps for them
+   and everything in it moves up (app/main.js sends the state; body.win-fullscreen). */
+body.eden-code:not([data-skin]).win-fullscreen .deck.jc .jc-side { padding-top: 14px; }
+body.eden-code:not([data-skin]).win-fullscreen .deck.jc .jc-side-head { top: 14px; }
 body.eden-code:not([data-skin]) .deck.jc .jc-field { background: var(--ecg-fill); border-radius: 10px; font-size: 13px; color: var(--ecg-text); margin-bottom: 6px; }
 body.eden-code:not([data-skin]) .deck.jc .jc-projects-wrap::before { padding: 4px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ecg-text2); }
 body.eden-code:not([data-skin]) .deck.jc .jc-project { padding: 7px 10px; border-radius: 10px; color: var(--ecg-text); }
