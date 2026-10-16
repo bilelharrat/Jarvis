@@ -54,7 +54,7 @@ const APPS = {
   jarvis: {
     flavor: 'jarvis',
     name: 'J.A.R.V.I.S',
-    display: 'J.A.R.V.I.S.',
+    display: 'Eden Secretary',
     // The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App
     // ID for it, so it stays (renaming it would also move the wake agent's label, the Quick
     // Action's and the helpers' identifiers).
