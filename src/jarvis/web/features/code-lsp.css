@@ -1,0 +1,8 @@
+/* Eden Code's language servers in the Problems pane (code-lsp.js): their own section under
+   the checkers', in the pane's own look (code-verify.css), light, dark and glass alike. */
+.lsp-section { margin-top: 14px; padding-top: 10px; border-top: 0.5px solid rgb(var(--c-border)); }
+.lsp-head { font-size: 12.5px; font-weight: 600; flex: none; }
+.lsp-chip.idle { opacity: 0.75; }
+.lsp-chip.busy { background: rgb(var(--c-accent) / 0.12); }
+.lsp-note { margin: 4px 4px 8px; font-size: 12px; line-height: 1.45; color: rgb(var(--c-ink-2)); overflow-wrap: anywhere; }
+.lsp-note code { font-size: 11.5px; padding: 1px 5px; border-radius: 5px; background: rgb(var(--c-ink) / 0.06); user-select: all; }

@@ -564,7 +564,8 @@ async def test_an_acp_session_is_given_the_index_server_on_session_new(
     await _turn(hub, task, "say hello")
     logged = [json.loads(line) for line in (tmp_path / "agent.log").read_text().splitlines()]
     [new] = [m for m in logged if m.get("method") == "session/new"]
-    [server] = new["params"]["mcpServers"]
+    # (beside the language servers' one, features/code_lsp.py)
+    [server] = [s for s in new["params"]["mcpServers"] if s["name"] == "eden_code_index"]
     assert server["name"] == "eden_code_index" and server["command"] == sys.executable
     assert server["args"][-3] == str((tmp_path / "proj").resolve())
     from code_session_fakes import end_all

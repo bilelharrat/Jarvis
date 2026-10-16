@@ -878,7 +878,7 @@
     const check = info.check;
     const running = check && check.status === 'running';
     if (!info.checkers.length) {
-      body.replaceChildren(el('p', 'jc-empty', 'No checkers found: TypeScript, ESLint, Ruff, Pyright, mypy and Swift builds are looked for.'));
+      body.replaceChildren(el('p', 'jc-empty', 'No checkers found: TypeScript, ESLint, Ruff, Pyright, mypy and Swift builds are looked for.'), ...extraProblems(info));
       return;
     }
     const bar = el('div', 'cv-bar');
@@ -933,7 +933,21 @@
         parts.push(det);
       }
     }
-    body.replaceChildren(...parts);
+    body.replaceChildren(...parts, ...extraProblems(info));
+  }
+
+  // Other features' problems under the checkers' (features/code_lsp.py's language servers,
+  // web/features/code-lsp.js): each source draws its own section and is asked when the
+  // pane opens; one with news calls edenProblemsRedraw.
+  const problemSources = root.edenProblemSources = root.edenProblemSources || [];
+  root.edenProblemsRedraw = () => renderProblems();
+  function extraProblems(info) {
+    const helpers = { problemRow, byFile, countProblems, button, mark, pieces, mine, send };
+    const out = [];
+    for (const source of problemSources) {
+      try { const node = source.section && source.section(info, helpers); if (node) out.push(node); } catch (err) { console.error('a Problems source failed', err); }
+    }
+    return out;
   }
 
   F.registerPane('cv-problems', {
@@ -942,6 +956,7 @@
       problems.info = null;
       renderProblems(body);
       F.send({ type: 'cv_problems', action: 'state', ...where() });
+      for (const source of problemSources) if (source.ask) source.ask(where());
     },
   });
   F.registerMoreItem({ label: 'Problems', run: () => F.openPane('cv-problems') });
