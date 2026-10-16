@@ -298,19 +298,26 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
         ) {
             if (working) Spinner(Color.White) else T(if (probed == null) "Find my Mac" else "Pair", sf(17f, Semibold), if (enabled) Color.White else placeholderInk(), maxLines = 1)
         }
-        if (first && BuildConfig.DEBUG) {
-            T("Look around with sample sessions", sf(14f), c.accent, Modifier.pressable(0.97f) { DebugPairing.useFixtures?.invoke() })
+        if (first) {
+            // For a Play reviewer and anyone without a Mac yet: sample sessions, clearly a demo, and
+            // nothing in it can reach a Mac.
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+                T(
+                    "Try a demo", sf(16f, Semibold), c.accent,
+                    Modifier.pressable(0.97f, label = "Try a demo. Looks around with sample sessions. Nothing is sent to a Mac.") { store.startDemo() }.padding(8.dp),
+                )
+                T("Sample sessions only. It never connects to a Mac.", sf(12f), c.muted, align = TextAlign.Center)
+            }
         }
         Spacer(Modifier.height(0.dp))
     }
     }
 }
 
-/** Debug launches can fill the pairing screen (EDENCODEServer, EDENCODECode) or switch to the sample sessions. */
+/** Debug launches can fill the pairing screen (EDENCODEServer, EDENCODECode). */
 object DebugPairing {
     var server: String? = null
     var code: String? = null
-    var useFixtures: (() -> Unit)? = null
 }
 
 @Composable
