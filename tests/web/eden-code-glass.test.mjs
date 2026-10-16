@@ -53,3 +53,9 @@ test('editing a sent message is a Liquid Glass pane: tinted, blurred, sheen, gla
   assert.match(rules, /\.cs-editor-files input:checked \{ background: #34c759; \}/);
   assert.equal((rules.match(/--ecg-lg-fill:/g) || []).length, 2, 'light and dark');
 });
+
+test('the title bar has a Files button that opens the Files pane', () => {
+  const page = web('index.html');
+  assert.match(page, /class="jc-tool" data-pane="files" title="Files \(⇧⌘F\)" aria-label="Files"/);
+  assert.ok(page.indexOf('data-pane="files"') < page.indexOf('data-pane="diff"'), 'right after the terminal, before Changes');
+});
