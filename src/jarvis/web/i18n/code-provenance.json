@@ -1,0 +1,19 @@
+{
+  "strings": {
+    "Who wrote this": "是谁写的",
+    "Which Eden Code session and prompt wrote each line (from git notes)": "每一行是哪个 Eden Code 会话、哪条提示写的（来自 git 注记）",
+    "Label each change with the turn and prompt that wrote it": "给每处改动标上写它的轮次和提示",
+    "Proof": "凭证",
+    "Show that turn’s receipt in the conversation": "在对话里显示那一轮的凭证",
+    "Not written by an Eden Code session (or not committed yet)": "不是 Eden Code 会话写的（或还没提交）",
+    "No provenance notes for this file": "这个文件没有来源注记",
+    "Provenance": "来源",
+    "Provenance notes": "来源注记",
+    "When Eden commits a session’s work, a git note (refs/notes/eden) says which session, model and prompt wrote each change. Never in the commit message, and kept on this Mac: Eden never pushes notes.": "Eden 提交会话的工作时，会用一条 git 注记（refs/notes/eden）写明每处改动是哪个会话、哪个模型、哪条提示写的。绝不写进提交信息，并且只留在这台 Mac 上：Eden 从不推送注记。",
+    "Add provenance to pull requests": "在拉取请求里加上来源",
+    "A “Provenance” section in the descriptions Eden drafts: each session and prompt summary behind the branch. Off: prompts stay private.": "在 Eden 起草的描述里加一个“来源”部分：列出这个分支背后的每个会话和提示摘要。关闭时，提示保持私密。",
+    "Provenance is off in Settings.": "来源注记已在设置里关闭。",
+    "This folder isn't a git repository.": "这个文件夹不是 git 仓库。",
+    "That file isn't in this repository.": "那个文件不在这个仓库里。"
+  }
+}

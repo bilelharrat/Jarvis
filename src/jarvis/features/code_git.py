@@ -484,6 +484,10 @@ class GitPanel:
                 input=message + "\n",
                 timeout=COMMIT_SECONDS,
             )
+        if done.ok:  # git notes beside it, never in its message (features/code_provenance.py)
+            prov = getattr(self.hub, "code_provenance", None)
+            if prov is not None:
+                await prov.committed(repo.top)
         await self.publish(folder, key)
         if done.ok:
             sha = (

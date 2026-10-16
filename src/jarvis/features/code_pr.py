@@ -520,6 +520,9 @@ class PullDesk:
         if issue and f"#{issue}" not in body:
             body = f"{body}\n\nCloses #{issue}".strip()
         body = self.with_selfcheck_proof(task, self.with_spec_proof(task, body))
+        prov = getattr(self.hub, "code_provenance", None)  # opt-in (code_provenance_pr)
+        if prov is not None and plan.fork:
+            body = await asyncio.to_thread(prov.pr_body, plan.top, plan.fork, body)
         draft = {
             "title": title,
             "body": body,
@@ -707,7 +710,11 @@ class PullDesk:
             )
             if choice != "commit":
                 return "Not opened."
-        return await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, message)
+        problem = await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, message)
+        prov = getattr(self.hub, "code_provenance", None)
+        if not problem and prov is not None:  # (git notes, features/code_provenance.py)
+            await prov.committed(plan.top, [task])
+        return problem
 
     @staticmethod
     def _scan_uncommitted(plan: Plan) -> list[secret_scan.Finding]:
