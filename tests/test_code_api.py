@@ -258,12 +258,21 @@ async def test_a_todo_card_is_added_through_todo_add(hub):
     assert card["prompt"] == "Write the migration" and card["mode"] == "plan"
 
 
-async def test_the_attention_list(hub):
+async def test_the_attention_list_and_a_card_that_isnt_eden_codes_is_never_told(hub):
     turn_on(hub)
     task(hub, 3, status="failed")
     async with client(hub) as c:
         body = (await c.get("/v1/attention")).json()
     assert body["count"] == 1 and body["summary"].startswith("One thing is waiting for you")
+    hub.approvals["m1"] = {"id": "m1", "question": "Send this email to Ann about the lawsuit?",
+                           "choices": [{"id": "allow", "label": "Send"}]}
+    async with client(hub) as c:
+        body = (await c.get("/v1/attention")).json()
+    assert "Ann" not in json.dumps(body)
+    assert body["items"][0]["said"] == code_api.HIDDEN and body["items"][0]["choices"] == []
+    streamed = hub.code_api.shape({"type": "code_attention", "items": hub.code_attention.collect(), "count": 2})
+    assert "Ann" not in json.dumps(streamed) and streamed["count"] == 2
+    assert hub.code_api.shape({"type": "approval", "id": "m1", "question": "Send this email to Ann?"})["question"] == ""
 
 
 # ── the event stream ──
@@ -277,7 +286,9 @@ def test_the_stream_carries_eden_codes_own_events_only(hub):
     assert shape({"type": "task_log", "id": 3, "entry": {"n": 1, "role": "assistant", "text": "hi"}})["entry"]["text"] == "hi"
     assert shape({"type": "task_log", "id": 4, "entry": {"n": 1, "role": "assistant", "text": "secret research"}}) is None
     assert shape({"type": "task_finished", "id": 4, "task_kind": "research"}) is None
-    assert shape({"type": "approval", "id": "a", "question": "Send this email to Ann?", "task_id": None})["task"] == 0
+    assert shape({"type": "approval", "id": "a", "question": "Send this email to Ann?", "task_id": None}) == {
+        "type": "approval", "id": "a", "task": 0, "question": ""}
+    assert shape({"type": "approval", "id": "b", "question": "Run npm test?", "task_id": 3})["question"] == "Run npm test?"
     for kind in ("mail", "imessage", "caption", "heard", "turn", "code_api_token", "code_hook_secret"):
         assert kind not in code_api.STREAMED and shape({"type": kind}) is None
 

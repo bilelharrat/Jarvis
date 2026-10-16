@@ -166,6 +166,18 @@ def entry_view(entry: dict[str, Any]) -> dict[str, Any]:
     return {k: entry[k] for k in keep if k in entry}
 
 
+HIDDEN = "A card is waiting for you in the Eden Code window."
+
+
+def redact(item: dict[str, Any]) -> dict[str, Any]:
+    """An inbox item as a program sees it: a card that isn't an Eden Code session's (the
+    owner's chat may have put it up: an email to send, a purchase) is said to be there,
+    never what it asks or its answers."""
+    if item.get("kind") != "approval" or item.get("task"):
+        return item
+    return {**item, "title": "Eden Code", "text": HIDDEN, "said": HIDDEN, "choices": []}
+
+
 def cli_shim(python: str) -> str:
     """~/.local/bin/eden-code: this backend's own Python, running the command's module."""
     return f'#!/bin/sh\n{CLI_MARK}\nexec {shlex.quote(python)} -m jarvis.eden_code_cli "$@"\n'
@@ -437,7 +449,7 @@ class Api:
         attention = getattr(self.hub, "code_attention", None)
         if attention is None:
             return {"items": [], "count": 0, "summary": ""}
-        items = attention.collect()
+        items = [redact(i) for i in attention.collect()]
         return {"items": items, "count": len(items), "summary": attention.summary(items)}
 
     def task(self, raw: str) -> Any:
@@ -640,14 +652,18 @@ class Api:
             return {"type": "finished", **{k: event[k] for k in keep if k in event}}
         if kind == "approval":
             task_id = event.get("task_id")
+            # A card that isn't an Eden Code session's may be anything of the owner's (an
+            # email to send): that one is said to be there, never what it asks.
             return {"type": "approval", "id": event.get("id"),
                     "task": task_id if task_id in code else 0,
-                    "question": str(event.get("question") or "")[:500]}  # fmt: skip
+                    "question": str(event.get("question") or "")[:500] if task_id in code else ""}  # fmt: skip
         if kind == "approval_resolved":
             return {"type": "approval_resolved", "id": event.get("id")}
         if kind == "code_attention":
-            return {"type": "attention", "count": event.get("count"),
-                    "summary": event.get("summary"), "items": event.get("items")}  # fmt: skip
+            attention = getattr(self.hub, "code_attention", None)
+            items = [redact(i) for i in event.get("items") or [] if isinstance(i, dict)]
+            summary = attention.summary(items) if attention is not None else ""
+            return {"type": "attention", "count": len(items), "summary": summary, "items": items}
         if kind in ("code_bugfix", "code_runs", "todo_state"):
             return {"type": kind}  # (something changed there: GET what's needed)
         return None
