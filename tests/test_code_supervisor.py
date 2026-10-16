@@ -561,3 +561,145 @@ def test_long_and_hostile_words_are_read_quickly():
         started = time.perf_counter()
         cs.parse(text)
         assert time.perf_counter() - started < 0.05, text[:30]  # well under 1 ms here
+
+
+# A run's outcome as the proof needs it (receipts accuracy, roadmap 1): node's own summary
+# is read; a step the owner refused, or one interrupted or still going when the turn ended,
+# didn't run to its end; an edit after a run makes its pass out of date; a stopped turn's
+# runs are still kept for its receipt.
+
+
+def _bash(j, task_id, tool_id, command):
+    j.event(
+        "task_log",
+        {
+            "id": task_id,
+            "entry": {"role": "tool", "tool": "Bash", "tool_id": tool_id, "detail": f"$ {command}"},
+        },
+    )
+
+
+def _result(j, task_id, tool_id, status, output):
+    j.event(
+        "task_log_update", {"id": task_id, "tool_id": tool_id, "status": status, "output": output}
+    )
+
+
+def test_node_tests_own_summary_is_read():
+    spec = "▶ signup\n  ✔ refuses a long email (1ms)\nℹ tests 5\nℹ suites 1\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\n"
+    assert cs.test_counts(spec) == (4, 1)
+    tap = "ok 1 - a\nnot ok 2 - b\n1..2\n# tests 2\n# pass 1\n# fail 0\n# cancelled 1\n"
+    assert cs.test_counts(tap) == (1, 1)  # (a cancelled test failed)
+    assert cs.test_counts("ℹ tests 5\nℹ pass 5\nℹ fail 0\n") == (5, 0)
+
+
+def test_refused_interrupted_and_unfinished_runs_never_passed_or_failed():
+    j = cs.Journal()
+    _bash(j, 1, "a", "pytest -q")
+    _result(j, 1, "a", "failed", "The user said no: not now")
+    _bash(j, 1, "b", "npm test")
+    _result(j, 1, "b", "failed", "[Request interrupted by user for tool use]")
+    _bash(j, 1, "c", "pytest tests/test_x.py")  # never answered: the turn ended first
+    j.event("task_finished", {"id": 1, "task_kind": "code", "status": "done", "result": ""})
+    runs = j.unseen(1)[0].tests
+    assert [(r.command, r.passed, r.outcome) for r in runs] == [
+        ("pytest -q", False, "refused"),
+        ("npm test", False, "cancelled"),
+        ("pytest tests/test_x.py", False, "cancelled"),
+    ]
+    assert cs.tests_verdict(runs)["state"] == "cancelled"
+    assert cs.tests_verdict(runs[:1])["state"] == "refused"
+    # A run that failed for real, with no count, is still a failure.
+    _bash(j, 2, "d", "pytest")
+    _result(j, 2, "d", "failed", "ImportError: no module named app")
+    j.event("task_finished", {"id": 2, "task_kind": "code", "status": "done", "result": ""})
+    assert j.unseen(2)[0].tests[0].outcome == ""
+
+
+def test_an_edit_after_a_run_makes_its_pass_out_of_date_but_a_readme_doesnt():
+    j = cs.Journal()
+    _bash(j, 3, "t1", "pytest")
+    _result(j, 3, "t1", "done", "5 passed in 0.1s")
+    j.event(
+        "task_log",
+        {
+            "id": 3,
+            "entry": {
+                "role": "tool",
+                "tool": "Edit",
+                "tool_id": "e1",
+                "detail": "README.md\n- a\n+ b",
+            },
+        },
+    )
+    _result(j, 3, "e1", "done", "")
+    assert not j._ran[3][0].edited_after
+    j.event(
+        "task_log",
+        {
+            "id": 3,
+            "entry": {
+                "role": "tool",
+                "tool": "Edit",
+                "tool_id": "e2",
+                "detail": "app/signup.py\n- a\n+ b",
+            },
+        },
+    )
+    _result(j, 3, "e2", "failed", "String not found")  # (an edit that didn't happen)
+    assert not j._ran[3][0].edited_after
+    j.event(
+        "task_log",
+        {
+            "id": 3,
+            "entry": {
+                "role": "tool",
+                "tool": "Write",
+                "tool_id": "e3",
+                "detail": "app/signup.py (new contents)\n+ x",
+            },
+        },
+    )
+    _result(j, 3, "e3", "done", "")
+    j.event("task_finished", {"id": 3, "task_kind": "code", "status": "done", "result": ""})
+    runs = j.unseen(3)[0].tests
+    assert runs[0].edited_after and cs.tests_verdict(runs)["state"] == "stale"
+    # ... and it outlasts a restart.
+    saved = cs._turn_in(cs._turn_out(j.unseen(3)[0]))
+    assert saved.tests[0].edited_after and saved.tests[0].passed
+
+
+def test_a_stopped_turns_runs_are_kept_for_its_proof_not_its_catch_up():
+    j = cs.Journal(clock=lambda: 50.0)
+    _bash(j, 4, "t", "pytest")
+    _result(j, 4, "t", "done", "3 passed")
+    j.event("task_finished", {"id": 4, "task_kind": "code", "status": "stopped", "result": ""})
+    assert j.unseen(4) == []
+    assert j.stopped[4].at == 50.0 and j.stopped[4].tests[0].passed_count == 3
+
+
+def _run(passed, ok=3, bad=0, command="pytest", outcome="", edited=False):
+    return cs.TestRun(command, passed, bad, ok, outcome, edited)
+
+
+def test_the_verdict_never_says_passed_unless_a_pass_happened():
+    v = cs.tests_verdict
+    assert v([]) is None
+    assert v([_run(True, 12)])["state"] == "passed"
+    assert v([_run(True, 0)])["state"] == "unknown"  # exited fine, said no count
+    assert v([_run(False, 2, 1)])["state"] == "failed"
+    # Fail first, then the same command passes: the film's flow, a real pass.
+    assert v([_run(False, 4, 1, "npm test"), _run(True, 5, 0, "npm test")])["state"] == "passed"
+    # The suite failed, then one test file passed: still failed, and said why.
+    narrow = v([_run(False, 49, 1, "pytest"), _run(True, 3, 0, "pytest tests/test_one.py")])
+    assert narrow["state"] == "failed" and narrow["note"] == "a later, narrower run passed"
+    assert narrow["run"].failed_count == 1
+    # One file failed, then the whole suite passed: covered.
+    assert (
+        v([_run(False, 2, 1, "pytest tests/test_one.py"), _run(True, 50, 0, "pytest")])["state"]
+        == "passed"
+    )
+    # A pass, then a run that was stopped: the pass stands (nothing changed in between).
+    assert v([_run(True, 5), _run(False, 0, 0, outcome="cancelled")])["state"] == "passed"
+    assert v([_run(True, 5, edited=True)])["state"] == "stale"
+    assert v([_run(False, 0, 0, outcome="refused")])["state"] == "refused"

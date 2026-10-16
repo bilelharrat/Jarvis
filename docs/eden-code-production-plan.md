@@ -174,6 +174,16 @@ M = 1-3 h, L = most of a day (one agent, with tests).
 | U10 | Cloud switch forgets "on" when the start fails; its explanation is only a tooltip on a disabled button | `web/features/code-cloud.js:47-51` | Keep the state until the session starts; `aria-describedby` / visible note |
 | U11 | Dead code: `renderDiffPane` builds every file's diff even collapsed, likely shadowed by the feature pane | `web/app.js:5157`; `web/features/code_changes.js:414` | Confirm and remove |
 
+Re-checked 2026-10-16 in a browser tab of a scratch backend (light and dark, glass look), by the
+computed styles of the real page: U1, U3 and U5 hold. U2 had come back: the glass look's blue
+`.jc-user` rule (`eden-code-glass.css`) is more specific than U2's fix, and `.deck.jc button`
+beat `.jc-btn.filled`'s white, so Resend was ink on blue; both are now said as specifically as
+they must be (`code-sessions.css`). U4 went further: the receipt's tests line comes from
+`codesupervisor.tests_verdict` (a pass only when one happened: no count is "ran", stopped,
+refused or before the last edits are said so, a narrower rerun doesn't hide a failure) and node
+--test's own summary is read; the receipt also checks that the tests weren't weakened
+(`features/code_test_integrity.py`). Not looked at in the packaged Mac app.
+
 ### Accessibility (Daredevil depends on this)
 
 | ID | Problem | Where | Fix |

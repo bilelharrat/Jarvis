@@ -25,7 +25,16 @@
     "Security scan clean": "安全扫描未发现问题",
     "Not security-scanned": "未做安全扫描",
     "Security scan": "安全扫描",
-    "isn't installed": "未安装"
+    "isn't installed": "未安装",
+    "Tests passed before its last edits": "测试在最后几处修改之前通过",
+    "Tests didn’t finish": "测试没有跑完",
+    "Tests not run (not allowed)": "测试没有运行（未获允许）",
+    "Stopped before it finished": "没完成就停了",
+    "Receipts": "收据",
+    "Check tests weren’t weakened": "检查测试有没有被削弱",
+    "Before a receipt says the tests passed, read the turn’s test changes for assertions taken out or loosened, skips, a test command that can’t fail, tests deleted and mocks of the code under test.": "在收据说测试通过之前，先检查这一轮对测试的改动：有没有删掉或放宽断言、跳过测试、让测试命令永远不会失败、删除测试，或者把被测代码本身换成模拟。",
+    "Quick mutation pass": "快速变异检查",
+    "After a turn whose tests passed, make a few small changes to the lines it changed and rerun the relevant tests in a scratch copy, to show how many they catch. Up to 3 minutes; no AI is used.": "测试通过的一轮之后，对它改动的代码行做几处小改动，在临时副本里重跑相关测试，看测试能发现其中多少处。最多 3 分钟；不使用 AI。"
   },
   "patterns": [
     [

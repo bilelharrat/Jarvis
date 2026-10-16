@@ -672,6 +672,30 @@ TEST_COMMAND = re.compile(
 _COUNTS = re.compile(
     r"\b(\d+) (passed|failed|pass|fail|failing|passing|errors?)\b", re.IGNORECASE
 )
+# node --test's summary puts the word first: "ℹ pass 5" / "ℹ fail 1" (its spec reporter) or
+# "# pass 5" (TAP). Read too, or every run of a node project was "ran, no result" (the
+# films' "npm test"). Its "cancelled" tests (a timeout, a test that never ended) failed.
+_COUNTS_AFTER = re.compile(
+    r"^[ \t]*(?:ℹ|#)[ \t]*(pass|fail|cancelled)[ \t]+(\d+)[ \t]*$", re.IGNORECASE | re.MULTILINE
+)
+# A test step that never ran, though it came back as an error: the owner (or a permission
+# rule, or nobody answering) said no, or it was interrupted. Not "tests failed": no test ran.
+_REFUSED = re.compile(
+    r"^\s*(?:The user (?:said no|didn't answer|doesn't want to proceed|wants to keep planning)"
+    r"|The user's permission rule|Permission to use \w+ (?:has been|was) denied"
+    r"|.{0,200}\bis a folder the user keeps private)",
+    re.IGNORECASE,
+)
+_INTERRUPTED = re.compile(r"^\s*\[?(?:Request )?interrupted by user", re.IGNORECASE)
+# What an edit after a test run must touch to make that run's pass out of date: code or the
+# configuration a test run reads, not the README.
+_STALE_EXT = (
+    ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".mts", ".cts", ".vue", ".svelte",
+    ".go", ".rs", ".swift", ".kt", ".java", ".rb", ".c", ".cc", ".cpp", ".h", ".hpp", ".m",
+    ".cs", ".php", ".scala", ".ex", ".exs", ".sh", ".json", ".toml", ".yaml", ".yml", ".ini",
+    ".cfg", ".html", ".css",
+)  # fmt: skip
+_EDITS = ("Edit", "MultiEdit", "Write", "NotebookEdit")
 TURNS_KEPT = 30  # per session
 TESTS_KEPT = 50  # test commands awaiting their result, per session
 # What outlasts a restart (Journal.snapshot): by Claude Code session id, since a session
@@ -690,6 +714,12 @@ class TestRun:
     passed: bool
     failed_count: int = 0
     passed_count: int = 0
+    # "" it ran to its end; "cancelled" it was stopped before it ended (an interrupt, or the
+    # turn ended first); "refused" it never ran (the owner or a rule said no). Neither of
+    # the last two passed or failed: passed is False, and the proof says what happened.
+    outcome: str = ""
+    # A code edit finished after this run: its result is about code that has since changed.
+    edited_after: bool = False
 
 
 @dataclass
@@ -709,15 +739,72 @@ def test_counts(output: str) -> tuple[int, int]:
     and its tail (tasks.kept_output), so a long run's summary is still there. (0, 0)
     means the output didn't say, which the proof shows as "ran", never "passed (0)"."""
     passed = failed = errors = 0
-    for number, word in _COUNTS.findall((output or "")[-2000:]):
+    tail = (output or "")[-2000:]
+    found = [(m.start(), m.group(1), m.group(2)) for m in _COUNTS.finditer(tail)]
+    found += [(m.start(), m.group(2), m.group(1)) for m in _COUNTS_AFTER.finditer(tail)]
+    for _at, number, word in sorted(found):  # (in the order printed: the last one says)
         word = word.lower()
         if word.startswith("pass"):
             passed = int(number)
         elif word.startswith("error"):
             errors = int(number)
+        elif word == "cancelled":
+            errors = int(number)  # (node's: they failed, as its exit code says)
         else:
             failed = int(number)
     return passed, failed + errors
+
+
+def tests_verdict(runs: list[TestRun]) -> dict[str, Any] | None:
+    """What a turn's test runs prove, all told, for its proof (code_receipts) and what Eden
+    says of it: state, the run that decides it, how many runs, and a note. Never "passed"
+    unless a run that went to its end passed with a count, no code changed after it, and no
+    failure is left that a later run didn't cover:
+
+    - passed: the last run passed, with its count; a failure before it was run again (the
+      same command) or covered (a later pass with at least as many tests).
+    - failed: a run failed and nothing later covered it, so a narrower rerun that passed
+      (one test of fifty) doesn't hide the suite's failure.
+    - unknown: the last run ended well, but its output said no count (cut off, or a runner
+      whose summary isn't read): "ran", never "passed (0)".
+    - stale: it passed, but code was edited after it.
+    - cancelled / refused: no run went to its end (stopped; or never allowed to run).
+    None: no test ran."""
+    if not runs:
+        return None
+    out: dict[str, Any] = {"runs": len(runs), "note": ""}
+    ran = [r for r in runs if not getattr(r, "outcome", "")]
+    if not ran:
+        stopped = any(getattr(r, "outcome", "") == "cancelled" for r in runs)
+        return {**out, "state": "cancelled" if stopped else "refused", "run": runs[-1]}
+    failing = None
+    for i, r in enumerate(ran):
+        if r.passed and not r.failed_count:
+            continue
+        total = r.passed_count + r.failed_count
+        if not any(_covers(later, r, total) for later in ran[i + 1 :]):
+            failing = r
+    last = ran[-1]
+    if failing is not None:
+        note = ""
+        if last is not failing and last.passed:
+            note = "a later, narrower run passed"
+        elif getattr(failing, "edited_after", False):
+            note = "code changed after it"
+        return {**out, "state": "failed", "run": failing, "note": note}
+    if getattr(last, "edited_after", False):
+        return {**out, "state": "stale", "run": last, "note": "code changed after it"}
+    if not last.passed_count:
+        return {**out, "state": "unknown", "run": last}
+    return {**out, "state": "passed", "run": last}
+
+
+def _covers(later: TestRun, failed: TestRun, total: int) -> bool:
+    """A later run that passed covers an earlier failure: the same command run again, or a
+    run of at least as many tests (the whole suite after one file)."""
+    if not later.passed or later.failed_count:
+        return False
+    return later.command == failed.command or (total > 0 and later.passed_count >= total)
 
 
 class Journal:
@@ -731,7 +818,11 @@ class Journal:
         self.turns: dict[int, deque[Turn]] = {}
         self.seen: dict[int, float] = {}
         self._pending_tests: dict[int, dict[str, str]] = {}
+        self._pending_edits: dict[int, dict[str, str]] = {}  # edits awaiting their end: path
         self._ran: dict[int, list[TestRun]] = {}
+        # A stopped turn isn't kept (the user stopped it themselves: nothing to catch up on),
+        # but its proof still says which tests it ran: its latest stopped turn, by session.
+        self.stopped: dict[int, Turn] = {}
         # Kept across a restart: session_of(task id) gives its Claude Code session id ("" if
         # none yet); kept holds what a saved session did until it's open again here, and
         # on_change hears each change worth saving.
@@ -764,7 +855,16 @@ class Journal:
             return
         if kind == "task_log":
             entry = data.get("entry") or {}
-            if entry.get("role") != "tool" or entry.get("tool") != "Bash":
+            if entry.get("role") != "tool":
+                return
+            if entry.get("tool") in _EDITS and entry.get("tool_id"):
+                path = str(entry.get("detail") or "").split("\n", 1)[0]
+                waiting = self._pending_edits.setdefault(task_id, {})
+                waiting[str(entry["tool_id"])] = path.removesuffix(" (new contents)").strip()
+                while len(waiting) > TESTS_KEPT:
+                    del waiting[next(iter(waiting))]
+                return
+            if entry.get("tool") != "Bash":
                 return
             command = str(entry.get("detail") or "").removeprefix("$ ").strip()
             if entry.get("tool_id") and TEST_COMMAND.search(command):
@@ -773,18 +873,38 @@ class Journal:
                 while len(waiting) > TESTS_KEPT:
                     del waiting[next(iter(waiting))]
         elif kind == "task_log_update":
+            edited = self._pending_edits.get(task_id, {}).pop(str(data.get("tool_id")), None)
+            if edited is not None:
+                if data.get("status") == "done" and edited.lower().endswith(_STALE_EXT):
+                    for run in self._ran.get(task_id, []):
+                        run.edited_after = True
+                return
             command = self._pending_tests.get(task_id, {}).pop(str(data.get("tool_id")), None)
             if command is not None:
-                passed, failed = test_counts(str(data.get("output") or ""))
+                output = str(data.get("output") or "")
+                passed, failed = test_counts(output)
                 ok = data.get("status") == "done" and not failed
+                outcome = ""
+                if data.get("status") != "done" and not (passed or failed):
+                    if _INTERRUPTED.search(output[:300]):
+                        outcome = "cancelled"
+                    elif _REFUSED.search(output[:300]):
+                        outcome = "refused"
                 runs = self._ran.setdefault(task_id, [])
-                runs.append(TestRun(command, ok, failed, passed))
+                runs.append(TestRun(command, ok, failed, passed, outcome))
                 del runs[:-TESTS_KEPT]
         elif kind == "task_finished" and data.get("task_kind") == "code":
             status = str(data.get("status") or "done")
             tests = self._ran.pop(task_id, [])
+            # A test step still waiting for its result when the turn ended never ended.
+            for command in self._pending_tests.pop(task_id, {}).values():
+                tests.append(TestRun(command, False, outcome="cancelled"))
+            self._pending_edits.pop(task_id, None)
             if status not in ("done", "failed"):
-                return  # stopped: the user did that themselves (or closed it)
+                # stopped: the user did that themselves (or closed it)
+                self.stopped[task_id] = Turn(self.clock(), "stopped", [], tests, "")
+                return
+            self.stopped.pop(task_id, None)
             turn = Turn(
                 at=self.clock(),
                 status=status,
@@ -810,7 +930,14 @@ class Journal:
     def forget_others(self, keep: set[int]) -> None:
         """Sessions the list has let go of: nothing more to say about them."""
         gone = False
-        for store in (self.turns, self.seen, self._pending_tests, self._ran):
+        for store in (
+            self.turns,
+            self.seen,
+            self._pending_tests,
+            self._pending_edits,
+            self._ran,
+            self.stopped,
+        ):
             for task_id in [k for k in store if k not in keep]:
                 del store[task_id]
                 gone = True
@@ -881,6 +1008,8 @@ def _turn_out(turn: Turn) -> dict[str, Any]:
                 "passed": r.passed,
                 "failed_count": r.failed_count,
                 "passed_count": r.passed_count,
+                **({"outcome": r.outcome} if r.outcome else {}),
+                **({"edited_after": True} if r.edited_after else {}),
             }
             for r in turn.tests[-SAVED_TESTS:]
         ],  # fmt: skip
@@ -902,7 +1031,17 @@ def _turn_in(raw: Any) -> Turn | None:
         if isinstance(r, dict) and isinstance(r.get("command"), str):
             counts = [r.get(k) for k in ("failed_count", "passed_count")]
             failed, passed = (c if isinstance(c, int) and c >= 0 else 0 for c in counts)
-            tests.append(TestRun(r["command"][:200], r.get("passed") is True, failed, passed))
+            outcome = r.get("outcome") if r.get("outcome") in ("cancelled", "refused") else ""
+            tests.append(
+                TestRun(
+                    r["command"][:200],
+                    r.get("passed") is True and not outcome,
+                    failed,
+                    passed,
+                    outcome,
+                    r.get("edited_after") is True,
+                )
+            )
     origin = raw.get("origin") if isinstance(raw.get("origin"), str) else "user"
     return Turn(
         at=float(at),
@@ -1220,13 +1359,13 @@ def digest_lines(
         lines.append(
             say("It changed {n} files: {names}.", language, n=len(files), names=_names(files))
         )
-    runs = [r for t in turns for r in t.tests]
-    if runs:
-        last = runs[-1]
-        if last.passed and last.passed_count:
+    # As the proof has it (tests_verdict): a pass only when one happened; a run that ended
+    # without a result, was stopped or ran before the last edits isn't said to have passed.
+    verdict = tests_verdict([r for t in turns for r in t.tests])
+    if verdict is not None and verdict["state"] in ("passed", "failed"):
+        last = verdict["run"]
+        if verdict["state"] == "passed":
             lines.append(say("{n} tests passed.", language, n=last.passed_count))
-        elif last.passed:
-            lines.append(say("The tests passed.", language))
         elif last.failed_count:
             lines.append(say("{n} tests failed.", language, n=last.failed_count))
         else:

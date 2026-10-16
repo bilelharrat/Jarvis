@@ -18,24 +18,33 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
 - "Assumptions": each guess made instead of asking the owner during the turn (Eden's own
   auto-answers and the session's notes: features/code_assumptions.py), with its evidence,
   risk and an Undo; an open high-risk one makes the receipt's risk high;
-- a risk level: high when it failed, tests failed, the check found problems, or it touched
-  auth, billing, the database schema or secrets; medium when it changed many files or
-  changed code with no tests run; else low. Said in words, with why;
 - the guardrails that fired in the turn (code_guardrails: the owner's rules compiled into
-  checks), each blocked, asked or flagged, and how many times.
+  checks), each blocked, asked or flagged, and how many times;
 - what the security scanners the owner has installed found (code_security: Semgrep on
   the lines the turn added, osv-scanner, npm audit and pip-audit on the dependencies it
   brought in), with the tools that ran, and the ones that would have and aren't
   installed, with how to install them; run while the other proofs are waited for;
-- a risk level: high when it failed, tests failed, the check found problems, a security
-  scanner found a high-severity problem, or it touched auth, billing, the database schema
-  or secrets; medium when it changed many files, changed code with no tests run, or a
+- test integrity (code_test_integrity): before the receipt may say the tests passed, the
+  turn's changes to its tests are read for a test weakened (assertions taken out or
+  loosened, skip/only markers, a test command that can no longer fail, tests deleted, the
+  code under test mocked away), and, when Settings asks, a quick mutation pass reruns the
+  relevant tests against small changes to the changed lines ("7 of 9 mutants caught");
+- a risk level: high when it failed, tests failed, a test was weakened, the check found
+  problems, a security scanner found a high-severity problem, or it touched auth, billing,
+  the database schema or secrets; medium when it was stopped, changed many files, changed
+  code with no tests run (or tests that didn't finish, or ran before its last edits), or a
   scanner found something lesser; else low. Said in words, with why.
+
+The tests line is only ever "passed" when a run that went to its end passed with a count,
+nothing in the code changed after it, and no earlier failure is left uncovered
+(codesupervisor.tests_verdict); a run with no count is "ran", one stopped "didn't finish",
+one refused "not run", and a failed run never "(0)".
 
 The entry's text reads well on its own (the phone, a voice summary); the window draws it
 as a card from its receipt field (web/features/code-receipts.js).
 
-No Claude calls here.
+Cost policy: no model calls here (the integrity check is local, and its mutation pass runs
+the project's own tests in a scratch copy, off by default).
 """
 
 from __future__ import annotations
@@ -52,6 +61,7 @@ from .code_security import risk_of as security_risk
 log = logging.getLogger("jarvis")
 
 VERIFY_WAIT = 120.0  # seconds a receipt waits for the check after the turn
+INTEGRITY_WAIT = 240.0  # ... and for its test-integrity check (a mutation pass is bounded)
 SPEC_WAIT = 900.0  # ... and for a Spec mode task's check against its requirements
 MANY_FILES = 12
 _CODE = (
@@ -74,40 +84,59 @@ _CODE = (
 def risk_of(status: str, files: list[str], tests: list[Any], check: dict[str, Any] | None):
     """(low | medium | high, why)."""
     areas = cs.risky_areas(files)
+    verdict = cs.tests_verdict(tests)
+    state = verdict["state"] if verdict else ""
+    code = any(f.endswith(_CODE) for f in files)
     if status == "failed":
         return "high", "the turn stopped with an error"
-    if tests and not tests[-1].passed:
+    if state == "failed":
         return "high", "its tests failed"
     if check and check.get("status") == "problems":
         return "high", "the check after it found problems"
     if areas:
         return "high", f"it touches {' and '.join(areas)}"
+    if status == "stopped":
+        return "medium", "it was stopped before it finished"
+    if code and state in ("cancelled", "refused"):
+        return "medium", "it changed code and its tests didn't run to the end"
+    if code and state == "stale":
+        return "medium", "it changed code after its tests ran"
     if len(files) >= MANY_FILES:
         return "medium", f"it changed {len(files)} files"
-    if not tests and any(f.endswith(_CODE) for f in files):
+    if not tests and code:
         return "medium", "it changed code and ran no tests"
-    return "low", "small, tested change" if tests else "small change"
+    if state == "passed":
+        return "low", "small, tested change"
+    return "low", "small change"
+
+
+def tests_part(tests: list[Any]) -> dict[str, Any] | None:
+    """The receipt's tests field (codesupervisor.tests_verdict): passed is True only for a
+    real pass, False for a failure, None otherwise (no count, stopped, refused, out of date),
+    so an older window still never shows a pass that didn't happen; state says which."""
+    verdict = cs.tests_verdict(tests)
+    if verdict is None:
+        return None
+    run, state = verdict["run"], verdict["state"]
+    return {
+        "command": run.command[:120],
+        "passed": True if state == "passed" else False if state == "failed" else None,
+        "passed_count": run.passed_count,
+        "failed_count": run.failed_count,
+        "state": state,
+        "runs": verdict["runs"],
+        "note": verdict["note"],
+    }
 
 
 def receipt_of(task: Any, data: dict[str, Any], tests: list[Any], check: dict[str, Any] | None):
     files = [str(f) for f in data.get("files") or []]
-    level, why = risk_of(str(data.get("status") or ""), files, tests, check)
-    run = None
-    if tests:
-        last = tests[-1]
-        # A run that exited 0 but said no counts is unknown (None), not "passed (0)": the
-        # output may have been cut off, or the runner prints nothing we read.
-        unknown = last.passed and not (last.passed_count or last.failed_count)
-        run = {
-            "command": last.command[:120],
-            "passed": None if unknown else last.passed,
-            "passed_count": last.passed_count,
-            "failed_count": last.failed_count,
-        }
-    return {
+    status = str(data.get("status") or "")
+    level, why = risk_of(status, files, tests, check)
+    out = {
         "files": files[:30],
         "file_count": len(files),
-        "tests": run,
+        "tests": tests_part(tests),
         "check": {
             k: (check or {}).get(k, "") for k in ("status", "text", "url", "thumb")
         } if check else None,
@@ -115,22 +144,45 @@ def receipt_of(task: Any, data: dict[str, Any], tests: list[Any], check: dict[st
         "why": why,
         "elapsed": int(data.get("elapsed") or 0),
     }  # fmt: skip
+    if status == "stopped":
+        out["stopped"] = True
+    return out
+
+
+# The tests line in words, by its state (the window's card has the same, code-receipts.js).
+def tests_words(t: dict[str, Any] | None) -> str:
+    if not t:
+        return "no tests run"
+    state = t.get("state") or (
+        "unknown" if t.get("passed") is None else "passed" if t.get("passed") else "failed"
+    )
+    if state == "passed" and t.get("passed") is True and t.get("passed_count"):
+        words = f"tests passed ({t['passed_count']})"
+        return words + (", but a test was weakened" if t.get("trusted") is False else "")
+    if state == "failed":
+        # A failed run whose count we couldn't read says just that: never "(0)".
+        n = t.get("failed_count")
+        words = f"tests failed ({n})" if n else "tests failed"
+        return words + (f" ({t['note']})" if t.get("note") else "")
+    if state == "stale":
+        n = t.get("passed_count")
+        return (
+            f"tests passed ({n}) before its last edits" if n else "tests ran before its last edits"
+        )
+    if state == "cancelled":
+        return "tests didn't finish"
+    if state == "refused":
+        return "tests not run (not allowed)"
+    return "tests ran (no result shown)"
 
 
 def receipt_text(r: dict[str, Any]) -> str:
     parts = [f"Changed {r['file_count']} file{'s' if r['file_count'] != 1 else ''}"]
-    t = r["tests"]
-    if t:
-        if t["passed"] is None:
-            parts.append("tests ran (no result shown)")
-        elif t["passed"]:
-            parts.append(f"tests passed ({t['passed_count']})")
-        else:
-            # A failed run whose count we couldn't read says just that: never "(0)".
-            n = t["failed_count"]
-            parts.append(f"tests failed ({n})" if n else "tests failed")
-    else:
-        parts.append("no tests run")
+    if r.get("stopped"):
+        parts.append("stopped before it finished")
+    parts.append(tests_words(r["tests"]))
+    for line in (r.get("integrity") or {}).get("lines") or []:
+        parts.append(str(line.get("text") or "")[:160])
     if r["check"]:
         parts.append(f"check: {r['check']['text'] or r['check']['status']}"[:120])
     own = r.get("selfcheck")
@@ -183,8 +235,12 @@ class Receipts:
     def tests_of(self, task_id: int, since: float) -> list[Any]:
         voice = getattr(self.hub, "code_voice", None)
         journal = getattr(voice, "journal", None)
-        turns = list((getattr(journal, "turns", {}) or {}).get(task_id, []))
-        return [r for turn in turns[-1:] if turn.at >= since for r in turn.tests]
+        turns = list((getattr(journal, "turns", {}) or {}).get(task_id, []))[-1:]
+        # A stopped turn isn't one of the journal's turns, but its runs are still its proof.
+        stopped = (getattr(journal, "stopped", {}) or {}).get(task_id)
+        if stopped is not None:
+            turns = sorted([*turns, stopped], key=lambda t: t.at)[-1:]
+        return [r for turn in turns if turn.at >= since for r in turn.tests]
 
     def checking(self, task_id: int) -> bool:
         cv = getattr(self.hub, "code_verify", None)
@@ -251,6 +307,12 @@ class Receipts:
         scanners = getattr(self.hub, "code_security", None)  # (code_security: the scanners)
         if scanners is not None and scanners.enabled():
             waits["security"] = asyncio.ensure_future(_quietly(scanners.receipt_part(task)))
+        # Test integrity (code_test_integrity): read once the journal has the turn's runs,
+        # alongside the other waits (its mutation pass, when on, takes a while).
+        integrity = getattr(self.hub, "code_integrity", None)
+        honest = None
+        if integrity is not None:
+            honest = asyncio.ensure_future(self.integrity_of(integrity, task, since))
         if waits:  # the check and the video, together, as long as VERIFY_WAIT at most
             await asyncio.wait(list(waits.values()), timeout=VERIFY_WAIT)
         if "spec" in waits and not waits["spec"].done():  # its suite can take longer
@@ -296,9 +358,47 @@ class Receipts:
             said = security_risk(scanned)
             if said and _RISKS.index(said[0]) > _RISKS.index(receipt["risk"]):
                 receipt["risk"], receipt["why"] = said
+        if honest is not None:
+            done, _ = await asyncio.wait([honest], timeout=INTEGRITY_WAIT)
+            part = None
+            if honest in done:
+                try:
+                    part = honest.result()
+                except Exception as exc:  # (it never keeps the receipt back)
+                    log.warning("Eden Code's test-integrity check failed: %s", exc)
+            else:
+                honest.cancel()
+            if part:
+                with_integrity(receipt, part)
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt
+
+    async def integrity_of(self, integrity: Any, task: Any, since: float):
+        await asyncio.sleep(0)  # (the journal hears the same turn's end on this loop)
+        tests = self.tests_of(task.id, since)
+        return await integrity.part(task, tests, cs.tests_verdict(tests))
+
+
+def with_integrity(receipt: dict[str, Any], part: dict[str, Any]) -> None:
+    """A receipt takes its test-integrity part: a test weakened is high risk, and its tests
+    line is no plain pass; tests that barely constrain the change make a low risk medium."""
+    receipt["integrity"] = part
+    tests = receipt.get("tests")
+    if part.get("status") == "weakened":
+        if tests and tests.get("state") == "passed":
+            tests["trusted"] = False
+        kinds = {str(f.get("kind")) for f in part.get("findings") or []}
+        run_only = bool(kinds) and kinds <= {"cannot_fail", "run_cannot_fail"}
+        if receipt["risk"] != "high":
+            receipt["risk"] = "high"
+            receipt["why"] = "a test can no longer fail" if run_only else "a test was weakened"
+        return
+    mutants = part.get("mutants") or {}
+    if mutants.get("status") == "done" and mutants.get("tried"):
+        low = mutants["caught"] / mutants["tried"] < 0.5
+        if low and receipt["risk"] == "low":
+            receipt["risk"], receipt["why"] = "medium", "its tests barely constrain the change"
 
 
 def install(hub: Any) -> None:

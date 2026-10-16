@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { testsLine } = require('../../src/jarvis/web/features/code-receipts.js');
+const { testsLine, integrityLines } = require('../../src/jarvis/web/features/code-receipts.js');
 
 test('the tests line: a count when the run said one, never "(0)"', () => {
   assert.deepEqual(testsLine(null), ['rc-none', 'No tests run', 0]);
@@ -26,4 +26,34 @@ test('the security line: findings with their count, clean, not scanned, or nothi
   assert.deepEqual(securityLine({ ran: ['Semgrep', 'npm audit'], count: 0 }), ['rc-ok', 'Security scan clean', 0]);
   // No tool installed that would have checked it: said, dimly (the card lists how to install them).
   assert.deepEqual(securityLine({ ran: [], count: 0, missing: [{ id: 'semgrep' }] }), ['rc-none', 'Not security-scanned', 0]);
+});
+
+// Receipts accuracy (roadmap 1, 34): the card says "Tests passed" only for a real pass; a
+// stopped, refused or out-of-date run says so; a weakened test turns the pass amber; and the
+// integrity lines come through in their tone.
+test('the tests line by state: never a pass that did not happen', () => {
+  assert.deepEqual(testsLine({ state: 'passed', passed: true, passed_count: 7, failed_count: 0 }), ['rc-ok', 'Tests passed', 7]);
+  assert.deepEqual(testsLine({ state: 'passed', passed: true, passed_count: 7, trusted: false }), ['rc-warn', 'Tests passed', 7]);
+  // A "passed" with nothing to back it (no count, or passed not true) is not shown as one.
+  assert.deepEqual(testsLine({ state: 'passed', passed: true, passed_count: 0 }), ['rc-none', 'Tests ran (no result shown)', 0]);
+  assert.deepEqual(testsLine({ state: 'passed', passed: null, passed_count: 4 }), ['rc-none', 'Tests ran (no result shown)', 0]);
+  assert.deepEqual(testsLine({ state: 'failed', passed: false, passed_count: 49, failed_count: 1, note: 'a later, narrower run passed' }), ['rc-bad', 'Tests failed', 1]);
+  assert.deepEqual(testsLine({ state: 'cancelled', passed: null }), ['rc-warn', 'Tests didn\u2019t finish', 0]);
+  assert.deepEqual(testsLine({ state: 'refused', passed: null }), ['rc-none', 'Tests not run (not allowed)', 0]);
+  assert.deepEqual(testsLine({ state: 'stale', passed: null, passed_count: 8 }), ['rc-warn', 'Tests passed before its last edits', 8]);
+  assert.deepEqual(testsLine({ state: 'unknown', passed: null }), ['rc-none', 'Tests ran (no result shown)', 0]);
+});
+
+test('the integrity lines keep their tone and their words', () => {
+  assert.deepEqual(integrityLines({}), []);
+  assert.deepEqual(integrityLines({ integrity: { lines: [
+    { tone: 'bad', text: 'A test was weakened: 1 assertion taken out of tests/test_a.py' },
+    { tone: 'ok', text: 'Tests constrain this change: 7 of 9 mutants caught' },
+    { tone: 'odd', text: 'Mutation pass skipped: its tests failed' },
+    { tone: 'ok', text: '' },
+  ] } }), [
+    ['rc-bad', 'A test was weakened: 1 assertion taken out of tests/test_a.py'],
+    ['rc-ok', 'Tests constrain this change: 7 of 9 mutants caught'],
+    ['rc-none', 'Mutation pass skipped: its tests failed'],
+  ]);
 });
