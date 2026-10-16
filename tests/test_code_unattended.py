@@ -302,6 +302,7 @@ async def test_the_session_is_capped_and_an_issues_run_gets_fewer_tools(hub, pro
     assert options.sandbox["enabled"] and options.sandbox["network"]["allowedDomains"] == []
     assert options.sandbox["allowUnsandboxedCommands"] is False
     runs.active[4].sandbox = False  # turned off for its repository: no sandbox, the rest stays
+    hub.set_feature_prefs({"code_sandbox_bypass": False})  # (and the owner's own switch, on by default)
     options = hub.tasks.options_for(task)
     assert options.sandbox is None and options.mcp_servers == {}
     # Its run over, resumed by the owner: no caps or guard now, but the issue's text is still

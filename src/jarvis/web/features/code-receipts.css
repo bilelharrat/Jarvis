@@ -10,6 +10,7 @@
 .rc-facts { list-style: none; margin: 6px 0 0; padding: 0; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
 .rc-facts .rc-bad { color: #d9534f; }
 .rc-facts .rc-none { opacity: .7; }
+.rc-facts .rc-warn { color: #c8871a; }  /* a fallback: the turn moved models (reads on light and dark) */
 .rc-thumb { display: block; max-width: 240px; margin-top: 6px; border-radius: 6px; }
 .rc-files { margin-top: 4px; font-size: 12px; }
 .rc-qa { margin-top: 6px; font-size: 12px; }

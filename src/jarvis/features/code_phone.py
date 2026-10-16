@@ -55,7 +55,8 @@ HTTP (remote.py's server): GET /code/ (the page), /code/phone.js, /code/phone.cs
 /code/sw.js, /code/manifest.webmanifest, /code/icon.png; with the device token:
 GET /api/code/phone/home, /api/code/phone/options, /api/code/phone/session?id&after&seen&v&wait;
 POST /api/code/phone/{send, answer, stop, mode, model, new, land, discard, unpin}.
-Settings (prefs.features): code_phone_web (bool, off).
+Settings (prefs.features): code_phone_web (bool, off), code_phone_offered (bool: the first-run
+card's offer was answered).
 
 Cost policy (Claude): nothing here calls a model. A message sent or a session started from
 the phone is the owner's own turn, under the usage caps (code_usage) like the window's.
@@ -79,6 +80,12 @@ log = logging.getLogger("jarvis")
 
 PREF = "code_phone_web"
 prefs.register_feature_pref(PREF, False)
+# Whether Eden Code's first-run card has offered the phone page (web/features/code-getstarted.js,
+# 2026-10-16). The page stays off until the owner turns it on there or in the Phone pane: it
+# serves their sessions to a paired device, so it's their yes, never a default; the card only
+# makes sure they hear it exists (carrying on from the phone is among the most-asked features).
+PREF_OFFERED = "code_phone_offered"
+prefs.register_feature_pref(PREF_OFFERED, False)
 
 PHONE_MODES = ("ask", "edits")  # Manual and Accept edits: never Bypass from the page (S11)
 WAIT_MOST = 25.0  # seconds a live transcript's request waits for something new

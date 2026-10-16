@@ -73,8 +73,14 @@ SCHEMES_FRESH = 300.0  # seconds a project's Xcode schemes are kept before askin
 TESTS_START = 3.0  # after a turn, seconds for the watch's run to begin
 TESTS_WAIT = 180.0  # ... and for it to end, before the check goes on without it
 
-PREF_VERIFY = "code_verify_new_sessions"  # new sessions check the preview after each turn
-prefs.register_feature_pref(PREF_VERIFY, False)
+PREF_VERIFY = "code_verify_new_sessions"  # new sessions check their work after each turn
+# On by default (2026-10-16; it was off): checking its own work is the lever owners and rival
+# tools lean on most, and what it sends back is already capped (FOLLOW_UPS_IN_A_ROW in a row,
+# FOLLOW_UPS_PER_HOUR an hour, nothing when a check passes), so it can't run up a bill. A
+# project with nothing to check says so once a session, not after every turn. The owner
+# turns it off in Settings › Eden Code, a project in Settings › Projects, a session in its
+# Preview pane.
+prefs.register_feature_pref(PREF_VERIFY, True)
 # A project's own say (Settings › Projects › New sessions in a project start with), over
 # PREF_VERIFY for new sessions there: kept in code_project_defaults as "verify".
 PROJECT_VERIFY = "verify"

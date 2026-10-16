@@ -114,7 +114,29 @@ async def test_a_folder_that_cant_be_copied_says_why_and_the_session_still_works
     assert any("isn't a git repository" in e["text"] for e in task.transcript)
 
 
+async def test_a_second_session_where_another_works_gets_a_copy_without_a_card(hub, projects):
+    """code_isolate_auto (on by default): no card, a copy, and the transcript says why."""
+    make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    shared = hub.tasks.start("", "proj")
+    assert await until(lambda: shared.client is not None)
+    assert not shared.workspace  # the first one works in the folder
+    shared.busy = True
+    answer(hub)  # (keeps the cards: there should be none)
+    second = hub.tasks.start("", "proj")
+    assert await until(lambda: second.client is not None and second.workspace)
+    assert not hub.cards
+    said = [e["text"] for e in second.transcript if e["role"] == "system"]
+    assert any(
+        s.startswith("Another session is working in proj, so this one got an isolated copy")
+        for s in said
+    )
+    third = hub.tasks.start("", "proj", isolate=False)  # the composer's switch, turned off, wins
+    assert await until(lambda: third.client is not None)
+    assert not third.workspace
+
+
 async def test_the_default_setting_and_the_offer_when_another_session_is_working(hub, projects):
+    hub.set_feature_prefs({"code_isolate_auto": False})  # (the card, as before 2026-10-16)
     make_repo(projects / "proj", {"a.py": "x = 1\n"})
     shared = hub.tasks.start("", "proj")
     assert await until(lambda: shared.client is not None)

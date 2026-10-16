@@ -375,6 +375,40 @@ def _python_suggestions(project: Path) -> list[LaunchConfig]:
     return out
 
 
+# A package.json that depends on one of these is a web front-end (front_end).
+_FRONT_END_DEPS = (
+    "react", "react-dom", "vue", "svelte", "@sveltejs/kit", "next", "nuxt", "vite",
+    "@angular/core", "solid-js", "preact", "astro", "@remix-run/react", "gatsby", "lit",
+    "ember-source", "@vitejs/plugin-react", "webpack-dev-server", "parcel",
+)  # fmt: skip
+_FRONT_END_PAGES = ("index.html", "public/index.html", "src/index.html", "app/index.html")
+
+
+def front_end(project: Path) -> str:
+    """Why this project is a web front-end ("" when it isn't, as far as its files say): a
+    package.json (in the project or a front-end subfolder) depending on a UI framework or a
+    dev bundler, or an index.html page. Only read from its files: nothing runs."""
+    folders = [project] + [project / d for d in _SUBDIRS if d not in ("server", "api", "docs")]
+    for folder in folders:
+        package = _read_json(folder / "package.json")
+        if not isinstance(package, dict):
+            continue
+        names: set[str] = set()
+        for key in ("dependencies", "devDependencies", "peerDependencies"):
+            deps = package.get(key)
+            if isinstance(deps, dict):
+                names |= {str(k) for k in deps}
+        found = next((d for d in _FRONT_END_DEPS if d in names), "")
+        if found:
+            rel = "" if folder == project else f"{folder.relative_to(project)}/"
+            return f"{rel}package.json uses {found}"
+    for page in _FRONT_END_PAGES:
+        with contextlib.suppress(OSError):
+            if (project / page).is_file():
+                return f"it has {page}"
+    return ""
+
+
 def suggest(project: Path, existing: list[LaunchConfig] | None = None) -> list[LaunchConfig]:
     """Likely dev server configs for a project, never ones it already has (by name or
     command). Only read from its files: nothing runs."""

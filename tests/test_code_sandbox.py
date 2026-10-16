@@ -66,9 +66,13 @@ def _fresh(settings, quiet_speaker, isolated, tmp_path, on=True):
     (tmp_path / "proj").mkdir(exist_ok=True)
     Stream.instances = []
     hub = make_hub(settings, quiet_speaker, isolated)
-    if on:
-        hub.set_feature_prefs({"code_sandbox_bypass": True})
+    hub.set_feature_prefs({"code_sandbox_bypass": on})  # (on by default since 2026-10-16)
     return hub
+
+
+def test_the_sandbox_is_on_by_default(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    assert hub.prefs.feature("code_sandbox_bypass") is True
 
 
 async def test_bypass_sessions_run_in_the_sandbox_when_the_switch_is_on(
@@ -200,3 +204,59 @@ def test_its_transcript_notes_have_chinese_in_the_window():
     zh = zh_strings()
     for note in [code_sandbox.NOW_ON, code_sandbox.NOW_OFF, code_sandbox.ALLOWLIST]:
         assert note in zh["strings"] or any(re.fullmatch(p, note) for p, _ in zh["patterns"])
+
+
+# ── the permission default in an isolated copy (2026-10-16) ──
+
+
+async def test_a_new_session_in_an_isolated_copy_starts_in_auto_in_the_sandbox(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """Manual (the default) in a new copy, with the sandbox switch on: Auto on a Claude model
+    auto mode runs on, else Accept edits; in the sandbox either way. Said in the transcript."""
+    from jarvis.tasks import ClaudeTask
+
+    hub = _fresh(settings, quiet_speaker, isolated, tmp_path)
+    desk = hub.code_sandbox
+    assert desk.on_new_copy in hub.code_desk.on_new_copy  # (hooked into code_isolation)
+    opus = ClaudeTask(id=31, prompt="x", cwd=tmp_path / "proj", model="claude-opus-5-5")
+    haiku = ClaudeTask(id=32, prompt="x", cwd=tmp_path / "proj", model="claude-haiku-4-5")
+    for task in (opus, haiku):
+        hub.tasks.tasks[task.id] = task
+        await desk.on_new_copy(task, None)
+    assert opus.mode == "smart" and haiku.mode == "edits"
+    assert desk.wanted(opus) and desk.wanted(haiku)  # (in the sandbox, though not Bypass)
+    said = [e["text"] for e in opus.transcript if e["role"] == "system"]
+    assert any(
+        s.startswith("This session works in an isolated copy, in the sandbox, so it starts in Auto")
+        for s in said
+    )
+
+
+async def test_manual_stays_outside_copies_without_the_sandbox_or_when_turned_off(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from jarvis.tasks import ClaudeTask
+
+    hub = _fresh(settings, quiet_speaker, isolated, tmp_path, on=False)
+    desk = hub.code_sandbox
+    no_box = ClaudeTask(id=41, prompt="x", cwd=tmp_path / "proj", model="claude-opus-5-5")
+    hub.tasks.tasks[41] = no_box
+    await desk.on_new_copy(no_box, None)
+    assert no_box.mode == "ask" and not desk.wanted(no_box)  # no sandbox: Manual stays
+    hub.set_feature_prefs({"code_sandbox_bypass": True, "code_auto_in_copies": False})
+    off = ClaudeTask(id=42, prompt="x", cwd=tmp_path / "proj", model="claude-opus-5-5")
+    hub.tasks.tasks[42] = off
+    await desk.on_new_copy(off, None)
+    assert off.mode == "ask"  # the owner keeps Manual
+    hub.set_feature_prefs({"code_auto_in_copies": True})
+    plan = ClaudeTask(
+        id=43, prompt="x", cwd=tmp_path / "proj", model="claude-opus-5-5", mode="plan"
+    )
+    untrusted = ClaudeTask(
+        id=44, prompt="x", cwd=tmp_path / "proj", model="claude-opus-5-5", untrusted=True
+    )
+    for task in (plan, untrusted):
+        hub.tasks.tasks[task.id] = task
+        await desk.on_new_copy(task, None)
+    assert plan.mode == "plan" and untrusted.mode == "ask"  # a mode of its own; an issue's text

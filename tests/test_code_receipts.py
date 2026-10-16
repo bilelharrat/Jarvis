@@ -98,3 +98,55 @@ async def test_the_receipt_waits_for_the_video_proof_and_carries_it(monkeypatch)
     receipt = await asyncio.wait_for(writing, 2)
     assert receipt["video"] == {"id": "a" * 24, "poster": "QUJD", "seconds": 6}
     assert logged[0]["receipt"]["video"]["id"] == "a" * 24
+
+
+async def test_every_fallback_and_the_routers_shadow_pick_are_on_the_receipt():
+    """A model change is never silent: each move to a fallback model since the last receipt
+    (task.fallbacks, hub._code_fallback) is on it, said once; and Model Router's Shadow pick
+    with what it would have saved, unless it agrees with the session's model."""
+    logged = []
+    moves = [
+        {
+            "from": "Opus 5.5",
+            "to": "Sonnet 5.5",
+            "why": "its usage limit or a rate limit",
+            "at": 1.0,
+        }
+    ]
+    task = NS(id=4, model="claude-opus-5-5", fallbacks=list(moves))
+    shadows = {4: {"model": "claude-sonnet-5-5", "effort": "low", "label": "Sonnet 5.5",
+                   "current": "claude-opus-5-5", "saveUSD": 0.0381}}  # fmt: skip
+    hub = NS(
+        tasks=NS(
+            tasks={4: task},
+            _log=lambda t, role, text, **kw: logged.append(text),
+            _changed_soon=lambda: None,
+        ),
+        code_router=NS(take_shadow=lambda tid: shadows.pop(tid, None)),
+    )
+    receipt = await cr.Receipts(hub).write(task, {"files": ["README.md"], "status": "done"}, 0)
+    assert receipt["fallbacks"] == [
+        {"from": "Opus 5.5", "to": "Sonnet 5.5", "why": "its usage limit or a rate limit"}
+    ]
+    assert receipt["router"] == {
+        "model": "claude-sonnet-5-5",
+        "effort": "low",
+        "label": "Sonnet 5.5",
+        "saveUSD": 0.0381,
+    }
+    assert "fell back from Opus 5.5 to Sonnet 5.5 (its usage limit or a rate limit)" in logged[0]
+    assert "Model Router would pick Sonnet 5.5 (about $0.04 less)" in logged[0]
+    assert task.fallbacks == []  # (said once)
+    again = await cr.Receipts(hub).write(task, {"files": ["README.md"], "status": "done"}, 0)
+    assert "fallbacks" not in again and "router" not in again
+
+
+def test_a_shadow_pick_that_agrees_or_costs_more_says_so():
+    agree = NS(take_shadow=lambda tid: {"model": "claude-opus-5-5", "current": "claude-opus-5-5"})
+    assert cr.shadow_part(agree, NS(id=1, model="claude-opus-5-5")) is None
+    assert (
+        cr.shadow_text({"label": "Opus 5.5", "saveUSD": -0.2})
+        == "Model Router would pick Opus 5.5 (about $0.20 more)"
+    )
+    assert cr.shadow_text({"model": "gpt-6", "saveUSD": None}) == "Model Router would pick gpt-6"
+    assert cr.shadow_part(NS(), NS(id=1, model="m")) is None  # (a router without Shadow mode)

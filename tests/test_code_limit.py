@@ -233,3 +233,99 @@ async def test_the_wait_is_told_in_chinese_to_a_chinese_speaking_owner(
     assert alert.title == "Claude 的用量上限"
     assert alert.text.startswith("已达到 Claude 的用量上限：Eden Code 会等到周"), alert.text
     hub.code_limit.forget()
+
+
+# ── the defaults (2026-10-16): unwatched runs wait; a watched session waits and asks once ──
+
+
+async def test_by_default_a_watched_session_waits_and_asks_once_which_it_should_be(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    hub = waiting_hub(settings, quiet_speaker, isolated, monkeypatch, wait="ask")
+    assert hub.prefs.feature("code_limit_wait") == "ask"
+    monkeypatch.setattr(hub, "_fallback_ref", lambda: "custom:gem1")
+    monkeypatch.setattr(hub.providers, "describe", lambda ref: "Gemini" if ref else "")
+    asked, moved = [], []
+
+    async def approve(question, detail="", choices=None, **_kw):
+        asked.append((question, [c for c, _l in choices]))
+        return "fallback"
+
+    monkeypatch.setattr(hub, "request_approval", approve)
+    monkeypatch.setattr(hub, "_code_claude_down", lambda t, why, said: moved.append(why) or True)
+    down = hub.code_limit.claude_down(lambda task, why, said: False)
+    task = ClaudeTask(id=5, prompt="", cwd=settings.projects_dir)
+    hub.tasks.tasks[5] = task
+    assert down(task, "rate_limit", "") is True and task.hold_until > 0  # waits meanwhile
+    assert await until(lambda: moved)
+    assert asked == [("Claude's usage limit is reached. Wait for it to reset, or switch to Gemini?",
+                      ["wait", "fallback", "later"])]  # fmt: skip
+    assert hub.prefs.feature("code_limit_wait") is False and task.hold_until == 0  # kept, and moved
+    hub.code_limit.forget()
+
+
+async def test_the_answer_wait_is_kept_and_no_answer_asks_again_next_time(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    hub = waiting_hub(settings, quiet_speaker, isolated, monkeypatch, wait="ask")
+    monkeypatch.setattr(hub, "_fallback_ref", lambda: "custom:gem1")
+    answers = ["later", "wait"]
+
+    async def approve(question, detail="", choices=None, **_kw):
+        return answers.pop(0)
+
+    monkeypatch.setattr(hub, "request_approval", approve)
+    task = ClaudeTask(id=6, prompt="", cwd=settings.projects_dir)
+    hub.tasks.tasks[6] = task
+    await hub.code_limit.ask(task, time.time() + 600)
+    assert hub.prefs.feature("code_limit_wait") == "ask"  # "Ask me next time" (or none)
+    await hub.code_limit.ask(task, time.time() + 600)
+    assert hub.prefs.feature("code_limit_wait") is True
+
+
+async def test_with_no_fallback_model_it_just_waits_without_a_card(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    hub = waiting_hub(settings, quiet_speaker, isolated, monkeypatch, wait="ask")
+    monkeypatch.setattr(hub, "_fallback_ref", lambda: "")
+    spawned = []
+    monkeypatch.setattr(hub, "_spawn", lambda coro: spawned.append(coro) or coro.close())
+    down = hub.code_limit.claude_down(lambda task, why, said: False)
+    task = ClaudeTask(id=8, prompt="", cwd=settings.projects_dir)
+    hub.tasks.tasks[8] = task
+    assert down(task, "rate_limit", "") is True and task.hold_until > 0
+    names = [c.__qualname__ for c in spawned]
+    assert "LimitWait._wait" in names and "LimitWait.ask" not in names  # the wait, no card
+    hub.code_limit.forget()
+
+
+async def test_an_unattended_or_queued_run_waits_even_with_the_fallback_chosen(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    hub = waiting_hub(settings, quiet_speaker, isolated, monkeypatch, wait=False)
+    limit = hub.code_limit
+    task = ClaudeTask(id=9, prompt="", cwd=settings.projects_dir)
+    assert not limit.wanted(task) and not limit.chosen(task)
+    hub.code_runs = type("Runs", (), {"active": {9: object()}})()
+    assert limit.unwatched(task) and limit.wanted(task) and limit.chosen(task)
+    assert not limit.asking(task)  # (nobody to ask)
+    hub.set_feature_prefs({"code_limit_wait_unwatched": False})
+    assert not limit.wanted(task)
+    hub.set_feature_prefs({"code_limit_wait_unwatched": True})
+    del hub.code_runs
+    board = type("Board", (), {"cards": [{"task": 9, "state": "running"}]})()
+    hub.code_todo = type("Todo", (), {"board": board})()  # a queued card's session
+    assert limit.unwatched(task)
+    board.cards = [{"task": 9, "state": "started"}]  # started by hand: someone's there
+    assert not limit.unwatched(task)
+
+
+def test_the_setting_takes_wait_the_fallback_or_ask(settings, quiet_speaker, isolated):
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    assert hub.prefs.feature("code_limit_wait") == "ask"
+    hub.set_feature_prefs({"code_limit_wait": True})
+    assert hub.prefs.feature("code_limit_wait") is True
+    hub.set_feature_prefs({"code_limit_wait": "sometimes"})  # not a choice: the old one stays
+    assert hub.prefs.feature("code_limit_wait") is True
+    hub.set_feature_prefs({"code_limit_wait": "ask"})
+    assert hub.prefs.feature("code_limit_wait") == "ask"

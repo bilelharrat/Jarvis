@@ -50,13 +50,18 @@ the session on them before the message goes.
   folder, started if it isn't running), in the browser.
 
 Settings (prefs.features): code_router_on (every session's messages are routed until a model
-is picked from the menu) and code_router_settings {efficiency, performance, classifier,
+is picked from the menu), code_router_shadow (on: while code_router_on is off, the window
+works out the pick it would make for each message with the rules alone, never a Gemini
+rating, and sends it as a Shadow route: logged, shown on the model button's tooltip and menu
+and on the turn's receipt with what it would save, the session never moved; picking Model
+Router from the menu is the one click to live routing) and code_router_settings {efficiency, performance, classifier,
 subscriptionClaude, shadow, learn, learnFromPrompts}: classifier "always" (the default:
 Gemini rates every routed prompt; the rules' pick is the instant preview while typing and
 the fallback), "auto" (only when the rating could change the pick) or "off" (the rules
 alone); subscriptionClaude (default on: Claude on the owner's sign-in is priced as plan
 quota, a fraction of its API price, and weighed by how much of the plan's windows is used);
-shadow (default off: every message's pick is logged, the session isn't moved); learn
+shadow (default off: with Model Router chosen too, every message's pick is logged and the
+session isn't moved; code_router_shadow covers the rest of the time); learn
 (default on) and learnFromPrompts (default off): see code_router_events, which also keeps
 the event log, the learned overrides, spend, the budget and per-project defaults.
 
@@ -112,6 +117,12 @@ MAX_INFO = 16_000  # bytes of JSON a route's info may be (the event log's number
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
 ON_PREF = "code_router_on"
+# Shadow mode while the router isn't the model (2026-10-16): on by default, where before the
+# router did nothing until chosen. Owners want routing to cut cost, but a router that switches
+# models silently is what they object to most; so by default it only says what it would pick
+# and save (the rules' pick: no model call), and switching is one click (Model Router in the
+# model menu). Off in Settings › Eden Code › General › Model Router.
+SHADOW_PREF = "code_router_shadow"
 SETTINGS_PREF = "code_router_settings"
 FALLBACK_PREF = "code_router_auto_fallback"
 CROSS_PREF = "code_router_cross_fallback"  # the fallback may go to another provider's pick
@@ -151,6 +162,7 @@ def clean_settings(value: Any) -> dict[str, Any] | None:
 
 
 register_feature_pref(ON_PREF, False)
+register_feature_pref(SHADOW_PREF, True)
 register_feature_pref(SETTINGS_PREF, dict(DEFAULT_SETTINGS), clean_settings)
 register_feature_pref(FALLBACK_PREF, True)
 register_feature_pref(CROSS_PREF, False)
@@ -233,6 +245,8 @@ class Router:
         self.closed: collections.deque[str] = collections.deque(maxlen=MAX_TOKENS)
         # Each session's latest route the router moved it on: where its fallback goes.
         self.routes: dict[int, dict[str, Any]] = {}
+        # Each session's latest Shadow pick, till its next receipt says it (take_shadow).
+        self.shadows: dict[int, dict[str, Any]] = {}
         self._claude_told: dict[str, Any] | None = None  # model_router_claude, as last sent
 
     def tr(self, text: str, **values: Any) -> str:
@@ -396,6 +410,8 @@ class Router:
                 task, text, route, source=source, moved=not skipped, skipped=skipped,
                 shadow=shadow, waited_ms=round(waited * 1000), new=new,
             )  # fmt: skip
+        if shadow:
+            self._note_shadow(task_id, route)
         if shadow or skipped:
             return
         self.routes[task_id] = {
@@ -406,6 +422,38 @@ class Router:
             "at": time.monotonic(),
             "retried": False,
         }
+
+    # ── Shadow mode: the pick it would have made, for the receipt ──
+
+    def _note_shadow(self, task_id: int, route: dict[str, Any]) -> None:
+        """A Shadow route (the session wasn't moved): kept as the session's latest, for its
+        next receipt to say what the router would have picked and saved."""
+        from .code_router_events import clean_info, shadow_saving
+
+        info = clean_info(route.get("info"))
+        pick = info.get("pick") or {"model": str(route.get("model") or "")}
+        if not pick.get("model"):
+            return
+        record = {"pick": pick, "current": info.get("current") or {}}
+        gain = shadow_saving(record)
+        self.shadows[task_id] = {
+            "model": pick["model"],
+            "effort": pick.get("effort", ""),
+            "label": self._label(str(route.get("ref") or "")) or pick["model"],
+            "current": (record["current"] or {}).get("model", ""),
+            "saveUSD": round(gain, 6) if gain is not None else None,
+            "at": time.time(),
+        }
+
+    def _label(self, ref: str) -> str:
+        try:
+            return str(self.hub.providers.describe(ref) or "") if ref else ""
+        except Exception:
+            return ""
+
+    def take_shadow(self, task_id: int) -> dict[str, Any] | None:
+        """The session's latest Shadow pick since its last receipt (code_receipts), once."""
+        return self.shadows.pop(task_id, None)
 
     async def _new(self, msg: dict[str, Any], wait: tuple[str, float] = ("", 0.0)) -> None:
         loop = asyncio.get_running_loop()
@@ -521,10 +569,13 @@ class Router:
         if (
             why == "rate_limit"
             and limit is not None
-            and limit.wanted()
+            and limit.chosen(task)
             and not str(task.model_ref).startswith("custom:")
         ):
-            return ""  # Claude's usage limit, with "wait for it to reset" on: code_limit's
+            # Claude's usage limit, with waiting chosen (by the owner, or for a run nobody
+            # watches): code_limit's. Not yet chosen, the router's announced fallback within
+            # Claude goes first; with nowhere to go, code_limit waits and asks.
+            return ""
         last = self.routes.get(task.id)
         if not last or last["retried"] or time.monotonic() - last["at"] > FALLBACK_SECONDS:
             return ""

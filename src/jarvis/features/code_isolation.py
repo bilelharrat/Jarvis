@@ -2,15 +2,18 @@
 
 A session can run in its own git worktree of the project. The composer's "Isolated copy"
 switch asks for one per session (its default is the Eden Code setting
-code_isolate_default, off); a session started some other way (by voice) while another is
-working in the same folder is offered one on a card. A session resumed later runs in its
+code_isolate_default, off). A session that starts while another is working in the same
+folder gets a copy of its own automatically (code_isolate_auto, on: the transcript says so
+and how to turn it off); with that off, a session started some other way (by voice) is
+offered one on a card, as before. A session resumed later runs in its
 copy again. Land merges a copy back and removes it; Discard keeps a recovery ref for 30
 days; the sweeper (at startup and daily) removes only spent copies and lists the rest.
 
 Window commands: code_copies {}, code_copy {slug, action: land|discard|restore|resume|
 resolve}.
 Events: code_copies.
-Settings (prefs.features): code_isolate_default (bool), code_iso_env and code_iso_link
+Settings (prefs.features): code_isolate_default (bool), code_isolate_auto (bool, on),
+code_iso_env and code_iso_link
 (project names whose .env files are copied, and whose node_modules/.venv are linked).
 Loop: code_copies_sweeper.
 Hooks for the other Eden Code features (Desk.on_new_copy, on_copy_gone, holders): a new
@@ -36,6 +39,15 @@ from .code_workspace import unopenable
 log = logging.getLogger("jarvis")
 
 PREF_DEFAULT = "code_isolate_default"
+# A second session in a folder another is working in: a copy of its own without a card
+# (2026-10-16; before, it was only offered). Two sessions editing the same files trip over
+# each other's half-done work, and a worktree per agent is what owners name as the feature
+# they'd switch tools for; a card that times out to "share" left most of them sharing.
+PREF_AUTO = "code_isolate_auto"
+AUTO_NOTE = (
+    "Another session is working in {project}, so this one got an isolated copy of its own. "
+    "Turn that off in Settings › Eden Code › Isolated copies."
+)
 PREF_ENV = "code_iso_env"
 PREF_LINK = "code_iso_link"
 OFFER_SECONDS = 90  # a card offering a copy waits this long, then the session shares
@@ -59,6 +71,7 @@ ZH = {
     "Another session is working in {project}. Give this one an isolated copy?": "另一个会话正在 {project} 里工作。要给这个会话一个独立副本吗？",
     "An isolated copy is the project on a branch of its own, so the two sessions never edit the same files. Land it when it's done to bring the work back.": "独立副本是项目在自己分支上的一份拷贝，这样两个会话就不会改同一批文件。完成后合并它，就能把工作带回来。",
     "Isolated copy": "独立副本",
+    "Another session is working in {project}, so this one got an isolated copy of its own. Turn that off in Settings › Eden Code › Isolated copies.": "另一个会话正在 {project} 里工作，所以这个会话自动用了一个独立副本。可以在 设置 › Eden Code › 独立副本 里关掉。",
     "Share the folder": "共用文件夹",
     "Land {branch} in {into}?": "要把 {branch} 合并进 {into} 吗？",
     "{n} file changed, +{added} −{removed}. This merges the copy into {into} in the main folder, then removes the copy and ends its sessions.": "改动了 {n} 个文件，+{added} −{removed}。这会把副本合并进主文件夹的 {into}，然后删除副本并结束它的会话。",
@@ -113,6 +126,7 @@ ZH = {
 lang.add_texts(ZH)
 
 prefs.register_feature_pref(PREF_DEFAULT, False)
+prefs.register_feature_pref(PREF_AUTO, True)
 prefs.register_feature_pref(PREF_ENV, [], _project_names)
 prefs.register_feature_pref(PREF_LINK, [], _project_names)
 
@@ -304,6 +318,9 @@ class Desk:
         if want is None:
             want = bool(self.hub.prefs.feature(PREF_DEFAULT))
             if not want and self.others_working(task):
+                if self.hub.prefs.feature(PREF_AUTO) is not False:
+                    await self.isolate(task, auto=True)
+                    return
                 want = await self.offer(task)
         if want:
             await self.isolate(task)
@@ -353,8 +370,9 @@ class Desk:
             return False
         return choice == "isolate"
 
-    async def isolate(self, task: Any) -> None:
-        """Make the session a copy of its own and move it in."""
+    async def isolate(self, task: Any, auto: bool = False) -> None:
+        """Make the session a copy of its own and move it in (auto: because another session
+        works in the folder, PREF_AUTO; its transcript says so first)."""
         project_dir = task.cwd
         task.last_action = "Making an isolated copy…"
         self.hub.tasks._changed()
@@ -398,6 +416,9 @@ class Desk:
             self.making -= 1
         self.save()
         self.bind(task, copy)
+        if auto:
+            said = lang.tr(AUTO_NOTE, self.hub.language, project=project_dir.name)
+            self.hub.tasks._log(task, "system", said)
         self.hub.tasks._log(
             task,
             "system",

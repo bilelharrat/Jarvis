@@ -26,5 +26,16 @@ def test_labs_are_off_by_default_and_on_when_chosen(monkeypatch):
 def test_a_lab_that_is_off_loads_no_window_files(monkeypatch):
     monkeypatch.delenv("JARVIS_LABS", raising=False)
     scripts = feature_assets(skip=_labs.web_skipped(Prefs([])))["scripts"]
-    assert not any("/code-acp.js" in s or "/code-plugins.js" in s for s in scripts)
+    assert not any("/code-acp.js" in s for s in scripts)
     assert any("/code-sessions.js" in s for s in scripts)
+
+
+def test_spec_mode_and_plugins_are_out_of_labs(monkeypatch):
+    """Graduated: installed and loaded whatever Labs says; an old "labs" list naming them
+    just drops them."""
+    monkeypatch.delenv("JARVIS_LABS", raising=False)
+    assert {"code_spec", "code_plugins"}.isdisjoint(_labs.skipped(Prefs([])))
+    scripts = feature_assets(skip=_labs.web_skipped(Prefs([])))["scripts"]
+    assert any("/code-plugins.js" in s for s in scripts)
+    assert any("/code-spec.js" in s for s in scripts)
+    assert _labs._clean(["code_spec", "code_acp"]) == ["code_acp"]

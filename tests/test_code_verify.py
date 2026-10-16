@@ -616,6 +616,12 @@ async def test_the_owner_can_ask_for_a_fix_and_see_the_full_picture(hub, project
     assert events(q, "cv_proof")[0]["missing"]
 
 
+async def test_new_sessions_check_their_work_by_default(hub, project):
+    """On by default since 2026-10-16 (its follow-ups capped as before)."""
+    assert hub.prefs.feature("code_verify_new_sessions") is True
+    assert hub.code_verify.session(40).verify is True
+
+
 async def test_new_sessions_check_their_work_when_the_owner_says_so(hub, project):
     hub.set_feature_prefs({"code_verify_new_sessions": True})
     assert hub.code_verify.session(41).verify is True

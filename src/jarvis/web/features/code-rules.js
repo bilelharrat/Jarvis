@@ -115,6 +115,20 @@
     sw.setAttribute('aria-label', 'Sandbox Bypass and unattended sessions');
     sw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { code_sandbox_bypass: !s.default } }));
     row.append(text, sw);
+    // A new session in an isolated copy starts in Auto, in the sandbox, rather than Manual
+    // (code_sandbox.PREF_AUTO_COPIES: on unless turned off; needs the switch above).
+    const autoRow = el('div', 'jc-audit-switch');
+    const autoText = el('span');
+    autoText.append(el('strong', '', 'Auto in sandboxed isolated copies'),
+      el('small', '', 'A new session in an isolated copy starts in Auto, in the sandbox, instead of Manual. Nothing reaches the project folder until you land the copy.'));
+    const autoOn = s.auto_copies !== false;
+    const autoSw = el('button', `sw${autoOn ? ' on' : ''} cs-switch`);
+    autoSw.type = 'button';
+    autoSw.setAttribute('role', 'switch');
+    autoSw.setAttribute('aria-checked', String(autoOn));
+    autoSw.setAttribute('aria-label', 'Auto in sandboxed isolated copies');
+    autoSw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { code_auto_in_copies: !autoOn } }));
+    autoRow.append(autoText, autoSw);
     const mineRow = el('div', 'cs-session');
     mineRow.append(el('span', 'cs-session-label', 'This session'));
     const seg = el('div', 'cr-seg cs-seg');
@@ -131,7 +145,7 @@
     }
     mineRow.append(seg);
     const line = el('p', `jc-dim cs-line${s.on ? (s.live ? ' on' : ' pending') : ''}`, sandboxLine(s));
-    parts.push(row, mineRow, line);
+    parts.push(row, autoRow, mineRow, line);
     // The project's allowlist.
     const head = el('p', 'cr-group-head cs-domains-head');
     head.append(el('strong', '', 'Domains sandboxed commands may reach'));

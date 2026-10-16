@@ -68,7 +68,9 @@
     "No changes on this branch.": "这个分支上没有改动。",
     "Show the whole branch": "显示整个分支",
     "Changes": "改动",
-    "just now": "刚刚"
+    "just now": "刚刚",
+    "Isolated copy when another session is working there": "另一个会话在那里工作时使用独立副本",
+    "A session that starts in a folder another session is working in gets a copy of its own, so the two never edit the same files.": "在另一个会话正在工作的文件夹里启动的会话会得到自己的副本，这样两个会话就不会改同一批文件。"
   },
   "patterns": [
     [

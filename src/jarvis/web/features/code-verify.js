@@ -595,7 +595,7 @@
     sw.type = 'button';
     sw.id = 'sw-cv-new-sessions';
     sw.setAttribute('role', 'switch');
-    sw.setAttribute('aria-checked', 'false');
+    sw.setAttribute('aria-checked', 'true');  // (on by default: code_verify.PREF_VERIFY)
     sw.setAttribute('aria-label', t('Check new sessions’ work'));
     sw.addEventListener('click', () => {
       const on = sw.getAttribute('aria-checked') !== 'true';
@@ -609,7 +609,7 @@
   }
   function showSetting(features) {
     const sw = F.$('sw-cv-new-sessions');
-    if (sw && features) sw.setAttribute('aria-checked', String(!!features.code_verify_new_sessions));
+    if (sw && features) sw.setAttribute('aria-checked', String(features.code_verify_new_sessions !== false));  // (on unless turned off)
   }
   settingsGroup();
   F.on('prefs', (ev) => showSetting(ev.features));

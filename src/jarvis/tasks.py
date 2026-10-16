@@ -907,6 +907,10 @@ class ClaudeTask:
     # What the session ran on before the fallback took it over (model, label, ref, env,
     # provider_settings, mode): it goes back there once Claude's limit has reset.
     fell_back_from: dict[str, Any] = field(default_factory=dict)
+    # Each move to a fallback model since the turn's receipt was last written ({from, to,
+    # why, at}): announced in the transcript as it happens, and on the next receipt
+    # (code_receipts), so a model change is never silent.
+    fallbacks: list[dict[str, Any]] = field(default_factory=list)
     audit: list[dict[str, Any]] = field(default_factory=list)  # every permission decision
     turn_started: float = 0.0
     turn_files: set[str] = field(default_factory=set)  # what this turn changed

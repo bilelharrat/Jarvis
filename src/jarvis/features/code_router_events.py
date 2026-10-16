@@ -252,6 +252,19 @@ def _row(value: Any) -> dict[str, Any] | None:
     return out
 
 
+def shadow_saving(route: dict[str, Any]) -> float | None:
+    """What a route's pick would have saved against the model the session was on (its
+    "current" row's cost less the pick's; negative when the pick costs more), or None when
+    either has no price or they're the same model and effort."""
+    pick, current = route.get("pick") or {}, route.get("current") or {}
+    p, c = pick.get("costUSD"), current.get("costUSD")
+    if not isinstance(p, int | float) or not isinstance(c, int | float):
+        return None
+    if pick.get("model") == current.get("model") and pick.get("effort") == current.get("effort"):
+        return None
+    return float(c) - float(p)
+
+
 def _compact(out: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in out.items() if v is not None}
 
@@ -313,6 +326,11 @@ def clean_info(value: Any) -> dict[str, Any]:
     best = _row(value.get("best"))
     if best:
         info["best"] = best
+    # The router's own row for the model the session is on now: what Shadow mode's pick
+    # would save (or cost) against it (shadow_saving).
+    current = _row(value.get("current"))
+    if current:
+        info["current"] = current
     alternatives = value.get("alternatives")
     if isinstance(alternatives, list):
         rows = [r for r in (_row(a) for a in alternatives[:3]) if r]
@@ -539,7 +557,7 @@ class Events:
         }
         if info.get("profile"):
             record["prompt"]["profile"] = info["profile"]
-        for key in ("rating", "alternatives", "best", "extras"):
+        for key in ("rating", "alternatives", "best", "current", "extras"):
             if info.get(key):
                 record[key] = info[key]
         self.log.append(record)
@@ -1282,6 +1300,7 @@ class Events:
                 actual[msg] = record["actual"]
         by_model: dict[str, dict[str, Any]] = {}
         saved = 0.0
+        shadow_msgs, would_save = 0, 0.0
         for msg, used in actual.items():
             route = routes.get(msg) or {}
             model = str(used.get("model") or (route.get("applied") or {}).get("model") or "?")
@@ -1296,7 +1315,15 @@ class Events:
         for route in routes.values():
             settings = route.get("settings") or {}
             best, pick = route.get("best") or {}, route.get("pick") or {}
-            if settings.get("shadow") or (route.get("route") or {}).get("skipped"):
+            if settings.get("shadow"):
+                # Shadow mode: what its pick would have saved against the model the session
+                # stayed on (negative: it would have cost more), for the "would save" line.
+                shadow_msgs += 1
+                gain = shadow_saving(route)
+                if gain is not None:
+                    would_save += gain
+                continue
+            if (route.get("route") or {}).get("skipped"):
                 continue
             b, p = best.get("costUSD"), pick.get("costUSD")
             if isinstance(b, int | float) and isinstance(p, int | float) and b > p:
@@ -1309,6 +1336,7 @@ class Events:
             "savedVsBestUSD": round(saved, 4),
             "notionalUSD": round(sum(r.get("notionalUSD", 0.0) for r in rows), 4),
             "messages": len(routes),
+            "shadow": {"messages": shadow_msgs, "wouldSaveUSD": round(would_save, 4)},
         }
         if self.budget():
             out["budgetUSD"] = self.budget()

@@ -778,6 +778,7 @@ async def test_a_lockdown_s_sandbox_keeps_the_container_relay_with_the_owners_sa
     from types import SimpleNamespace
 
     make_repo(projects / "proj", {"a.py": "x\n"})
+    hub.set_feature_prefs({"code_sandbox_bypass": False})  # (the owner's sandbox off: on by default)
     container_on(hub, image="node:22")
     task = await isolated_session(hub)
     await started(hub, task)
