@@ -1,0 +1,63 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "lodash": {
+      "name": "lodash",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1096305,
+          "name": "lodash",
+          "dependency": "lodash",
+          "title": "Command Injection in lodash",
+          "url": "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+          "severity": "high",
+          "cwe": ["CWE-77", "CWE-94"],
+          "cvss": {"score": 7.2, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"},
+          "range": "<4.17.21"
+        }
+      ],
+      "effects": ["some-helper"],
+      "range": "<=4.17.20",
+      "nodes": ["node_modules/lodash"],
+      "fixAvailable": {"name": "lodash", "version": "4.17.21", "isSemVerMajor": false}
+    },
+    "some-helper": {
+      "name": "some-helper",
+      "severity": "high",
+      "isDirect": false,
+      "via": ["lodash"],
+      "effects": [],
+      "range": "*",
+      "nodes": ["node_modules/some-helper"],
+      "fixAvailable": true
+    },
+    "old-thing": {
+      "name": "old-thing",
+      "severity": "critical",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1088888,
+          "name": "old-thing",
+          "dependency": "old-thing",
+          "title": "Arbitrary code execution in old-thing",
+          "url": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc",
+          "severity": "critical",
+          "cwe": ["CWE-94"],
+          "cvss": {"score": 9.8, "vectorString": null},
+          "range": "<2.0.0"
+        }
+      ],
+      "effects": [],
+      "range": "<2.0.0",
+      "nodes": ["node_modules/old-thing"],
+      "fixAvailable": false
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {"info": 0, "low": 0, "moderate": 0, "high": 2, "critical": 1, "total": 3},
+    "dependencies": {"prod": 4, "dev": 0, "optional": 0, "peer": 0, "peerOptional": 0, "total": 3}
+  }
+}

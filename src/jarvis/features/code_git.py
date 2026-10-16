@@ -5,7 +5,10 @@ thing here that leaves the Mac).
 
 Before a commit and before a push, what goes in is checked for keys and tokens
 (secret_scan.py): a finding stops it with what was found, masked, and where, on a card;
-the owner can still go ahead, explicitly.
+the owner can still go ahead, explicitly. Before a push, the commits are also checked by
+the security scanners the owner has installed (features/code_security.py: Semgrep and
+the dependency audits); what they find is on the push card, and a high-severity finding
+makes its choice "Push anyway" (and asks even when the push wouldn't have).
 
 Window commands (each names its folder by session id or project directory):
 code_git, code_git_file {path, staged}, code_git_stage {paths | all, unstage?},
@@ -25,7 +28,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, lang, secret_scan, worktrees
+from .. import code_ai, code_changes, lang, secret_scan, security_scan, worktrees
 from ..code_changes import git
 from ..hub import _msg_int
 
@@ -75,6 +78,7 @@ ZH = {
     "{n} commit to {url}:": "{n} 个提交，推送到 {url}：",
     "{n} commits to {url}:": "{n} 个提交，推送到 {url}：",
     "Possible secrets in what it would push:": "要推送的内容里可能有密钥：",
+    "Security checks on what it would push:": "要推送的内容的安全检查：",
     "Push": "推送",
     "Don't push": "不推送",
     "Push anyway": "仍然推送",
@@ -570,6 +574,8 @@ class GitPanel:
         if isinstance(plan, str):
             return plan
         commits, findings = plan["commits"], plan["findings"]
+        security = plan.get("security")
+        risky = bool(security and security.high)
         n = len(commits)
         lines = [f"{n} commit{'s' if n != 1 else ''} to {plan['url']}:"]
         lines += [f"• {c}" for c in commits[:8]]
@@ -579,8 +585,13 @@ class GitPanel:
         if findings:
             lines += ["", "Possible secrets in what it would push:", secret_scan.summary(findings)]
             choices = [("push", "Push anyway"), ("deny", "Don't push")]
+        if security and security.findings:
+            lines += ["", "Security checks on what it would push:"]
+            lines.append(security_scan.summary(security.findings))
+            if risky:
+                choices = [("push", "Push anyway"), ("deny", "Don't push")]
         question = f"Push {plan['branch']} to {plan['remote']}?"
-        if not (unasked and not findings) and (
+        if not (unasked and not findings and not risky) and (
             await self.ask(question, "\n".join(lines), choices, speak=by_voice) != "push"
         ):
             return "Not pushed."
@@ -624,6 +635,8 @@ class GitPanel:
             "HEAD", "--not", f"--remotes={remote}", "--max-count=200", timeout=60,
         )  # fmt: skip
         findings = secret_scan.scan(code_changes.parse_patch(patch.out), repo.shown)
+        scanners = getattr(self.hub, "code_security", None)  # (features/code_security.py)
+        security = scanners.push_report(repo.top, remote, repo.shown) if scanners else None
         url = _strip_urls(git(repo.top, "remote", "get-url", remote).out.strip()) or remote
         return {
             "branch": branch,
@@ -631,6 +644,7 @@ class GitPanel:
             "upstream": upstream_name,
             "commits": commits,
             "findings": findings,
+            "security": security,
             "url": url,
         }
 

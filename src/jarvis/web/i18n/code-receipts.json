@@ -20,7 +20,12 @@
     "Guardrails": "护栏",
     "blocked": "已阻止",
     "asked": "已询问",
-    "flagged": "已标出"
+    "flagged": "已标出",
+    "Security findings": "安全问题",
+    "Security scan clean": "安全扫描未发现问题",
+    "Not security-scanned": "未做安全扫描",
+    "Security scan": "安全扫描",
+    "isn't installed": "未安装"
   },
   "patterns": [
     [

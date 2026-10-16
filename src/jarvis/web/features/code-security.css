@@ -1,0 +1,6 @@
+/* Eden Code settings › General › Security scanning (code-security.js). Colours are the
+   theme's tokens, so light, dark and the glass look all hold. */
+.jcx-sec-tools .jcs-row { border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-sec-install { display: block; margin-top: 3px; font: 11px var(--mono); color: rgb(var(--c-ink-2)); overflow-wrap: anywhere; user-select: all; }
+.jcx-sec-foot { border-top: 0.5px solid rgb(var(--c-border)); font-size: 12px; }
+.jcx-sec-again { flex: none; }

@@ -19,3 +19,15 @@
 .rc-guards { margin-top: 4px; font-size: 12px; }
 .rc-guards .rc-guard-act { font-weight: 600; }
 .rc-guards .rc-guard-flagged .rc-guard-act { color: rgb(var(--c-warning-ink, 170 110 20)); }
+.rc-facts .rc-warn { color: rgb(var(--c-warning-ink, 160 110 20)); }
+.rc-security { margin-top: 4px; font-size: 12px; }
+.rc-security ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.rc-security li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.rc-security code { font: 11px var(--mono, ui-monospace, monospace); opacity: .8; overflow-wrap: anywhere; }
+.rc-sec-sev { flex: none; padding: 0 5px; border-radius: 5px; font-weight: 700; font-size: 9.5px; text-transform: uppercase; }
+.rc-sec-sev.rc-sec-high { color: rgb(var(--c-danger-ink, 180 40 40)); background: rgb(var(--c-danger-soft, 250 225 225)); }
+.rc-sec-sev.rc-sec-medium { color: rgb(var(--c-warning-ink, 160 110 20)); background: rgb(var(--c-warning-soft, 250 240 215)); }
+.rc-sec-sev.rc-sec-low { background: rgba(127,127,127,.15); }
+.rc-sec-tool { font-weight: 600; }
+.rc-sec-fix { flex-basis: 100%; opacity: .8; padding-left: 4px; }
+.rc-sec-missing, .rc-sec-error { opacity: .75; }

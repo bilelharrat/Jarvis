@@ -2,6 +2,7 @@
 // card: what changed, the tests, the check after the turn with its picture, and the risk,
 // in a colour and in words; for a Spec mode task, which requirements it met (code-spec.js);
 // the guardrails that fired (code_guardrails: blocked, asked, flagged).
+// what the security scanners found (features/code_security.py), and the ones not installed.
 // The entry's text stays the same everywhere else (the phone, voice).
 (function (root) {
   'use strict';
@@ -27,7 +28,19 @@
     return said.length ? [counts.flagged ? 'rc-guard rc-flag' : 'rc-guard', `Guardrails: ${said.join(', ')}`] : null;
   }
 
-  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine }; return; }
+  // The security scan's line as [class, words, count], or null when no tool ran or would
+  // have (features/code_security.py: Semgrep, osv-scanner, npm audit, pip-audit).
+  function securityLine(s) {
+    if (!s) return null;
+    const ran = Array.isArray(s.ran) ? s.ran : [];
+    const n = Number(s.count) || 0;
+    if (n > 0) return [s.high ? 'rc-bad' : 'rc-warn', 'Security findings', n];
+    if (ran.length) return ['rc-ok', 'Security scan clean', 0];
+    if (Array.isArray(s.missing) && s.missing.length) return ['rc-none', 'Not security-scanned', 0];
+    return null;
+  }
+
+  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine, securityLine }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
   const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
@@ -46,6 +59,35 @@
     return el('li', cls, n > 0 ? `${F.t(words)} (${n})` : F.t(words));
   }
 
+  // What the scanners found, each with its tool and where; the tools that would have
+  // checked this and aren't installed, with how to install them (never installed for you).
+  function securityBox(s) {
+    const box = el('details', 'rc-security');
+    const ran = (s.ran || []).join(', ');
+    box.append(el('summary', '', ran ? `${F.t('Security scan')} · ${ran}` : F.t('Security scan')));
+    const list = el('ul', '');
+    for (const f of (s.findings || []).slice(0, 12)) {
+      const item = el('li', `rc-sec-${f.severity}`);
+      const where = el('code', '', f.line ? `${f.path}:${f.line}` : f.path);
+      const title = el('span', '', f.title);
+      title.dataset.noI18n = '';
+      where.dataset.noI18n = '';
+      item.append(el('span', `rc-sec-sev rc-sec-${f.severity}`, F.t(f.severity)), el('span', 'rc-sec-tool', f.tool), title, where);
+      if (f.fix) { const fix = el('div', 'rc-sec-fix', f.fix); fix.dataset.noI18n = ''; item.append(fix); }
+      list.append(item);
+    }
+    for (const m of s.missing || []) {
+      const item = el('li', 'rc-sec-missing');
+      const how = el('code', '', m.install);
+      how.dataset.noI18n = '';
+      item.append(el('span', '', `${m.label} ${F.t('isn\'t installed')}:`), how);
+      list.append(item);
+    }
+    for (const e of s.errors || []) list.append(el('li', 'rc-sec-error', e));
+    box.append(list);
+    return box;
+  }
+
   function card(e, li) {
     const r = e && e.receipt;
     if (!r || !li) return;
@@ -61,7 +103,10 @@
     if (selfCheck && selfCheck.headline) facts.append(el('li', selfCheck.verdict === 'pass' ? 'rc-ok' : 'rc-bad', selfCheck.headline));
     const guards = guardsLine(r.guardrails);  // the owner's rules that held (code-guardrails.js)
     if (guards) facts.append(el('li', guards[0], guards[1]));
+    const scan = securityLine(r.security);
+    if (scan) facts.append(el('li', scan[0], scan[2] > 0 ? `${F.t(scan[1])} (${scan[2]})` : F.t(scan[1])));
     li.replaceChildren(head, facts);
+    if (scan) li.append(securityBox(r.security));
     const thumb = picture((r.check && r.check.thumb) || (selfCheck && selfCheck.thumb));
     if (thumb) {
       const img = el('img', 'rc-thumb');

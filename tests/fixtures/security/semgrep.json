@@ -1,0 +1,76 @@
+{
+  "version": "1.95.0",
+  "results": [
+    {
+      "check_id": "python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+      "path": "app/run.py",
+      "start": {"line": 12, "col": 5, "offset": 231},
+      "end": {"line": 12, "col": 48, "offset": 274},
+      "extra": {
+        "message": "Found 'subprocess' function 'run' with 'shell=True'. This is dangerous because this call will spawn the command using a shell process. Doing so propagates current shell settings and variables, which makes it much easier for a malicious actor to execute commands. Use 'shell=False' instead.",
+        "fix": "False",
+        "metadata": {
+          "cwe": ["CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"],
+          "owasp": ["A01:2017 - Injection", "A03:2021 - Injection"],
+          "references": ["https://stackoverflow.com/questions/3172470/actual-meaning-of-shell-true-in-subprocess"],
+          "category": "security",
+          "technology": ["python"],
+          "confidence": "MEDIUM",
+          "likelihood": "HIGH",
+          "impact": "HIGH",
+          "subcategory": ["secure default"],
+          "source": "https://semgrep.dev/r/python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+          "shortlink": "https://sg.run/J92w"
+        },
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "metavars": {},
+        "is_ignored": false,
+        "engine_kind": "OSS",
+        "validation_state": "NO_VALIDATOR"
+      }
+    },
+    {
+      "check_id": "python.lang.security.audit.formatted-sql-query.formatted-sql-query",
+      "path": "app/run.py",
+      "start": {"line": 3, "col": 5, "offset": 40},
+      "end": {"line": 4, "col": 30, "offset": 99},
+      "extra": {
+        "message": "Detected possible formatted SQL query. Use parameterized queries instead.",
+        "metadata": {
+          "cwe": ["CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"],
+          "category": "security",
+          "references": ["https://stackoverflow.com/questions/775296/mysql-parameterized-queries"],
+          "source": "https://semgrep.dev/r/python.lang.security.audit.formatted-sql-query.formatted-sql-query"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "metavars": {},
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.browser.security.insecure-document-method.insecure-document-method",
+      "path": "web/page.js",
+      "start": {"line": 7, "col": 3, "offset": 120},
+      "end": {"line": 7, "col": 40, "offset": 157},
+      "extra": {
+        "message": "User controlled data in methods like `innerHTML`, `outerHTML` or `document.write` is an anti-pattern that can lead to XSS vulnerabilities",
+        "metadata": {"cwe": ["CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"], "category": "security"},
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "metavars": {},
+        "engine_kind": "OSS"
+      }
+    }
+  ],
+  "errors": [
+    {"code": 3, "level": "warn", "type": "Syntax error", "message": "Syntax error at line web/old.js:1:\n `<<<` was unexpected", "path": "web/old.js"}
+  ],
+  "paths": {"scanned": ["app/run.py", "web/page.js"]},
+  "interfile_languages_used": [],
+  "skipped_rules": []
+}
