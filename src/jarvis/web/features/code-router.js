@@ -37,6 +37,10 @@
 // - While Claude can't answer (its limit, an outage: model_router_claude {down, until} from the
 //   backend), the router routes among the other models only, so it stops suggesting Claude;
 //   with no other model to pick, Claude stays (the session waits or falls back as before).
+// - The popover's "Open Model Router", the More menu and /router open the Model Router pane
+//   (features/code-router-pane.js) inside Eden Code, on this window's router and settings
+//   (F.codeRouter.view below): no other server and no browser. The providers the owner
+//   leaves out there (code_router_providers_off) are left out of every route here.
 // Pure helpers are exported for node --test (tests/web/code-router.test.mjs).
 (function (root) {
   'use strict';
@@ -57,6 +61,7 @@
   const AGENTIC_DEFAULT = 8;  // = code_router_events.AGENTIC_DEFAULT
   const FALLBACK = 'code_router_auto_fallback';  // = code_router.FALLBACK_PREF (on unless turned off)
   const CROSS = 'code_router_cross_fallback';  // = code_router.CROSS_PREF (off unless turned on)
+  const PROVIDERS_OFF = 'code_router_providers_off';  // = code_router.PROVIDERS_PREF
   const SUBSCRIPTION = ['anthropic'];  // Claude on the owner's sign-in: plan quota, not API dollars
 
   // ── pure helpers ──
@@ -116,6 +121,15 @@
     if (!(Number(downUntil) > now)) return list;
     const others = list.filter((m) => m && !m.builtin);
     return routable(others).length ? others : list;
+  }
+  // The picker's models without the providers the owner left out of routing (providerOf:
+  // a model id -> the router's provider id), unless that would leave none to route among.
+  function withoutProviders(models, providerOf, off) {
+    const list = models || [];
+    const skip = new Set(Array.isArray(off) ? off : []);
+    if (!skip.size || typeof providerOf !== 'function') return list;
+    const kept = list.filter((m) => !(m && skip.has(providerOf(m.model))));
+    return routable(kept).length ? kept : list;
   }
   // Settings › General › Model Router: its two fallback switches, as features has them.
   function fallbackSwitches(features) {
@@ -358,11 +372,11 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, fallbackSwitches, FALLBACK, CROSS, takesEffort,
+      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, withoutProviders, fallbackSwitches, FALLBACK, CROSS, takesEffort,
       shadowSwitch, currentRow, shadowSummary, shadowWords, PASSIVE, geminiFlash, cleanSettings, sameSettings, sameAll,
       sameText, isTrivial, isRated, needsRating, ratedRoute, pauseAfter, newToken, errorText, within, extrasFor,
       budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf, composerLook,
-      CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT,
+      CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT, PROVIDERS_OFF,
     };
     return;
   }
@@ -398,7 +412,14 @@
   const shadowOn = () => settings().shadow === true || passive();
   const shadows = new Map();  // session id -> shadowSummary of its last message's pick
   let claudeDownUntil = 0;  // Date.now() until which Claude can't answer (model_router_claude)
-  const models = () => withoutClaude(typeof modelList !== 'undefined' ? modelList : [], claudeDownUntil);
+  const allModels = () => withoutClaude(typeof modelList !== 'undefined' ? modelList : [], claudeDownUntil);
+  const providerOf = (id) => {
+    const m = lib && Array.isArray(lib.MODELS) ? lib.MODELS.find((x) => x.id === id) : null;
+    return m ? m.provider : '';
+  };
+  const providersOff = () => (Array.isArray(features[PROVIDERS_OFF]) ? features[PROVIDERS_OFF] : []);
+  // (the providers left out in the pane: before the bundle loads nothing is known of them)
+  const models = () => withoutProviders(allModels(), lib ? providerOf : null, providersOff());
   const task = () => { try { return F.currentTask ? F.currentTask() : null; } catch { return null; } };
   const projectOf = (t) => (t && state && state.sessions && state.sessions[String(t.id)] ? state.sessions[String(t.id)].project || null : null);
   function projectLevels(t) {
@@ -518,6 +539,7 @@
     if (stamp !== before) { router = null; if (chip && !chip.hidden) chip.refresh(); }
     const now = projectLevels(t);
     if (chip && JSON.stringify(levels) !== JSON.stringify(now)) chip.applySettings(routing(t));
+    changed('state');
   }
   F.on('model_router_state', onState);
   F.on('model_router_reply', (ev) => {
@@ -545,8 +567,9 @@
       if (note && result && typeof result === 'object') result.notes = [...(Array.isArray(result.notes) ? result.notes : []), note];
       return result;
     }),
-    fullUrl: 'http://127.0.0.1:5174/',
-    openFull: () => F.send({ type: 'model_router_open' }),
+    // "Open Model Router": the pane in this window, with the draft (no fullUrl: nothing
+    // to open in a browser).
+    openFull: () => { if (chip && typeof chip.toggle === 'function') chip.toggle(false, false); openRouterPane(); },
     loadSettings: () => routing(task()),
     // The sliders: the session's project's own while it has some, else everyone's.
     saveSettings: (s) => {
@@ -688,6 +711,75 @@
     },
   };
 
+  // ── the Model Router pane's view of all this (features/code-router-pane.js) ──
+  // The pane draws what this window routes with: the same router (the models in Settings ›
+  // Models, the learned overrides, Claude left out while it's down, the providers left out),
+  // the same settings (a session's project levels over everyone's), the same budget lean.
+  const watchers = new Set();
+  function changed(why) {
+    for (const fn of watchers) { try { fn(why); } catch (err) { console.error('model router pane', err); } }
+  }
+  function openRouterPane(text) {
+    const draft = typeof text === 'string' ? text : (F.$('deck-input') ? F.$('deck-input').value : '');
+    F.codeRouter.draft = String(draft || '');
+    F.openPane('router');
+  }
+  // A session on a model the owner picks (the pane's "Pin a model"): as the composer's
+  // menu does it, which turns Model Router off for every session.
+  function pin(ref) {
+    const t = task();
+    setOn(false);
+    if (t) F.send({ type: 'task_model', id: t.id, ref });
+    else F.send({ type: 'code_defaults', code_model: ref });
+  }
+  const view = {
+    ready: () => loadLib().then(() => currentRouter()),
+    lib: () => lib,
+    problem: () => problem(),  // ('' while it can route, or before the bundle loads)
+    meta: () => (lib ? currentRouter().meta(routing(task()).classifier) : null),
+    // The rules' pick for text at settings s (the pane's sliders as they are now): at once,
+    // never a Gemini rating (the pane's preview while typing, like askeden.com's).
+    preview(text, s) {
+      if (!lib || !String(text || '').trim()) return null;
+      const t = task();
+      const merged = { ...routing(t), ...(s || {}) };
+      const { body } = bodyFor(String(text), merged, t);
+      const result = currentRouter().routeSync(body);
+      const note = budgetNote(state);
+      if (note && result) result.notes = [...(Array.isArray(result.notes) ? result.notes : []), note];
+      return result;
+    },
+    // The same with Gemini's rating, as a message would go (one small Gemini call on the
+    // owner's key, unless it's trivial, Gemini is paused, or the router remembers the text).
+    rated(text, s) {
+      const t = task();
+      const merged = { ...routing(t), ...(s || {}) };
+      return loadLib().then(() => rate(bodyFor(String(text || ''), merged, t, { classifier: merged.classifier }).body));
+    },
+    settings: () => routing(task()),
+    save: (s) => adapter.saveSettings(s),
+    projectDefaults: () => adapter.projectDefaults(),
+    setProjectDefaults: (s) => adapter.setProjectDefaults(s),
+    isOn: () => isOn(),
+    setOn: (on) => setOn(on === true),
+    shadowOn: () => shadowOn(),
+    pin,
+    task: () => task(),
+    models: () => routable(models()),
+    allModels: () => routable(allModels()),
+    providerOf,
+    providersOff,
+    setProvidersOff: (list) => savePrefs({ [PROVIDERS_OFF]: [...new Set(list || [])] }),
+    claudeDown: () => claudeDownUntil > Date.now(),
+    geminiPaused: () => geminiPaused(),
+    budgetNote: () => budgetNote(state),
+    call: (op, args) => call(op, args),
+    openDeveloperPage: () => F.send({ type: 'model_router_open' }),
+    watch(fn) { watchers.add(fn); return () => watchers.delete(fn); },
+  };
+  F.codeRouter.view = view;
+  F.codeRouter.open = openRouterPane;
+
   F.registerSessionOption((prompt) => routeField(prompt, null));
   // The router's pick for a request on its own (best of N's "Model Router's pick"): the
   // rules' pick at once, {ref, effort?}, or null while the router isn't loaded (it starts
@@ -753,6 +845,9 @@
       last = { prompt: d.prompt, settings: cleanSettings(d.settings), result: d.result, rated: d.rated === true };
     });
     F.$('jc-model').after(chip);
+    // (the bundle's link says ↗ and opens a new tab; here it opens the pane, in place)
+    const link = chip.shadowRoot && chip.shadowRoot.querySelector('.open-full');
+    if (link) { link.textContent = F.t('Open Model Router'); link.removeAttribute('target'); }
     return chip;
   }
 
@@ -801,12 +896,15 @@
     const before = routing(t);
     const wasOn = isOn();
     const wasLearn = settings().learn;
+    const off = providersOff();
     features = p.features;
     if (settings().learn !== wasLearn) router = null;
     if (chip && !sameSettings(before, routing(t))) chip.applySettings(routing(t));
     if (wasOn !== isOn()) renderComposer();
     if (shadowOn() && !lib && !libError) loadLib().catch(() => {});
+    if (chip && !chip.hidden && JSON.stringify(off) !== JSON.stringify(providersOff())) chip.refresh();
     drawSwitches();
+    changed('prefs');
   }
 
   // Eden Code settings › General: the fallback's two switches, in a Model Router group.
@@ -834,12 +932,33 @@
       row.append(text, sw);
       group.append(row);
     }
+    // The rest of the router's settings (levels, providers left out, rating) are in its pane.
+    const more = F.el('div', 'jcs-row');
+    providersText = F.el('small', '', '');
+    const moreText = F.el('span');
+    moreText.append(document.createTextNode(F.t('Levels, providers and rating')), providersText);
+    const open = F.el('button', 'jc-btn small', 'Open Model Router');
+    open.type = 'button';
+    open.addEventListener('click', () => {
+      const close = document.getElementById('jcs-close');  // (Settings is a sheet over the window: closed first)
+      if (close) close.click();
+      openRouterPane('');
+    });
+    more.append(moreText, open);
+    group.append(more);
     const foot = general.querySelector('.jcs-foot');
     if (foot) general.insertBefore(label, foot); else general.append(label);
     general.insertBefore(group, label.nextSibling);
     drawSwitches();
   }
+  let providersText = null;
   function drawSwitches() {
+    if (providersText) {
+      const off = providersOff();
+      providersText.textContent = off.length
+        ? `${F.t('Left out of routing:')} ${off.join(', ')}`
+        : F.t('In the Model Router pane: the five levels, the providers it routes to, and how prompts are rated.');
+    }
     for (const item of [shadowSwitch(features), ...fallbackSwitches(features)]) {
       const sw = switches.get(item.key);
       if (!sw) continue;
@@ -859,10 +978,11 @@
     if (until === claudeDownUntil) return;
     claudeDownUntil = until;
     if (chip && !chip.hidden) chip.refresh();  // (the router is made again for the new list)
+    changed('claude');
   });
   F.on('prefs', onPrefs);
   // (the keys may have changed: Gemini is asked again; its problems are still told once)
-  F.on('providers', () => { router = null; geminiPause = 0; if (chip && !chip.hidden) chip.refresh(); });
+  F.on('providers', () => { router = null; geminiPause = 0; if (chip && !chip.hidden) chip.refresh(); changed('providers'); });
   F.on('model_router_note', (ev) => { if (ev.text) jcNote(ev.text); });
 
   buildSwitches();

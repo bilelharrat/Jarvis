@@ -705,3 +705,67 @@ async def test_a_whole_routed_turn_through_a_session(hub, tmp_path):
     assert lines[1]["actual"]["turns"] == 1 and lines[1]["actual"]["model"] == "claude-haiku-4-5"
     assert "zebra" not in json.dumps(lines)
     task.handle.cancel()
+
+
+async def test_the_panes_recent_list_newest_first_without_a_prompts_words(hub, tmp_path):
+    """model_router_call "recent" (the Model Router pane's list): the newest routed and
+    Shadow messages, newest first, with what the turn cost, what a Shadow pick would have
+    saved and the owner's verdicts; only numbers and model ids, never the prompt's words."""
+    task = session(hub, tmp_path)
+    sent_to_sessions(hub)
+    await routed_turn(hub, task, cost=0.25)
+    info = {**INFO, "current": {"model": "claude-opus-5-5", "effort": "high", "costUSD": 0.05}}
+    await hub.handle(
+        {
+            "type": "task_send",
+            "id": 7,
+            "text": "rename x in the zebra file",
+            "route": {**ROUTE, "info": info, "shadow": True},
+        }
+    )
+    events = hub.code_router_events
+    assert await until(lambda: len(events.tracks[7].pending) >= 1)
+    await hub.handle(
+        {
+            "type": "model_router_feedback",
+            "kind": "thumbs-down",
+            "id": 7,
+            "prompt": "rename x in the zebra file",
+        }
+    )
+    emitted = []
+    hub.emit = lambda kind, **data: emitted.append((kind, data))
+    await hub._handle({"type": "model_router_call", "rid": "r1", "op": "recent", "limit": 5})
+    kind, data = emitted[-1]
+    assert kind == "model_router_reply" and data["ok"] and data["rid"] == "r1"
+    rows = data["data"]
+    assert [r["shadow"] for r in rows] == [True, False]  # newest first
+    shadow, live = rows
+    assert shadow["pick"]["model"] == "claude-sonnet-5-5"
+    assert shadow["applied"]["model"] == "claude-sonnet-5-5"  # (where the live one moved it)
+    assert shadow["wouldSaveUSD"] == pytest.approx(0.038)
+    assert shadow["signals"] == ["thumbs-down"]
+    assert live["rated"] is True and live["ratedBy"] == "gemini-3.6-flash"
+    assert live["complexity"] == "complex" and live["level"] == 3
+    assert live["costUSD"] == 0 and live["ranOn"] == "claude-sonnet-5-5"  # (on the plan: no API dollars)
+    said = json.dumps(rows)
+    assert "zebra" not in said and "scheduler" not in said
+    # At most the limit asked for (and RECENT_MAX), the newest kept.
+    await hub._handle({"type": "model_router_call", "rid": "r2", "op": "recent", "limit": 1})
+    assert [r["shadow"] for r in emitted[-1][1]["data"]] == [True]
+    await hub._handle({"type": "model_router_call", "rid": "r3", "op": "recent", "limit": "x"})
+    assert len(emitted[-1][1]["data"]) == 2  # (a bad limit: the default, 20)
+    assert code_router_events.RECENT_MAX == 50
+
+
+def test_the_providers_left_out_of_routing_are_kept_clean(hub):
+    """code_router_providers_off (the Model Router pane's provider switches): the router's
+    provider ids only, in a fixed order; anything else isn't a setting."""
+    assert hub.prefs.feature("code_router_providers_off") == []
+    assert code_router.clean_providers_off(["gemini", "anthropic", "x", 3]) == [
+        "anthropic",
+        "gemini",
+    ]
+    assert code_router.clean_providers_off("gemini") is None
+    hub.set_feature_prefs({"code_router_providers_off": ["kimi", "nope"]})
+    assert hub.prefs.feature("code_router_providers_off") == ["kimi"]

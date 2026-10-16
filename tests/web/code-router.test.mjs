@@ -302,7 +302,7 @@ function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', e
   const created = [];
   const els = {};  // (the window's elements the feature sets, by id)
   const lib = {
-    MODELS: [{ id: 'gpt-6-luna', pricing: { inputPer1M: 0.1, outputPer1M: 0.5 } }],
+    MODELS: [{ id: 'gpt-6-luna', provider: 'openai', pricing: { inputPer1M: 0.1, outputPer1M: 0.5 } }, { id: 'claude-opus-5-5', provider: 'anthropic' }, { id: 'gemini-3.8-flash', provider: 'gemini' }],
     createLocalRouter(opts) {
       created.push(opts);
       return {
@@ -548,4 +548,64 @@ test('Shadow mode’s words: what it would save or cost against the session’s 
   assert.equal(R.shadowWords(null), '');
   assert.equal(R.shadowSwitch({}).on, true);
   assert.equal(R.shadowSwitch({ code_router_shadow: false }).on, false);
+});
+
+test('the providers left out in the Model Router pane are left out of routing, unless none would be left', () => {
+  const models = [
+    { ref: 'opus', model: 'claude-opus-5-5', builtin: true },
+    { ref: 'custom:o1', model: 'gpt-6-luna', kind: 'openai' },
+  ];
+  const providerOf = (id) => (id.startsWith('claude') ? 'anthropic' : 'openai');
+  assert.deepEqual(R.withoutProviders(models, providerOf, ['anthropic']).map((m) => m.ref), ['custom:o1']);
+  assert.deepEqual(R.withoutProviders(models, providerOf, []).map((m) => m.ref), ['opus', 'custom:o1']);
+  assert.equal(R.withoutProviders(models, providerOf, ['anthropic', 'openai']), models);  // (none left: all of them)
+  assert.equal(R.withoutProviders(models, null, ['anthropic']), models);  // (the bundle not loaded yet)
+  assert.equal(R.PROVIDERS_OFF, 'code_router_providers_off');
+});
+
+test('"Open Model Router" opens the pane in this window with the draft: no browser, no 5174 server', async () => {
+  const w = windowWith();
+  await w.ready();
+  const adapter = w.adapter();
+  assert.equal(adapter.fullUrl, undefined);  // (the bundle's link then has no address to open)
+  const opened = [];
+  w.F.openPane = (id) => opened.push([id, w.F.codeRouter.draft]);
+  w.els['deck-input'] = { value: 'refactor the scheduler to use a heap' };
+  adapter.openFull({ url: '#x', hash: 'x' });
+  assert.deepEqual(opened, [['router', 'refactor the scheduler to use a heap']]);
+  assert.equal(w.sent.some((m) => m.type === 'model_router_open'), false);
+  // The pane's small developer-page link is the one way to the browser now.
+  w.F.codeRouter.view.openDeveloperPage();
+  assert.deepEqual(w.sent.at(-1), { type: 'model_router_open' });
+});
+
+test('the pane’s view: the same router and settings, the providers it leaves out, a pin turns routing off', async () => {
+  const w = windowWith();
+  await w.ready();
+  const v = w.F.codeRouter.view;
+  assert.equal(v.isOn(), true);
+  assert.deepEqual(v.models().map((m) => m.ref), ['opus', 'custom:o1', 'custom:g1']);
+  assert.equal(v.providerOf('gemini-3.8-flash'), 'gemini');
+  // The preview: the rules at the pane's sliders (plus the budget's lean), never a rating.
+  w.fire('model_router_state', { budget: { boost: 10, usd: 50, fraction: 0.85, spentUSD: 42.5 } });
+  const res = v.preview('refactor the scheduler to use a heap', { efficiency: 70, performance: 40 });
+  assert.equal(res.pick.model, 'gpt-6-luna');
+  assert.equal(w.bodies.at(-1).efficiency, 80);
+  assert.equal(w.bodies.at(-1).performance, 40);
+  assert.match(res.notes.at(-1), /leaning cheaper/);
+  assert.equal(v.preview('   ', {}), null);
+  // Leaving a provider out: saved, and the router is made again without its models.
+  const seen = [];
+  v.watch((why) => seen.push(why));
+  v.setProvidersOff(['gemini']);
+  assert.deepEqual(w.sent.at(-1), { type: 'feature_prefs', changes: { code_router_providers_off: ['gemini'] } });
+  w.fire('prefs', { features: { code_router_on: true, code_router_providers_off: ['gemini'] } });
+  assert.deepEqual(v.models().map((m) => m.ref), ['opus', 'custom:o1']);
+  v.preview('refactor the scheduler to use a heap', {});
+  assert.deepEqual(w.created.at(-1).models, ['claude-opus-5-5', 'gpt-6-luna']);
+  assert.ok(seen.includes('prefs'));
+  // A pin is the composer menu's pick: Model Router off, the session on that model.
+  v.pin('custom:o1');
+  assert.ok(w.sent.some((m) => m.type === 'feature_prefs' && m.changes.code_router_on === false));
+  assert.deepEqual(w.sent.at(-1), { type: 'task_model', id: 7, ref: 'custom:o1' });
 });
