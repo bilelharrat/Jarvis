@@ -17,6 +17,21 @@ would ask its user about.
 Its steps are shown as the SDK's messages (ToolUseBlock / ToolResultBlock), under the names
 JARVIS's policy knows: execute is Bash, read is Read, edit is Edit, fetch is WebFetch,
 search is Grep; any other kind of step has a name no policy lets by unasked.
+
+What Eden gives an ACP session that Claude Code gives a Claude one by itself:
+- Rewind and Undo: a snapshot of the working tree before each of the owner's messages goes
+  to the agent, and one when the turn ends (acp_checkpoints.py: git commit objects under
+  hidden refs, never `git stash`). The files the turn changed (the two snapshots'
+  difference, whatever tool the agent used) ride on the turn's ResultMessage as acp_turn,
+  for the session's changed files and its receipt (features/code_acp.py). rewind_files
+  hands the rewind to the feature (rewinder), which knows the session's later turns; the
+  agent hears, with the next message, that its files were put back.
+- Usage: the tokens a turn used, from the agent's own reports where it gives them (the
+  prompt's response carrying usage, a usage_update with the context's size and the
+  session's cost so far), else estimated from what went back and forth (about four
+  characters a token), marked as an estimate. They ride on acp_turn too, and as the
+  ResultMessage's usage, so the turn's line in the transcript counts them; total_cost_usd
+  stays None: an agent's spend is on its own provider's account, never Claude's.
 """
 
 from __future__ import annotations
@@ -27,6 +42,7 @@ import itertools
 import json
 import logging
 import os
+import secrets
 import shlex
 import time
 from collections import OrderedDict, deque
@@ -47,6 +63,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import StreamEvent
 
+from . import acp_checkpoints
 from .packaged import owner_env
 
 log = logging.getLogger("jarvis")
@@ -75,6 +92,11 @@ STOPS = {  # a stop reason, as a turn's end: (subtype, is an error)
     "refusal": ("error_during_execution", True),
     "cancelled": ("success", False),
 }
+CHARS_PER_TOKEN = 4  # an estimate's rate, when the agent reports no tokens of its own
+REWOUND_NOTE = (
+    "(Eden Code: the owner rewound this project's files to how they were before an earlier "
+    "message, so changes you made since then are gone. Read the files again before editing.)"
+)
 
 
 class AcpError(Exception):
@@ -387,9 +409,18 @@ class AcpClient:
     SDK's messages, its permission requests answered by options.can_use_tool."""
 
     def __init__(
-        self, command: list[str], name: str, options: Any, env: dict[str, str] | None = None
+        self,
+        command: list[str],
+        name: str,
+        options: Any,
+        env: dict[str, str] | None = None,
+        rewinder: Callable[[str], Awaitable[None]] | None = None,
+        snapshots: bool = True,
     ) -> None:
         self.command, self.name, self.options = command, name, options
+        self.rewinder = rewinder  # (features/code_acp.py: it knows the session's later turns)
+        self.snapshots = snapshots
+        self.note = ""  # said to the agent with the next message (a rewind)
         self.env = {
             **owner_env(os.environ),
             **(env or {}),
@@ -407,6 +438,11 @@ class AcpClient:
         self.thought: list[str] = []
         self.said = ""  # the turn's reply so far
         self.tools: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self.reported: dict[str, Any] = {}  # the turn's usage, as the agent reported it
+        self.cost_total: float | None = None  # the session's cost so far, as it said last
+        self.context: tuple[int, int] | None = None  # (tokens in its context, its size)
+        self.chars_in = 0  # what went to it and came back this turn, for an estimate
+        self.chars_out = 0
 
     async def __aenter__(self) -> AcpClient:
         await self.connect()
@@ -490,12 +526,40 @@ class AcpClient:
         text = prompt if isinstance(prompt, str) else await _words_of(prompt)
         self.turns += 1
         self.said = ""
-        self.queue.put_nowait(UserMessage(content=text, uuid=f"acp-{self.session_id}-{self.turns}"))
-        self.prompting = asyncio.ensure_future(self._prompt(text))
+        # Its id is the turn's checkpoint (Rewind, Undo): unique across reconnects, which
+        # start the count again in the same agent session.
+        uid = f"acp-{self.session_id}-{self.turns}-{secrets.token_hex(4)}"
+        self.queue.put_nowait(UserMessage(content=text, uuid=uid))
+        sent, self.note = (f"{self.note}\n\n{text}" if self.note else text), ""
+        self.prompting = asyncio.ensure_future(self._prompt(sent, uid))
 
-    async def _prompt(self, text: str) -> None:
+    def _cwd(self) -> str:
+        return str(getattr(self.options, "cwd", None) or os.getcwd())
+
+    async def _snapshot(self, uid: str, part: str) -> str:
+        """The working tree kept under the turn's hidden ref ("": none, and why is logged:
+        not a git repository, git missing; the turn goes on regardless)."""
+        if not self.snapshots:
+            return ""
+        cwd = self._cwd()
+
+        def take() -> str:
+            commit = acp_checkpoints.snapshot(cwd, f"Eden Code: {self.name}, {part} {uid}")
+            acp_checkpoints.keep(cwd, acp_checkpoints.ref_for(uid, part), commit)
+            return commit
+
+        try:
+            return await asyncio.to_thread(take)
+        except acp_checkpoints.CheckpointError as exc:
+            log.info("Eden Code: no snapshot for %s's turn (%s)", self.name, exc)
+            return ""
+
+    async def _prompt(self, text: str, uid: str = "") -> None:
         started = time.monotonic()
         reason, error = "end_turn", ""
+        before = await self._snapshot(uid, "before") if uid else ""
+        self.reported, self.chars_in, self.chars_out = {}, len(text), 0
+        done: Any = None
         try:
             assert self.conn is not None
             done = await self.conn.request(
@@ -510,21 +574,84 @@ class AcpClient:
         except AcpError as exc:
             reason, error = "error", str(exc)
         self._flush()
+        if isinstance(done, dict):
+            self._take_usage(done.get("usage"))
+        after = await self._snapshot(uid, "after") if before else ""
+        files: list[str] = []
+        if before and after:
+            with contextlib.suppress(acp_checkpoints.CheckpointError):
+                files = await asyncio.to_thread(acp_checkpoints.changed, self._cwd(), before, after)
+        usage = self.turn_usage()
         subtype, is_error = STOPS.get(reason, ("error_during_execution", True))
-        self.queue.put_nowait(
-            ResultMessage(
-                subtype=subtype,
-                duration_ms=round((time.monotonic() - started) * 1000),
-                duration_api_ms=0,
-                is_error=is_error,
-                num_turns=1,
-                session_id=self.session_id,
-                result=self.said,
-                errors=[error] if error else None,
-                stop_reason=reason,
-                terminal_reason="aborted_by_user" if reason == "cancelled" else None,
-            )
+        result = ResultMessage(
+            subtype=subtype,
+            duration_ms=round((time.monotonic() - started) * 1000),
+            duration_api_ms=0,
+            is_error=is_error,
+            num_turns=1,
+            session_id=self.session_id,
+            result=self.said,
+            errors=[error] if error else None,
+            stop_reason=reason,
+            terminal_reason="aborted_by_user" if reason == "cancelled" else None,
+            usage={
+                "input_tokens": usage["input"],
+                "output_tokens": usage["output"],
+                "cache_read_input_tokens": usage["cached"],
+            },
         )
+        result.acp_turn = {"uuid": uid, "files": files, "usage": usage, "snapshot": bool(before)}  # type: ignore[attr-defined]
+        self.queue.put_nowait(result)
+
+    # ── usage ──
+
+    def _take_usage(self, raw: Any) -> None:
+        """A turn's tokens as the agent reports them (the prompt's response's usage)."""
+        if not isinstance(raw, dict):
+            return
+        for key, names in _USAGE_KEYS.items():
+            for name in names:
+                value = raw.get(name)
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                    self.reported[key] = int(value)
+                    break
+
+    def _usage_update(self, update: dict[str, Any]) -> None:
+        """usage_update: the context's fill and size, and the session's cost so far."""
+        used, size = update.get("used"), update.get("size")
+        if isinstance(used, int) and isinstance(size, int) and size > 0:
+            self.context = (max(0, used), size)
+        cost = update.get("cost")
+        if isinstance(cost, dict):
+            amount, currency = cost.get("amount"), str(cost.get("currency") or "USD").upper()
+            if isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount >= 0:
+                if currency == "USD":
+                    self.cost_total = float(amount)
+        if isinstance(update.get("usage"), dict):  # (an agent that reports a turn's here)
+            self._take_usage(update["usage"])
+
+    def turn_usage(self) -> dict[str, Any]:
+        """The turn's tokens: reported where the agent says them, else estimated."""
+        got = self.reported
+        estimated = not any(k in got for k in ("input", "output", "total"))
+        if estimated:
+            inp = -(-self.chars_in // CHARS_PER_TOKEN)
+            out = -(-self.chars_out // CHARS_PER_TOKEN)
+            total, cached = inp + out, 0
+        else:
+            inp, out, cached = got.get("input", 0), got.get("output", 0), got.get("cached", 0)
+            total = got.get("total") or inp + out
+            if not inp and not out:
+                inp = total  # (only a total said: counted as what it read)
+        return {
+            "input": inp,
+            "output": out,
+            "cached": cached,
+            "tokens": total,
+            "estimated": estimated,
+            "cost_total": self.cost_total,
+            "context": list(self.context) if self.context else None,
+        }
 
     async def receive_messages(self):
         while True:
@@ -558,8 +685,13 @@ class AcpClient:
     async def get_context_usage(self) -> dict[str, Any]:
         raise AcpError(f"{self.name} doesn't say what fills its context.")
 
-    async def rewind_files(self, _user_message_id: str) -> None:
-        raise AcpError(f"{self.name} can't put files back.")
+    async def rewind_files(self, user_message_id: str) -> None:
+        """Files back as they were before one of the owner's messages, from Eden's own
+        snapshots (acp_checkpoints.py); the agent hears of it with the next message."""
+        if self.rewinder is None:
+            raise AcpError(f"{self.name} can't put files back.")
+        await self.rewinder(user_message_id)
+        self.note = REWOUND_NOTE
 
     async def stop_task(self, _task_id: str) -> None:
         raise AcpError(f"{self.name} has no tasks to stop.")
@@ -625,17 +757,21 @@ class AcpClient:
             return
         update = params.get("update") if isinstance(params.get("update"), dict) else {}
         kind = update.get("sessionUpdate")
-        if kind == "agent_message_chunk":
+        if kind == "usage_update":
+            self._usage_update(update)
+        elif kind == "agent_message_chunk":
             if text := _text(update.get("content")):
                 if self.thought:
                     self._flush()
                 self.words.append(text)
+                self.chars_out += len(text)
                 self._stream("text", text)
         elif kind == "agent_thought_chunk":
             if text := _text(update.get("content")):
                 if self.words:
                     self._flush()
                 self.thought.append(text)
+                self.chars_out += len(text)
                 self._stream("thinking", text)
         elif kind in ("tool_call", "tool_call_update"):
             self._flush()
@@ -680,6 +816,7 @@ class AcpClient:
         status = update.get("status")
         if status in ("completed", "failed") and not known["done"]:
             known["done"] = True
+            self.chars_in += len(_output(update))  # (what a step returned, it reads)
             self._put(
                 UserMessage(
                     content=[
@@ -734,6 +871,14 @@ class AcpClient:
         if chosen is None:
             return {"outcome": {"outcome": "cancelled"}}
         return {"outcome": {"outcome": "selected", "optionId": str(chosen["optionId"])}}
+
+
+_USAGE_KEYS = {  # a turn's usage, by the names agents use (ACP's own first)
+    "input": ("inputTokens", "input_tokens", "promptTokens", "prompt_tokens"),
+    "output": ("outputTokens", "output_tokens", "completionTokens", "completion_tokens"),
+    "cached": ("cachedReadTokens", "cached_read_tokens", "cache_read_input_tokens", "cachedTokens"),
+    "total": ("totalTokens", "total_tokens"),
+}
 
 
 async def _words_of(prompt: Any) -> str:

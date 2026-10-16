@@ -1,5 +1,6 @@
 // Other coding agents over the Agent Client Protocol (features/code_acp.py): the Other agents
-// pane (More › Other agents, /acp). The agents the owner added by their command, a new
+// pane (More › Other agents, /acp). On for everyone (it left Labs); its switch is in Eden
+// Code settings › General (labs.js), since this file isn't loaded while it's off. The agents the owner added by their command, a new
 // session with one in the project on show (an ordinary Eden Code session, selected once it
 // starts), and an agent added or removed (a second press).
 //
@@ -41,6 +42,7 @@
     paneBody = body;
     if (!state) { body.replaceChildren(el('p', 'jc-empty', 'Reading the agents…')); return; }
     const parts = [el('p', 'jc-dim ca-intro', 'Run a task with another coding agent that speaks the Agent Client Protocol. It works in the project on show as an ordinary session: Eden Secretary answers the steps it asks about, by your permission mode and rules; what it does without asking is up to its own settings.')];
+    parts.push(el('p', 'jc-dim ca-intro', 'Rewind and Undo work as in a Claude session: before each of your messages, Eden Code keeps a snapshot of the project’s files in git (never in your branches or stash). What the agent uses is in Usage, and each turn that changes files gets a receipt.'))
     const agents = state.agents || [];
     if (!agents.length) parts.push(el('p', 'jc-dim cr-none', 'No agents yet: add one below by the command that starts it.'));
     else {

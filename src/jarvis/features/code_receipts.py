@@ -33,6 +33,8 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
   them on the session, task.fallbacks), so a model change is on the proof as well as in
   the transcript; and, in Model Router's Shadow mode, the model it would have picked for
   the turn's message and what that would have saved (code_router.take_shadow);
+- for another agent's turn (over ACP: features/code_acp.py), what it used: its tokens (an
+  estimate, marked ≈, when the agent reports none) and its cost when the agent says it;
 - a risk level: high when it failed, tests failed, a test was weakened, the check found
   problems, a security scanner found a high-severity problem, or it touched auth, billing,
   the database schema or secrets; medium when it was stopped, changed many files, changed
@@ -61,6 +63,7 @@ from typing import Any
 from .. import codesupervisor as cs
 from .code_security import receipt_words as security_words
 from .code_security import risk_of as security_risk
+from ..codeplatform import other_agent
 
 log = logging.getLogger("jarvis")
 
@@ -219,6 +222,15 @@ def receipt_text(r: dict[str, Any]) -> str:
     scanned = security_words(r.get("security"))
     if scanned:
         parts.append(scanned)
+    used = r.get("usage")
+    if used:
+        from .code_acp import tokens_text
+
+        tokens = tokens_text(used.get("tokens"), bool(used.get("estimated")))
+        said = f"{used.get('name') or 'the agent'} used {tokens}"
+        if used.get("cost") is not None:
+            said += f" (${used['cost']:.2f})"
+        parts.append(said)
     parts.append(f"risk {r['risk']}: {r['why']}")
     return "Proof · " + " · ".join(parts)
 
@@ -412,6 +424,10 @@ class Receipts:
         shadow = shadow_part(getattr(self.hub, "code_router", None), task)
         if shadow:
             receipt["router"] = shadow
+        acp = getattr(self.hub, "code_acp", None)  # another agent's turn: what it used
+        used = acp.receipt_part(task.id) if acp is not None and other_agent(task) else None
+        if used:
+            receipt["usage"] = used
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

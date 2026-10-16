@@ -6,6 +6,8 @@
 // scanners found (features/code_security.py), and the ones not installed. The entry's text
 // stays the same everywhere else (the phone, voice). Its settings (Settings › Eden Code ›
 // Receipts): the integrity check (on) and the quick mutation pass (off).
+// Another agent's turn (over ACP: features/code_acp.py) also says what it used: tokens (≈:
+// an estimate, when the agent reports none) and its cost when the agent says it.
 (function (root) {
   'use strict';
 
@@ -72,7 +74,21 @@
     return out;
   }
 
-  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine, securityLine, integrityLines, modelLines }; return; }
+  // 12, 4.2k, 1.3M (≈ in front: an estimate), as the backend's code_acp.tokens_text.
+  function tokenCount(n, estimated) {
+    const v = Math.max(0, Math.floor(Number(n) || 0));
+    const shown = v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}k` : String(v);
+    return `${estimated ? '≈' : ''}${shown.replace('.0M', 'M').replace('.0k', 'k')}`;
+  }
+
+  // An agent's turn's usage as [count, cost] ('' for a cost it didn't say).
+  function usageLine(u) {
+    if (!u) return null;
+    const cost = typeof u.cost === 'number' && u.cost >= 0 ? `$${u.cost.toFixed(2)}` : '';
+    return [tokenCount(u.tokens, !!u.estimated), cost];
+  }
+
+  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine, securityLine, integrityLines, modelLines, tokenCount, usageLine }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
   const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
@@ -143,6 +159,14 @@
       const line = el('li', cls, words);
       line.dataset.noI18n = '';  // (model names; the words are built here)
       facts.append(line);
+    }
+    const used = usageLine(r.usage);
+    if (used) {
+      const fact = el('li', 'rc-usage');
+      fact.setAttribute('data-no-i18n', '');
+      fact.title = F.t(r.usage.estimated ? 'Estimated: the agent didn’t report its tokens' : 'As the agent reported it');
+      fact.textContent = `${r.usage.name || ''} · ${used[0]} ${F.t('tokens')}${used[1] ? ` · ${used[1]}` : ''}`;
+      facts.append(fact);
     }
     li.replaceChildren(head, facts);
     if (scan) li.append(securityBox(r.security));

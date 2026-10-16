@@ -9,8 +9,12 @@ stdout, a message a line, as a real agent speaks it. What it does depends on the
   noisy  prints a line that isn't JSON first, then answers
   garbled  first prints lines no client can use (a response whose id is a list, JSON
          nested too deep to read, a line past FAKE_ACP_LONG bytes), then answers
+  write  changes files in its folder without saying so (as a shell step would): a line
+         added to a.txt, new.txt made, gone.txt removed
+  usage  reports its tokens (the prompt's response's usage) and the session's cost so far
+         (usage_update: $0.25 more each time)
 
-It never touches the network or any file. FAKE_ACP_AUTH=1 makes session/new ask for a
+It never touches the network, nor any file outside its folder (and only when told "write"). FAKE_ACP_AUTH=1 makes session/new ask for a
 sign-in; FAKE_ACP_LOG=<path> keeps every message it got there.
 """
 
@@ -22,6 +26,7 @@ SESSION = "sess-1"
 logged = open(os.environ["FAKE_ACP_LOG"], "a") if os.environ.get("FAKE_ACP_LOG") else None  # noqa: SIM115
 waiting: dict = {}  # its own request ids -> the response, once it came
 cancelled = False
+spent = 0.0
 
 
 def send(message):
@@ -63,7 +68,7 @@ def ask(method, params, request_id):
 
 
 def prompt(text):
-    global cancelled
+    global cancelled, spent
     if "crash" in text:
         sys.stderr.write("fake agent: something broke\n")
         sys.stderr.flush()
@@ -102,6 +107,17 @@ def prompt(text):
                 "agent_message_chunk",
                 content={"type": "text", "text": f"Not allowed ({outcome.get('outcome')})."},
             )
+    if "write" in text:
+        with open("a.txt", "a") as f:
+            f.write("a line from the agent\n")
+        with open("new.txt", "w") as f:
+            f.write("made by the agent\n")
+        if os.path.exists("gone.txt"):
+            os.remove("gone.txt")
+        update("agent_message_chunk", content={"type": "text", "text": "Wrote them."})
+    if "usage" in text:
+        spent += 0.25
+        update("usage_update", used=1200, size=200000, cost={"amount": spent, "currency": "USD"})
     if "plan" in text:
         update("plan", entries=[
             {"content": "Read the code", "priority": "high", "status": "completed"},
@@ -158,6 +174,9 @@ def main():
                 sys.stdout.write("x" * int(os.environ.get("FAKE_ACP_LONG") or 0) + "\n")
                 sys.stdout.flush()
             result = {"stopReason": prompt(text)}
+            if "usage" in text:
+                result["usage"] = {"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200,
+                                   "cachedReadTokens": 300}  # fmt: skip
         elif method == "session/cancel":
             continue
         elif request_id is not None:

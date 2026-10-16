@@ -1,6 +1,9 @@
 {
   "strings": {
     "Usage": "用量",
+    "Other agents": "其他代理",
+    "tokens": "token",
+    "On their own providers’ accounts, apart from Claude’s limits. Tokens are as each agent reports them; ≈ marks an estimate where it reports none. A cost shows when the agent says it.": "记在它们各自提供商的账户上，与 Claude 的上限分开。token 数按各代理自己的报告；没有报告的用 ≈ 标出估算值。代理报告了花费时才显示花费。",
     "Usage and limits": "用量和上限",
     "What sessions cost, and Claude’s limits": "各会话的花费，以及 Claude 的额度",
     "Usage, limits and what sessions cost": "用量、上限和各会话的花费",

@@ -348,3 +348,130 @@ async def test_lines_no_client_can_use_are_passed_over_and_the_turn_still_ends(
     assert done == {"stopReason": "end_turn"} and not conn.closed
     assert heard.count("session/update") == 3  # its words all came through
     await conn.close()
+
+
+# ── what Eden gives an agent's session: Rewind, usage, receipts ──
+
+
+def _git_proj(tmp_path):
+    import subprocess
+
+    proj = tmp_path / "proj"
+    proj.mkdir(exist_ok=True)
+    run = lambda *a: subprocess.run(  # noqa: E731
+        ["git", "-c", "user.name=T", "-c", "user.email=t@t", *a], cwd=proj, check=True,
+        capture_output=True,
+    )  # fmt: skip
+    run("init", "-q")
+    (proj / "a.txt").write_text("one\n")
+    (proj / "gone.txt").write_text("keep me\n")
+    run("add", "-A")
+    run("commit", "-qm", "first")
+    return proj
+
+
+def _receipts(task):
+    return [e["receipt"] for e in task.transcript if e.get("receipt")]
+
+
+async def test_rewind_and_undo_put_an_agent_s_files_back(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    proj = _git_proj(tmp_path)
+    hub = _hub(settings, quiet_speaker, isolated, tmp_path)
+    task = await _start(hub, mode="auto")
+    await _turn(hub, task, "hello")  # a turn that changed nothing
+    await _turn(hub, task, "write the files")  # changed with no step said (a shell's)
+    assert (proj / "new.txt").exists() and not (proj / "gone.txt").exists()
+    changed = {str(proj.resolve() / f) for f in ("a.txt", "new.txt", "gone.txt")}
+    assert {str(Path(p).resolve()) for p in task.files_changed} == changed
+    [point] = [c for c in task.checkpoints if task.checkpoint_files.get(c)]
+    (proj / "mine.txt").write_text("the owner's own\n")
+    assert await hub.tasks.rewind_to(task.id, point) == (
+        "Rewound: the files are back as they were before that message."
+    )
+    assert (proj / "a.txt").read_text() == "one\n" and (
+        proj / "gone.txt"
+    ).read_text() == "keep me\n"
+    assert not (proj / "new.txt").exists() and (proj / "mine.txt").exists()
+    assert not task.files_changed
+    await _turn(hub, task, "write again")
+    assert "a line from the agent" in (proj / "a.txt").read_text()
+    sent = [json.loads(line) for line in (tmp_path / "agent.log").read_text().splitlines()]
+    [told] = [m for m in sent if m.get("method") == "session/prompt"][-1]["params"]["prompt"]
+    assert told["text"].startswith("(Eden Code: the owner rewound") and told["text"].endswith(
+        "write again"
+    )
+    assert [e["text"] for e in task.transcript if e["role"] == "user"][-1] == "write again"
+    assert (
+        await hub.tasks.undo(task.id)
+        == "Undone: the files are back as they were before that change."
+    )
+    assert (proj / "a.txt").read_text() == "one\n" and not (proj / "new.txt").exists()
+    refs = subprocess_out(proj, "for-each-ref", "refs/eden/acp/")
+    assert "/before" in refs  # (the first turns' snapshots stay; the undone ones went)
+    assert subprocess_out(proj, "stash", "list") == ""
+    await end_all(hub)
+
+
+def subprocess_out(where, *args):
+    import subprocess
+
+    return subprocess.run(["git", *args], cwd=where, capture_output=True, text=True).stdout
+
+
+async def test_an_agent_s_session_outside_git_says_why_it_can_t_rewind(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub = _hub(settings, quiet_speaker, isolated, tmp_path)
+    task = await _start(hub, mode="auto")
+    await _turn(hub, task, "hello")
+    reply = await hub.tasks.rewind_to(task.id, task.checkpoints[-1])
+    assert reply.startswith("Couldn't rewind: there's no snapshot from before that message")
+    await end_all(hub)
+
+
+async def test_an_agent_s_usage_is_counted_apart_from_claude_s_and_on_its_receipt(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    _git_proj(tmp_path)
+    hub = _hub(settings, quiet_speaker, isolated, tmp_path)
+    claude_before = json.dumps(hub.usage.summary(), sort_keys=True)
+    task = await _start(hub, mode="auto")
+    await _turn(hub, task, "write with usage")
+    [turn] = [e for e in task.transcript if e["role"] == "turn"]
+    assert turn["tokens"] == 1000 + 200 + 300 and turn["cost"] == 0  # (never Claude's cost)
+    assert await until(lambda: _receipts(task), LONG)
+    [receipt] = _receipts(task)
+    assert receipt["usage"] == {"name": "Fake", "tokens": 1200, "input": 1000, "output": 200,
+                                "estimated": False, "cost": 0.25}  # fmt: skip
+    assert receipt["file_count"] == 3
+    proof = [e["text"] for e in task.transcript if e.get("receipt")][0]
+    assert "Fake used 1.2k tokens ($0.25)" in proof
+    await _turn(hub, task, "usage again, and write")  # the session's cost so far: $0.50
+    await _turn(hub, task, "hello")  # nothing said: an estimate
+    agents = hub.code_usage.public()["agents"]
+    mine = agents["sessions"][str(task.id)]
+    assert mine["turns"] == 3 and mine["cost"] == 0.5 and mine["cost_said"]
+    assert 0 < mine["estimated"] < mine["tokens"]
+    [today] = agents["today"]
+    assert today["id"] == "fake" and today["name"] == "Fake" and today["cost"] == 0.5
+    assert hub.code_acp.usage.last[task.id]["estimated"] is True
+    assert json.dumps(hub.usage.summary(), sort_keys=True) == claude_before  # Claude's untouched
+    assert not hub.code_usage.usage.today()  # ... and its meter too
+    kept = json.loads(hub.feature_path("code_acp_usage.json").read_text())
+    assert kept["days"][hub.code_acp.usage.today()]["fake"]["turns"] == 3
+    await end_all(hub)
+
+
+def test_an_agent_s_reported_and_estimated_usage():
+    client = AcpClient(["x"], "Fake", None)
+    client.chars_in, client.chars_out = 41, 8
+    assert client.turn_usage() == {"input": 11, "output": 2, "cached": 0, "tokens": 13,
+                                   "estimated": True, "cost_total": None, "context": None}  # fmt: skip
+    client._take_usage({"input_tokens": 5, "output_tokens": 7, "junk": "x", "totalTokens": -1})
+    client._usage_update({"used": 10, "size": 100, "cost": {"amount": 0.5, "currency": "usd"}})
+    client._usage_update({"cost": {"amount": 9, "currency": "EUR"}})  # (dollars only)
+    got = client.turn_usage()
+    assert (got["input"], got["output"], got["tokens"], got["estimated"]) == (5, 7, 12, False)
+    assert got["cost_total"] == 0.5 and got["context"] == [10, 100]

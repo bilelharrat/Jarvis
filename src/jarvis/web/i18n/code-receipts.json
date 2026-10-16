@@ -1,6 +1,9 @@
 {
   "strings": {
     "Low risk": "低风险",
+    "tokens": "token",
+    "Estimated: the agent didn’t report its tokens": "估算值：代理没有报告它的 token 用量",
+    "As the agent reported it": "按代理自己的报告",
     "Medium risk": "中等风险",
     "High risk": "高风险",
     "file changed": "个文件有改动",

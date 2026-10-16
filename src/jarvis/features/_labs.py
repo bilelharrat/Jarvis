@@ -6,6 +6,12 @@ unless it's on in Settings › Eden Code › Labs (prefs.features["labs"], a lis
 a change takes effect at the next start. JARVIS_LABS=all (the tests, a developer) turns every
 one on.
 
+A module that's finished leaves Labs ("graduates", GRADUATED): it's on for everyone, with a
+switch of its own in Settings (a feature pref, on by default) that turns it off the same
+way, at the next start. Its old name stays in the labs list wherever an owner had turned
+it on (never dropped from prefs.json), so a build from before it graduated still finds it
+on, and the owner who chose it keeps it in either.
+
 No Claude calls here.
 """
 
@@ -24,22 +30,29 @@ KEY = "labs"
 # agents, skills and hooks, asked for by owners more than anything else Labs held). A "labs"
 # setting that still names either just drops it (_clean).
 LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
-    "code_acp": ("Other agents (ACP)", "Run Gemini CLI, Codex and other ACP agents as sessions.", ("code-acp",)),
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
     "code_share": ("Share live", "A read-only live view of a session for a teammate, by link, on your network.", ("code_share",)),
 }  # fmt: skip
 # Out of Labs (on for everyone now; a name still in an owner's list is dropped by _clean):
 # code_queue, the routing queue, on 2026-10-16, with the cost forecast beside it
 # (features/code_forecast).
+# module -> (its own switch's feature pref, its window files' stems). Other agents (ACP) left
+# Labs once Eden gave its sessions what Claude's have: Rewind, usage and receipts; its name
+# stays in an owner's labs list (_clean keeps it), unlike the ones above with no switch.
+GRADUATED: dict[str, tuple[str, tuple[str, ...]]] = {
+    "code_acp": ("code_acp_agents", ("code-acp",)),
+}
 
 
 def _clean(value: Any) -> list[str] | None:
     if not isinstance(value, list):
         return None
-    return sorted({v for v in value if isinstance(v, str) and v in LABS})
+    return sorted({v for v in value if isinstance(v, str) and (v in LABS or v in GRADUATED)})
 
 
 prefs.register_feature_pref(KEY, [], _clean)
+for _pref, _stems in GRADUATED.values():
+    prefs.register_feature_pref(_pref, True)
 
 
 def enabled(store: Any) -> set[str]:
@@ -53,14 +66,29 @@ def enabled(store: Any) -> set[str]:
     return {name for name in on or [] if name in LABS}
 
 
+def graduated_off(store: Any) -> set[str]:
+    """The graduated modules whose own switch is off (on unless turned off)."""
+    off: set[str] = set()
+    for name, (pref, _stems) in GRADUATED.items():
+        try:
+            value = store.feature(pref) if store is not None else True
+        except Exception:
+            value = True
+        if value is False:
+            off.add(name)
+    return off
+
+
 def skipped(store: Any) -> set[str]:
-    """Feature modules not to install: the Labs ones that are off."""
-    return set(LABS) - enabled(store)
+    """Feature modules not to install: the Labs ones that are off, and the graduated ones
+    switched off."""
+    return (set(LABS) - enabled(store)) | graduated_off(store)
 
 
 def web_skipped(store: Any) -> set[str]:
     """Window file stems not to load (web/features/<stem>.js and .css)."""
-    return {stem for name in skipped(store) for stem in LABS[name][2]}
+    stems = {name: LABS[name][2] for name in LABS} | {n: g[1] for n, g in GRADUATED.items()}
+    return {stem for name in skipped(store) for stem in stems[name]}
 
 
 def public() -> list[dict[str, str]]:
