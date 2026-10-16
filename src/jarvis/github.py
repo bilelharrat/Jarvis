@@ -684,6 +684,9 @@ class Client:
 
 # ── what the answers mean ──
 
+# The CI whose jobs' logs can be read (job_log): GitHub Actions, and the other hosts' own
+# pipelines in their clients' check runs (githosts/).
+LOG_APPS = ("github-actions", "gitlab-ci", "bitbucket-pipelines", "azure-pipelines")
 FAILED = ("failure", "timed_out", "action_required", "startup_failure")
 PASSED = ("success", "neutral", "skipped")
 
@@ -733,7 +736,7 @@ def checks_from(runs: list[dict[str, Any]], statuses: list[dict[str, Any]]) -> l
             state,
             str(run.get("html_url") or run.get("details_url") or ""),
             int(run.get("id") or 0),
-            app.get("slug") == "github-actions",
+            app.get("slug") in LOG_APPS,
             str(output.get("title") or "")[:300],
         )
     for status in statuses:

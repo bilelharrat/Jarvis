@@ -74,10 +74,14 @@ class PullRecord:
     followup_at: float = 0.0  # when it went: past FOLLOWUP_STALE, it's let go
     awaiting_push: bool = False  # the session's work waits to be pushed
     watch: bool = True
+    # The host when it isn't GitHub ("gitlab:gitlab.com", "bitbucket:bitbucket.org",
+    # "azure:dev.azure.com"): its repo may then have more parts (GitLab's groups, Azure
+    # DevOps' organisation and project).
+    host: str = ""
 
     @property
     def key(self) -> str:
-        return f"{self.repo}#{self.number}"
+        return f"{self.host}:{self.repo}#{self.number}" if self.host else f"{self.repo}#{self.number}"
 
     def public(self) -> dict[str, Any]:
         data = asdict(self)
@@ -89,6 +93,8 @@ class PullRecord:
 
 
 _FIELDS = {f.name: f for f in fields(PullRecord)}
+HOST_TAG = re.compile(r"(?:gitlab|bitbucket|azure):[a-z0-9][a-z0-9.-]{0,252}")
+HOST_REPO = r"[^\x00-\x1f#/]{1,128}(?:/[^\x00-\x1f#/]{1,128}){1,8}"
 
 
 def record_from(raw: Any) -> PullRecord | None:
@@ -102,7 +108,10 @@ def record_from(raw: Any) -> PullRecord | None:
     texts = ("repo", "url", "title", "branch", "base", "remote", "folder", "project")
     if not all(isinstance(getattr(rec, k), str) for k in texts):
         return None
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", rec.repo) or not rec.branch or not rec.folder:
+    if not isinstance(rec.host, str) or (rec.host and not HOST_TAG.fullmatch(rec.host)):
+        return None
+    shape = HOST_REPO if rec.host else r"[\w.-]+/[\w.-]+"
+    if not re.fullmatch(shape, rec.repo) or not rec.branch or not rec.folder:
         return None
     if type(rec.number) is not int or rec.number <= 0:
         return None
@@ -151,7 +160,7 @@ class PullStore:
         rows = data.get("pulls")
         for raw in rows if isinstance(rows, list) else []:
             rec = record_from(raw)
-            if rec is not None and self.find(rec.repo, rec.number) is None:
+            if rec is not None and self.find(rec.repo, rec.number, rec.host) is None:
                 self.items.append(rec)
 
     def save(self, now: float | None = None) -> None:
@@ -178,8 +187,11 @@ class PullStore:
             gone = next((r for r in self.items if r.state != "open"), self.items[0])
             self.items.remove(gone)
 
-    def find(self, repo: str, number: int) -> PullRecord | None:
-        return next((r for r in self.items if r.repo == repo and r.number == number), None)
+    def find(self, repo: str, number: int, host: str = "") -> PullRecord | None:
+        return next(
+            (r for r in self.items if r.repo == repo and r.number == number and r.host == host),
+            None,
+        )
 
     def by_key(self, key: str) -> PullRecord | None:
         return next((r for r in self.items if r.key == key), None)

@@ -1,0 +1,331 @@
+{
+ "_note": "Recorded from the Azure DevOps REST API 7.1 (dev.azure.com), trimmed to the fields Eden Code reads; ids, names and hashes replaced.",
+ "GET https://dev.azure.com/acme/_apis/connectionData": {
+  "status": 200,
+  "body": {
+   "authenticatedUser": {
+    "providerDisplayName": "Octo Owner",
+    "properties": {
+     "Account": {
+      "$type": "System.String",
+      "$value": "owner@acme.test"
+     }
+    }
+   }
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app": {
+  "status": 200,
+  "body": {
+   "id": "r1",
+   "name": "app",
+   "defaultBranch": "refs/heads/main"
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests": {
+  "status": 200,
+  "body": {
+   "value": [],
+   "count": 0
+  }
+ },
+ "POST https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests": {
+  "status": 201,
+  "body": {
+   "pullRequestId": 7,
+   "title": "Make x two",
+   "description": "Why: the login.",
+   "status": "active",
+   "isDraft": false,
+   "sourceRefName": "refs/heads/feature/login",
+   "targetRefName": "refs/heads/main",
+   "mergeStatus": "succeeded",
+   "lastMergeSourceCommit": {
+    "commitId": "head1"
+   },
+   "lastMergeTargetCommit": {
+    "commitId": "base000"
+   },
+   "createdBy": {
+    "uniqueName": "owner@acme.test",
+    "displayName": "Octo Owner"
+   },
+   "reviewers": [
+    {
+     "uniqueName": "reviewer@acme.test",
+     "vote": 10
+    },
+    {
+     "uniqueName": "other@acme.test",
+     "vote": 0
+    }
+   ]
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests/7": {
+  "status": 200,
+  "body": {
+   "pullRequestId": 7,
+   "title": "Make x two",
+   "description": "Why: the login.",
+   "status": "active",
+   "isDraft": false,
+   "sourceRefName": "refs/heads/feature/login",
+   "targetRefName": "refs/heads/main",
+   "mergeStatus": "succeeded",
+   "lastMergeSourceCommit": {
+    "commitId": "head1"
+   },
+   "lastMergeTargetCommit": {
+    "commitId": "base000"
+   },
+   "createdBy": {
+    "uniqueName": "owner@acme.test",
+    "displayName": "Octo Owner"
+   },
+   "reviewers": [
+    {
+     "uniqueName": "reviewer@acme.test",
+     "vote": 10
+    },
+    {
+     "uniqueName": "other@acme.test",
+     "vote": 0
+    }
+   ]
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/build/builds": {
+  "status": 200,
+  "body": {
+   "value": [
+    {
+     "id": 901,
+     "buildNumber": "20261010.3",
+     "status": "completed",
+     "result": "failed",
+     "definition": {
+      "name": "CI"
+     },
+     "triggerInfo": {
+      "pr.number": "7",
+      "pr.sourceSha": "head1"
+     },
+     "_links": {
+      "web": {
+       "href": "https://dev.azure.com/acme/Shop%20Web/_build/results?buildId=901"
+      }
+     }
+    },
+    {
+     "id": 900,
+     "buildNumber": "20261010.2",
+     "status": "completed",
+     "result": "succeeded",
+     "definition": {
+      "name": "CI"
+     },
+     "triggerInfo": {
+      "pr.number": "7",
+      "pr.sourceSha": "head1"
+     },
+     "_links": {
+      "web": {
+       "href": "https://dev.azure.com/acme/Shop%20Web/_build/results?buildId=900"
+      }
+     }
+    },
+    {
+     "id": 899,
+     "buildNumber": "20261009.9",
+     "status": "completed",
+     "result": "succeeded",
+     "definition": {
+      "name": "Docs"
+     },
+     "triggerInfo": {
+      "pr.number": "7",
+      "pr.sourceSha": "older"
+     },
+     "_links": {
+      "web": {
+       "href": "x"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests/7/statuses": {
+  "status": 200,
+  "body": {
+   "value": [
+    {
+     "id": 1,
+     "state": "pending",
+     "context": {
+      "genre": "sonar",
+      "name": "gate"
+     },
+     "targetUrl": "https://sonar.example.test/1"
+    },
+    {
+     "id": 2,
+     "state": "succeeded",
+     "context": {
+      "genre": "sonar",
+      "name": "gate"
+     },
+     "targetUrl": "https://sonar.example.test/2",
+     "description": "Passed"
+    }
+   ]
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/build/builds/901/timeline": {
+  "status": 200,
+  "body": {
+   "records": [
+    {
+     "type": "Stage",
+     "name": "Build",
+     "result": "failed",
+     "log": null
+    },
+    {
+     "type": "Job",
+     "name": "Job",
+     "result": "failed",
+     "log": {
+      "id": 3
+     }
+    },
+    {
+     "type": "Task",
+     "name": "Run tests",
+     "result": "failed",
+     "log": {
+      "id": 7
+     }
+    },
+    {
+     "type": "Task",
+     "name": "Checkout",
+     "result": "succeeded",
+     "log": {
+      "id": 2
+     }
+    }
+   ]
+  }
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/build/builds/901/logs/7": {
+  "status": 200,
+  "text": "2026-10-10T10:00:00.0Z ##[section]Starting: Run tests\nFAILED tests/test_login.py::test_login\n##[error]Bash exited with code '1'.\n"
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/build/builds/901/logs/3": {
+  "status": 200,
+  "text": "job log\n"
+ },
+ "GET https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests/7/threads": {
+  "status": 200,
+  "body": {
+   "value": [
+    {
+     "id": 11,
+     "threadContext": {
+      "filePath": "/a.py",
+      "rightFileStart": {
+       "line": 1,
+       "offset": 1
+      }
+     },
+     "comments": [
+      {
+       "id": 1,
+       "author": {
+        "uniqueName": "reviewer@acme.test"
+       },
+       "content": "Please keep the old name too.",
+       "commentType": "text",
+       "publishedDate": "2026-10-10T10:01:00Z"
+      }
+     ]
+    },
+    {
+     "id": 12,
+     "threadContext": null,
+     "comments": [
+      {
+       "id": 1,
+       "author": {
+        "uniqueName": "owner@acme.test"
+       },
+       "content": "@jarvis add a test for it",
+       "commentType": "text",
+       "publishedDate": "2026-10-10T10:02:00Z"
+      }
+     ]
+    },
+    {
+     "id": 13,
+     "comments": [
+      {
+       "id": 1,
+       "author": {
+        "uniqueName": "bot"
+       },
+       "content": "Policy check",
+       "commentType": "system"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "POST https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests/7/threads": {
+  "status": 200,
+  "body": {
+   "id": 14,
+   "comments": [
+    {
+     "id": 1,
+     "content": "ok"
+    }
+   ]
+  }
+ },
+ "PATCH https://dev.azure.com/acme/Shop%20Web/_apis/git/repositories/app/pullrequests/7": {
+  "status": 200,
+  "body": {
+   "pullRequestId": 7,
+   "title": "Make x two",
+   "description": "Why: the login.",
+   "status": "completed",
+   "isDraft": false,
+   "sourceRefName": "refs/heads/feature/login",
+   "targetRefName": "refs/heads/main",
+   "mergeStatus": "succeeded",
+   "lastMergeSourceCommit": {
+    "commitId": "head1"
+   },
+   "lastMergeTargetCommit": {
+    "commitId": "base000"
+   },
+   "createdBy": {
+    "uniqueName": "owner@acme.test",
+    "displayName": "Octo Owner"
+   },
+   "reviewers": [
+    {
+     "uniqueName": "reviewer@acme.test",
+     "vote": 10
+    },
+    {
+     "uniqueName": "other@acme.test",
+     "vote": 0
+    }
+   ]
+  }
+ }
+}

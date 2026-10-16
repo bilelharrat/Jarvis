@@ -41,6 +41,14 @@
     return node;
   }
 
+  // The pull request's host (the code_pr event's host): GitHub unless its remote says otherwise.
+  const VIEW_ON = { GitHub: 'View on GitHub', GitLab: 'View on GitLab', Bitbucket: 'View on Bitbucket', 'Azure DevOps': 'View on Azure DevOps' };
+  const CONNECT_HOST = {
+    GitLab: 'Add a GitLab token in Eden Code settings › Git hosts and Jira to open and watch merge requests.',
+    Bitbucket: 'Add a Bitbucket token in Eden Code settings › Git hosts and Jira to open and watch pull requests.',
+    'Azure DevOps': 'Add an Azure DevOps token in Eden Code settings › Git hosts and Jira to open and watch pull requests.',
+  };
+
   function link(href, label) {
     const a = el('a', 'jcx-pr-link', label);
     a.href = href;
@@ -123,7 +131,7 @@
     head.append(title, stateChip(pr));
     wrap.append(head);
     const where = el('p', 'jc-dim jcx-pr-where');
-    where.append(mine(`${pr.repo} · ${pr.branch} → ${pr.base}`), document.createTextNode(' · '), link(pr.url, 'View on GitHub'));
+    where.append(mine(`${pr.repo} · ${pr.branch} → ${pr.base}`), document.createTextNode(' · '), link(pr.url, VIEW_ON[data.host] || 'View on GitHub'));
     wrap.append(where);
     if (data.error) wrap.append(mine(data.error, 'p', 'jcx-pr-error'));
     if (pr.state === 'open') {
@@ -420,7 +428,13 @@
     if (!task) wrap.append(el('p', 'jc-empty', 'Open a session to work with its pull request.'));
     else if (!data) wrap.append(el('p', 'jc-empty', 'Loading…'));
     else if (!data.where || !data.where.git) wrap.append(el('p', 'jc-empty', 'This folder isn’t a git repository.'));
-    else if (!data.github) {
+    else if (!data.github && CONNECT_HOST[data.host]) {
+      // GitLab, Bitbucket, Azure DevOps (features/code_hosts.py): their tokens are in Eden
+      // Code settings › Git hosts and Jira, not Tools & Accounts.
+      const card = el('div', 'jcx-pr-connect');
+      card.append(el('p', '', CONNECT_HOST[data.host]));
+      wrap.append(card);
+    } else if (!data.github) {
       const card = el('div', 'jcx-pr-connect');
       card.append(el('p', '', 'Connect GitHub in Tools & Accounts to open and watch pull requests.'),
         button('Open Tools & Accounts', 'filled', () => { if (typeof toggleAccounts === 'function') toggleAccounts(true); }));
