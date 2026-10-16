@@ -18,6 +18,7 @@ const pages = require('./page-path'); // the app's own pages, from inside app.as
 protocol.registerSchemesAsPrivileged(pages.PRIVILEGES); // (before ready, as Electron asks)
 const { isCertError, riskyClick } = require('./browser-lib');
 const paneLib = require('./browser-pane-lib'); // Eden Code's Browser pane: where its view goes, what opens outside
+const { createPane } = require('./browser-pane'); // …and what its toolbar and ⋯ menu ask of the tab on show
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const proofPipe = require('./proof-pipe'); // Touch ID's proof key, on the backend's own stdin (A1)
@@ -63,6 +64,17 @@ if (DEV_URL) {
   // …and downloads of its own: testing never writes into the real Downloads folder
   app.setPath('downloads', path.join(os.tmpdir(), `${FLAVOR.id}-dev-downloads`));
   fs.mkdirSync(app.getPath('downloads'), { recursive: true });
+}
+// Development only, never in an installed app: a second copy beside the one in use, with a
+// profile of its own (its own single-instance lock, cookies and browser data) and downloads
+// of its own: EDEN_DEV_USER_DATA=<folder> (with JARVIS_BACKEND_URL for a backend of its own).
+const DEV_USER_DATA = app.isPackaged ? '' : String(process.env.EDEN_DEV_USER_DATA || '');
+if (DEV_USER_DATA) {
+  app.setPath('userData', path.resolve(DEV_USER_DATA));
+  app.setPath('downloads', path.join(path.resolve(DEV_USER_DATA), 'Downloads'));
+  fs.mkdirSync(app.getPath('downloads'), { recursive: true });
+  // It sits behind the windows in use (it never takes the focus): it keeps drawing there all the same.
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 }
 
 let win = null;
@@ -487,7 +499,12 @@ function createWindow() {
   if (DEV_URL) {
     // A test window: labelled, never takes focus, and clicks pass through it.
     win.setTitle(`${FLAVOR.title} (test)`);
-    win.once('ready-to-show', () => { win.showInactive(); win.setIgnoreMouseEvents(true); });
+    win.once('ready-to-show', () => {
+      win.showInactive();
+      win.setIgnoreMouseEvents(true);
+      // A second copy for testing (EDEN_DEV_USER_DATA) says which window it is, for screencapture -l.
+      if (DEV_USER_DATA) { try { fs.writeFileSync(path.join(app.getPath('userData'), 'dev-window.txt'), win.getMediaSourceId()); } catch { /* not needed */ } }
+    });
   } else {
     let shown = false;
     const show = (why) => {
@@ -651,6 +668,7 @@ function sendBrowserState(extra = {}) {
     lockWanted: browserStore().researchLock,
     research: onResearch(url),
     zoom: Math.round(wc.getZoomFactor() * 100),
+    pane: { ...pane.info(), fit: paneFit }, // Eden Code's pane: its DevTools, light or dark, size preset
     ...extra,
   };
   win.webContents.send('browser:state', payload);
@@ -704,20 +722,25 @@ function selectTab(view) {
   if (!view || view === browserView) return;
   if (parity.poppedOut(view)) { parity.focusPopout(view); return; } // a tab in a window of its own
   if (browserShown && browserView) dockHost().contentView.removeChildView(browserView);
+  const was = browserView;
   browserView = view;
+  if (paneFit && was && !was.webContents.isDestroyed()) was.webContents.setZoomFactor(parity.zoomFor(was.webContents)); // (a size preset's zoom is the tab on show's only)
   parity.selected(view);
   if (browserShown) {
     dockHost().contentView.addChildView(view);
     if (lastBounds) view.setBounds(lastBounds);
   }
-  view.webContents.setZoomFactor(parity.zoomFor(view.webContents)); // the site's own zoom
+  view.webContents.setZoomFactor(zoomOf(view.webContents)); // the site's own zoom (or the pane's size preset's)
+  pane.selected(view);
   updateLock();
 }
 
-function newTab(url, opts) {
+function newTab(url, opts, { behind = false } = {}) {
   const view = createTab(opts); // opts.partition: a private tab's (browser-parity.js)
-  tabs.push(view);
-  selectTab(view);
+  // A link ⌘-clicked or middle-clicked goes in a tab behind, next to its opener, as in Chrome.
+  const opener = behind ? tabs.indexOf(browserView) : -1;
+  if (opener >= 0) tabs.splice(opener + 1, 0, view); else tabs.push(view);
+  if (behind) { view.setBounds(lastBounds || { x: 0, y: 0, width: 1280, height: 800 }); } else selectTab(view);
   browserAsked = true;
   view.webContents.loadURL(url ? toUrl(url) : homeUrl()).catch(() => {}); // the search engine's page
   return view;
@@ -829,7 +852,11 @@ function browserShortcut(input) {
   const ui = (action) => { if (win) win.webContents.send('browser:shortcut', action); return true; };
   if (ctrl && key === 'tab') return stepTab(shift ? -1 : 1);
   if (!cmd) return false;
-  if (alt && key === 'i') { wc && wc.openDevTools({ mode: 'detach' }); return true; }
+  if (alt && key === 'i') { // (Eden Code's pane docks them, and keeps its button in step)
+    if (EDEN_CODE) Promise.resolve(pane.act({ action: 'devtools', mode: 'docked', toggle: true })).then(() => sendBrowserState());
+    else if (wc) wc.openDevTools({ mode: 'detach' });
+    return true;
+  }
   if (alt) return false;
   if (shift) {
     if (key === 't') { reopenTab(); return true; }
@@ -868,7 +895,16 @@ function reopenTab() {
   if (url) { newTab(url); sendBrowserState(); }
 }
 
+// The zoom a tab's page is shown at: its site's own, or, for the tab on show while the
+// Browser pane shows it at a size preset (a phone's, a tablet's), the zoom that fits the
+// preset's page into the pane (browser-pane-lib / code-browser.js presetRect).
+let paneFit = 0;
+function zoomOf(wc) {
+  return paneFit && browserView && wc === browserView.webContents ? paneFit : parity.zoomFor(wc);
+}
+
 function zoomBy(factor) {
+  if (paneFit) return true; // (a size preset sets the zoom: the page's own comes back with Desktop)
   const wc = browserView.webContents;
   browserZoom = factor ? Math.min(3, Math.max(0.33, wc.getZoomFactor() * factor)) : 1;
   wc.setZoomFactor(browserZoom);
@@ -958,6 +994,7 @@ function pageMenu(view, p) {
   if (p.linkURL && /^https?:/.test(p.linkURL)) {
     items.push({ label: 'Open Link in New Tab', click: () => { newTab(p.linkURL, parity.profileOf(wc)); sendBrowserState(); } }); // (a private tab's link stays private)
     items.push({ label: 'Copy Link Address', click: () => clipboard.writeText(p.linkURL) });
+    items.push({ label: 'Save Link As…', click: () => { parity.acted(wc); wc.downloadURL(p.linkURL); } }); // (asked first, as every download)
     sep();
   }
   if (p.mediaType === 'image' && p.srcURL) {
@@ -982,6 +1019,8 @@ function pageMenu(view, p) {
     items.push({ label: 'Reload', click: () => wc.reload() });
     sep();
     items.push({ label: 'Print…', click: () => wc.print() });
+    const source = paneLib.sourceUrl(wc.getURL());
+    if (source) items.push({ label: 'View Page Source', click: () => { openRaw(source, parity.profileOf(wc)); sendBrowserState(); } });
     sep();
   }
   for (const extra of pageMenuExtras) {
@@ -1227,7 +1266,7 @@ function createTab(opts = {}) {
     // browser-agent.js's TABS_MAX: a page opening one more as each loads would otherwise open
     // tabs without end, each the tab on show.
     const shown = view === browserView || view.private || parity.shownElsewhere(view);
-    if (shown && parity.gesture(wc, { spend: true })) newTab(url, parity.profileOf(wc));
+    if (shown && parity.gesture(wc, { spend: true })) { newTab(url, parity.profileOf(wc), { behind: details.disposition === 'background-tab' }); sendBrowserState(); } // (⌘-click, a middle click: behind)
     else browserAgent.popup(view, url, parity.profileOf(wc) || {});
     return { action: 'deny' };
   });
@@ -1260,6 +1299,8 @@ function createTab(opts = {}) {
     sendBrowserState();
   });
   wc.on('did-navigate', (_event, url) => { blockedOn.set(wc.id, 0); rememberVisit(url, wc); tellLockable(wc); });
+  // Eden Code: the app being built (a page on this Mac) has its console and requests kept from the start.
+  wc.on('did-start-navigation', (details) => { if (EDEN_CODE && details.isMainFrame && !details.isSameDocument && paneLib.isLoopback(details.url)) browserAgent.watch(view); });
   const id = wc.id;
   wc.once('destroyed', () => { // a closed tab's count, icon read and own run of pages go with it
     blockedOn.delete(id);
@@ -1272,7 +1313,7 @@ function createTab(opts = {}) {
   wc.on('context-menu', (_event, params) => { if (!(active() && browserLocked)) pageMenu(view, params); });
   wc.on('before-mouse-event', (event) => { if (active() && browserLocked && !browserSynthetic) event.preventDefault(); });
   for (const event of ['did-navigate', 'did-navigate-in-page']) wc.on(event, () => (active() ? updateLock() : sendBrowserState()));
-  wc.on('did-finish-load', () => wc.setZoomFactor(parity.zoomFor(wc))); // the site's own zoom
+  wc.on('did-finish-load', () => { wc.setZoomFactor(zoomOf(wc)); pane.loaded(view); }); // the site's own zoom (and the pane's light or dark)
   for (const event of ['page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(event, () => sendBrowserState());
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && active() && !isCertError(code)) { // a certificate's: browser-parity.js warns
@@ -1461,7 +1502,32 @@ const parity = createParity({
   browserData: () => browserStore(), // history and bookmarks: the address bar's suggestions, folders, imports
   saveBrowserData: () => saveBrowserStore(),
   isResearch: (view) => onResearch(view.webContents.getURL()), // it stays in the dock (only Eden Secretary drives it)
+  noSplit: EDEN_CODE, // Eden Code's Browser pane shows one tab at a time
 });
+
+// Eden Code's Browser pane, beyond placing the page (browser-pane.js): history menus, the ⋯
+// menu, docked DevTools, light and dark, screenshots, the page's source, its console and requests.
+const pane = createPane({
+  win: () => (win && !win.isDestroyed() ? win : null),
+  active: () => browserView,
+  tabs: () => tabs,
+  agent: browserAgent,
+  parity,
+  downloads: () => app.getPath('downloads'),
+  openRaw: (url) => { openRaw(url); sendBrowserState(); },
+  changed: () => sendBrowserState(),
+});
+
+// A tab for an address as it is (view-source:), never read as words to search for.
+function openRaw(url, opts) {
+  ensureBrowser();
+  const view = createTab(opts);
+  tabs.splice(tabs.indexOf(browserView) + 1, 0, view);
+  selectTab(view);
+  browserAsked = true;
+  view.webContents.loadURL(url).catch(() => {});
+  return view;
+}
 
 async function runBrowserCommand({ action, args = {} }) {
   if (browserAgent.handles(action)) return browserAgent.run(action, args);
@@ -1608,11 +1674,15 @@ ipcMain.handle('browser:show', (event, bounds) => {
 ipcMain.handle('browser:hide', (event) => {
   if (!fromWindow(event)) return;
   mainWants = false;
+  pane.hidden();
   if (dockWin) return; // it's in the Ask Eden window just now
   if (browserView && browserShown) {
+    const had = browserView.webContents.isFocused();
     win.contentView.removeChildView(browserView);
     browserShown = false;
+    if (had) win.webContents.focus(); // the keyboard back to the window, not left on a page no one sees
   }
+  if (paneFit && browserView) { paneFit = 0; browserView.webContents.setZoomFactor(parity.zoomFor(browserView.webContents)); }
 });
 ipcMain.handle('browser:bounds', (event, bounds) => {
   if (!fromWindow(event)) return;
@@ -1686,6 +1756,7 @@ ipcMain.handle('browser:download', (event, { id, action } = {}) => {
     downloads.delete(Number(id));
   }
   if (action === 'show' && d.finished) shell.showItemInFolder(d.path);
+  if (action === 'open' && d.finished) shell.openPath(d.path); // (opened as Finder would: the Mac's own rules for what it runs)
 });
 ipcMain.handle('browser:shortcut', (event, action) => {
   if (!fromWindow(event)) return false;
@@ -1725,13 +1796,22 @@ ipcMain.handle('browser:command', async (event, command) => {
 // drawn above the page's own elements, so it steps aside; the picture keeps the pane from
 // going blank). external: the page in the Mac's default browser (web pages only). devtools:
 // the tab's DevTools, open or closed.
+// bounds.fit: the zoom a size preset's page is shown at (0 for the page's own); bounds.dt: the
+// docked DevTools' place below the page (browser-pane.js), when they're open.
 function placeView(bounds) {
   const view = ensureBrowser();
   const [width, height] = win.getContentSize();
-  const rect = paneLib.viewRect(bounds, win.webContents.getZoomFactor() || 1, { width, height });
+  const zoom = win.webContents.getZoomFactor() || 1;
+  const rect = paneLib.viewRect(bounds, zoom, { width, height });
+  pane.placeDocked(rect && bounds.dt ? paneLib.viewRect(bounds.dt, zoom, { width, height }) : null);
   if (!rect) {
     if (browserShown) { win.contentView.removeChildView(view); browserShown = false; }
     return false;
+  }
+  const fit = Number(bounds.fit) > 0 ? Math.min(1, Math.max(0.25, Number(bounds.fit))) : 0;
+  if (fit !== paneFit) {
+    paneFit = fit;
+    view.webContents.setZoomFactor(zoomOf(view.webContents));
   }
   mainWants = true;
   mainBounds = bounds;
@@ -1757,8 +1837,16 @@ ipcMain.handle('browser:park', async (event) => {
     } catch { /* a page mid-load: no picture */ }
   }
   if (browserView && browserShown && !dockWin) { win.contentView.removeChildView(browserView); browserShown = false; }
+  pane.placeDocked(null);
   mainWants = false;
   return picture;
+});
+ipcMain.handle('browser:pane', async (event, msg) => {
+  if (!fromWindow(event) || !msg || typeof msg !== 'object') return false;
+  ensureBrowser();
+  const answer = await pane.act(msg);
+  if (msg.action !== 'logs' && msg.action !== 'menu') sendBrowserState(); // (its DevTools, light or dark: the pane's buttons follow)
+  return answer;
 });
 ipcMain.handle('browser:external', (event) => {
   if (!fromWindow(event) || !browserView) return false;

@@ -182,7 +182,7 @@ class BrowserAgent {
   // accessibility tree or request log for it) and the tab is throttled in the background again.
   sweep(now = Date.now()) {
     for (const tab of this.state.values()) {
-      if (now - tab.lastUse < IDLE_MS || tab.keep) continue;
+      if (now - tab.lastUse < IDLE_MS || tab.keep || tab.scheme) continue; // (a light or dark the pane set holds on)
       if (tab.view.webContents.isDestroyed()) continue;
       if (tab.cdp.attached) tab.cdp.detach();
       if (tab.unthrottled && !this.hooks.isShown(tab.view)) {
@@ -1379,6 +1379,35 @@ class BrowserAgent {
       return { ok: true, message: `Closed tab ${was.tab} (${was.title || was.url}).`, closed: was.tab };
     }
     return { ok: false, message: 'op must be list, switch or close (open with browser_open).' };
+  }
+
+  // ── Eden Code's Browser pane (browser-pane.js) ──
+
+  // Light or dark for the page's prefers-color-scheme ('' for the system's again), over the
+  // tab's own connection: emulation lasts as long as it's attached, so the tab is kept.
+  async emulateScheme(view, scheme) {
+    const tab = this.tab(view);
+    const want = scheme === 'light' || scheme === 'dark' ? scheme : '';
+    if (!want && !tab.cdp.attached) { tab.scheme = ''; return; } // (nothing set, nothing to undo)
+    await tab.cdp.ensure();
+    await tab.cdp.send('Emulation.setEmulatedMedia', { features: want ? [{ name: 'prefers-color-scheme', value: want }] : [] }, { timeout: 4000 });
+    tab.scheme = want;
+  }
+
+  schemeOf(view) {
+    const tab = view && view.webContents ? this.state.get(view.webContents.id) : null;
+    return tab ? tab.scheme || '' : '';
+  }
+
+  // A page on this Mac in Eden Code's pane (the app being built): watched from as it loads,
+  // as a session's own tab is, so browser_console and browser_network (and the pane's
+  // drawer) have all of its messages and requests. Never while its DevTools are open.
+  watch(view) {
+    const wc = view && view.webContents;
+    if (!wc || wc.isDestroyed() || wc.isDevToolsOpened()) return;
+    const tab = this.tab(view);
+    tab.keep = true;
+    tab.cdp.ensure().catch(() => {});
   }
 
   // ── the command switch ──

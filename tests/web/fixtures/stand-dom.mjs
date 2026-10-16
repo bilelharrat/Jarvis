@@ -137,6 +137,7 @@ class Element extends Node {
     for (const fn of this.listeners.focus || []) fn(doc.event('focus', { target: this }));
   }
   blur() { if (this.ownerDocument._active === this) this.ownerDocument._active = null; }
+  select() { this.selected = true; } // (a field's text selected: what's typed next replaces it)
   getBoundingClientRect() { return { top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 }; }
   matches(sel) { return parse(sel).some((chain) => matchChain(this, chain)); }
   closest(sel) {
