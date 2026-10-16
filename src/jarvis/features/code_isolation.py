@@ -578,6 +578,8 @@ class Desk:
             self.conflicts.pop(copy.slug, None)
             # The sessions in it now: one resumed or started in it while it landed too.
             inside = self.tasks_in(copy)
+            # (the engine radar and the ledger count its sessions' changes as landed)
+            self.hub.emit("code_copy_outcome", outcome="landed", tasks=[t.id for t in inside])
             for task in inside:
                 self.ended_by_landing.add(task.id)
                 self.hub.tasks.cancel(task.id)
@@ -725,6 +727,7 @@ class Desk:
                 return str(exc)
             finally:
                 self.removing.discard(copy.slug)
+        self.hub.emit("code_copy_outcome", outcome="discarded", tasks=[t.id for t in inside])
         store = self.store()
         if copy in store.copies:
             store.copies.remove(copy)

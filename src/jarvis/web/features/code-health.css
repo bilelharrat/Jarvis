@@ -17,3 +17,4 @@
 .ch-error { margin: 6px 0; padding: 8px 10px; border-radius: 9px; max-height: 160px; overflow: auto; white-space: pre-wrap; font: 11.5px/1.5 var(--mono); background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
 .ch-reconnect { margin-top: 6px; }
 .ch-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.ch-pinned { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent)); }

@@ -376,6 +376,8 @@ EDEN_CODE_S_OWN = {
         "code_verify",
         "code_voice_journal",
         "model_router_nightly",
+        "code_radar_nightly",  # the engine radar's log retention (Eden Code's own records)
+        "code_engines_keep",  # a copy of each built-in Claude Code engine, on this Mac
         "openai_relay",
         # the app's own, touching nothing of the owner's life
         "account",  # the Eden account and its relay (Eden Plus answers Eden Code too)

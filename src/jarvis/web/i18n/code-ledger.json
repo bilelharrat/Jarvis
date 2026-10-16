@@ -1,0 +1,32 @@
+{
+  "strings": {
+    "Week of": "这周从",
+    "All weeks": "所有周",
+    "Taken back": "被撤回",
+    "Review minutes": "审阅分钟数",
+    "Cost": "花费",
+    "Per landed change": "每个落地改动",
+    "On changes taken back": "花在被撤回的改动上",
+    "Routed messages": "路由的消息",
+    "They cost": "它们花了",
+    "Router’s alternative (its estimate)": "路由器的替代方案（它的估计）",
+    "Time saved": "省下的时间",
+    "Net": "净值",
+    "Your hourly rate (USD)": "你的时薪（美元）",
+    "Minutes a landed change saves you": "每个落地改动为你省下的分钟数",
+    "Adding up your weeks…": "正在汇总你的每一周…",
+    "From your own sessions in Eden Code. A change landed when nothing took it back here; cost is Claude Code’s own estimate (on a plan, the API price of what ran, not a bill).": "来自你在 Eden Code 里自己的会话。一个改动在这里没被撤回就算落地；花费是 Claude Code 自己的估计（用套餐时，是所运行内容的 API 价格，不是账单）。",
+    "The engine radar is off in Eden Code settings, so new weeks aren’t counted.": "引擎雷达在 Eden Code 设置里关掉了，所以新的周不会被统计。",
+    "With your hourly rate and the minutes a change saves you, each week says whether it paid off. Without them, no week is called a win.": "有了你的时薪和每个改动为你省下的分钟数，每周都会说是否划算。没有它们，不会把任何一周算作赚了。",
+    "Nothing counted yet. Each turn of Eden Code’s sessions counts from now on.": "还没有统计。从现在起，Eden Code 会话的每一轮都会计入。",
+    "Export spreadsheet": "导出表格",
+    "A CSV file in Documents › Jarvis › Eden Code": "文稿 › Jarvis › Eden Code 里的一个 CSV 文件",
+    "Export page": "导出页面",
+    "A Markdown page in Documents › Jarvis › Eden Code": "文稿 › Jarvis › Eden Code 里的一个 Markdown 页面",
+    "Productivity ledger": "生产力账本",
+    "Each week: what landed, what it cost, and whether it paid off": "每周：落地了什么，花了多少，是否划算",
+    "The productivity ledger: each week, honestly": "生产力账本：诚实地记录每一周",
+    "For the productivity ledger: what an hour of your time is worth. 0: not set.": "用于生产力账本：你一小时的时间值多少。0：未设置。",
+    "For the productivity ledger: your own guess. 0: not set.": "用于生产力账本：你自己的估计。0：未设置。"
+  }
+}

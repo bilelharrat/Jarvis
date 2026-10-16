@@ -5,7 +5,9 @@ version, is Claude signed in, and how is this session's connection doing, with a
   summary, hint, plan, command}, sdk, session: {...} | null}. The engine and sign-in come
   from the checkup's own Claude check (features/ops/doctor.claude_check: the engine's
   --version and its own `auth status`, never a secret), at most once a minute unless asked
-  fresh; the session's state is read as it is.
+  fresh; the session's state is read as it is. With an engine pinned (features/
+  code_engines) the check is of that engine, and pin says which; radar is the engine
+  radar's verdict in a line (features/code_radar: shifts after an update).
 - cw_reconnect {id}: a session that ended (closed, failed to start, crashed) starts again on
   the same conversation; a live one gets a new connection between steps.
 
@@ -15,6 +17,7 @@ Cost policy (Claude): nothing here calls a model (auth status and --version are 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import re
 import time
 from pathlib import Path
@@ -81,6 +84,10 @@ class Health:
         else:  # (the checkup isn't installed: its defaults)
             home = Path.home()
             probe = doctor.Probe(data=home, logs=home, home=home)
+        engines = getattr(self.hub, "code_engines", None)
+        pinned = engines.pinned_path() if engines is not None else ""
+        if pinned:  # (a pinned engine, features/code_engines: that's the one sessions run)
+            probe = dataclasses.replace(probe, claude_cli=lambda: pinned)
         check = await doctor.claude_check(probe)
         cli = (probe.claude_cli or doctor.claude_cli)() or ""
         try:
@@ -114,8 +121,25 @@ class Health:
             id=msg.get("id") or 0,
             session=session_state(task) if task else None,
             quality=quality.public() if (quality := getattr(self.hub, "quality", None)) else None,
+            pin=self._pin(),
+            radar=await self._radar(),
             **engine,
         )
+
+    def _pin(self) -> dict[str, Any] | None:
+        """The engine pinned for Eden Code's sessions (features/code_engines), or None."""
+        engines = getattr(self.hub, "code_engines", None)
+        return (engines.pin() or None) if engines is not None else None
+
+    async def _radar(self) -> dict[str, Any] | None:
+        """The engine radar's verdict in one line (features/code_radar), or None."""
+        radar = getattr(self.hub, "code_radar", None)
+        if radar is None:
+            return None
+        try:
+            return radar.health(await radar.analysis())
+        except Exception:
+            return None
 
     def cmd_reconnect(self, msg: dict[str, Any]) -> None:
         task = session_of(self.hub, msg)
