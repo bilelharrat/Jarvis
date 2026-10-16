@@ -109,6 +109,19 @@ new screen it's a handoff, not a finish.
   framing; ``` fences become `<pre>` blocks, still as text. The token is never in an address.
 - Every action is in the companion's audit log (Settings › iPhone & Watch), by device, never its words.
 
+## Eden Code for iPhone (built 2026-10-16, its own App Store app)
+
+`companion/EdenCode` (target `EdenCode`, bundle `com.askeden.jarvis.edencode`, team 8CV4X23Y2T), with its widgets
+(`EdenCodeWidgets`: a status widget and the Live Activity) and tests (`EdenCodeTests`). It reuses the companion's
+`Shared` (API client, pinning, models, Live Activity attributes) and `iOS/Account`'s router and relay tunnel (the relay
+works when this iPhone is signed in to the Eden account in the Eden app: the two apps share the App Group's keychain).
+It pairs on its own (its own device token), with several Macs. Screens: Sessions (by project, status dots, Needs you,
+the handoff pin, Exterminator runs, usage), Inbox, Queue (to-dos, Start), Settings, a session (live long poll, steps,
+Read aloud, Eden chat's composer: attach, mode, model, dictate, send, steer, stop), approvals (Face ID before a
+command or an always-allow; Mac-only cards take only a no), Changes (receipt, Keep / Undo / line comments, Undo all,
+Open pull request), New session. Debug launch arguments (`EdenCode/Model/Fixtures.swift`): `-EDENCODEFixtures YES`
+shows sample data; `-EDENCODEServer host:port -EDENCODECode 123456` pairs with a test server.
+
 ## The native iPhone screens (after App Review)
 
 Same API; the app already pairs, pins the certificate and has the relay. Build in `companion/iOS`:

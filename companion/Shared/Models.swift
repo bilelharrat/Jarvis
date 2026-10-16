@@ -456,4 +456,6 @@ enum MacCommand: Equatable, Sendable {
 extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// nil for "" (the account code reads it; shared so Eden Code's copy of it builds too).
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
