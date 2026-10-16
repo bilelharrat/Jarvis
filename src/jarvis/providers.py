@@ -280,6 +280,48 @@ def needs_key_reason(name: str, group: str) -> str:
     )
 
 
+# How a model id's words are written when it has no name of its own (friendly_name): the
+# brands as their makers write them; everything else gets a capital first letter.
+_BRAND_WORDS = {
+    "gpt": "GPT", "claude": "Claude", "gemini": "Gemini", "kimi": "Kimi", "llama": "Llama",
+    "qwen": "Qwen", "mistral": "Mistral", "deepseek": "DeepSeek", "glm": "GLM", "grok": "Grok",
+    "oss": "OSS", "phi": "Phi", "gemma": "Gemma", "o1": "o1", "o3": "o3", "o4": "o4",
+}  # fmt: skip
+_SIZE_WORD = re.compile(r"\d+(\.\d+)?[bkm]")  # 20b, 1.5b, 128k: sizes, written 20B, 128K
+
+
+def friendly_name(model_id: str, label: str = "") -> str:
+    """A model's name for a person to read, where a picker only has its id: the owner's own
+    label when they gave one; the catalog's name (Eden chat's, Claude's); else the id worded
+    ("kimi-k2.7-code-highspeed" is "Kimi K2.7 Code Highspeed", "gpt-oss:20b" "GPT OSS 20B",
+    an OpenRouter "moonshotai/kimi-k2" "Kimi K2"). The phones show these (features/code_phone:
+    their model sheets had raw ids beside the names); the Mac's own menu is unchanged."""
+    model_id = str(model_id or "").strip()
+    label = str(label or "").strip()
+    if label and label != model_id:
+        return label
+    for ref, model in MODELS.items():
+        if model_id in (ref, model) and ref in MODEL_NAMES:
+            return f"Claude {MODEL_NAMES[ref]}"
+    named = next((name for model, name, _ in EDEN_CHAT_MODELS if model == model_id), "")
+    if named:
+        return named
+    words = []
+    for word in re.split(r"[-_:\s]+", model_id.rsplit("/", 1)[-1]):
+        if not word:
+            continue
+        low = word.lower()
+        if low in _BRAND_WORDS:
+            words.append(_BRAND_WORDS[low])
+        elif _SIZE_WORD.fullmatch(low):
+            words.append(low.upper())
+        else:
+            words.append(word[:1].upper() + word[1:])
+    # "GPT 6.1" reads as its makers write it: GPT-6.1.
+    text = " ".join(words)
+    return re.sub(r"\bGPT (\d)", r"GPT-\1", text) or model_id
+
+
 def catalog_suggested(kind: str, base_url: str) -> tuple[str, ...]:
     """The ids a provider's "Add model" box suggests before a check has listed its own: an
     OpenAI-compatible provider at OpenAI's or Moonshot's address gets the catalog's models

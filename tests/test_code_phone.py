@@ -198,7 +198,9 @@ def test_models_are_eden_chats_list_and_one_needing_a_key_is_refused(phone, tmp_
     session(phone.hub, 5, tmp_path / "alpha")
     models = phone.get("/api/code/phone/options").json()["models"]
     names = [m["name"] for m in models]
-    assert names[:2] == ["Claude Opus 5.5", "Claude Sonnet 5.5"] and "Kimi K3" in names
+    assert (
+        names[:3] == ["Model Router", "Claude Opus 5.5", "Claude Sonnet 5.5"] and "Kimi K3" in names
+    )
     keyless = next(m for m in models if m["needs_key"])
     assert phone.post("/api/code/phone/model", {"id": 5, "ref": keyless["ref"]}).status_code == 400
     assert phone.post("/api/code/phone/model", {"id": 5, "ref": "nope"}).status_code == 400
@@ -209,10 +211,92 @@ def test_models_are_eden_chats_list_and_one_needing_a_key_is_refused(phone, tmp_
         phone.hub.emit("caption", text="Now on Sonnet 5.5.")
 
     monkeypatch.setattr(phone.hub, "_task_model", task_model)
-    reply = phone.post("/api/code/phone/model", {"id": 5, "ref": models[1]["ref"]}).json()
+    reply = phone.post("/api/code/phone/model", {"id": 5, "ref": models[2]["ref"]}).json()
     assert reply == {"ok": True, "said": "Now on Sonnet 5.5."} and switched == [
-        (5, models[1]["ref"])
+        (5, models[2]["ref"])
     ]
+
+
+def test_model_router_is_the_first_choice_and_does_what_the_macs_menu_does(
+    phone, tmp_path, monkeypatch
+):
+    from jarvis.features.code_router import ON_PREF, SETTINGS_PREF
+
+    task = session(phone.hub, 5, tmp_path / "alpha")
+    options = phone.get("/api/code/phone/options").json()
+    first = options["models"][0]
+    assert first == {
+        "ref": "router", "name": "Model Router", "group": "",
+        "note": "Picks the model and effort for each message", "needs_key": False, "router": True,
+    }  # fmt: skip
+    assert options["router"] is False and options["defaults"]["model"] != "router"
+    # Picking it turns routing on for every session (and the popover's Shadow switch off),
+    # without moving the session: the Mac's window routes each message.
+    phone.hub.set_feature_prefs({SETTINGS_PREF: {"shadow": True}})
+    switched = []
+
+    async def task_model(task_id, ref):
+        switched.append((task_id, ref))
+
+    monkeypatch.setattr(phone.hub, "_task_model", task_model)
+    reply = phone.post("/api/code/phone/model", {"id": 5, "ref": "router"}).json()
+    assert reply["ok"] is True and "Model Router" in reply["said"] and switched == []
+    assert phone.hub.prefs.feature(ON_PREF) is True
+    assert phone.hub.prefs.feature(SETTINGS_PREF)["shadow"] is False
+    task.model, task.model_label, task.model_ref = "kimi-k2.7-code", "kimi-k2.7-code", "custom:k"
+    view = phone.get("/api/code/phone/session?id=5").json()
+    assert view["model"] == "router" and view["model_label"] == "Model Router"
+    assert view["router"] is True and view["routed_label"] == "Kimi K2.7 Code"
+    home = phone.get("/api/code/phone/home").json()["sessions"][0]
+    assert home["model"] == "Model Router" and home["routed_label"] == "Kimi K2.7 Code"
+    options = phone.get("/api/code/phone/options").json()
+    assert options["router"] is True and options["defaults"]["model"] == "router"
+    assert next(m for m in options["models"] if m["router"])["ref"] == "router"
+    # A model picked turns it off again, as on the Mac.
+    sonnet = next(m["ref"] for m in options["models"] if m["name"] == "Claude Sonnet 5.5")
+    phone.post("/api/code/phone/model", {"id": 5, "ref": sonnet})
+    assert phone.hub.prefs.feature(ON_PREF) is False and switched == [(5, sonnet)]
+    view = phone.get("/api/code/phone/session?id=5").json()
+    assert view["model"] == "custom:k" and view["model_label"] == "Kimi K2.7 Code"
+    assert view["router"] is False and view["routed_label"] == ""
+
+
+def test_a_new_session_on_model_router_starts_without_a_model(phone, tmp_path, monkeypatch):
+    from jarvis.features.code_router import ON_PREF
+
+    started = []
+
+    def start(prompt, directory, **kw):
+        started.append(kw.get("model_ref") or "")
+        return session(phone.hub, 42, tmp_path / "alpha", launch_token=kw["launch_token"])
+
+    monkeypatch.setattr(phone.hub.tasks, "start", start)
+    reply = phone.post(
+        "/api/code/phone/new", {"prompt": "fix it", "directory": "alpha", "model": "router"}
+    )
+    assert reply.json() == {"ok": True, "id": 42} and phone.hub.prefs.feature(ON_PREF) is True
+    assert started == [""]  # (no model named: the router moves it from the Mac's window)
+
+
+def test_names_and_mode_words_fit_a_phone(phone, tmp_path):
+    from jarvis.providers import friendly_name
+
+    assert friendly_name("kimi-k2.6") == "Kimi K2.6"
+    assert friendly_name("kimi-k2.7-code-highspeed") == "Kimi K2.7 Code Highspeed"
+    assert friendly_name("gpt-oss:20b") == "GPT OSS 20B"
+    assert friendly_name("moonshotai/kimi-k2") == "Kimi K2"
+    assert friendly_name("gpt-6.1-sol") == "GPT-6.1 Sol"
+    assert friendly_name("claude-opus-5-5") == "Claude Opus 5.5"
+    assert friendly_name("kimi-k2.6", "My Kimi") == "My Kimi"  # (the owner's own label)
+    task = session(phone.hub, 5, tmp_path / "alpha")
+    task.mode = "auto"
+    view = phone.get("/api/code/phone/session?id=5").json()
+    assert view["mode_label"] == "Bypass permissions" and view["mode_short"] == "Bypass"
+    assert phone.get("/api/code/phone/home").json()["sessions"][0]["mode_short"] == "Bypass"
+    modes = phone.get("/api/code/phone/options").json()["modes"]
+    assert modes[0] == {"id": "ask", "name": "Manual", "short": "Manual"}
+    for m in phone.get("/api/code/phone/options").json()["models"]:
+        assert m["name"] and "-" not in m["name"].split(" ")[0] or m["name"].startswith("GPT-")
 
 
 def _card(hub, **fields):

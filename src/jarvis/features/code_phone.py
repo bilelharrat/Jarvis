@@ -95,6 +95,60 @@ PREF_OFFERED = "code_phone_offered"
 prefs.register_feature_pref(PREF_OFFERED, False)
 
 PHONE_MODES = ("ask", "edits")  # Manual and Accept edits: never Bypass from the page (S11)
+# Model Router on the phones (2026-10-16): the model list's first row, as the Mac's model menu
+# has it (web/features/code-router.js). Picking it does what picking it there does: turns
+# code_router_on on (and the popover's Shadow switch off: live routing means live); picking a
+# model turns it off. Routing itself is the Mac window's (its router runs there), so a message
+# typed on the phone goes on the model the router last put its session on.
+ROUTER_REF = "router"
+ROUTER_NAME = "Model Router"
+ROUTER_NOTE = "Picks the model and effort for each message"
+# The composer pill's short words for a mode (app.js's JC_MODES short): "Bypass permissions"
+# didn't fit a phone's pill ("Bypass p…"); the menus keep the full name (mode_label).
+MODE_SHORT = {"auto": "Bypass"}
+
+
+def mode_short(mode: str) -> str:
+    from ..tasks import MODE_LABELS
+
+    return MODE_SHORT.get(mode) or MODE_LABELS.get(mode, mode)
+
+
+def router_on(hub: Any) -> bool:
+    try:
+        return hub.prefs.feature("code_router_on") is True
+    except Exception:
+        return False
+
+
+def set_router(hub: Any, on: bool) -> None:
+    """As the Mac's model menu (code-router.js setOn): on, and Shadow off with it; or off."""
+    from .code_router import ON_PREF, SETTINGS_PREF, clean_settings
+
+    if router_on(hub) == on:
+        return
+    changes: dict[str, Any] = {ON_PREF: on}
+    settings = clean_settings(hub.prefs.feature(SETTINGS_PREF)) or {}
+    if on and settings.get("shadow") is True:
+        changes[SETTINGS_PREF] = {**settings, "shadow": False}
+    hub.set_feature_prefs(changes)
+
+
+def model_fields(hub: Any, task: Any, fallback: str = "") -> dict[str, Any]:
+    """A session's model as the phones show it: Model Router while routing is on (and the
+    model it routed the session to), else the model's friendly name (providers.friendly_name:
+    never a raw id like "kimi-k2.7-code")."""
+    from ..providers import friendly_name
+
+    model = task.model or ("" if task.model_label else fallback)
+    own = friendly_name(model, task.model_label or "") if (model or task.model_label) else ""
+    if router_on(hub):
+        return {"model": ROUTER_REF, "model_label": ROUTER_NAME, "routed_label": own,
+                "router": True}  # fmt: skip
+    return {"model": task.model_ref or "", "model_label": own, "routed_label": "",
+            "router": False}  # fmt: skip
+
+
 WAIT_MOST = 25.0  # seconds a live transcript's request waits for something new
 STIR_CHECK = 0.25  # how often a waiting request looks whether anything happened
 WAITS_PER_DEVICE = 3  # a phone's requests waiting at once; more answer at once
@@ -136,6 +190,7 @@ ZH = {
     "Answer this one on your Mac: it needs Touch ID there.": "请在 Mac 上回答这张卡片：它需要在那里用触控 ID 确认。",
     "From the phone a session runs in Manual or Accept edits. Bypass permissions only on the Mac.": "在手机上会话只能用“手动”或“接受编辑”。绕过权限只能在 Mac 上开启。",
     "That model isn't on the list, or needs a key on the Mac first.": "那个模型不在列表里，或者需要先在 Mac 上添加密钥。",
+    "Model Router picks the model for each message.": "模型路由器会为每条消息挑选模型。",
     "A project and what to do.": "选一个项目，并写下要做什么。",
     "The session didn't start.": "会话没有启动。",
     "This session isn't in an isolated copy.": "这个会话不在独立副本里。",
@@ -315,7 +370,11 @@ class CodePhone:
             "status": session_status(task, task.id in waiting),
             "mode": task.mode,
             "mode_label": MODE_LABELS.get(task.mode, task.mode),
-            "model": task.model_label or task.model or self.hub.tasks.model or "",
+            "mode_short": mode_short(task.mode),
+            # (a name here, where the view's "model" is a ref: kept as it was)
+            "model": model_fields(self.hub, task, self.hub.tasks.model or "")["model_label"],
+            "routed_label": model_fields(self.hub, task)["routed_label"],
+            "router": router_on(self.hub),
             "cost_usd": task.cost_usd,
             "updated_at": (task.transcript[-1].get("at") if task.transcript else "")
             or task.started.isoformat(timespec="seconds"),
@@ -388,8 +447,8 @@ class CodePhone:
             "doing": _line(task.last_action, 200) if task.busy else "",
             "mode": task.mode,
             "mode_label": MODE_LABELS.get(task.mode, task.mode),
-            "model": task.model_ref or "",
-            "model_label": task.model_label or task.model or "",
+            "mode_short": mode_short(task.mode),
+            **model_fields(self.hub, task),
             "live": self.live.get(task.id, "") if task.busy else "",
             "todos": [
                 {"text": _line(t.get("content"), 300), "done": t.get("status") == "completed"}
