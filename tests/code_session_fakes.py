@@ -51,7 +51,7 @@ def make_hub(settings, quiet_speaker, isolated, client=Stream):
     return Hub(settings, client_factory=client, speaker=quiet_speaker, poll=False, **isolated)
 
 
-async def until(condition, tries=400):
+async def until(condition, tries=2000):  # a 10 s ceiling: real git and subprocess waits on a busy machine
     for _ in range(tries):
         if condition():
             return True
