@@ -263,3 +263,14 @@ body.eden-code .jc-settings .jcs-card.ecs .ecs-close svg { width: 12px; height: 
 @media (prefers-color-scheme: dark) {
   .jcs-card.ecs .ecs-tile, .jcs-card.ecs .ecs-hero-tile { box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18); }
 }
+
+/* S1b, compact: the header carries the section — its tile, title and one line — and the big
+   card at the top of the column is gone, so the settings start right under the header. */
+.jcs-card.ecs .ecs-head { gap: 10px; padding: 10px 20px; }
+.jcs-card.ecs .ecs-head-text { min-width: 0; display: flex; flex-direction: column; }
+.jcs-card.ecs .ecs-head .ecs-title { margin: 0; font-size: 15px; line-height: 1.25; }
+.jcs-card.ecs .ecs-head .ecs-hero-line { font-size: 11px; line-height: 1.35; color: var(--ecs-text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jcs-card.ecs .ecs-head .ecs-hero-line[hidden], .jcs-card.ecs .ecs-head .ecs-hero-slot[hidden] { display: none; }
+.jcs-card.ecs .ecs-head .ecs-hero-slot { display: contents; }
+.jcs-card.ecs .ecs-head-tile { width: 26px; height: 26px; flex: none; border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+.jcs-card.ecs .ecs-hero { display: none; }

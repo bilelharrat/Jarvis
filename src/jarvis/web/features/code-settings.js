@@ -267,7 +267,7 @@
   function tile(s, cls) {
     const span = el('span', cls || 'ecs-tile');
     span.style.background = s.color;
-    span.append(glyph(s, cls === 'ecs-hero-tile' ? 28 : 13, cls === 'ecs-hero-tile' ? 2 : 2.4));
+    span.append(glyph(s, cls === 'ecs-hero-tile' ? 28 : cls === 'ecs-head-tile' ? 15 : 13, cls === 'ecs-hero-tile' ? 2 : 2.4));
     return span;
   }
 
@@ -323,7 +323,10 @@
   back.setAttribute('aria-label', t('Back'));
   const heading = el('h1', 'ecs-title');
   heading.id = 'ecs-title';
-  head.append(back, heading);
+  // S1b (compact): the section's tile and one-line description sit in the header beside its
+  // title; there is no big card at the top of the column.
+  const headText = el('div', 'ecs-head-text');
+  head.append(back);
   const scroll = el('div', 'ecs-scroll');
   const col = el('div', 'ecs-col');
   const hero = el('section', 'ecs-hero');
@@ -331,8 +334,12 @@
   const heroText = el('div', 'ecs-hero-text');
   const heroTitle = el('div', 'ecs-hero-title');
   const heroLine = el('div', 'ecs-hero-line');
-  heroText.append(heroTitle, heroLine);
-  hero.append(heroTile, heroText);
+  headText.append(heading, heroLine);
+  head.append(heroTile, headText);
+  heroText.append(heroTitle);
+  hero.append(heroText);
+  hero.hidden = true;  // (kept for the column's order; the header shows the section now)
+  const showHead = (on) => { heroTile.hidden = !on; heroLine.hidden = !on; };
   const none = el('p', 'ecs-none', t('No settings match your search.'));
   none.setAttribute('role', 'status');
   none.hidden = true;
@@ -534,11 +541,11 @@
       const show = new Set(blocks.filter((b) => b.section === current).map((b) => (b.panel ? b.tab : 'general')));
       show.add('general');  // #jcs-general stays (display: contents); its blocks are filtered above
       markTabs(show);
-      heroTile.replaceChildren(tile(s, 'ecs-hero-tile'));
+      heroTile.replaceChildren(tile(s, 'ecs-head-tile'));
       heroTitle.textContent = s.title;
       heroLine.textContent = s.text;
       heading.textContent = s.label;
-      hero.hidden = false;
+      showHead(true);
       none.hidden = true;
       for (const [id, b] of Object.entries(items)) {
         if (id === current) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
@@ -586,7 +593,7 @@
     for (const [b, keep] of shown) for (const n of b.nodes) prune(n, keep);
     for (const b of blocks) for (const n of b.nodes) n.classList.toggle('ecs-out', !shown.has(b));
     if (root.CSS && CSS.highlights && root.Highlight && ranges.length) CSS.highlights.set('ecs-hit', new Highlight(...ranges));
-    hero.hidden = true;
+    showHead(false);
     none.hidden = plan.length > 0;
     heading.textContent = t('Search results');
     for (const b of Object.values(items)) b.removeAttribute('aria-current');
