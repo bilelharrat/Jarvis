@@ -1,6 +1,8 @@
-// Eden Code's Spec mode (features/code_spec.py): the composer's "Spec" switch starts a new
-// session that writes specs/<name>/requirements.md, design.md and tasks.md, a card between
-// each; /spec <request> does the same. A receipt's "Requirements met" (code-receipts.js) is
+// Eden Code's Spec mode (features/code_spec.py): the "Spec mode" switch in the toolbar's More
+// menu (shown before a session starts, in a project) makes the next session one that writes
+// specs/<name>/requirements.md, design.md and tasks.md, a card between each; /spec turns the
+// switch on and /spec <request> starts one at once. It adds nothing to the composer (the
+// owner wants the composer as it is). A receipt's "Requirements met" (code-receipts.js) is
 // drawn with the words here (window.jarvisSpec). helpers is exported for node --test
 // (tests/web/code-spec.test.mjs).
 (function (root) {
@@ -27,6 +29,15 @@
         ? 'Spec mode: the session writes the requirements, then the design, then the tasks, and asks you after each.'
         : 'Spec mode: requirements, design and tasks first, each OK\'d by you, then each task checked against them.';
     },
+    // The More menu's switch: shown only where a session is about to start in a project.
+    moreItem(on) {
+      return {
+        label: 'Spec mode',
+        note: on ? 'The next session starts with a spec' : 'Requirements, design and tasks first',
+        switch: !!on,
+      };
+    },
+    canStart(task, project) { return !task && !!project; },
   };
 
   if (typeof module === 'object' && module.exports) { module.exports = helpers; return; }
@@ -34,32 +45,26 @@
 
   const F = root.jarvisFeatures;
   if (!F) return;
-  const { el, send, t } = F;
+  const { send, t } = F;
   let on = false;
-
-  const pill = el('button', 'jc-pill jcx-spec-switch');
-  pill.type = 'button';
-  pill.id = 'jcx-spec-switch';
-  pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5h6l2.5 2.5v8.5h-8.5z"/><path d="M6 7h4.5M6 9.5h4.5M6 12h2.5"/></svg>';
-  pill.append(el('span', '', t('Spec')));
-  pill.addEventListener('click', () => { on = !on; draw(); });
 
   /* global deckProject */
   const project = () => (typeof deckProject === 'string' ? deckProject : '');
+  const can = () => helpers.canStart(F.currentTask(), project());
 
-  function draw() {
-    const row = document.querySelector('#deck-composer .jc-composer-row');
-    if (row && !pill.isConnected) row.insertBefore(pill, row.querySelector('.jc-spacer'));
-    pill.hidden = !(!F.currentTask() && project());
-    if (pill.hidden) on = false;
-    pill.setAttribute('aria-pressed', String(on));
-    pill.classList.toggle('on', on);
-    pill.title = t(helpers.tip(on));
-    pill.setAttribute('aria-label', t(helpers.tip(on)));
-  }
+  // Off again whenever a session is open or there's no project: it only ever names the next one.
+  function draw() { if (!can()) on = false; }
+
+  F.registerMoreItem({
+    when: (task) => helpers.canStart(task, project()),
+    get label() { return helpers.moreItem(on).label; },
+    get note() { return helpers.moreItem(on).note; },
+    get switch() { return on; },
+    run() { on = !on; },
+  });
 
   F.registerSessionOption(() => {
-    if (pill.hidden || !on) return {};
+    if (!can() || !on) return {};
     setTimeout(() => { on = false; draw(); });  // the next session is an ordinary one unless switched again
     return { spec: true, cloud: false };  // (a spec stays in the project folder, here)
   });
@@ -69,7 +74,12 @@
     help: 'Spec mode: requirements, design and tasks first, then each task checked',
     withoutSession: true,
     run(arg) {
-      if (!arg) { on = true; draw(); pill.focus(); return true; }
+      if (!arg) {  // the switch on, said (the More menu shows it, and turns it off)
+        if (!can()) return false;
+        on = true;
+        if (typeof root.notice === 'function') root.notice('Eden Code', t('Spec mode is on'), t('The next session starts with a spec. Turn it off in More.'), 5000);
+        return true;
+      }
       if (!project()) return false;
       send({ type: 'code_spec_start', directory: project(), prompt: arg });
       return true;

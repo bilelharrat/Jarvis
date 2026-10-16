@@ -16,7 +16,17 @@ What it adds, and where:
   session should be in the sandbox but its connection isn't yet, its commands ask first.
 - Window commands: cs_state {id}, cs_session {id, on: true | false | null (the default)},
   cs_domains {id, add: [domain] | preset, remove: domain}; each answers with cs_state.
-- Settings (feature prefs): code_sandbox_bypass (off by default: today's behaviour).
+- Settings (feature prefs): code_sandbox_bypass (on by default since 2026-10-16), and
+  code_auto_in_copies (on): see below.
+- The permission default for a session in an isolated copy (Desk.on_new_copy, before it
+  first connects): one that would start in Manual, with the sandbox switch on, is put in
+  the sandbox and starts in Auto instead (Claude Code's auto mode, whose safety check
+  decides what to ask), or Accept edits on a model auto mode doesn't run on. Everywhere
+  else Manual stays the default. Why: Manual asks about every edit, which makes a session
+  feel slower than plain Claude Code (whose default is now its auto mode), and a copy on a
+  branch of its own whose commands can't leave the project is where that is safe: nothing
+  it does reaches the main folder until the owner lands it. Not for a run on untrusted text
+  (an issue's), another agent (ACP), or a session started in Plan, Accept edits or Bypass.
 
 The allowlists are JARVIS's, in code_sandbox.json beside the settings.
 
@@ -32,11 +42,29 @@ from typing import Any
 from .. import prefs
 from ..codeplatform import add_rule_check, code_task, other_agent, project_of
 from ..codesandbox import PRESETS, DomainError, SandboxBook
+from ..tasks import MODE_LABELS, auto_capable
 
 log = logging.getLogger("jarvis")
 
+PREF_AUTO_COPIES = "code_auto_in_copies"
+prefs.register_feature_pref(PREF_AUTO_COPIES, True)
+AUTO_COPY = (
+    "This session works in an isolated copy, in the sandbox, so it starts in {mode} rather "
+    "than Manual: {how}. Nothing reaches the project folder until you land the copy. Keep "
+    "Manual instead in Eden Code's Rules pane."
+)
+AUTO_HOW = {
+    "smart": "a safety check lets safe steps through and asks about the rest",
+    "edits": "edits in the copy go ahead, commands still ask",
+}
 PREF = "code_sandbox_bypass"
-prefs.register_feature_pref(PREF, False)
+# On by default (2026-10-16; it was off): a session in Bypass runs anything unasked, so its
+# commands belong in a box by default, not only for owners who found the switch (security is
+# the most-raised worry about coding agents, and a sandbox that's off by default is the
+# common criticism). It costs nothing and asks nothing more: commands that stay in the
+# project and its allowed domains run as before. Off in Settings › Eden Code › Rules, or per
+# session (cs_session).
+prefs.register_feature_pref(PREF, True)
 
 # What a session's transcript says as the sandbox comes or goes (the window's Chinese:
 # web/i18n/code-sandbox.json).
@@ -145,6 +173,30 @@ class SandboxDesk:
         for task in list(tasks.values()):
             self.settle(task)
 
+    # ── a new isolated copy's permission default ──
+
+    async def on_new_copy(self, task: Any, _copy: Any) -> None:
+        """Desk.on_new_copy: a session about to start in a new isolated copy, in Manual (the
+        default), goes in the sandbox and starts in Auto (or Accept edits): see the module's
+        docstring."""
+        hub = self.hub
+        if task.kind != "code" or other_agent(task) or task.mode != "ask":
+            return
+        if getattr(task, "untrusted", False) or task.id in self.own:
+            return  # (an issue's text, or a session whose own sandbox choice was made)
+        if hub.prefs.feature(PREF_AUTO_COPIES) is False or hub.prefs.feature(PREF) is not True:
+            return
+        mode = "smart" if auto_capable(task.model or hub.tasks.model) else "edits"
+        self.own[task.id] = True
+        if not hub.tasks.set_mode(task.id, mode):
+            self.own.pop(task.id, None)
+            return
+        hub.tasks._log(
+            task,
+            "system",
+            AUTO_COPY.format(mode=MODE_LABELS[mode], how=AUTO_HOW[mode]),
+        )
+
     # ── the window ──
 
     def state(self, task: Any, **extra: Any) -> None:
@@ -156,6 +208,7 @@ class SandboxDesk:
             on=self.wanted(task),
             own=self.own.get(task.id),
             default=self.hub.prefs.feature(PREF) is True,
+            auto_copies=self.hub.prefs.feature(PREF_AUTO_COPIES) is not False,
             bypass=task.mode == "auto",
             unattended=self.unattended(task),
             other=other_agent(task),
@@ -239,3 +292,6 @@ def install(hub: Any) -> None:
     hub.register_command("cs_state", desk.cmd_state)
     hub.register_command("cs_session", desk.cmd_session)
     hub.register_command("cs_domains", desk.cmd_domains)
+    copies = getattr(hub, "code_desk", None)  # (code_isolation, installed before this)
+    if copies is not None:
+        copies.on_new_copy.append(desk.on_new_copy)

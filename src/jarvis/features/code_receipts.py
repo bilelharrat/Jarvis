@@ -29,6 +29,10 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
   loosened, skip/only markers, a test command that can no longer fail, tests deleted, the
   code under test mocked away), and, when Settings asks, a quick mutation pass reruns the
   relevant tests against small changes to the changed lines ("7 of 9 mutants caught");
+- every move to a fallback model during the turn (from, to, why: hub._code_fallback keeps
+  them on the session, task.fallbacks), so a model change is on the proof as well as in
+  the transcript; and, in Model Router's Shadow mode, the model it would have picked for
+  the turn's message and what that would have saved (code_router.take_shadow);
 - a risk level: high when it failed, tests failed, a test was weakened, the check found
   problems, a security scanner found a high-severity problem, or it touched auth, billing,
   the database schema or secrets; medium when it was stopped, changed many files, changed
@@ -191,6 +195,11 @@ def receipt_text(r: dict[str, Any]) -> str:
             own.get("verdict"), "not finished"
         )
         parts.append(f"{own.get('headline') or 'Checked'} ({verdict})"[:140])
+    for move in r.get("fallbacks") or []:
+        parts.append(f"fell back from {move['from']} to {move['to']} ({move['why']})"[:140])
+    shadow = r.get("router")
+    if shadow:
+        parts.append(shadow_text(shadow))
     reqs = r.get("requirements")
     if reqs:
         met = sum(1 for q in reqs if q.get("status") == "met")
@@ -224,6 +233,30 @@ async def _quietly(coro: Any) -> Any:
     except Exception as exc:
         log.warning("a receipt's security scan failed: %s", exc)
         return None
+
+
+def shadow_text(shadow: dict[str, Any]) -> str:
+    """Model Router's Shadow pick, said on the receipt: "Model Router would pick Sonnet
+    (about $0.03 less)"."""
+    said = f"Model Router would pick {shadow.get('label') or shadow.get('model')}"
+    save = shadow.get("saveUSD")
+    if isinstance(save, int | float) and abs(save) >= 0.005:
+        said += f" (about ${abs(save):.2f} {'less' if save > 0 else 'more'})"
+    return said[:140]
+
+
+def shadow_part(router: Any, task: Any) -> dict[str, Any] | None:
+    """The turn's Shadow pick for the receipt, when it differs from the model the session
+    is on; taken once either way."""
+    take = getattr(router, "take_shadow", None)
+    shadow = take(task.id) if callable(take) else None
+    if not shadow:
+        return None
+    if shadow.get("model") and shadow["model"] == shadow.get("current", ""):
+        return None  # it agrees with the model the session is on: nothing to say
+    if shadow.get("model") == str(getattr(task, "model", "") or ""):
+        return None
+    return {k: shadow.get(k) for k in ("model", "effort", "label", "saveUSD")}
 
 
 class Receipts:
@@ -370,6 +403,15 @@ class Receipts:
                 honest.cancel()
             if part:
                 with_integrity(receipt, part)
+        moves = list(getattr(task, "fallbacks", None) or [])
+        if moves:  # (said once: the next receipt starts afresh)
+            receipt["fallbacks"] = [
+                {k: str(m.get(k) or "") for k in ("from", "to", "why")} for m in moves
+            ]
+            task.fallbacks = []
+        shadow = shadow_part(getattr(self.hub, "code_router", None), task)
+        if shadow:
+            receipt["router"] = shadow
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

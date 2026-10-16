@@ -18,10 +18,13 @@ from .. import prefs
 
 KEY = "labs"
 # module -> (its name in Settings, what it is, its window files' stems in web/features)
+# Graduated (2026-10-16), now always installed: code_spec (Spec mode, an optional workflow:
+# nothing changes for a session that doesn't start one, /spec or the welcome's "Write a spec
+# first") and code_plugins (the Plugins pane, with its hook editing: Claude Code's plugins,
+# agents, skills and hooks, asked for by owners more than anything else Labs held). A "labs"
+# setting that still names either just drops it (_clean).
 LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_acp": ("Other agents (ACP)", "Run Gemini CLI, Codex and other ACP agents as sessions.", ("code-acp",)),
-    "code_plugins": ("Plugins", "Claude Code plugins: their commands, agents and hooks in sessions.", ("code-plugins",)),
-    "code_spec": ("Spec mode", "Requirements, design and tasks in the repo, each OK'd, then checked against the spec.", ("code-spec",)),
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
     "code_share": ("Share live", "A read-only live view of a session for a teammate, by link, on your network.", ("code_share",)),
 }  # fmt: skip

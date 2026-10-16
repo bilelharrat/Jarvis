@@ -6508,8 +6508,24 @@ class Hub:
                 self.tasks._log(task, "system", f"Couldn't move this session to {name}.")
                 return
             task.reopen_now = True
+            # For the receipt (code_receipts): every fallback is said there too, not only in
+            # the transcript line below.
+            task.fallbacks = [
+                *task.fallbacks[-4:],
+                {
+                    "from": str(was["label"] or self.providers.describe(was["model"]) or "Claude"),
+                    "to": str(name),
+                    "why": str(CLAUDE_WHY.get(why, why)),
+                    "at": time.time(),
+                },
+            ]
             moved = f"so this session moved to {name} to carry on"
-            said = f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}), {moved}."
+            # (Said of the model that failed: Model Router's fallback moves another provider's
+            # model to its next pick too, and that wasn't Claude.)
+            who = "Claude"
+            if str(was["ref"]).startswith("custom:"):
+                who = str(was["label"] or self.providers.describe(was["ref"]) or "That model")
+            said = f"{who} couldn't answer ({CLAUDE_WHY.get(why, why)}), {moved}."
             if not str(was["ref"]).startswith("custom:"):  # it was on Claude: back there later
                 task.fell_back_from = was
                 own = was["label"] or self.providers.describe(was["model"]) or "Claude"

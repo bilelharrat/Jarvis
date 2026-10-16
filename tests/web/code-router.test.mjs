@@ -381,7 +381,7 @@ test('a trivial message never waits; Shadow mode logs and moves nothing; learned
   assert.equal(shadow.route.shadow, true);
   assert.equal(shadow.route_wait, undefined);
   assert.equal(w.bodies.at(-1).sticky, undefined);  // (the owner's model, not the router's)
-  w.fire('prefs', { features: { code_router_on: false } });
+  w.fire('prefs', { features: { code_router_on: false, code_router_shadow: false } });
   assert.deepEqual(w.reg.send(w.task, 'refactor the scheduler to use a heap'), {});  // off, no shadow
   w.fire('prefs', { features: { code_router_on: true } });
   w.fire('model_router_state', { learned: { on: true, updated: 'u1', overrides: { 'gpt-6-luna': { capabilities: { coding: 70 } } } } });
@@ -505,4 +505,47 @@ test('a to-do card’s pick: the rules’ at once, never a Gemini rating; none w
   assert.equal(w.F.codeRouter.pick('   '), null);
   w.fire('prefs', { features: { code_router_on: false } });
   assert.equal(w.F.codeRouter.pick('refactor the scheduler to use a heap'), null);
+});
+
+test('Shadow mode is the default while Model Router isn’t the model: the rules’ pick, said on the tooltip and the menu', async () => {
+  const w = windowWith({ features: { code_router_on: false } });
+  w.fire('hello', { prefs: { features: { code_router_on: false } } });
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+  const out = w.reg.send(w.task, 'refactor the scheduler to use a heap');
+  assert.equal(out.route.shadow, true);
+  assert.equal(out.route_wait, undefined);  // (never a Gemini rating: the rules alone)
+  assert.equal(w.bodies.at(-1).classifier, undefined);
+  assert.ok(out.route.info && 'current' in out.route.info);  // (the session's own model's row, for what it saves)
+  await new Promise((r) => setTimeout(r, 5));
+  w.reg.render({ t: w.task, label: 'Opus 5.5' });
+  assert.match(w.els['jc-model'].title, /Model Router would pick .* for your last message/);
+  assert.match(w.els['jc-model'].title, /Choose Model Router to route live/);
+  const [item] = w.reg.choice.items();
+  assert.match(item.note, /would pick .*Choose to route live/);
+  assert.equal(item.checked, false);
+  // One click to live: Model Router from the menu; the popover's own Shadow switch goes off with it.
+  w.fire('prefs', { features: { code_router_on: false, code_router_settings: { shadow: true } } });
+  item.run();
+  const saved = w.sent.filter((m) => m.type === 'feature_prefs').at(-1).changes;
+  assert.equal(saved.code_router_on, true);
+  assert.equal(saved.code_router_settings.shadow, false);
+});
+
+test('Shadow mode’s words: what it would save or cost against the session’s model, or that it agrees', () => {
+  const models = [{ ref: 'opus', model: 'claude-opus-5-5', label: 'Opus 5.5', builtin: true }, { ref: 'son', model: 'claude-sonnet-5-5', label: 'Sonnet 5.5', builtin: true }];
+  const result = {
+    pick: { model: 'claude-sonnet-5-5', effort: 'medium', costUSD: 0.01 },
+    rows: [{ model: 'claude-opus-5-5', effort: 'high', costUSD: 0.05 }, { model: 'claude-opus-5-5', effort: 'low', costUSD: 0.02 }],
+  };
+  const sum = R.shadowSummary(models, result, { model: 'claude-opus-5-5', effort: 'high' });
+  assert.equal(sum.label, 'Sonnet 5.5');
+  assert.ok(Math.abs(sum.saveUSD - 0.04) < 1e-9);
+  assert.equal(R.shadowWords(sum), 'Model Router would pick Sonnet 5.5 (medium) for your last message, about $0.04 less.');
+  assert.equal(R.currentRow(result, 'claude-opus-5-5', 'xhigh').effort, 'high');  // (that model's other row)
+  assert.equal(R.shadowWords({ ...sum, saveUSD: -0.1 }).endsWith('about $0.10 more.'), true);
+  assert.equal(R.shadowWords({ ...sum, saveUSD: null }), 'Model Router would pick Sonnet 5.5 (medium) for your last message.');
+  assert.match(R.shadowWords(R.shadowSummary(models, result, { model: 'claude-sonnet-5-5' })), /agrees/);
+  assert.equal(R.shadowWords(null), '');
+  assert.equal(R.shadowSwitch({}).on, true);
+  assert.equal(R.shadowSwitch({ code_router_shadow: false }).on, false);
 });

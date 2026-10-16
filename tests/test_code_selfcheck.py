@@ -167,7 +167,10 @@ async def test_on_by_default_with_a_dev_server_or_an_xcode_project_off_otherwise
     empty.mkdir()
     plain = ClaudeTask(id=3, prompt="x", cwd=empty.resolve())
     hub.tasks.tasks[3] = plain
-    assert sc.default_on(plain) == (False, "the project has no dev server or iOS app")
+    assert sc.default_on(plain) == (
+        False,
+        "the project has no dev server, web front-end or iOS app",
+    )
     (empty / "Notes.xcodeproj").mkdir()
     assert sc.default_on(plain)[0] is True
     # The project's own say, over the default.
@@ -512,3 +515,31 @@ def test_the_compact_line():
         == "Checked: 1 step, 1 screenshot, no app log errors"
     )
     assert simtools.SERVER != sc_mod.SERVER and Path(sc_mod.__file__).name == "code_selfcheck.py"
+
+
+def test_a_web_front_end_is_a_ui_project_by_its_files(tmp_path):
+    """Since 2026-10-16 a front-end with no launch.json counts too: a UI framework in
+    package.json (the project's, or a front-end subfolder's), or an index.html page."""
+    from jarvis import devservers
+    from jarvis.features.code_selfcheck import ui_project
+
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "package.json").write_text('{"dependencies": {"lodash": "4"}}')
+    assert devservers.front_end(lib) == "" and ui_project(lib) == ""
+    app = tmp_path / "app"
+    (app / "web").mkdir(parents=True)
+    (app / "web" / "package.json").write_text('{"devDependencies": {"vite": "6", "react": "19"}}')
+    assert devservers.front_end(app) == "web/package.json uses react"
+    assert ui_project(app).startswith("the project is a web front-end")
+    api = tmp_path / "api-only"
+    (api / "server").mkdir(parents=True)
+    (api / "server" / "package.json").write_text('{"dependencies": {"react": "19"}}')
+    assert devservers.front_end(api) == ""  # (a server folder isn't a front-end)
+    site = tmp_path / "site"
+    (site / "public").mkdir(parents=True)
+    (site / "public" / "index.html").write_text("<h1>hi</h1>")
+    assert devservers.front_end(site) == "it has public/index.html"
+    (tmp_path / "broken").mkdir()
+    (tmp_path / "broken" / "package.json").write_text("{not json")
+    assert ui_project(tmp_path / "broken") == ""

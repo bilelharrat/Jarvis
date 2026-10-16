@@ -56,7 +56,23 @@
     return lines.filter((x) => x && x.text).slice(0, 4).map((x) => [TONE[x.tone] || 'rc-none', String(x.text)]);
   }
 
-  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine, securityLine, integrityLines }; return; }
+  // The model lines (code_receipts: fallbacks, router): each move to a fallback model in the
+  // turn, and Model Router's Shadow pick with what it would have saved. [class, words].
+  function modelLines(r) {
+    const out = [];
+    for (const m of (r && Array.isArray(r.fallbacks) ? r.fallbacks : [])) {
+      if (m && m.to) out.push(['rc-warn rc-fallback', `Fell back from ${m.from || 'its model'} to ${m.to}${m.why ? ` (${m.why})` : ''}`]);
+    }
+    const s = r && r.router;
+    if (s && (s.label || s.model)) {
+      const save = Number(s.saveUSD);
+      const money = Number.isFinite(save) && Math.abs(save) >= 0.005 ? ` (about $${Math.abs(save).toFixed(2)} ${save > 0 ? 'less' : 'more'})` : '';
+      out.push(['rc-none rc-shadow', `Model Router would pick ${s.label || s.model}${money}`]);
+    }
+    return out;
+  }
+
+  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine, securityLine, integrityLines, modelLines }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
   const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
@@ -123,6 +139,11 @@
     if (guards) facts.append(el('li', guards[0], guards[1]));
     const scan = securityLine(r.security);
     if (scan) facts.append(el('li', scan[0], scan[2] > 0 ? `${F.t(scan[1])} (${scan[2]})` : F.t(scan[1])));
+    for (const [cls, words] of modelLines(r)) {
+      const line = el('li', cls, words);
+      line.dataset.noI18n = '';  // (model names; the words are built here)
+      facts.append(line);
+    }
     li.replaceChildren(head, facts);
     if (scan) li.append(securityBox(r.security));
     const thumb = picture((r.check && r.check.thumb) || (selfCheck && selfCheck.thumb));

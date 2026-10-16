@@ -19,8 +19,11 @@ What it adds:
   browser tab on a page on this Mac does: tasks.LOCAL_ONLY_TOOLS).
 - The switch, per session (the More menu's "Check it yourself"), over the project's own say
   (Settings › Projects: "self_check" in code_project_defaults), over the default: on for a
-  session whose project has a dev server set up (launch.json) or an Xcode project, off
-  otherwise. A switch that changes reopens the session (same conversation) with or without
+  session in a UI project (ui_project: a dev server set up in launch.json, an Xcode project,
+  or a web front-end by its files: a UI framework in package.json, an index.html), off
+  otherwise. (Since 2026-10-16 a web front-end with no launch.json counts too: checking its
+  own UI work is what keeps a session from saying "done" over a broken page, and the check
+  is the session's own turn under its step and time budget, no extra model call.) A switch that changes reopens the session (same conversation) with or without
   the tools.
 - A budget per check: at most PREF_STEPS steps (30) and PREF_MINUTES minutes (5) from its
   check_open; past either, every tool but check_done says to finish. A turn that ends with
@@ -136,6 +139,24 @@ lang.add_texts(
         "Check it yourself is off for this session.": "此会话已关闭“自己检查”。",
     }
 )
+
+
+def ui_project(cwd: Any) -> str:
+    """Why a project's work shows on a screen ("" when it doesn't, as far as its files say):
+    a dev server set up (launch.json), an Xcode project, or a web front-end (devservers.
+    front_end). Self-check and the QA pass are on by default for these. Reads files only."""
+    folder = Path(cwd)
+    with contextlib.suppress(OSError, ValueError):
+        if devservers.read_launch(folder)[0]:
+            return "the project has a dev server"
+    with contextlib.suppress(OSError, ValueError):
+        if codetests.xcode_container(folder) is not None:
+            return "the project has an Xcode project"
+    with contextlib.suppress(OSError, ValueError):
+        found = devservers.front_end(folder)
+        if found:
+            return f"the project is a web front-end ({found})"
+    return ""
 
 
 def _text(text: str, error: bool = False) -> dict[str, Any]:
@@ -279,19 +300,17 @@ class SelfCheck:
     # ── the switch ──
 
     def default_on(self, task: Any) -> tuple[bool, str]:
-        """(on, why): the project's own say, else on with a dev server set up or an Xcode
-        project, else off."""
+        """(on, why): the project's own say, else on in a UI project (ui_project), else
+        off."""
         from .code_video import project_default
 
         own = project_default(self.hub, task, PROJECT_KEY)
         if isinstance(own, bool):
             return own, "the project's setting"
-        with contextlib.suppress(OSError, ValueError):
-            if devservers.read_launch(task.cwd)[0]:
-                return True, "the project has a dev server"
-        if codetests.xcode_container(task.cwd) is not None:
-            return True, "the project has an Xcode project"
-        return False, "the project has no dev server or iOS app"
+        why = ui_project(task.cwd)
+        if why:
+            return True, why
+        return False, "the project has no dev server, web front-end or iOS app"
 
     def is_on(self, task: Any) -> bool:
         if task is None or getattr(task, "kind", "") != "code":

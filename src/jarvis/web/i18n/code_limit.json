@@ -7,9 +7,15 @@
     "Try now": "现在试试",
     "Sends it to Claude again now; if the limit is still there, it waits again": "现在再交给 Claude；如果上限还在，就继续等",
     "Use the fallback": "用备用模型",
-    "Moves the session to the fallback model, which carries on from here": "把会话换到备用模型，由它接着做"
+    "Moves the session to the fallback model, which carries on from here": "把会话换到备用模型，由它接着做",
+    "Ask me the first time": "第一次时问我",
+    "Unattended and queued runs wait for the limit": "无人值守和排队的任务等待用量上限重置",
+    "A run nobody is watching keeps its work on Claude and carries on when the limit resets, instead of moving to another model unasked.": "没人看着的任务会留在 Claude 上，等用量上限重置后接着做，而不会擅自换到别的模型。"
   },
   "patterns": [
-    ["^Waiting for Claude’s limit to reset at (.+)$", "在等 Claude 的用量上限于 $1 重置"]
+    [
+      "^Waiting for Claude’s limit to reset at (.+)$",
+      "在等 Claude 的用量上限于 $1 重置"
+    ]
   ]
 }

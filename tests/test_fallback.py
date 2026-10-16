@@ -598,6 +598,8 @@ def limited_hub(settings, quiet_speaker, isolated, monkeypatch):
     Limited.resets_at = time.time() + 3 * 3600
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     hub.tasks.client_factory = Limited
+    # The owner chose the fallback (code_limit's default, since 2026-10-16, waits and asks).
+    hub.set_feature_prefs({"code_limit_wait": False})
     router = hub.providers.add_provider("openrouter", "Gemini", OPENROUTER_KEY)
     gemini = hub.providers.add_model(router["id"], "google/gemini-2.5-pro")["ref"]
     (settings.projects_dir / "p").mkdir()
@@ -630,6 +632,10 @@ async def test_claudes_limit_moves_a_session_to_gemini_where_it_carries_on(
     assert "Ended with an error" not in said
     assert "moved to google/gemini-2.5-pro · Gemini to carry on" in said
     assert "takes it back to Opus 5.5" in said
+    # …and the move waits on the session for the next receipt (code_receipts), never silent.
+    assert [(m["from"], m["to"], m["why"]) for m in task.fallbacks] == [
+        ("Opus 5.5", "google/gemini-2.5-pro · Gemini", "its usage limit or a rate limit")
+    ]
     finished = [e for e in drain(q) if e["type"] == "task_finished"]
     assert [e["status"] for e in finished] == ["done"]  # never "failed", never "stopped"
 

@@ -16,6 +16,12 @@
     "The full picture isn’t kept anymore.": "完整截图已不再保留。",
     "Close": "关闭",
     "Check it yourself is on for this session.": "此会话已开启“自己检查”。",
-    "Check it yourself is off for this session.": "此会话已关闭“自己检查”。"
-  }
+    "Check it yourself is off for this session.": "此会话已关闭“自己检查”。",
+    "Try UI changes like a user": "像用户一样试用界面改动",
+    "In UI projects": "在界面项目中",
+    "In every project": "在所有项目中",
+    "Only when I ask": "只在我要求时",
+    "After a turn that changes a page or a screen, the session walks through it and reports what broke, twice an hour at most. Not after a turn whose own check already passed.": "在改动了页面或屏幕的一轮之后，会话会像用户一样走一遍并报告哪里坏了，每小时最多两次。如果这一轮自己的检查已经通过，就不再做。"
+  },
+  "patterns": []
 }

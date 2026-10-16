@@ -3567,6 +3567,10 @@ const JC_KEYS = [
   ['Esc', 'Interrupt, or close a menu or pane'], ['1–9', 'Answer an approval'], ['/', 'Commands'],
   ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
   ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⌘⇧B', 'Agent board: arrows, Home, End, Enter or Space, 1–4'],
+  // What else there is, where to find it (features owners miss: features/code-getstarted.js has the same tips).
+  ['⌘⇧A', 'Needs attention: everything waiting for you'], ['/diff', 'Changes: keep or undo each hunk; Deep review there'],
+  ['/spec', 'Spec mode: requirements, design and tasks first'], ['/plugins', 'Plugins, skills and hooks'],
+  ['/subagents', 'Subagent lanes: what each one does and costs'], ['More › Best of N', 'Two or three models at once; keep the best'],
 ];
 const projectFiles = {};
 const customSlash = {};  // project -> its and the user's custom commands and skills

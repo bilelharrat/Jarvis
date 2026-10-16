@@ -182,4 +182,34 @@
     when: (task) => !!task,
     run: (on) => { const task = F.currentTask(); if (task) F.send({ type: 'sc_set', id: task.id, on: !!on }); },
   });
+
+  // ── Eden Code settings › While it works: the QA pass after a UI change (code_qa.PREF_AUTO:
+  // 'ui', the default, in UI projects only; true every project; false never) ──
+
+  const qa = F.el('select', 'jcs-select');
+  qa.id = 'jcx-qa-auto';
+  qa.setAttribute('aria-label', 'Try UI changes like a user');
+  for (const [value, label] of [['ui', 'In UI projects'], ['all', 'In every project'], ['off', 'Only when I ask']]) {
+    const o = F.el('option', '', label);
+    o.value = value;
+    qa.append(o);
+  }
+  qa.addEventListener('change', () => F.send({ type: 'feature_prefs', changes: { code_qa_auto: qa.value === 'ui' ? 'ui' : qa.value === 'all' } }));
+  (function addSetting() {
+    const queue = typeof document.getElementById === 'function' ? document.getElementById('jcs-queue') : null;
+    const group = queue && queue.closest('.jcs-group');
+    if (!group) return;
+    const row = F.el('label', 'jcs-row');
+    const text = F.el('span');
+    text.append(document.createTextNode(t('Try UI changes like a user')),
+      F.el('small', '', 'After a turn that changes a page or a screen, the session walks through it and reports what broke, twice an hour at most. Not after a turn whose own check already passed.'));
+    row.append(text, qa);
+    group.append(row);
+  })();
+  const drawQa = (features) => {
+    const v = (features || {}).code_qa_auto;
+    qa.value = v === true ? 'all' : v === false ? 'off' : 'ui';
+  };
+  F.on('prefs', (ev) => drawQa(ev.features));
+  F.on('hello', (ev) => drawQa(ev.prefs && ev.prefs.features), { replay: true });
 })(typeof window === 'object' ? window : globalThis);

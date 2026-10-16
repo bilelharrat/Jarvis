@@ -23,6 +23,7 @@ from jarvis.features.code_router_events import (
     clean_info,
     clean_projects,
     prompt_hash,
+    shadow_saving,
     verdict_of,
 )
 from jarvis.tasks import ClaudeTask
@@ -365,6 +366,45 @@ async def test_shadow_mode_logs_the_pick_and_moves_nothing(hub, tmp_path):
     turn = hub.code_router_events.tracks[7].last
     assert turn.signals == {"switchedAfter": True, "switchedTo": "claude-haiku-4-5"}
     assert 7 not in hub.code_router.routes  # (and no fallback from a route it didn't take)
+
+
+async def test_shadow_mode_keeps_what_its_pick_would_save_for_the_receipt_and_the_spend(
+    hub, tmp_path
+):
+    """Shadow mode, the default while Model Router isn't the model (code_router_shadow): the
+    route's "current" row (the session's own model) is kept, the pick is noted for the
+    turn's receipt once, and the month's spend says what Shadow mode would have saved."""
+    from jarvis.features import code_receipts
+
+    assert (
+        hub.prefs.feature("code_router_shadow") is True
+        and hub.prefs.feature("code_router_on") is False
+    )
+    task = session(hub, tmp_path)
+    calls = sent_to_sessions(hub)
+    events = hub.code_router_events
+    await events.load_month()
+    info = {**INFO, "current": {"model": "claude-opus-5-5", "effort": "high", "costUSD": 0.05}}
+    await hub.handle(
+        {
+            "type": "task_send",
+            "id": 7,
+            "text": "rename x",
+            "route": {**ROUTE, "info": info, "shadow": True},
+        }
+    )
+    assert await until(lambda: calls)
+    assert task.model_ref == "opus"  # never moved
+    (route,) = await records(hub)
+    assert route["current"] == {"model": "claude-opus-5-5", "effort": "high", "costUSD": 0.05}
+    assert shadow_saving(route) == pytest.approx(0.038)
+    part = code_receipts.shadow_part(hub.code_router, task)
+    assert part["model"] == "claude-sonnet-5-5" and part["saveUSD"] == pytest.approx(0.038)
+    assert code_receipts.shadow_text(part).endswith("(about $0.04 less)")
+    assert code_receipts.shadow_part(hub.code_router, task) is None  # (said once)
+    spend = await events.spend()
+    assert spend["shadow"] == {"messages": 1, "wouldSaveUSD": pytest.approx(0.038)}
+    assert spend["savedVsBestUSD"] == 0  # (a Shadow pick saved nothing: nothing moved)
 
 
 # ── the window's state ──

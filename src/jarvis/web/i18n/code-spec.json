@@ -1,6 +1,11 @@
 {
   "strings": {
     "Spec": "规格",
+    "Spec mode": "规格模式",
+    "Spec mode is on": "规格模式已打开",
+    "The next session starts with a spec. Turn it off in More.": "下一个会话会先写规格。可在“更多”里关掉。",
+    "The next session starts with a spec": "下一个会话先写规格",
+    "Requirements, design and tasks first": "先写需求、设计和任务",
     "Requirements met": "已满足的需求",
     "Met": "已满足",
     "Not met": "未满足",

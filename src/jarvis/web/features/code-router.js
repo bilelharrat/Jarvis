@@ -26,7 +26,11 @@
 //   carries the router's numbers for the event log (info: never the prompt's words) and its
 //   next picks (fallbacks: where the session goes if the model fails).
 // - Shadow mode (settings.shadow): every message's pick is logged, nothing is moved, and
-//   nothing waits, whether or not Model Router is the session's model.
+//   nothing waits, whether or not Model Router is the session's model. And while Model
+//   Router isn't the model, Shadow mode is on by default (code_router_shadow, the backend's
+//   SHADOW_PREF): the rules' pick for each message (routeSync: never a Gemini rating) goes
+//   as a Shadow route, and the model button's tooltip and the menu's Model Router item say
+//   what it would have picked and saved; choosing Model Router there routes live.
 // - On for every session until a model is picked from the menu. Kept in prefs.features.
 // - Eden Code settings › General › Model Router: the automatic fallback (code_router_auto_fallback,
 //   on) and whether it may cross to another company's model (code_router_cross_fallback, off).
@@ -38,6 +42,7 @@
   'use strict';
 
   const ON = 'code_router_on';
+  const PASSIVE = 'code_router_shadow';  // = code_router.SHADOW_PREF (on unless turned off)
   const SETTINGS = 'code_router_settings';
   const PROJECTS = 'code_router_projects';
   const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];  // what a session takes (tasks.EFFORTS)
@@ -122,6 +127,34 @@
       { key: CROSS, on: auto && f[CROSS] === true, disabled: !auto, label: 'Fall back to another company’s model',
         note: 'Off: the fallback stays with the same company, so your code and the conversation go nowhere new. On: it may move to another provider’s model.' },
     ];
+  }
+  // Settings › General › Model Router: Shadow mode while Model Router isn't the model.
+  function shadowSwitch(features) {
+    return { key: PASSIVE, on: (features || {})[PASSIVE] !== false, label: 'Show what Model Router would pick',
+      note: 'While you pick models yourself: each message’s pick and what it would save, on the model button and the receipt. Nothing switches until you choose Model Router.' };
+  }
+  // The router's row for the model a session is on (its effort's, else any of that model's).
+  function currentRow(result, model, effort) {
+    const rows = Array.isArray(result && result.rows) ? result.rows.filter((r) => r && r.model === model) : [];
+    return rows.find((r) => r.effort === effort) || rows[0] || null;
+  }
+  // What Shadow mode says of a pick: {label, model, effort, saveUSD} (saveUSD: the session's
+  // model's cost less the pick's, null with no price), or null with no pick.
+  function shadowSummary(models, result, task) {
+    const pick = result && result.pick;
+    if (!pick || !pick.model) return null;
+    const entry = routable(models).find((m) => m.model === pick.model);
+    const now = task ? currentRow(result, task.model, task.effort) : null;
+    const save = now && Number.isFinite(now.costUSD) && Number.isFinite(pick.costUSD) ? now.costUSD - pick.costUSD : null;
+    return { label: (entry && entry.label) || pick.model, model: pick.model, effort: pick.effort || '', saveUSD: save, same: Boolean(task && task.model === pick.model) };
+  }
+  // The words for it: on the model button's tooltip, and in the menu.
+  function shadowWords(sum) {
+    if (!sum) return '';
+    if (sum.same) return `Model Router agrees with this model for your last message.`;
+    const money = Number.isFinite(sum.saveUSD) && Math.abs(sum.saveUSD) >= 0.005
+      ? `, about $${Math.abs(sum.saveUSD).toFixed(2)} ${sum.saveUSD > 0 ? 'less' : 'more'}` : '';
+    return `Model Router would pick ${sum.label}${sum.effort ? ` (${sum.effort})` : ''} for your last message${money}.`;
   }
   function cleanSettings(s) {
     const out = { ...DEFAULT_SETTINGS };
@@ -263,7 +296,7 @@
   // What the event log keeps of a route (code_router_events.clean_info keeps only these
   // numbers, ids and enums): never the prompt's words (the analyzer's signal labels and
   // Gemini's reasons stay out).
-  function infoOf(result, s, extras, boost = 0) {
+  function infoOf(result, s, extras, boost = 0, current = null) {
     if (!result) return undefined;
     const t = result.task || {}, c = result.classification || {};
     const row = (r) => (r && r.model ? { model: r.model, effort: r.effort, quality: r.quality, costUSD: r.costUSD } : undefined);
@@ -278,6 +311,7 @@
       settings: { efficiency: s.efficiency, performance: s.performance, classifier: s.classifier, level: result.optimization && result.optimization.level, subscriptionClaude: s.subscriptionClaude !== false, project: s.project === true },
       pick: row(result.pick),
       best: row(best),
+      current: row(current),  // (the session's own model: what Shadow mode's pick saves against)
       alternatives: ((result.fallbacks || []).slice(0, 3)).map(row).filter(Boolean),
       extras: {
         sessionTokens: e.context && e.context.sessionTokens,
@@ -324,7 +358,8 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, fallbackSwitches, FALLBACK, CROSS, takesEffort, geminiFlash, cleanSettings, sameSettings, sameAll,
+      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, fallbackSwitches, FALLBACK, CROSS, takesEffort,
+      shadowSwitch, currentRow, shadowSummary, shadowWords, PASSIVE, geminiFlash, cleanSettings, sameSettings, sameAll,
       sameText, isTrivial, isRated, needsRating, ratedRoute, pauseAfter, newToken, errorText, within, extrasFor,
       budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf, composerLook,
       CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT,
@@ -357,7 +392,11 @@
 
   const isOn = () => features[ON] === true;
   const settings = () => cleanSettings(features[SETTINGS]);
-  const shadowOn = () => settings().shadow === true;
+  // Shadow: the popover's own switch (with Model Router chosen too), or, while it isn't the
+  // model, the default Shadow mode (PASSIVE, on unless turned off).
+  const passive = () => !isOn() && features[PASSIVE] !== false;
+  const shadowOn = () => settings().shadow === true || passive();
+  const shadows = new Map();  // session id -> shadowSummary of its last message's pick
   let claudeDownUntil = 0;  // Date.now() until which Claude can't answer (model_router_claude)
   const models = () => withoutClaude(typeof modelList !== 'undefined' ? modelList : [], claudeDownUntil);
   const task = () => { try { return F.currentTask ? F.currentTask() : null; } catch { return null; } };
@@ -587,7 +626,7 @@
   // A route with what the log keeps of it and where the session goes if its model fails.
   function withInfo(route, result, s, t) {
     const { extras, boost } = bodyFor('', s, t);
-    try { route.info = infoOf(result, s, extras, boost); } catch { /* (the route goes without it) */ }
+    try { route.info = infoOf(result, s, extras, boost, t ? currentRow(result, t.model, t.effort) : null); } catch { /* (the route goes without it) */ }
     const fallbacks = fallbacksFor(models(), result, route);
     if (fallbacks.length) route.fallbacks = fallbacks;
     return route;
@@ -615,7 +654,13 @@
     const route = routeFor(models(), result && result.pick);
     if (!route) return {};
     withInfo(route, result, s, t);
-    if (shadow || !isOn()) return { route: { ...route, shadow: true } };
+    if (shadow || !isOn()) {
+      if (t) {  // (what the model button's tooltip and the menu say, from now on)
+        shadows.set(t.id, shadowSummary(models(), result, t));
+        setTimeout(() => renderComposer());
+      }
+      return { route: { ...route, shadow: true } };
+    }
     if (!needsRating(s.classifier, known, geminiPaused(), text)) return { route };
     const token = newToken();
     // (asked now, while the chip still holds this text: the composer is cleared once it goes)
@@ -663,7 +708,8 @@
 
   function setOn(on) {
     if (on === isOn()) return;
-    savePrefs({ [ON]: on });
+    // (Live routing means live: the popover's Shadow switch, if it was on, goes off with it.)
+    savePrefs(on && settings().shadow ? { [ON]: on, [SETTINGS]: { ...settings(), shadow: false } } : { [ON]: on });
     if (on) {
       libError = null;
       loadLib().then(() => {
@@ -675,12 +721,20 @@
 
   F.registerModelChoice({
     items: () => [
-      { icon: 'router', label: 'Model Router', note: 'Picks the model and effort for each message', checked: isOn(), run: () => setOn(true) },
+      { icon: 'router', label: 'Model Router', note: menuNote(), checked: isOn(), run: () => setOn(true) },
       '-',
     ],
     active: () => isOn(),
     picked: () => setOn(false),
   });
+
+  // The menu's Model Router note: in Shadow mode, what it would have picked for the session's
+  // last message (and that choosing it routes live).
+  function menuNote() {
+    const t = task();
+    const words = passive() && t ? shadowWords(shadows.get(t.id)) : '';
+    return words ? `${words} Choose to route live.` : 'Picks the model and effort for each message';
+  }
 
   function ensureChip() {
     if (chip || !lib) return chip;
@@ -718,7 +772,13 @@
   F.registerComposerRender((s) => {
     const on = isOn();
     const look = composerLook(on, on ? problem() : '', s.label);
-    if (!look) { if (chip) chip.hidden = true; return; }
+    if (!look) {
+      if (chip) chip.hidden = true;
+      // Shadow mode: the tooltip (never the button's look) says what the router would pick.
+      const words = passive() && s.t ? shadowWords(shadows.get(s.t.id)) : '';
+      if (words) F.$('jc-model').title = `${F.$('jc-model').title} · ${words} Choose Model Router to route live.`;
+      return;
+    }
     F.$('jc-effort').hidden = look.effortHidden;
     F.$('jc-model-label').textContent = look.label;
     F.$('jc-model').title = look.title;
@@ -758,7 +818,7 @@
     const label = F.el('p', 'jcs-label', 'Model Router');
     const group = F.el('div', 'jcs-group');
     group.id = 'cr-fallbacks';
-    for (const item of fallbackSwitches(features)) {
+    for (const item of [shadowSwitch(features), ...fallbackSwitches(features)]) {
       const row = F.el('div', 'jcs-row');
       const text = F.el('span');
       text.append(document.createTextNode(F.t(item.label)), F.el('small', '', item.note));
@@ -767,7 +827,7 @@
       sw.setAttribute('role', 'switch');
       sw.setAttribute('aria-label', item.label);
       sw.addEventListener('click', () => {
-        const now = fallbackSwitches(features).find((x) => x.key === item.key);
+        const now = [shadowSwitch(features), ...fallbackSwitches(features)].find((x) => x.key === item.key);
         if (now && !now.disabled) savePrefs({ [item.key]: !now.on });
       });
       switches.set(item.key, sw);
@@ -780,12 +840,12 @@
     drawSwitches();
   }
   function drawSwitches() {
-    for (const item of fallbackSwitches(features)) {
+    for (const item of [shadowSwitch(features), ...fallbackSwitches(features)]) {
       const sw = switches.get(item.key);
       if (!sw) continue;
       sw.setAttribute('aria-checked', String(item.on));
-      sw.disabled = item.disabled;
-      sw.setAttribute('aria-disabled', String(item.disabled));
+      sw.disabled = !!item.disabled;
+      sw.setAttribute('aria-disabled', String(!!item.disabled));
     }
   }
   F.on('hello', (ev) => {
