@@ -313,7 +313,8 @@
     next.focus();
     choose(next.dataset.section);
   });
-  side.append(lights, search, list);
+  lights.append(search);  // compact: the close button and the search share one row
+  side.append(lights, list);
 
   const main = el('section', 'ecs-main');
   const head = el('header', 'ecs-head');

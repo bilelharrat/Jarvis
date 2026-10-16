@@ -81,7 +81,7 @@ body.eden-code .jcs-card.ecs button, body.eden-code .jcs-card.ecs select, body.e
   flex: 0 0 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; overflow-y: auto;
   border-radius: 18px; background: var(--ecs-side); border: 1px solid var(--ecs-side-rim); box-shadow: var(--ecs-side-sh);
 }
-.jcs-card.ecs .ecs-lights { display: flex; padding: 0 2px 12px; }
+.jcs-card.ecs .ecs-lights { display: flex; align-items: center; gap: 8px; padding: 0 2px 10px; }
 /* Close: an X in a rounded square (the window's own buttons close the window; this closes Settings). */
 body.eden-code .jc-settings .jcs-card.ecs .ecs-close, body.eden-code .jc-settings .jcs-card.ecs .ecs-close:hover {
   width: 28px; height: 28px; min-width: 0; padding: 0; border: 0; border-radius: 8px; cursor: pointer;
@@ -96,14 +96,14 @@ body.eden-code .jc-settings .jcs-card.ecs .ecs-close svg { width: 12px; height: 
   body.eden-code .jc-settings .jcs-card.ecs { --ecs-close-bg: rgba(255, 255, 255, 0.1); --ecs-close-ink: #e5e5ea; --ecs-close-rim: rgba(255, 255, 255, 0.16); --ecs-close-edge: rgba(255, 255, 255, 0.1); }
 }
 .jcs-card.ecs .ecs-search {
-  margin: 0 2px 10px; padding: 7px 10px; border: 0; border-radius: 9px; background: var(--ecs-field);
+  flex: 1; min-width: 0; height: 28px; box-sizing: border-box; margin: 0; padding: 0 10px; border: 0; border-radius: 8px; background: var(--ecs-field);
   font: inherit; font-size: 13px; color: var(--ecs-text); outline: none; -webkit-appearance: none; appearance: none;
 }
 .jcs-card.ecs .ecs-search::placeholder { color: var(--ecs-text2); }
 .jcs-card.ecs .ecs-search:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ecs-accent) 35%, transparent); }
-.jcs-card.ecs .ecs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.jcs-card.ecs .ecs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .jcs-card.ecs .ecs-item {
-  width: 100%; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; border-radius: 9px;
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 5px 8px; border: 0; border-radius: 8px;
   background: transparent; color: var(--ecs-text); font-size: 13px; text-align: left; cursor: default;
 }
 .jcs-card.ecs .ecs-item:hover { background: var(--ecs-fill); }
