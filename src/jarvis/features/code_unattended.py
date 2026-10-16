@@ -552,12 +552,19 @@ class Runs:
         ]
         return question, "\n".join(lines)
 
-    async def ask(self, question: str, detail: str, yes: str, speak: bool) -> bool:
+    async def ask(
+        self, question: str, detail: str, yes: str, speak: bool, *, touchid: str = ""
+    ) -> bool:
+        """touchid: the command whose card this is, when it runs code and only a tap on the
+        Mac (with Touch ID, when on) may say yes."""
         question, detail = self.tr(question), self.tr(detail)
         if speak:
             self.hub._say(question)
         choice = await self.hub.request_approval(
-            question, detail, [("start", self.tr(yes)), ("deny", self.tr("Not now"))]
+            question,
+            detail,
+            [("start", self.tr(yes)), ("deny", self.tr("Not now"))],
+            context={"touchid": True, "tap_only": True, "tool": touchid} if touchid else None,
         )
         return choice == "start"
 

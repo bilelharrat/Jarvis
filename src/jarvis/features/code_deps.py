@@ -325,7 +325,7 @@ class Deps:
                 "", detail,
             ])  # fmt: skip
             question = self.tr("Upgrade {title} in {project} without you?", title=group.title(), project=name)
-            if not await runs.ask(question, detail, "Upgrade it", False):
+            if not await runs.ask(question, detail, "Upgrade it", False, touchid="code_deps_upgrade"):
                 return self.tr("Not started.")
         run = runs.start(scope, origin=origin, untrusted=True, sandbox=False)
         if isinstance(run, str):

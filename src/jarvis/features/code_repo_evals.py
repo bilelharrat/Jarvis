@@ -720,7 +720,10 @@ class CodeEvals:
             "Run {n} attempts on {k} configurations?", n=found["attempts"], k=len(configs)
         )
         answer = await self.hub.request_approval(
-            question, detail, [("run", self.tr("Run")), ("deny", self.tr("Not now"))]
+            question,
+            detail,
+            [("run", self.tr("Run")), ("deny", self.tr("Not now"))],
+            context={"touchid": True, "tap_only": True, "tool": "cev_run"},
         )
         if answer != "run":
             return "Not run."
