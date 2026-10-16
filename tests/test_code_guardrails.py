@@ -411,3 +411,25 @@ def test_a_session_with_another_agent_records_where_eden_decides(tmp_path):
     task.model_ref = "sonnet"  # a Claude Code session: its hook records, not this
     desk.check(task, "Bash", {"command": "npm ci"})
     assert desk.fired[7][0]["count"] == 1
+
+
+async def test_an_eval_attempt_with_rules_off_meets_no_guardrail(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """code_repo_evals compares a project with and without its rules: an attempt with rules
+    off gets no guardrails (judge, rule_check, the receipt); rules on, or any other session,
+    keeps them."""
+    hub, task = await _session(settings, quiet_speaker, isolated, tmp_path)
+    configs = {task.id: {"rules": "on"}}
+    hub.code_evals = NS(config_for=lambda t: configs.get(t.id))
+    npm = {"command": "npm run build"}
+    assert hub.tasks.rule_check(task, "Bash", npm)[0] == "deny"
+    configs[task.id] = {"rules": "off"}
+    assert hub.code_guardrails.active(task) == []
+    assert hub.code_guardrails.judge(task, "Bash", npm) is None
+    assert hub.tasks.rule_check(task, "Bash", npm) is None
+    configs.clear()  # (not an eval's session: they hold)
+    assert hub.tasks.rule_check(task, "Bash", npm)[0] == "deny"
+    hub.code_evals = NS(config_for=lambda t: 1 / 0)  # (a broken lookup keeps them)
+    assert hub.tasks.rule_check(task, "Bash", npm)[0] == "deny"
+    await end_all(hub)

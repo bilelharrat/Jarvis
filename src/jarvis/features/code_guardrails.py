@@ -276,8 +276,22 @@ class GuardDesk:
         self._compiled[project] = (key, guards, prose)
         return guards, prose
 
+    def rules_off(self, task: Any) -> bool:
+        """An eval's attempt run with the project's rules off (code_repo_evals: its config's
+        rules "off"): the comparison is with and without them, so no guardrail holds there
+        either (Claude Code's own permission rules still do)."""
+        evals = getattr(self.hub, "code_evals", None)
+        look = getattr(evals, "config_for", None)
+        if not callable(look):
+            return False
+        try:
+            cfg = look(task)
+        except Exception:
+            return False
+        return isinstance(cfg, dict) and cfg.get("rules") == "off"
+
     def active(self, task: Any) -> list[Guardrail]:
-        if not self.on() or getattr(task, "kind", "") != "code":
+        if not self.on() or getattr(task, "kind", "") != "code" or self.rules_off(task):
             return []
         project = self.project(task)
         book = self.book
