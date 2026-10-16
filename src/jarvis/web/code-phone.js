@@ -363,13 +363,17 @@
     $('s-stop').disabled = data.status !== 'working';
     $('s-doing').textContent = data.doing || '';
     drawLog(s.entries, data.live);
-    $('s-cards').replaceChildren(...(data.cards || []).map(cardNode));
+    // Drawn again only when they changed: streamed words come several times a second, and a
+    // card redrawn under a finger (or a screen reader's focus) loses the button it was on.
+    const cardsKey = JSON.stringify(data.cards || []);
+    if (cardsKey !== s.cardsKey) { s.cardsKey = cardsKey; $('s-cards').replaceChildren(...(data.cards || []).map(cardNode)); }
     const copy = data.copy;
     $('s-copy').hidden = !copy;
     if (copy) $('s-copy-text').textContent = `${t('copy')}: ${copy.branch} → ${copy.into}`;
     const todos = data.todos || [];
     $('s-todos').hidden = !todos.length;
-    $('s-todo-list').replaceChildren(...todos.map((x) => el('li', x.done ? 'done' : '', x.text)));
+    const todosKey = JSON.stringify(todos);
+    if (todosKey !== s.todosKey) { s.todosKey = todosKey; $('s-todo-list').replaceChildren(...todos.map((x) => el('li', x.done ? 'done' : '', x.text))); }
     await drawControls(data);
     if (first) window.scrollTo(0, document.body.scrollHeight);
   }

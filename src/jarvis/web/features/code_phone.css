@@ -1,0 +1,11 @@
+/* Eden Code's Phone pane (features/code_phone.py): Hand off to phone, and the phone's page. */
+.jcx-phonepane { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.jcx-phonepane > p { margin: 0; }
+.deck.jc .jcx-phonepane .jc-btn { font-size: 12px; align-self: flex-start; }
+.deck.jc .jcx-phonepane .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-phonepane .jc-btn:not(.filled) { color: rgb(var(--c-ink)); }
+.jcx-phone-line { font-size: 12.5px; overflow-wrap: anywhere; }
+.jcx-phone-warn { font-size: 12.5px; color: rgb(var(--c-danger-ink)); }
+.jcx-phone-switch { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.jcx-phone-url { font: 12px var(--mono); }
+.jcx-phone-qr { width: 168px; height: 168px; border-radius: 8px; align-self: flex-start; }
