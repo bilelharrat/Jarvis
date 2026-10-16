@@ -209,10 +209,11 @@ test('only Eden Secretary\'s own window opens Eden Code; Eden Code and the test 
   assert.equal(await handlers.get('feature:eden-code:status')('a page'), null);
 });
 
-test('main.js gives Eden Code its own profile, no shortcuts or microphone, and shares the backend', () => {
+test('main.js gives Eden Code its own profile, no shortcuts, no microphone at launch, and shares the backend', () => {
   const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
   assert.match(main, /if \(EDEN_CODE\) app\.setPath\('userData', path\.join\(app\.getPath\('appData'\), 'Eden Code'\)\)/);
-  assert.match(main, /DEV_URL \|\| EDEN_CODE\) return; \/\/ Eden Code never listens/);
+  // never asked for at launch; only when its Voice is turned on (code-voice-live.js)
+  assert.match(main, /DEV_URL \|\| EDEN_CODE\) return; \/\/ Eden Code asks on demand/);
   assert.match(main, /if \(EDEN_CODE\) return; \/\/ Eden Code takes no global shortcuts/);
   assert.match(main, /how\.env\.JARVIS_PROFILE = FLAVOR\.profile/);
   assert.match(main, /share\.advertise\(DATA_DIR/);

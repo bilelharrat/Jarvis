@@ -204,9 +204,12 @@ def record_utterance(
     on_level: Callable[[float], None] | None = None,
     device: int | None = None,
     cancel: threading.Event | None = None,
+    finish: threading.Event | None = None,
 ) -> np.ndarray | None:
     """Blocks until the speaker finishes. Returns 16 kHz mono float32 audio, or None (no
-    speech, or cancel was set: Stop, or the composer's mic pressed off)."""
+    speech, or cancel was set: Stop, or the composer's mic pressed off). finish ends the
+    recording now and keeps what was said (a push-to-talk key let go: Eden Code's hold to
+    talk, features/code_voice_live.py)."""
     import sounddevice as sd
 
     blocks: queue.Queue[np.ndarray] = queue.Queue()
@@ -236,6 +239,8 @@ def record_utterance(
                 break
             if cancel is not None and cancel.is_set():
                 return None  # the microphone closes as the with-block ends
+            if finish is not None and finish.is_set():
+                break  # the key was let go: what was said so far is the utterance
             captured.append(block)
             rms = float(np.sqrt(np.mean(block**2)))
             if on_level is not None:

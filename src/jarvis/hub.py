@@ -383,6 +383,7 @@ BASH_SECONDS = 120  # "!command" in Eden Code: how long it may run
 BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
+HOLD_SILENCE = 30.0  # hold to talk: a pause never ends it, letting go of the key does
 REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they hear "busy"
 WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
 WINDOW_BYTES = 32 * 1024 * 1024  # and at most this much of their text (terminal output,
@@ -813,6 +814,16 @@ class Hub:
         self.edition = "daredevil" if os.environ.get("JARVIS_EDITION") == "daredevil" else ""
         self.app_windows: dict[str, int] = {}  # app -> windows open on this backend (server.socket)
         self.listener_factory = listener_factory
+        # Who else wants the hands-free microphone open besides Settings › Listening: Eden
+        # Code's Voice switch (features/code_voice_live.py), on demand. One listener serves
+        # every app on this backend: each says here whether it wants it (_wants_listener).
+        self.listen_wanted: list[Callable[[], bool]] = []
+        # Eden Code's conversation with a session: while this says so, an utterance in voice
+        # focus needs no wake word (_code_heard). None: the wake word, as before.
+        self.code_no_wake: Callable[[], bool] | None = None
+        self._ptt_finish: threading.Event | None = None  # hold to talk: set when let go
+        self._ears_warm: Any = None  # the speech model asked to load (each one once)
+        self._speech_loops = False  # the voice player and the fillers prepared (once a run)
         self.state = "idle"
         self.status: dict[str, Any] = {}
         self.turn: dict[str, Any] = {}
@@ -1630,10 +1641,42 @@ class Hub:
     def _spawn_voice_loops(self) -> None:
         """What only a voice assistant needs running: the speech player and its fillers,
         the location clock and the names hearing learns."""
-        self._spawn(self._prepare_player())
-        self._spawn(self._prepare_fillers())
+        self._spawn_speech_loops()
         self._spawn(self._location_loop())
         self._spawn(self._hearing_names_loop())
+
+    def _spawn_speech_loops(self) -> None:
+        """The speech player and the fillers, prepared once a run: by Eden Secretary's start
+        or its first window, or by Eden Code's Voice switch (start_ears), whichever is first."""
+        if self._speech_loops:
+            return
+        self._speech_loops = True
+        self._spawn(self._prepare_player())
+        self._spawn(self._prepare_fillers())
+
+    def start_ears(self) -> None:
+        """Eden's ears and voice on demand, for a backend that started without them (Eden
+        Code's, hub.profile "code"): the speech model loads and the voice player gets
+        ready. Nothing of the owner's own life starts (no location clock, no names from
+        the calendar or Contacts): that waits for an Eden Secretary window, as before.
+        Safe to call again: each part starts once a run."""
+        self._warm_up_ears()
+        if self.poll:
+            self._spawn_speech_loops()
+
+    def _wants_listener(self) -> bool:
+        """Whether the hands-free microphone should be open: Settings › Listening's
+        hands-free on a backend that listens (Eden Secretary's, or one an Eden Secretary
+        window woke), or any app on it asking (listen_wanted: Eden Code's Voice switch)."""
+        if self.prefs.hands_free and self.profile == "full":
+            return True
+        for wanted in list(self.listen_wanted):
+            try:
+                if wanted():
+                    return True
+            except Exception:  # a broken feature's say opens no microphone
+                log.exception("a feature's listen check failed")
+        return False
 
     def _start_listening(self) -> None:
         if self.prefs.hands_free:
@@ -1647,8 +1690,9 @@ class Hub:
         when the model is ready."""
         ears = self.transcriber
         warm_up = getattr(ears, "warm_up", None)
-        if warm_up is None:
+        if warm_up is None or self._ears_warm is ears:
             return
+        self._ears_warm = ears  # each speech model once (a new language's is a new one)
         try:
             fetching = hasattr(ears, "cached") and not ears.cached()
         except Exception:  # noqa: BLE001
@@ -3841,7 +3885,11 @@ class Hub:
 
         return on_level
 
-    async def listen(self) -> None:
+    async def listen(self, hold: bool = False) -> None:
+        """Push-to-talk: one utterance, ended by a pause (the orb, ⌥Space). hold: a key held
+        down (Eden Code's hold to talk, features/code_voice_live.py): pauses don't end it,
+        letting go does (finish_push_to_talk). While a session is in voice focus, what's
+        said goes to it, as hands-free speech does."""
         if self._listener is not None and self._listener.running:
             self._arm()
             return
@@ -3850,18 +3898,22 @@ class Hub:
         self._listen_gen += 1
         gen = self._listen_gen
         cancel = self._mic_cancel = threading.Event()
+        finish = self._ptt_finish = threading.Event() if hold else None
+        silence = HOLD_SILENCE if hold else self.settings.silence_seconds
         self.set_state("listening")
         try:
             recorder = self.recorder
             if recorder is None:
                 from .listen import pick_input_device, record_utterance
 
+                held = {"finish": finish} if finish is not None else {}  # (only when held)
                 recorder = functools.partial(
-                    record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
+                    record_utterance,
+                    device=pick_input_device(self.prefs.mic),
+                    cancel=cancel,
+                    **held,
                 )
-            audio = await asyncio.to_thread(
-                recorder, self.settings.silence_seconds, self._level_callback()
-            )
+            audio = await asyncio.to_thread(recorder, silence, self._level_callback())
             if audio is None or gen != self._listen_gen:  # silence, or Stop meanwhile
                 self.emit("heard", text="")
                 return
@@ -3876,14 +3928,34 @@ class Hub:
         finally:
             if self._mic_cancel is cancel:
                 self._mic_cancel = None
+            if self._ptt_finish is finish:
+                self._ptt_finish = None
             if gen == self._listen_gen and self.state in ("listening", "transcribing"):
                 self.set_state("idle")
         if gen != self._listen_gen:  # stopped while it was being transcribed
             self.emit("heard", text="")
             return
         self.emit("heard", text=text)
-        if text:
+        if text and self.voicecode.focus is not None:
+            await self._code_said(text)
+        elif text:
             await self.ask(text)
+
+    def finish_push_to_talk(self) -> None:
+        """The hold-to-talk key let go: the recording ends there and what was said is
+        heard (nothing, when it was let go before any words)."""
+        finish, self._ptt_finish = self._ptt_finish, None
+        if finish is not None:
+            finish.set()
+
+    async def _code_said(self, text: str) -> None:
+        """Push-to-talk while voice coding: the words were plainly for the session in focus
+        (the key was pressed for them), so no wake word is needed. An answer to its open
+        question is taken as one; anything else is a command or a message for it."""
+        if self._answer_code_approval(text, woke=True):
+            return
+        if await self._voice_allows():
+            await self.voicecode.handle(text)
 
     async def dictate(self, on: bool = True) -> None:
         """The composer's mic, as in Claude Code: what the user says next is typed into
@@ -3959,7 +4031,7 @@ class Hub:
     # ── hands-free ──
 
     def _apply_hands_free(self) -> None:
-        if self.prefs.hands_free:
+        if self._wants_listener():
             if self._listener is not None and self._listener.running:
                 return
             loop = asyncio.get_running_loop()
@@ -4427,7 +4499,7 @@ class Hub:
         already dropped JARVIS's own voice.) An answer to the session's open question is
         taken as one, even said over the question as it's read."""
         woke, command = lang.find_wake(text, self.language)
-        armed = self._armed()
+        armed = self._armed() or self._no_wake_needed()
         if self.state == "speaking":
             if woke or lang.is_stop(text, self.language):
                 await self.stop()  # quiet JARVIS first
@@ -4458,6 +4530,18 @@ class Hub:
             return
         if await self._voice_allows():
             await self.voicecode.handle(request)
+
+    def _no_wake_needed(self) -> bool:
+        """Eden Code's conversation mode (code_no_wake): the session in focus hears every
+        utterance, no wake word. Its own voice is already dropped (on_heard's echo check)."""
+        check = self.code_no_wake
+        if check is None:
+            return False
+        try:
+            return bool(check())
+        except Exception:
+            log.exception("the no-wake-word check failed")
+            return False
 
     def say(self, text: str, follow_up: bool = True) -> None:
         """Say something outside a JARVIS turn (voice-code narration and replies), then

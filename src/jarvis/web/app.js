@@ -44,10 +44,11 @@ const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
 const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'sc_call']);
 let jarvisWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
-// Eden Code's backend alone listens to no one (hub.profile "code": no microphone, no voice
-// loops, until an Eden Secretary window joins and makes it "full"), so the title bar's voice
-// switch and the composer's Dictate mic did nothing there (round 3, U3-14). They show only
-// once the backend listens (hello.profile, app_windows.profile).
+// Eden Code's backend alone listens to no one at launch (hub.profile "code": no microphone,
+// no voice loops), so the title bar's voice switch and the composer's Dictate mic once did
+// nothing there and were hidden (round 3, U3-14). Eden Code's own window now turns Eden's
+// ears on when asked (features/code_voice_live.py, web/features/code-voice-live.js): they
+// show there always; another window shows them once the backend listens.
 function showVoiceControls(on) {
   for (const id of ['cc-voice-head', 'jc-dictate']) { const b = document.getElementById(id); if (b) b.hidden = !on; }
 }
@@ -117,7 +118,7 @@ function heard(ev) {
     jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
     // Eden Secretary closed: this window takes its jobs back, and says what it can do.
     if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
-    if (ev.profile) showVoiceControls(ev.profile !== 'code');
+    if (ev.profile) showVoiceControls(true);  // (Eden Code's Voice opens the ears itself)
   }
   if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
   if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type)) return;  // the main window's
@@ -5426,6 +5427,8 @@ function onVoiceCode(focus) {
 }
 
 $('cc-voice-head').addEventListener('click', () => {
+  // Eden Code's own window: the switch is Eden's ears and voice too (code-voice-live.js).
+  if (inEdenCode && window.edenCodeVoice) { window.edenCodeVoice.toggle(); return; }
   if (voiceFocus) send({ type: 'voicecode_exit' });
   else if (ccSelected) send({ type: 'voicecode_enter', id: ccSelected });
   else newSession(true);

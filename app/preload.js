@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('jarvisApp', {
   attention: () => ipcRenderer.send('jarvis:attention'),
   pickFolder: () => ipcRenderer.invoke('jarvis:pick-folder'),
   pdf: (page) => ipcRenderer.invoke('jarvis:pdf', page),
+  // The microphone, asked for by the app when Eden Code's Voice is turned on ('granted', 'denied'…).
+  microphone: () => ipcRenderer.invoke('jarvis:microphone'),
   desktopHands: (on) => ipcRenderer.send('jarvis:desktop-hands', !!on),
   handHud: (update) => ipcRenderer.send('jarvis:hand-hud', update),
   // Where a file dropped on the window lives (a video to summarize): only the file the
