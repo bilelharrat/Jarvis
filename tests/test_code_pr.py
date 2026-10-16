@@ -158,9 +158,9 @@ async def test_a_session_without_a_branch_or_github_is_told_why(hub, tmp_path, p
     event = await hub.code_pr.draft(task)
     assert event["note"].startswith("This session works on main itself: give it a branch")
     git(repo, "switch", "-q", "-c", "topic")
-    git(repo, "remote", "set-url", "origin", "https://gitlab.com/acme/app.git")
+    git(repo, "remote", "set-url", "origin", "https://git.example.org/acme/app.git")
     event = await hub.code_pr.draft(task)
-    assert event["note"] == "This project's remote isn't a github.com repository."
+    assert event["note"] == "This project's remote isn't on GitHub, GitLab, Bitbucket or Azure DevOps."
     git(repo, "remote", "remove", "origin")
     assert (await hub.code_pr.draft(task))["note"] == "There's no remote to push to."
     plain = projects / "plain"

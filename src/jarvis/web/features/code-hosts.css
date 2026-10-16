@@ -1,0 +1,26 @@
+/* Eden Code settings › Git hosts and Jira, and the "Issues to pick up" pane
+   (features/code-hosts.js). Colours are the theme's tokens, so light, dark and the glass
+   look (eden-code-glass.css) each have their own. */
+.jcx-hosts { display: flex; flex-direction: column; gap: 10px; }
+.jcx-hosts-service { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: rgb(var(--c-ink) / 0.03); }
+.jcx-hosts-tools { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
+.jcx-hosts-tools .jcs-input { flex: none; width: 190px; max-width: 100%; }
+.jcx-hosts .jcs-row small + small { margin-top: 1px; }
+.jcx-hosts-jira { display: flex; flex-direction: column; gap: 2px; }
+.jcx-hosts-jira .jcs-input { flex: none; width: 240px; max-width: 100%; }
+.jcx-hosts-actions { display: flex; align-items: center; padding-top: 6px; }
+.deck.jc .jcx-hosts .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-hosts .jc-btn.filled, .deck.jc .jcx-hosts-pane .jc-btn.filled { color: #fff; }
+
+.jcx-hosts-pane { display: flex; flex-direction: column; gap: 8px; }
+.jcx-hosts-head { display: flex; align-items: center; gap: 8px; }
+.jcx-hosts-head .jcs-select { flex: 1; min-width: 0; }
+.jcx-hosts-error { margin: 0; font-size: 12px; color: rgb(var(--c-warning-ink)); }
+.jcx-hosts-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.jcx-hosts-issues li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.jcx-hosts-issue { display: flex; align-items: baseline; gap: 6px; flex: 1; min-width: 0; font-size: 12.5px; }
+.jcx-hosts-issue a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--c-ink)); text-decoration: none; }
+.jcx-hosts-issue a:hover, .jcx-hosts-issue a:focus-visible { text-decoration: underline; }
+.jcx-hosts-issue .jcx-chip { flex: none; }
+.jcx-hosts-issue small { flex: none; }
+.deck.jc .jcx-hosts-pane .jc-btn.tinted { color: rgb(var(--c-accent-ink)); }

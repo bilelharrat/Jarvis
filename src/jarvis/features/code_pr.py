@@ -1,4 +1,9 @@
-"""Eden Code: pull requests on GitHub (github.py), from opening one to merging it.
+"""Eden Code: pull requests on GitHub (github.py), from opening one to merging it; and the
+same on GitLab (merge requests), Bitbucket and Azure DevOps (githosts/): the project's
+remote says which host, and that host's client answers in GitHub's shapes, so everything
+below works for each (client_for). What a host can't say is said where it matters: on
+Azure DevOps (and on Bitbucket without a workspace admin's token) only the owner's own
+review comments go to a session by themselves, since neither says who may write.
 
 Opening: from a session's branch (its isolated copy's, or the branch its folder is on).
 A Spec mode session's description ends with its "Requirements met" (code_spec.pr_proof),
@@ -71,7 +76,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan
+from .. import code_ai, code_changes, code_prs, githosts, github, lang, prefs, secret_scan
 from ..code_changes import NO_HOOKS, git
 from ..code_prs import FIX_ATTEMPTS, PullRecord
 from ..hub import _msg_int
@@ -80,6 +85,8 @@ from ..proactive import Alert
 log = logging.getLogger("jarvis")
 
 PREF_AUTOFIX = "code_pr_autofix"
+PREF_GITLAB_HOSTS = "code_hosts_gitlab"  # (features/code_hosts.py keeps it)
+NOT_A_HOST = "This project's remote isn't on GitHub, GitLab, Bitbucket or Azure DevOps."
 prefs.register_feature_pref(PREF_AUTOFIX, True)
 
 FOLLOW_UP_CAPS = {"fix": 10, "review": 10, "conflict": 5, "jarvis": 20}
@@ -276,6 +283,7 @@ class PullDesk:
         self.hub = hub
         self.ai = code_ai.call  # (the tests put a fake here)
         self._client: github.Client | None = None
+        self._hosts: githosts.Hosts | None = None  # GitLab, Bitbucket, Azure DevOps
         self._store: code_prs.PullStore | None = None
         self._caps: code_ai.Budget | None = None
         self.next_poll: dict[str, float] = {}
@@ -305,6 +313,28 @@ class PullDesk:
                 lambda: github.token_from(vault), language=lambda: self.hub.language
             )
         return self._client
+
+    @property
+    def hosts(self) -> githosts.Hosts:
+        if self._hosts is None:
+            self._hosts = githosts.Hosts(
+                lambda: self.hub.connectors.vault, language=lambda: self.hub.language
+            )
+        return self._hosts
+
+    def client_for(self, ref: Any) -> Any:
+        """The client of the host a repository is on: GitHub's, or another host's that
+        answers in GitHub's shapes (githosts)."""
+        return self.hosts.client_for(ref) if isinstance(ref, githosts.HostRef) else self.client
+
+    def gitlab_hosts(self) -> tuple[str, ...]:
+        """The owner's own GitLab servers (Eden Code settings › Git hosts and Jira)."""
+        listed = self.hub.prefs.feature(PREF_GITLAB_HOSTS)
+        return tuple(h for h in listed if isinstance(h, str)) if isinstance(listed, list) else ()
+
+    def repo_for(self, folder: Any) -> tuple[str, github.RepoRef | None]:
+        """The folder's remote and its repository on any host Eden Code knows (blocking)."""
+        return githosts.repo_for(folder, self.gitlab_hosts())
 
     def store(self) -> code_prs.PullStore:
         if self._store is None:
@@ -398,11 +428,11 @@ class PullDesk:
         branch = git(repo.top, "symbolic-ref", "-q", "--short", "HEAD").out.strip()
         if not branch:
             return "You're not on a branch, so there's nothing to open a pull request from."
-        remote, ref = github.repo_for(task.cwd)
+        remote, ref = self.repo_for(task.cwd)
         if not remote:
             return "There's no remote to push to."
         if ref is None:
-            return "This project's remote isn't a github.com repository."
+            return NOT_A_HOST
         listed = git(
             repo.top, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote}"
         ).out.split()
@@ -505,7 +535,7 @@ class PullDesk:
         if isinstance(plan, str):
             return self._emit_draft(key, note=plan)
         try:
-            existing = await self.client.pulls_for(plan.ref, plan.branch)
+            existing = await self.client_for(plan.ref).pulls_for(plan.ref, plan.branch)
         except github.GitHubError as exc:
             return self._emit_draft(key, note=str(exc))
         if existing:
@@ -519,6 +549,9 @@ class PullDesk:
         issue = self.issue_of(task)
         if issue and f"#{issue}" not in body:
             body = f"{body}\n\nCloses #{issue}".strip()
+        hosts = getattr(self.hub, "code_hosts", None)
+        if hosts is not None:  # (a Jira issue picked up: its key in the title, its link below)
+            title, body = hosts.draft_extras(task, title, body)
         body = self.with_selfcheck_proof(task, self.with_spec_proof(task, body))
         draft = {
             "title": title,
@@ -609,12 +642,14 @@ class PullDesk:
         """Keep a pull request as the session's (opened now, or found on its branch)."""
         store = self.store()
         number = int(pull.get("number") or 0)
-        rec = store.find(plan.ref.full, number)
+        rec = store.find(
+            plan.ref.full, number, plan.ref.tag if isinstance(plan.ref, githosts.HostRef) else ""
+        )
         if rec is None:
             rec = PullRecord(
                 repo=plan.ref.full,
                 number=number,
-                url=str(pull.get("html_url") or f"{plan.ref.url}/pull/{number}"),
+                url=str(pull.get("html_url") or self._pull_url(plan.ref, number)),
                 title=str(pull.get("title") or "")[:300],
                 branch=plan.branch,
                 base=str((pull.get("base") or {}).get("ref") or plan.base),
@@ -628,6 +663,7 @@ class PullDesk:
                 draft=bool(pull.get("draft")),
                 head_sha=str((pull.get("head") or {}).get("sha") or ""),
                 autofix=bool(self.hub.prefs.feature(PREF_AUTOFIX)),
+                host=plan.ref.tag if isinstance(plan.ref, githosts.HostRef) else "",
             )
             store.items.append(rec)
         rec.watch = True
@@ -649,8 +685,9 @@ class PullDesk:
             plan = await asyncio.to_thread(self._plan, task, str(msg.get("base") or ""))
             if isinstance(plan, str):
                 return plan
-            if not await self.client.connected():
-                return github.CONNECT
+            client = self.client_for(plan.ref)
+            if not await client.connected():
+                return getattr(client, "connect_text", github.CONNECT)
             if plan.copy and plan.uncommitted:
                 problem = await self._commit_copy(task, plan, title)
                 if problem:
@@ -664,7 +701,7 @@ class PullDesk:
             if not await asyncio.to_thread(self._pushed, plan.top, plan.remote):
                 return said or "Not opened."
             try:
-                pull = await self.client.create_pull(
+                pull = await client.create_pull(
                     plan.ref,
                     title=title,
                     head=plan.branch,
@@ -675,7 +712,7 @@ class PullDesk:
             except github.GitHubError as exc:
                 if exc.status != 422 or "already exists" not in str(exc):
                     return str(exc)
-                found = await self.client.pulls_for(plan.ref, plan.branch)
+                found = await client.pulls_for(plan.ref, plan.branch)
                 if not found:
                     return str(exc)
                 rec = self._link(task, plan, found[0])
@@ -742,7 +779,10 @@ class PullDesk:
             if not rec.session_id:
                 rec.session_id = task.session_id
                 self.save()
-        connected = await self.client.connected()
+        ref = self._ref(rec) if rec is not None else where.pop("ref", None)
+        where.pop("ref", None)
+        client = self.client_for(ref)
+        connected = await client.connected()
         data = self.details.get(rec.key, {}) if rec else {}
         methods = await self._methods(rec) if rec and connected else []
         self.hub.emit(
@@ -758,6 +798,7 @@ class PullDesk:
             methods=methods,
             draft=self.drafts.get(task.id),
             github=connected,
+            host=githosts.NAMES.get(githosts.kind_of(ref), "GitHub"),
             where=where,
         )
 
@@ -766,13 +807,14 @@ class PullDesk:
         if repo is None:
             return {"git": False}
         branch = git(repo.top, "symbolic-ref", "-q", "--short", "HEAD").out.strip()
-        remote, ref = github.repo_for(task.cwd)
+        remote, ref = self.repo_for(task.cwd)
         return {
             "git": True,
             "branch": branch,
             "remote": remote,
             "repo": ref.full if ref else "",
             "copy": bool(task.workspace),
+            "ref": ref,  # (taken out before it's sent)
         }
 
     def publish_all(self) -> None:
@@ -784,14 +826,14 @@ class PullDesk:
 
     async def _methods(self, rec: PullRecord) -> list[str]:
         """The merge methods the repository allows (asked once a run)."""
-        found = self._repos.get(rec.repo)
+        found = self._repos.get(rec.key.rpartition("#")[0])
         if found is None:
-            owner, _, name = rec.repo.partition("/")
+            ref = self._ref(rec)
             try:
-                found = await self.client.repo(github.RepoRef(owner, name))
+                found = await self.client_for(ref).repo(ref)
             except github.GitHubError:
                 return list(code_prs.MERGE_METHODS)
-            self._repos[rec.repo] = found
+            self._repos[rec.key.rpartition("#")[0]] = found
         allowed = {
             "squash": found.get("allow_squash_merge", True),
             "merge": found.get("allow_merge_commit", True),
@@ -823,17 +865,20 @@ class PullDesk:
     async def tick(self, now: float | None = None) -> None:
         """Poll the watched pull requests that are due (a few at a time)."""
         now = time.time() if now is None else now
-        wait = self.client.wait_seconds()
-        if wait > 0:
-            return  # the rate limit: nothing until it resets
         due = [
             r for r in self.store().watched()[:MAX_WATCHED] if self.next_poll.get(r.key, 0.0) <= now
         ]
-        if not due:
-            return
-        if not await self.client.connected():
-            for rec in due:
+        ready = []
+        for rec in due:  # (each host's own limit and token: GitHub's, GitLab's…)
+            client = self.client_for(self._ref(rec))
+            if client.wait_seconds() > 0:
+                continue  # the rate limit: nothing until it resets
+            if not await client.connected():
                 self.next_poll[rec.key] = now + POLL_IDLE
+                continue
+            ready.append(rec)
+        due = ready
+        if not due:
             return
         results = await github.gather_limited([self.poll(r) for r in due], limit=3)
         for rec, result in zip(due, results, strict=True):
@@ -889,12 +934,18 @@ class PullDesk:
             self.spawn(self.publish(task))
 
     def _ref(self, rec: PullRecord) -> github.RepoRef:
-        owner, _, name = rec.repo.partition("/")
-        return github.RepoRef(owner, name)
+        return githosts.ref_from(rec.host, rec.repo)
+
+    @staticmethod
+    def _pull_url(ref: Any, number: int) -> str:
+        if isinstance(ref, githosts.HostRef):
+            return ref.pull_url(number)
+        return f"{ref.url}/pull/{number}"
 
     async def _poll(self, rec: PullRecord) -> bool:
         ref = self._ref(rec)
-        pull = await self.client.pull(ref, rec.number)
+        client = self.client_for(ref)
+        pull = await client.pull(ref, rec.number)
         before = (rec.state, rec.head_sha, rec.checks, rec.mergeable, rec.title)
         rec.title = str(pull.get("title") or rec.title)[:300]
         rec.draft = bool(pull.get("draft"))
@@ -915,7 +966,7 @@ class PullDesk:
             rec.state, rec.watch = "closed", False
             return True
         runs, statuses = await asyncio.gather(
-            self.client.check_runs(ref, rec.head_sha), self.client.statuses(ref, rec.head_sha)
+            client.check_runs(ref, rec.head_sha), client.statuses(ref, rec.head_sha)
         )
         checks = github.checks_from(runs, statuses)
         status = github.overall(checks)
@@ -997,13 +1048,15 @@ class PullDesk:
         """Each failing check's log, trimmed (an Actions job's own; any other check's
         summary and annotations)."""
 
+        client = self.client_for(ref)
+
         async def one(check: github.Check) -> tuple[str, str]:
             text = ""
             try:
                 if check.actions and check.check_id:
-                    text = github.trim_log(await self.client.job_log(ref, check.check_id))
+                    text = github.trim_log(await client.job_log(ref, check.check_id))
                 elif check.check_id:
-                    notes = await self.client.annotations(ref, check.check_id)
+                    notes = await client.annotations(ref, check.check_id)
                     text = "\n".join(
                         f"{a.get('path', '')}:{a.get('start_line', '')}: {a.get('message', '')}"
                         for a in notes[:30]
@@ -1184,13 +1237,14 @@ class PullDesk:
     # ── review comments and @jarvis ──
 
     async def _comments(self, rec: PullRecord, ref: github.RepoRef, details: dict) -> None:
+        client = self.client_for(ref)
         reviews, inline, talk = await asyncio.gather(
-            self.client.reviews(ref, rec.number),
-            self.client.review_comments(ref, rec.number),
-            self.client.issue_comments(ref, rec.number),
+            client.reviews(ref, rec.number),
+            client.review_comments(ref, rec.number),
+            client.issue_comments(ref, rec.number),
         )
         try:
-            owner = await self.client.login()
+            owner = await client.login()
         except github.GitHubError:
             owner = ""
         shown: list[dict[str, Any]] = []
@@ -1281,7 +1335,8 @@ class PullDesk:
         """Each row trusted only when GitHub says its author can write to the repository
         (asked once for each author, and only for those whose comment says they might)."""
         authors = sorted({r["author"] for r in rows if r["trusted"] and r["author"]})
-        answers = await asyncio.gather(*(self.client.may(ref, a, "write") for a in authors))
+        client = self.client_for(ref)
+        answers = await asyncio.gather(*(client.may(ref, a, "write") for a in authors))
         writers = {a for a, ok in zip(authors, answers, strict=True) if ok}
         for row in rows:
             row["trusted"] = row["author"] in writers
@@ -1333,7 +1388,7 @@ class PullDesk:
     async def merge(self, rec: PullRecord, ref: github.RepoRef | None = None) -> str:
         ref = ref or self._ref(rec)
         try:
-            await self.client.merge(
+            await self.client_for(ref).merge(
                 ref, rec.number, method=rec.merge_method, sha=rec.head_sha, title=rec.title
             )
         except github.GitHubError as exc:

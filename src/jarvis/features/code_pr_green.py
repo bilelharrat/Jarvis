@@ -430,7 +430,8 @@ class Green:
         """A fixed line on the pull request (in the owner's GitHub name). Its id is marked
         seen at once: code_pr never takes Eden's own line for a reviewer's comment."""
         try:
-            made = await self.desk.client.comment(self.desk._ref(rec), rec.number, body)
+            ref = self.desk._ref(rec)
+            made = await self.desk.client_for(ref).comment(ref, rec.number, body)
         except github.GitHubError as exc:
             log.info("keep it green: couldn't comment on %s: %s", rec.key, exc)
             return False
@@ -451,9 +452,9 @@ class Green:
         if st["preview_sha"] != rec.head_sha:
             deployments: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
             try:
-                for d in (await self.desk.client.deployments(ref, rec.head_sha))[:3]:
+                for d in (await self.desk.client_for(ref).deployments(ref, rec.head_sha))[:3]:
                     if isinstance(d, dict) and type(d.get("id")) is int:
-                        rows = await self.desk.client.deployment_statuses(ref, d["id"])
+                        rows = await self.desk.client_for(ref).deployment_statuses(ref, d["id"])
                         deployments.append((d, rows))
             except github.GitHubError as exc:
                 log.info("keep it green: deployments of %s: %s", rec.key, exc)

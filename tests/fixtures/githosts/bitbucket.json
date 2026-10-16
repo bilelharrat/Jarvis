@@ -1,0 +1,348 @@
+{
+ "_note": "Recorded from Bitbucket Cloud's REST API 2.0, trimmed to the fields Eden Code reads; ids, names and hashes replaced.",
+ "GET https://api.bitbucket.org/2.0/user": {
+  "status": 200,
+  "body": {
+   "nickname": "octo-owner",
+   "display_name": "Octo Owner",
+   "account_id": "5f1"
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app": {
+  "status": 200,
+  "body": {
+   "full_name": "team/app",
+   "mainbranch": {
+    "name": "main"
+   }
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pullrequests": {
+  "status": 200,
+  "body": {
+   "values": [],
+   "pagelen": 10
+  }
+ },
+ "POST https://api.bitbucket.org/2.0/repositories/team/app/pullrequests": {
+  "status": 201,
+  "body": {
+   "id": 7,
+   "title": "Make x two",
+   "description": "Why: the login.",
+   "state": "OPEN",
+   "draft": false,
+   "source": {
+    "branch": {
+     "name": "feature/login"
+    },
+    "commit": {
+     "hash": "head1aaaaaaa"
+    }
+   },
+   "destination": {
+    "branch": {
+     "name": "main"
+    },
+    "commit": {
+     "hash": "base000aaaaa"
+    }
+   },
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/team/app/pull-requests/7"
+    }
+   },
+   "author": {
+    "nickname": "octo-owner",
+    "display_name": "Octo Owner",
+    "account_id": "5f1"
+   },
+   "participants": [
+    {
+     "user": {
+      "nickname": "reviewer"
+     },
+     "role": "REVIEWER",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2026-10-10T10:03:00Z"
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pullrequests/7": {
+  "status": 200,
+  "body": {
+   "id": 7,
+   "title": "Make x two",
+   "description": "Why: the login.",
+   "state": "OPEN",
+   "draft": false,
+   "source": {
+    "branch": {
+     "name": "feature/login"
+    },
+    "commit": {
+     "hash": "head1aaaaaaa"
+    }
+   },
+   "destination": {
+    "branch": {
+     "name": "main"
+    },
+    "commit": {
+     "hash": "base000aaaaa"
+    }
+   },
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/team/app/pull-requests/7"
+    }
+   },
+   "author": {
+    "nickname": "octo-owner",
+    "display_name": "Octo Owner",
+    "account_id": "5f1"
+   },
+   "participants": [
+    {
+     "user": {
+      "nickname": "reviewer"
+     },
+     "role": "REVIEWER",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2026-10-10T10:03:00Z"
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pullrequests/7/diffstat": {
+  "status": 200,
+  "body": {
+   "values": [
+    {
+     "status": "modified",
+     "new": {
+      "path": "a.py"
+     }
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pipelines": {
+  "status": 200,
+  "body": {
+   "values": [
+    {
+     "uuid": "{p-old}",
+     "build_number": 11,
+     "target": {
+      "commit": {
+       "hash": "0ld000000000"
+      }
+     }
+    },
+    {
+     "uuid": "{p-1}",
+     "build_number": 12,
+     "target": {
+      "commit": {
+       "hash": "head1aaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pipelines/%7Bp-1%7D/steps": {
+  "status": 200,
+  "body": {
+   "values": [
+    {
+     "uuid": "{s-lint}",
+     "name": "lint",
+     "state": {
+      "name": "COMPLETED",
+      "result": {
+       "name": "SUCCESSFUL"
+      }
+     }
+    },
+    {
+     "uuid": "{s-test}",
+     "name": "tests",
+     "state": {
+      "name": "COMPLETED",
+      "result": {
+       "name": "FAILED"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pipelines/%7Bp-1%7D/steps/%7Bs-test%7D/log": {
+  "status": 307,
+  "headers": {
+   "location": "https://bbuseruploads.example-logs.test/step.log"
+  }
+ },
+ "GET https://bbuseruploads.example-logs.test/step.log": {
+  "status": 200,
+  "text": "+ pytest -q\nFAILED tests/test_login.py::test_login\n1 failed\n"
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/commit/head1aaaaaaa/statuses": {
+  "status": 200,
+  "body": {
+   "values": [
+    {
+     "key": "pipeline-12",
+     "name": "Pipeline #12 for feature/login",
+     "state": "FAILED",
+     "url": "https://bitbucket.org/team/app/pipelines/results/12"
+    },
+    {
+     "key": "sonar",
+     "name": "SonarCloud",
+     "state": "SUCCESSFUL",
+     "url": "https://sonarcloud.example.test/x",
+     "description": "Quality gate passed"
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/repositories/team/app/pullrequests/7/comments": {
+  "status": 200,
+  "body": {
+   "values": [
+    {
+     "id": 501,
+     "content": {
+      "raw": "Please keep the old name too."
+     },
+     "user": {
+      "nickname": "reviewer"
+     },
+     "inline": {
+      "path": "a.py",
+      "to": 1
+     },
+     "created_on": "2026-10-10T10:01:00Z",
+     "links": {
+      "html": {
+       "href": "https://bitbucket.org/team/app/pull-requests/7/_/diff#comment-501"
+      }
+     }
+    },
+    {
+     "id": 502,
+     "content": {
+      "raw": "@jarvis add a test for it"
+     },
+     "user": {
+      "nickname": "octo-owner"
+     },
+     "created_on": "2026-10-10T10:02:00Z",
+     "links": {
+      "html": {
+       "href": "https://bitbucket.org/team/app/pull-requests/7#comment-502"
+      }
+     }
+    },
+    {
+     "id": 503,
+     "content": {
+      "raw": "(deleted)"
+     },
+     "user": {
+      "nickname": "x"
+     },
+     "deleted": true
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/user/permissions/repositories": {
+  "status": 200,
+  "body": {
+   "values": [
+    {
+     "permission": "admin",
+     "repository": {
+      "full_name": "team/app"
+     }
+    }
+   ]
+  }
+ },
+ "GET https://api.bitbucket.org/2.0/workspaces/team/permissions/repositories/app": {
+  "status": 403,
+  "body": {
+   "type": "error",
+   "error": {
+    "message": "Your credentials lack one or more required privilege scopes."
+   }
+  }
+ },
+ "POST https://api.bitbucket.org/2.0/repositories/team/app/pullrequests/7/comments": {
+  "status": 201,
+  "body": {
+   "id": 599,
+   "content": {
+    "raw": "ok"
+   },
+   "user": {
+    "nickname": "octo-owner"
+   }
+  }
+ },
+ "POST https://api.bitbucket.org/2.0/repositories/team/app/pullrequests/7/merge": {
+  "status": 200,
+  "body": {
+   "id": 7,
+   "title": "Make x two",
+   "description": "Why: the login.",
+   "state": "MERGED",
+   "draft": false,
+   "source": {
+    "branch": {
+     "name": "feature/login"
+    },
+    "commit": {
+     "hash": "head1aaaaaaa"
+    }
+   },
+   "destination": {
+    "branch": {
+     "name": "main"
+    },
+    "commit": {
+     "hash": "base000aaaaa"
+    }
+   },
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/team/app/pull-requests/7"
+    }
+   },
+   "author": {
+    "nickname": "octo-owner",
+    "display_name": "Octo Owner",
+    "account_id": "5f1"
+   },
+   "participants": [
+    {
+     "user": {
+      "nickname": "reviewer"
+     },
+     "role": "REVIEWER",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2026-10-10T10:03:00Z"
+    }
+   ]
+  }
+ }
+}

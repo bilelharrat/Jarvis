@@ -682,7 +682,8 @@ class MultiDesk:
 
     async def _ready(self, rec: Any) -> tuple[str, str]:
         """Why a pull request can't be merged now ("" when it can), and its head commit."""
-        client, ref = self.hub.code_pr.client, self.hub.code_pr._ref(rec)
+        ref = self.hub.code_pr._ref(rec)
+        client = self.hub.code_pr.client_for(ref)
         try:
             pull = await client.pull(ref, rec.number)
             if pull.get("merged") or pull.get("state") != "open":
