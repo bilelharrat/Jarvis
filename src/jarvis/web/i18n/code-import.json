@@ -51,6 +51,8 @@
   "Open": "打开",
   "Bring over from Claude Code, Cursor, Codex and other tools": "从 Claude Code、Cursor、Codex 等工具迁移",
   "Bring over from Claude Code and more": "从 Claude Code 等工具迁移",
-  "Bring over from your other coding tools": "从你的其他编程工具迁移"
+  "Bring over from your other coding tools": "从你的其他编程工具迁移",
+  "Coming from another coding tool?": "从其他编程工具过来？",
+  "Bring over projects, past conversations, rules, MCP servers and commands from Claude Code, Codex, Cursor and others. Eden Code looks only when you ask, and shows you everything before anything changes.": "从 Claude Code、Codex、Cursor 等工具迁移项目、过往对话、规则、MCP 服务器和命令。Eden Code 只在你要求时才查看，并在做任何改动之前先全部给你看。"
  }
 }

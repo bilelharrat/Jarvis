@@ -175,8 +175,9 @@ class JarvisMcp:
         self.messages: dict[str, str] = {}  # what the last connect/disconnect had to say
 
     def payload(self) -> dict[str, Any]:
-        if not self.apps:
-            self.look()
+        # (No look() here: the endpoint starting at launch publishes too, and reading Claude
+        # Desktop's settings then, unasked, is what macOS calls reading another app's data. The
+        # apps are looked at on mcp_state, which the window sends when Settings opens.)
         return {
             "enabled": bool(self.hub.prefs.feature("mcp_enabled")),
             "ask": bool(self.hub.prefs.feature("mcp_ask")),

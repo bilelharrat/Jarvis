@@ -70,17 +70,23 @@
   }
 
   // The tools in the picker: found ones first, then by name; and whether the welcome's card
-  // shows (a tool found that wasn't brought over, and the card not answered).
+  // shows (the card not answered and, once the owner has looked, a tool found that wasn't
+  // brought over). Nothing looks on its own: reading another app's folders unasked makes macOS
+  // say "Eden Code tried to read data from other apps" (Data Access Blocked), so the window asks
+  // for cimp_sources only when the owner opens the sheet. Before that (sources null) the card
+  // is a plain offer, [] here, that names no tool.
   function ordered(sources) {
     return (sources || []).slice().sort((a, b) => (b.found - a.found) || 0);
   }
   function offer(sources, features) {
     if ((features || {})[OFFERED] === true) return null;
-    const fresh = (sources || []).filter((s) => s.found && !(s.imported && s.imported.at));
+    if (sources == null) return [];
+    const fresh = sources.filter((s) => s.found && !(s.imported && s.imported.at));
     return fresh.length ? fresh : null;
   }
   function offerTitle(fresh) {
-    const names = fresh.map((s) => s.name);
+    const names = (fresh || []).map((s) => s.name);
+    if (!names.length) return 'Coming from another coding tool?';
     if (names.length === 1) return `Bring over from ${names[0]}`;
     return names[0] === 'Claude Code' ? 'Bring over from Claude Code and more' : 'Bring over from your other coding tools';
   }
@@ -336,7 +342,9 @@
     const title = offerTitle(fresh);
     card.setAttribute('aria-label', t(title));
     const names = fresh.slice(0, 3).map((s) => s.name).join(', ') + (fresh.length > 3 ? ` +${fresh.length - 3}` : '');
-    const text = raw('p', 'gs-text', `${t('Found on this computer:')} ${names}. ${t('See what can come over (projects, past conversations, rules, MCP servers, commands) before anything changes.')}`);
+    const text = fresh.length
+      ? raw('p', 'gs-text', `${t('Found on this computer:')} ${names}. ${t('See what can come over (projects, past conversations, rules, MCP servers, commands) before anything changes.')}`)
+      : el('p', 'gs-text', 'Bring over projects, past conversations, rules, MCP servers and commands from Claude Code, Codex, Cursor and others. Eden Code looks only when you ask, and shows you everything before anything changes.');
     const row = el('div', 'gs-actions');
     row.append(
       button('Have a look', 'jc-btn small filled', () => open(fresh.length === 1 ? fresh[0].id : '')),
@@ -390,7 +398,8 @@
     toggle.setAttribute('aria-checked', String(features[ON] !== false));
     drawCard();
   }
-  F.on('hello', (ev) => { onPrefs(ev.prefs); send({ type: 'cimp_sources' }); }, { replay: true });
+  // (No cimp_sources here: the backend looks through other apps' folders only when the sheet opens.)
+  F.on('hello', (ev) => { onPrefs(ev.prefs); }, { replay: true });
   F.on('prefs', onPrefs);
   F.on('cimp_sources', (ev) => { sources = ev.sources || []; drawCard(); if (view === 'pick') draw(); });
   F.on('cimp_preview', (ev) => {
