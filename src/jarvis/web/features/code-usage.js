@@ -2,7 +2,8 @@
 // Claude Code reports them; this session's, its project's and the day's spending against
 // their caps, each cap editable there; the last two weeks; today by project), its More
 // item and /usage, and the Limits tab of Eden Code settings (the default caps and the
-// heads-ups switch).
+// heads-ups switch). Other agents' usage (over ACP: features/code_acp.py) has a section of
+// its own: their tokens and the cost they say, never counted against Claude's caps.
 //
 // Everything shown from the backend is data: text only (textContent), project names marked
 // data-no-i18n. Pure helpers are exported for node --test (tests/web/code-usage.test.mjs).
@@ -58,7 +59,16 @@
     return when.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   }
 
-  const api = { fmtMoney, percentOf, level, parseCap, barHeights, resetText };
+  // An agent's figures: [tokens, cost] as "≈1.2k" / "$0.25" ('' when it said no cost). Its
+  // tokens are an estimate (≈) when any of them is (row.estimated: how many of them are).
+  function agentFigures(row) {
+    const n = Math.max(0, Math.floor(Number(row && row.tokens) || 0));
+    const shown = n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n);
+    const approx = row && Number(row.estimated) > 0 ? '≈' : '';
+    return [`${approx}${shown.replace('.0M', 'M').replace('.0k', 'k')}`, row && row.cost_said ? fmtMoney(row.cost) : ''];
+  }
+
+  const api = { fmtMoney, percentOf, level, parseCap, barHeights, resetText, agentFigures };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -173,7 +183,9 @@
 
     const spend = el('ul', 'jc-list cu-list');
     const mineTask = task && state.sessions ? state.sessions[String(task.id)] : null;
-    if (task && mineTask) {
+    const agents = state.agents || null;
+    const agentMine = task && agents && agents.sessions ? agents.sessions[String(task.id)] : null;
+    if (task && mineTask && !agentMine) {  // (another agent's session spends nothing on Claude)
       spend.append(spendRow(el('strong', '', 'This session'), mineTask.cost, mineTask.cap, 'session', mineTask.own, task));
       const project = state.projects ? state.projects[mineTask.project] : null;
       if (project) {
@@ -185,6 +197,33 @@
     }
     spend.append(spendRow(el('strong', '', 'All of Eden Code today'), state.today, (state.defaults || {}).day || 0, 'day', false, task));
     parts.push(section('Spending', spend, el('p', 'jc-dim cu-intro', 'Claude Code’s own estimates. A session stops at its limit and waits until you raise it.')));
+
+    const agentRow = (label, row) => {
+      const li = el('li', 'cu-row');
+      const head = el('div', 'cu-row-head');
+      const [tokens, cost] = agentFigures(row);
+      const num = el('span', 'cu-num');
+      num.append(mine(el('span', '', tokens)), document.createTextNode(' '), el('span', '', 'tokens'));
+      if (cost) num.append(document.createTextNode(' · '), mine(el('span', '', cost)));
+      head.append(label, num);
+      li.append(head);
+      return li;
+    };
+    const today = (agents && agents.today) || [];
+    if (agentMine || today.length) {
+      const list = el('ul', 'jc-list cu-list');
+      if (agentMine) {
+        const label = el('strong');
+        label.append(el('span', '', 'This session'), document.createTextNode(' · '), mine(el('span', '', agentMine.name)));
+        list.append(agentRow(label, agentMine));
+      }
+      for (const a of today) {
+        const label = el('strong');
+        label.append(mine(el('span', '', a.name || a.id)), document.createTextNode(' '), el('span', '', 'today'));
+        list.append(agentRow(label, a));
+      }
+      parts.push(section('Other agents', list, el('p', 'jc-dim cu-intro', 'On their own providers’ accounts, apart from Claude’s limits. Tokens are as each agent reports them; ≈ marks an estimate where it reports none. A cost shows when the agent says it.')));
+    }
 
     const recent = state.recent || [];
     if (recent.some((d) => d.total > 0)) {

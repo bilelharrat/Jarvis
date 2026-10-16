@@ -53,6 +53,12 @@ test('a reset time: the time today, a weekday this week, a date after', () => {
   assert.equal(cu.resetText(0, 'en-US', now), '');
 });
 
+test('another agent’s figures: tokens (≈ when any are estimated) and a cost only when it said one', () => {
+  assert.deepEqual(cu.agentFigures({ tokens: 1500, estimated: 0, cost: 0.5, cost_said: true }), ['1.5k', '$0.50']);
+  assert.deepEqual(cu.agentFigures({ tokens: 900, estimated: 100, cost: 0, cost_said: false }), ['≈900', '']);
+  assert.deepEqual(cu.agentFigures(null), ['0', '']);
+});
+
 test('every string the meter shows has its Chinese', () => {
   const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code-usage.json', import.meta.url), 'utf8'));
   const source = readFileSync(new URL('../../src/jarvis/web/features/code-usage.js', import.meta.url), 'utf8');

@@ -64,7 +64,7 @@
   const BUILTIN = [['opus', 'Claude Opus 5.5'], ['sonnet', 'Claude Sonnet 5.5']];  // before the list comes: Eden chat's Claude
   const state = {
     models: [], // [{ ref, label }] from the providers event
-    agents: [], // [{ id, name }] from acp_state (Other agents, when that Labs module is on)
+    agents: [], // [{ id, name }] from acp_state (Other agents, unless switched off in Settings)
     groups: new Map(), // group id -> the latest code_bestof event
     features: {},
     form: null, // what's being set up: { prompt, variants: [{ model, effort }], mode, tests }

@@ -509,7 +509,20 @@ class Meter:
                 "day": defaults.day,
             },
             "alerts": self.hub.prefs.feature(PREF_ALERTS) is not False,
+            # Other agents' usage (features/code_acp.py), apart from Claude's: their tokens,
+            # and their cost when they say it; never counted against Claude's caps.
+            "agents": self._agents(),
         }
+
+    def _agents(self) -> dict[str, Any] | None:
+        desk = getattr(self.hub, "code_acp", None)
+        if desk is None:
+            return None
+        try:
+            return desk.usage_public()
+        except Exception:  # (their numbers never keep Claude's from the window)
+            log.exception("Eden Code usage: other agents' usage couldn't be read")
+            return None
 
     # ── window commands ──
 

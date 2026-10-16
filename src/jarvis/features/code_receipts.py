@@ -18,6 +18,8 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
 - "Assumptions": each guess made instead of asking the owner during the turn (Eden's own
   auto-answers and the session's notes: features/code_assumptions.py), with its evidence,
   risk and an Undo; an open high-risk one makes the receipt's risk high;
+- for another agent's turn (over ACP: features/code_acp.py), what it used: its tokens (an
+  estimate, marked ≈, when the agent reports none) and its cost when the agent says it;
 - a risk level: high when it failed, tests failed, the check found problems, or it touched
   auth, billing, the database schema or secrets; medium when it changed many files or
   changed code with no tests run; else low. Said in words, with why.
@@ -36,6 +38,7 @@ import time
 from typing import Any
 
 from .. import codesupervisor as cs
+from ..codeplatform import other_agent
 
 log = logging.getLogger("jarvis")
 
@@ -135,6 +138,15 @@ def receipt_text(r: dict[str, Any]) -> str:
     if guessed:
         high = sum(1 for a in guessed if a.get("risk") == "high")
         parts.append(f"assumed {len(guessed)}" + (f" ({high} high risk)" if high else ""))
+    used = r.get("usage")
+    if used:
+        from .code_acp import tokens_text
+
+        tokens = tokens_text(used.get("tokens"), bool(used.get("estimated")))
+        said = f"{used.get('name') or 'the agent'} used {tokens}"
+        if used.get("cost") is not None:
+            said += f" (${used['cost']:.2f})"
+        parts.append(said)
     parts.append(f"risk {r['risk']}: {r['why']}")
     return "Proof · " + " · ".join(parts)
 
@@ -246,6 +258,10 @@ class Receipts:
             risky = next((a for a in guessed if a["risk"] == "high" and a["state"] == "open"), None)
             if risky is not None and receipt["risk"] != "high":
                 receipt["risk"], receipt["why"] = "high", f"it assumed “{risky['question'][:80]}”"
+        acp = getattr(self.hub, "code_acp", None)  # another agent's turn: what it used
+        used = acp.receipt_part(task.id) if acp is not None and other_agent(task) else None
+        if used:
+            receipt["usage"] = used
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt
