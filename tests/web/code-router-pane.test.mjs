@@ -106,6 +106,10 @@ test('a recent routed message as the list says it: live or Shadow, what it cost 
   const live = P.recentLine({ ts: '2026-10-15T12:00:00Z', pick: { model: 'claude-opus-5-5', effort: 'none' }, rated: true, costUSD: 0.0143 }, nameOf, now);
   assert.deepEqual([live.head, live.kind, live.rated, live.detail, live.when], ['Claude Opus 5.5', 'Routed', 'rated by Gemini', 'ran $0.014', '1 d ago']);
   assert.equal(P.ago('nope', now), '');
+  // One the backend routed for the phone or the local API says where it came from.
+  const phone = P.recentLine({ pick: { model: 'gpt-6-luna' }, from: 'phone', costUSD: 0.01 }, nameOf, now);
+  assert.equal(phone.detail, 'ran $0.010 · from your phone');
+  assert.match(P.recentLine({ pick: { model: 'gpt-6-luna' }, from: 'api' }, nameOf, now).detail, /from the local API/);
 });
 
 // ── the pane in a stand-in window ──

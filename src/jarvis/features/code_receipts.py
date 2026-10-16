@@ -203,6 +203,9 @@ def receipt_text(r: dict[str, Any]) -> str:
     shadow = r.get("router")
     if shadow:
         parts.append(shadow_text(shadow))
+    unrouted = r.get("router_note")
+    if unrouted:
+        parts.append(unrouted_text(unrouted))
     reqs = r.get("requirements")
     if reqs:
         met = sum(1 for q in reqs if q.get("status") == "met")
@@ -269,6 +272,30 @@ def shadow_part(router: Any, task: Any) -> dict[str, Any] | None:
     if shadow.get("model") == str(getattr(task, "model", "") or ""):
         return None
     return {k: shadow.get(k) for k in ("model", "effort", "label", "saveUSD")}
+
+
+# Where a message Model Router couldn't route came from, as its receipt says it.
+_FROM_WORDS = {"phone": "from your phone", "api": "from the local API"}
+
+
+def unrouted_text(note: dict[str, Any]) -> str:
+    """A message from elsewhere Model Router couldn't pick for (code_router_backend: no
+    Node.js on this Mac and no Eden Code window open), said on the receipt."""
+    where = _FROM_WORDS.get(str(note.get("from") or ""), "from outside Eden Code")
+    model = note.get("label") or note.get("model") or "the session's model"
+    return (
+        f"Model Router couldn't pick a model for this message {where} (no Eden Code window "
+        f"open, no Node.js on this Mac): it went to {model}"
+    )[:200]
+
+
+def unrouted_part(router: Any, task: Any) -> dict[str, Any] | None:
+    """The turn's message Model Router couldn't route, for the receipt; taken once."""
+    take = getattr(router, "take_unrouted", None)
+    note = take(task.id) if callable(take) else None
+    if not note:
+        return None
+    return {k: str(note.get(k) or "") for k in ("from", "model", "label")}
 
 
 class Receipts:
@@ -424,6 +451,9 @@ class Receipts:
         shadow = shadow_part(getattr(self.hub, "code_router", None), task)
         if shadow:
             receipt["router"] = shadow
+        unrouted = unrouted_part(getattr(self.hub, "code_router", None), task)
+        if unrouted:
+            receipt["router_note"] = unrouted
         acp = getattr(self.hub, "code_acp", None)  # another agent's turn: what it used
         used = acp.receipt_part(task.id) if acp is not None and other_agent(task) else None
         if used:

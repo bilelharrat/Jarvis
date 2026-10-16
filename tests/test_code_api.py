@@ -249,7 +249,7 @@ async def test_messages_stop_end_and_the_transcript(hub, monkeypatch):
         await c.post("/v1/sessions/4/end", json={})
         tail = (await c.get("/v1/sessions/4/transcript?tail=3")).json()["entries"]
     assert [m["type"] for m in hub.sent] == ["task_send", "task_interrupt", "task_cancel"]
-    assert hub.sent[0] == {"type": "task_send", "id": 4, "text": "Now add a test"}
+    assert hub.sent[0] == {"type": "task_send", "id": 4, "text": "Now add a test", "from": "api"}
     assert [e["text"] for e in tail] == ["line 27", "line 28", "line 29"]
     assert "secret" not in tail[0]
 

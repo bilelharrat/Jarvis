@@ -41,7 +41,12 @@
 //   (features/code-router-pane.js) inside Eden Code, on this window's router and settings
 //   (F.codeRouter.view below): no other server and no browser. The providers the owner
 //   leaves out there (code_router_providers_off) are left out of every route here.
-// Pure helpers are exported for node --test (tests/web/code-router.test.mjs).
+// - Messages from elsewhere (the phones, the local API) are routed in the backend with the
+//   pick this window would make (features/code_router_backend.py runs the bundle and the
+//   helpers below in Node: modeOf, routingModels, settingsFor, routeBody, addInfo); without
+//   Node it asks this window instead (model_router_ask -> model_router_answer, below).
+// Pure helpers are exported for node --test (tests/web/code-router.test.mjs,
+// tests/web/code-router-worker.test.mjs: parity with the backend's worker).
 (function (root) {
   'use strict';
 
@@ -352,6 +357,61 @@
     return out;
   }
 
+  // ── the pick for a message, as the window and the backend's worker both make it ──
+  // (features/_router_worker.cjs runs these with the same bundle for messages from the
+  // phones, the local API and the editor, so a pick there is the one this window makes.)
+
+  // How the router works now, from the prefs: 'live' (Model Router chosen: sessions move),
+  // 'shadow' (picks are logged, nothing moves: the popover's switch, or by default while
+  // Model Router isn't chosen), '' (off).
+  function modeOf(features) {
+    const f = features || {};
+    const on = f[ON] === true;
+    const shadow = cleanSettings(f[SETTINGS]).shadow === true || (!on && f[PASSIVE] !== false);
+    return on && !shadow ? 'live' : shadow ? 'shadow' : '';
+  }
+  // The models it routes among: the picker's, without Claude while it can't answer and
+  // without the providers left out in the pane.
+  function routingModels(picker, { claudeDownUntil = 0, providerOf = null, off = [], now = Date.now() } = {}) {
+    return withoutProviders(withoutClaude(picker || [], claudeDownUntil, now), providerOf, off);
+  }
+  // A session's project's own levels (the pane's per-project defaults), or null.
+  function projectLevelsOf(features, state, t) {
+    const s = t && state && state.sessions ? state.sessions[String(t.id)] : null;
+    const p = s ? s.project || null : null;
+    const all = (features || {})[PROJECTS];
+    return p && all && typeof all === 'object' && all[p] ? all[p] : null;
+  }
+  // The settings a session's message is routed with (its project's levels over everyone's).
+  function settingsFor(features, state, t) {
+    return effectiveSettings(cleanSettings((features || {})[SETTINGS]), projectLevelsOf(features, state, t));
+  }
+  // What createLocalRouter is made with for these models (the caller adds fetch and the rest).
+  function routerOptions(list) {
+    const models = routable(list);
+    return { models: models.map((m) => m.model), efforts: effortsFor(models) };
+  }
+  // What tells two routers apart (the models, how they run, the learned overrides' stamp).
+  function routerKeyOf(list, stampOrEmpty) {
+    return routable(list).map((m) => `${m.ref}=${m.model}${m.builtin ? '*' : ''}${m.kind || ''}`).join(',') + '|' + (stampOrEmpty || '');
+  }
+  // The route body for a prompt: the settings (the budget's lean on top) and what Eden
+  // Secretary knows of the session. sticky: Model Router is the model (see extrasFor).
+  function routeBody(text, s, t, state, sticky, more = {}) {
+    const boost = budgetBoost(state);
+    const extras = extrasFor(t, s, state, { sticky });
+    return { body: { prompt: text, efficiency: Math.min(100, s.efficiency + boost), performance: s.performance, ...extras, ...more }, extras, boost };
+  }
+  // A route with what the log keeps of it (info) and where the session goes if its model
+  // fails (fallbacks); the route is changed and returned.
+  function addInfo(list, route, result, s, t, state, sticky) {
+    const { extras, boost } = routeBody('', s, t, state, sticky);
+    try { route.info = infoOf(result, s, extras, boost, t ? currentRow(result, t.model, t.effort) : null); } catch { /* (the route goes without it) */ }
+    const fallbacks = fallbacksFor(list, result, route);
+    if (fallbacks.length) route.fallbacks = fallbacks;
+    return route;
+  }
+
   // How the composer's model button looks with Model Router chosen. When it can't route
   // (its bundle didn't load, its picker is missing, it knows none of the models) messages
   // go to the session's own model, so the button says that model, not "Model Router", and
@@ -376,7 +436,8 @@
       shadowSwitch, currentRow, shadowSummary, shadowWords, PASSIVE, geminiFlash, cleanSettings, sameSettings, sameAll,
       sameText, isTrivial, isRated, needsRating, ratedRoute, pauseAfter, newToken, errorText, within, extrasFor,
       budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf, composerLook,
-      CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT, PROVIDERS_OFF,
+      modeOf, routingModels, projectLevelsOf, settingsFor, routerOptions, routerKeyOf, routeBody, addInfo,
+      ON, SETTINGS, PROJECTS, CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT, PROVIDERS_OFF,
     };
     return;
   }
@@ -419,15 +480,11 @@
   };
   const providersOff = () => (Array.isArray(features[PROVIDERS_OFF]) ? features[PROVIDERS_OFF] : []);
   // (the providers left out in the pane: before the bundle loads nothing is known of them)
-  const models = () => withoutProviders(allModels(), lib ? providerOf : null, providersOff());
+  const models = () => routingModels(typeof modelList !== 'undefined' ? modelList : [], { claudeDownUntil, providerOf: lib ? providerOf : null, off: providersOff() });
   const task = () => { try { return F.currentTask ? F.currentTask() : null; } catch { return null; } };
   const projectOf = (t) => (t && state && state.sessions && state.sessions[String(t.id)] ? state.sessions[String(t.id)].project || null : null);
-  function projectLevels(t) {
-    const p = projectOf(t);
-    const all = features[PROJECTS];
-    return p && all && typeof all === 'object' && all[p] ? all[p] : null;
-  }
-  const routing = (t) => effectiveSettings(settings(), projectLevels(t));
+  const projectLevels = (t) => projectLevelsOf(features, state, t);
+  const routing = (t) => settingsFor(features, state, t);
 
   function savePrefs(changes) {
     features = { ...features, ...changes };
@@ -495,9 +552,9 @@
   function currentRouter() {
     const list = routable(models());
     const overrides = settings().learn === false ? null : learnedOverrides(state);
-    const key = list.map((m) => `${m.ref}=${m.model}${m.builtin ? '*' : ''}${m.kind || ''}`).join(',') + '|' + (overrides ? stamp : '');
+    const key = routerKeyOf(list, overrides ? stamp : '');
     if (!router || key !== routerKey) {
-      const opts = { models: list.map((m) => m.model), efforts: effortsFor(list), fetch: viaJarvis, apiKey: 'jarvis', timeoutMs: 12000 };
+      const opts = { ...routerOptions(list), fetch: viaJarvis, apiKey: 'jarvis', timeoutMs: 12000 };
       try {
         router = lib.createLocalRouter(overrides ? { ...opts, overrides } : opts);
       } catch (err) {
@@ -515,11 +572,7 @@
 
   // The route body for a prompt: the settings (the session's project defaults over them, and
   // the budget's lean) and what Eden Secretary knows of the session.
-  function bodyFor(text, s, t, more = {}) {
-    const boost = budgetBoost(state);
-    const extras = extrasFor(t, s, state, { sticky: isOn() });
-    return { body: { prompt: text, efficiency: Math.min(100, s.efficiency + boost), performance: s.performance, ...extras, ...more }, extras, boost };
-  }
+  const bodyFor = (text, s, t, more = {}) => routeBody(text, s, t, state, isOn(), more);
 
   // A route with Gemini's rating when the classifier mode asks for it, unless Gemini is
   // paused after a problem or the message is trivial (then the rules', at once).
@@ -647,13 +700,7 @@
     F.send(route ? { type: 'model_router_route', token, route } : { type: 'model_router_route', token });
   }
   // A route with what the log keeps of it and where the session goes if its model fails.
-  function withInfo(route, result, s, t) {
-    const { extras, boost } = bodyFor('', s, t);
-    try { route.info = infoOf(result, s, extras, boost, t ? currentRow(result, t.model, t.effort) : null); } catch { /* (the route goes without it) */ }
-    const fallbacks = fallbacksFor(models(), result, route);
-    if (fallbacks.length) route.fallbacks = fallbacks;
-    return route;
-  }
+  const withInfo = (route, result, s, t) => addInfo(models(), route, result, s, t, state, isOn());
 
   // What a message about to go carries: the best route there is for its text now (the
   // chip's, when it's for this very text and these settings; else the rules' at once), and
@@ -797,6 +844,42 @@
     }
   };
   F.registerSendOption((t, text) => (t && t.busy ? {} : routeField(text, t)));  // (never mid-step)
+
+  // A message from elsewhere (the phones, the local API, the editor) that the backend
+  // routes here because its own worker can't run (no Node.js on this Mac; see
+  // features/code_router_backend.py): model_router_ask {rid, text, task?, rate} ->
+  // model_router_answer {rid, route?, final}. The pick this window would make for it, at
+  // once (the rules'); then, while Model Router is the model and the message may be rated
+  // (rate), Gemini's within ROUTE_WAIT_MS, as final. No route: nothing to pick.
+  F.on('model_router_ask', async (ev) => {
+    const rid = ev && typeof ev.rid === 'string' ? ev.rid.slice(0, 40) : '';
+    if (!rid) return;
+    const reply = (route, final) => F.send(route ? { type: 'model_router_answer', rid, route, final } : { type: 'model_router_answer', rid, final });
+    try {
+      await loadLib();
+      const mode = modeOf(features);
+      const text = String(ev.text || '');
+      if (!mode || !text.trim()) { reply(null, true); return; }
+      const e = ev.task;
+      const t = e && e.id != null ? { id: e.id, model: e.model || '', effort: e.effort || '' } : null;
+      const s = routing(t);
+      const live = mode === 'live';
+      const result = currentRouter().routeSync(bodyFor(text, s, t).body);
+      const route = routeFor(models(), result && result.pick);
+      if (!route) { reply(null, true); return; }
+      withInfo(route, result, s, t);
+      if (!live) { reply({ ...route, shadow: true }, true); return; }
+      const rating = ev.rate === true && needsRating(s.classifier, null, geminiPaused(), text);
+      reply(route, !rating);
+      if (!rating) return;
+      const rated = await within(rate(bodyFor(text, s, t, { classifier: s.classifier }).body), ROUTE_WAIT_MS, null);
+      const better = ratedRoute(models(), route, rated);
+      reply(better ? withInfo(better, rated, s, t) : route, true);
+    } catch (err) {
+      console.warn('model router', err);
+      reply(null, true);
+    }
+  });
 
   function setOn(on) {
     if (on === isOn()) return;

@@ -540,7 +540,9 @@ class Api:
         if action == "comments":
             body = await self._body(request)
             text = comment_message(body.get("comments"))
-            await self.hub.handle({"type": "task_send", "id": task.id, "text": text[:20000]})
+            await self.hub.handle(
+                {"type": "task_send", "id": task.id, "text": text[:20000], "from": "api"}
+            )
             return _json_response({"id": task.id, "sent": True, "text": text}, 202)
         if action == "messages":
             body = await self._body(request)
@@ -549,7 +551,9 @@ class Api:
                 raise Refused(400, 'say what to send: {"text": "…"}')
             if text.startswith("/"):
                 raise Refused(400, "slash commands are typed in the window; send words")
-            await self.hub.handle({"type": "task_send", "id": task.id, "text": text[:20000]})
+            await self.hub.handle(
+                {"type": "task_send", "id": task.id, "text": text[:20000], "from": "api"}
+            )
             return _json_response({"id": task.id, "sent": True}, 202)
         if action == "stop":
             await self.hub.handle({"type": "task_interrupt", "id": task.id})
@@ -684,6 +688,7 @@ class Api:
             "mode": mode,
             "title": str(body.get("title") or "")[:200],
             launches.KEY: token,
+            "from": "api",  # (Model Router picks for it unless a model is named)
         }
         if body.get("model"):
             msg["model"] = str(body["model"])[:200]

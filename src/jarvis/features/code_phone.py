@@ -98,8 +98,8 @@ PHONE_MODES = ("ask", "edits")  # Manual and Accept edits: never Bypass from the
 # Model Router on the phones (2026-10-16): the model list's first row, as the Mac's model menu
 # has it (web/features/code-router.js). Picking it does what picking it there does: turns
 # code_router_on on (and the popover's Shadow switch off: live routing means live); picking a
-# model turns it off. Routing itself is the Mac window's (its router runs there), so a message
-# typed on the phone goes on the model the router last put its session on.
+# model turns it off. A message typed on the phone is routed on the Mac as the window's are
+# (code_router.Router.send; the pick: code_router_backend, with or without a window open).
 ROUTER_REF = "router"
 ROUTER_NAME = "Model Router"
 ROUTER_NOTE = "Picks the model and effort for each message"

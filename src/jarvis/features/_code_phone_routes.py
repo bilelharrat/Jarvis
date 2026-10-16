@@ -257,6 +257,14 @@ def routes(phone: Any, gate: Any) -> list[Route]:
 
     # ── what the phone does ──
 
+    def routed_send(task_id: int, text: str, steer: bool | None = None) -> bool:
+        """A message to a session, routed by Model Router first as the Mac window's are
+        (code_router.Router.send; code_router_backend picks), else as tasks.send sends it."""
+        router = getattr(hub, "code_router", None)
+        if router is None:
+            return bool(hub.tasks.send(task_id, text, steer=steer))
+        return bool(router.send(task_id, text, source="phone", steer=steer))
+
     async def send(request: Request) -> Response:
         device, data, refused = await posted(request, TEXT_BODY)
         if refused is not None:
@@ -267,7 +275,7 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         text = str(data.get("text") or "").strip()[:TEXT_CHARS]
         if not text:
             return bad("Write something first.")
-        ok = bool(hub.tasks.send(task.id, text))
+        ok = routed_send(task.id, text)
         if ok:
             record(device, "code_sent", f"#{task.id}")
         return answer({"ok": ok})
@@ -367,6 +375,8 @@ def routes(phone: Any, gate: Any) -> list[Route]:
             set_router(hub, ref == ROUTER_REF)  # (as the Mac's menu; the router isn't a ref)
             if ref != ROUTER_REF:
                 command["model"] = ref
+        if "model" not in command:
+            command["from"] = "phone"  # (Model Router picks for it: code_router_backend)
         if isinstance(data.get("isolated"), bool):
             command["isolated"] = data["isolated"]
         # Found by its launch token, never "whichever is new" (REL3-10, as companion_code).
@@ -515,7 +525,7 @@ def routes(phone: Any, gate: Any) -> list[Route]:
             text = comment_message(data.get("comments"))
         except Refused:
             return bad("Each comment needs a file, a line and what to say.")
-        ok = bool(hub.tasks.send(task.id, text[:TEXT_CHARS]))
+        ok = routed_send(task.id, text[:TEXT_CHARS])
         if ok:
             record(device, "code_commented", f"#{task.id}")
         return answer({"ok": ok})
@@ -552,7 +562,7 @@ def routes(phone: Any, gate: Any) -> list[Route]:
         if not text:
             return bad("Write something first.")
         steered = bool(task.steerable)
-        ok = bool(hub.tasks.send(task.id, text, steer=True))
+        ok = routed_send(task.id, text, steer=True)
         if ok:
             record(device, "code_steered", f"#{task.id}")
         return answer({"ok": ok, "steered": ok and steered})

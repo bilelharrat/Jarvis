@@ -270,6 +270,13 @@ def shadow_saving(route: dict[str, Any]) -> float | None:
     return float(c) - float(p)
 
 
+def _from(route: dict[str, Any]) -> str | None:
+    """Where a logged message came from when it wasn't an Eden Code window ("phone",
+    "api", "queue"), for the Model Router pane's recent list; None for the window's own."""
+    source = (route.get("route") or {}).get("source")
+    return source if source in ("phone", "api", "queue") else None
+
+
 def _compact(out: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in out.items() if v is not None}
 
@@ -516,17 +523,24 @@ class Events:
         shadow: bool = False,
         waited_ms: int = 0,
         new: bool = False,
+        via: str = "",
     ) -> str:
-        """Log a routed (or Shadow) message and expect its turn: its msg id ("" if not)."""
+        """Log a routed (or Shadow) message and expect its turn: its msg id ("" if not).
+        source: how the window's route was made ("chip", "rules", "rated"), or where a
+        message from elsewhere came from ("phone", "api"; "queue" for the to-do queue's);
+        via: what picked for one from elsewhere ("worker": the backend's Node worker,
+        "window": an Eden Code window asked for it; code_router_backend)."""
         try:
             return self._routed(
-                task, text, route or {}, source, moved, skipped, shadow, waited_ms, new
+                task, text, route or {}, source, moved, skipped, shadow, waited_ms, new, via
             )
         except Exception:
             log.exception("Model Router: couldn't log a routed message")
             return ""
 
-    def _routed(self, task, text, route, source, moved, skipped, shadow, waited_ms, new) -> str:
+    def _routed(
+        self, task, text, route, source, moved, skipped, shadow, waited_ms, new, via=""
+    ) -> str:
         if task is None or getattr(task, "kind", "") != "code":
             return ""
         track = self.track(task)
@@ -557,6 +571,7 @@ class Events:
                     "waitedMs": max(0, int(waited_ms)) or None,
                     "skipped": skipped or None,
                     "new": True if new else None,
+                    "via": _word(via),
                 }
             ),
         }
@@ -1244,6 +1259,7 @@ class Events:
                 "level": settings.get("level"),
                 "project": settings.get("project") is True,
                 "skipped": (route.get("route") or {}).get("skipped"),
+                "from": _from(route),
             }
             cost = used.get("costUSD")
             if isinstance(cost, int | float) and math.isfinite(cost):
