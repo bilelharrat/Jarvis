@@ -17,7 +17,9 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
   spec's check runs the project's whole test suite);
 - a risk level: high when it failed, tests failed, the check found problems, or it touched
   auth, billing, the database schema or secrets; medium when it changed many files or
-  changed code with no tests run; else low. Said in words, with why.
+  changed code with no tests run; else low. Said in words, with why;
+- the guardrails that fired in the turn (code_guardrails: the owner's rules compiled into
+  checks), each blocked, asked or flagged, and how many times.
 
 The entry's text reads well on its own (the phone, a voice summary); the window draws it
 as a card from its receipt field (web/features/code-receipts.js).
@@ -128,6 +130,14 @@ def receipt_text(r: dict[str, Any]) -> str:
     if reqs:
         met = sum(1 for q in reqs if q.get("status") == "met")
         parts.append(f"requirements met {met} of {len(reqs)}")
+    guards = r.get("guardrails")
+    if guards:
+        counts: dict[str, int] = {}
+        for g in guards:
+            action = str(g.get("action") or "")
+            counts[action] = counts.get(action, 0) + int(g.get("count") or 1)
+        said = ", ".join(f"{n} {a}" for a, n in counts.items() if a)
+        parts.append(f"guardrails {said}")
     parts.append(f"risk {r['risk']}: {r['why']}")
     return "Proof · " + " · ".join(parts)
 
@@ -232,6 +242,10 @@ class Receipts:
             rows = spec.attach_receipt(task.id, list(got["spec"] or []), receipt)
             if rows:
                 receipt["requirements"] = rows
+        guards = getattr(self.hub, "code_guardrails", None)  # the owner's rules that fired
+        fired = guards.receipt_part(task.id) if guards is not None else None
+        if fired:
+            receipt["guardrails"] = fired
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

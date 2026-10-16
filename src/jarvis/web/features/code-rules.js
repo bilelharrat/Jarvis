@@ -4,6 +4,8 @@
 // field to add one, and import from and export to the project's .claude settings files (a
 // second press writes). Its Sandbox section is features/code_sandbox.py's: the switch for
 // Bypass and unattended sessions, this session's own choice, and the project's allowlist.
+// Other features add sections after the rules (root.jarvisRulesSections: (task) -> nodes, drawn
+// again with root.jarvisRulesRedraw(id)); code-guardrails.js's lists the rules it enforces.
 //
 // Rules, project and file names are data: text only (textContent), marked data-no-i18n.
 // Pure helpers are exported for node --test (tests/web/code-rules.test.mjs).
@@ -308,6 +310,10 @@
     }
     parts.push(addForm(task, state));
     if (state.note) parts.push(el('p', 'cr-note', state.note));
+    // Other features' sections for the project (code-guardrails.js: the rules it enforces).
+    for (const section of root.jarvisRulesSections || []) {
+      try { parts.push(...section(task)); } catch (err) { console.warn('a Permissions section failed', err); }
+    }
     // The commands "Yes, and don't ask again" let by.
     const legacy = state.legacy || [];
     parts.push(el('p', 'jc-label cr-head', 'Commands it runs here without asking'));
@@ -367,6 +373,8 @@
     render(paneBody, task);
     if (which) { const input = paneBody.querySelector(which); if (input) input.focus(); }
   }
+
+  root.jarvisRulesRedraw = redraw;  // (for the sections other features add)
 
   F.on('cr_state', (ev) => {
     states.set(ev.id, ev);

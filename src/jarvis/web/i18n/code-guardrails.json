@@ -1,0 +1,53 @@
+{
+  "strings": {
+    "Your lesson": "你的经验",
+    "Confirmed suggestion": "已确认的建议",
+    "Blocks": "阻止",
+    "Asks first": "会先问你",
+    "Test command": "测试命令",
+    "Checks edits": "检查修改",
+    "Enforce my rules as guardrails": "把我的规则作为护栏执行",
+    "Lessons and the rules in a project’s CLAUDE.md and AGENTS.md that can be checked hold on every step, Bypass too: they block, ask first or flag an edit, and the turn’s proof says which fired.": "经验以及项目 CLAUDE.md 和 AGENTS.md 中可以检查的规则，会在每一步生效，绕过权限模式下也一样：它们会阻止、先询问或标出某次修改，这一轮的证明会写明哪些触发了。",
+    "Forget": "忘记",
+    "This guardrail": "这条护栏",
+    "Suggested:": "建议：",
+    "Use it": "采用",
+    "No thanks": "不用了",
+    "Suggesting…": "正在建议…",
+    "Suggest a guardrail": "建议一条护栏",
+    "One model call: a check for this rule, shown here first": "调用一次模型：为这条规则给出检查，先在这里给你看",
+    "Guardrails from your rules": "来自你的规则的护栏",
+    "Your lessons and this project’s CLAUDE.md and AGENTS.md rules that can be checked hold on every step, Bypass too. They only ever block, ask first or flag an edit.": "你的经验以及这个项目 CLAUDE.md 和 AGENTS.md 中可以检查的规则，会在每一步生效，绕过权限模式下也一样。它们只会阻止、先询问或标出某次修改。",
+    "Off: the rules are only words the session hears.": "关闭时：这些规则只是会话听到的文字。",
+    "Reading the rules…": "正在读取规则…",
+    "None yet. A rule like “use pnpm, not npm” or “never edit generated/” becomes one.": "还没有。像“用 pnpm，不用 npm”或“绝不修改 generated/”这样的规则会变成护栏。",
+    "Guardrails": "护栏",
+    "That rule isn't in this project any more.": "这条规则已不在这个项目里了。",
+    "No check fits that rule, so it stays as words.": "没有适合这条规则的检查，它仍以文字保留。",
+    "Today's guardrail suggestions are used up; more tomorrow.": "今天的护栏建议已用完，明天还有。",
+    "Couldn't get a suggestion just now; try again.": "暂时拿不到建议，请再试一次。",
+    "Couldn't save that; try again.": "没能保存；请再试一次。"
+  },
+  "patterns": [
+    [
+      "^(\\d+) guardrails?$",
+      "$1 条护栏"
+    ],
+    [
+      "^(\\d+) guardrails? · (\\d+) off$",
+      "$1 条护栏 · $2 条已关闭"
+    ],
+    [
+      "^(\\d+) guardrails? · (\\d+) rules? stays? as words$",
+      "$1 条护栏 · $2 条规则仍以文字保留"
+    ],
+    [
+      "^(\\d+) guardrails? · (\\d+) off · (\\d+) rules? stays? as words$",
+      "$1 条护栏 · $2 条已关闭 · $3 条规则仍以文字保留"
+    ],
+    [
+      "^(\\d+) rules? stays? as words$",
+      "$1 条规则仍以文字保留"
+    ]
+  ]
+}
