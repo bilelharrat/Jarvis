@@ -39,3 +39,9 @@ test('in full screen the sidebar drops the room kept for the window buttons', ()
   assert.match(main, /win\.on\('enter-full-screen', sendFull\)/);
   assert.match(main, /win\.on\('leave-full-screen', sendFull\)/);
 });
+
+test('the composer’s mode pill says just “Bypass”, the menu keeps “Bypass permissions”', () => {
+  const js = web('app.js');
+  assert.match(js, /\{ id: 'auto', label: 'Bypass permissions', short: 'Bypass',/);
+  assert.match(js, /setText\(\$\('jc-mode-label'\), mode\.short \|\| mode\.label\)/);
+});

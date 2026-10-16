@@ -4229,7 +4229,7 @@ const JC_MODES = [
   { id: 'edits', label: 'Accept edits', note: 'Edits files without asking; commands still ask' },
   { id: 'plan', label: 'Plan', note: 'Explores and plans; changes nothing until you approve' },
   { id: 'smart', label: 'Auto', note: 'Safe steps go ahead; a safety check asks about risky ones' },
-  { id: 'auto', label: 'Bypass permissions', note: 'Runs anything without asking', danger: true },
+  { id: 'auto', label: 'Bypass permissions', short: 'Bypass', note: 'Runs anything without asking', danger: true },
 ];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const EFFORT_NAMES = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
@@ -4302,7 +4302,7 @@ function renderComposer() {
   const s = composerState();
   const mode = JC_MODES.find((m) => m.id === s.mode) || JC_MODES[0];
   if ($('jc-mode-btn').dataset.mode !== mode.id) $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
-  setText($('jc-mode-label'), mode.label);
+  setText($('jc-mode-label'), mode.short || mode.label);  // the pill says just "Bypass"; the menu keeps the full name
   $('jc-mode-btn').dataset.mode = mode.id;
   $('jc-bypass').setAttribute('aria-pressed', String(mode.id === 'auto'));
   $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
