@@ -494,7 +494,7 @@ struct AccountView: View {
         } header: {
             Text("Sync")
         } footer: {
-            Text("Memory, what Jarvis calls you, and this iPhone’s chats, on all your devices. Each is sealed on the device with a key kept in your iCloud Keychain; askeden.com stores it without being able to read it.")
+            Text("Memory, what Eden calls you, and this iPhone’s chats, on all your devices. Each is sealed on the device with a key kept in your iCloud Keychain; askeden.com stores it without being able to read it.")
         }
     }
 
@@ -590,7 +590,7 @@ private struct LinkScanSheet: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if access == .granted {
-                    Text(notALink ? "That isn’t a Eden Secretary link code." : "Point at the code on your Mac or in the browser.")
+                    Text(notALink ? "That isn’t an Eden Secretary link code." : "Point at the code on your Mac or in the browser.")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(notALink ? Palette.amber : Palette.ink)
                         .multilineTextAlignment(.center)

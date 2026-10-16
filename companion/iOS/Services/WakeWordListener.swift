@@ -1,16 +1,16 @@
 import AVFoundation
 import Speech
 
-/// "Hey Eden Secretary": on-device speech recognition listening for the name, while the owner has it
+/// "Hey Eden": on-device speech recognition listening for the name, while the owner has it
 /// on. Recognition never leaves the iPhone (it runs only where on-device recognition is
 /// supported) and nothing is kept: each stretch is thrown away unless it holds the name.
-/// "Hey Eden Secretary" alone starts listening for a request; "Hey Eden Secretary, what's next?" in one
+/// "Hey Eden" alone starts listening for a request; "Hey Eden, what's next?" in one
 /// breath sends what came after the name straight away.
 ///
 /// iOS lets an app listen only while it's in front, or in the background while its audio
 /// session stays active (the orange dot shows), until a call, Siri or another app takes the
 /// microphone. For the Lock Screen and a phone in a pocket, Settings explains Vocal Shortcuts
-/// ("Hey Eden Secretary" trained in iOS itself), which needs none of this.
+/// ("Hey Eden" trained in iOS itself), which needs none of this.
 @MainActor
 @Observable
 final class WakeWordListener {

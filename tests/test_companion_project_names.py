@@ -76,3 +76,42 @@ def test_old_name_detector_catches_the_old_wording():
            "NSMicrophoneUsageDescription": "Listens for “Hey Jarvis”.", "CFBundleURLName": "com.askeden.jarvis.open"}
     hits = [key for key, value in _visible_values(old) if OLD_NAME.search(value)]
     assert hits == ["CFBundleDisplayName", "X.0.INAlternativeAppName", "NSMicrophoneUsageDescription"]
+
+
+def test_wake_word_in_prompts_is_hey_eden():
+    """The wake word is "Hey Eden" (the listener matches "Eden"), not the app's full name."""
+    prompts = [f"{target}.{key}: {value}" for target, info in _targets_with_info()
+               for key, value in _visible_values(info["properties"]) if "Hey Eden Secretary" in value]
+    assert not prompts, f"say “Hey Eden”, not “Hey Eden Secretary”: {prompts}"
+
+
+# A Swift string literal that names the old assistant as a word. Internal identifiers that only
+# happen to sit inside a string (notification category ids like JARVIS_APPROVAL, launch-argument
+# keys like JARVISTestServer, the X-Jarvis-Install header) are not words, so they don't match.
+OLD_WORD_IN_STRING = re.compile(r'"[^"\n]*(?<![\w-])(J\.A\.R\.V\.I\.S\.|JARVIS|Jarvis(?:es)?)(?![\w-])[^"\n]*"')
+
+
+def test_no_jarvis_wording_in_companion_swift_strings():
+    """Widget names, App Intent titles, tabs, Watch titles, Live Activity text: Eden, not Jarvis.
+
+    Comments and test sources are skipped; type names and other identifiers are outside quotes.
+    """
+    leftovers = []
+    for path in sorted(COMPANION.rglob("*.swift")):
+        rel = path.relative_to(COMPANION)
+        if rel.parts[0] in {"Tests", "UITests", "EdenCodeTests", "build"}:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("//", 1)[0] if not line.lstrip().startswith("//") else ""
+            if OLD_WORD_IN_STRING.search(code):
+                leftovers.append(f"{rel}:{number}: {line.strip()}")
+    assert not leftovers, "user-visible Swift text still says Jarvis:\n" + "\n".join(leftovers)
+
+
+def test_swift_detector_catches_the_old_wording():
+    assert OLD_WORD_IN_STRING.search('Text("JARVIS")')
+    assert OLD_WORD_IN_STRING.search('.configurationDisplayName("Jarvis")')
+    assert OLD_WORD_IN_STRING.search('Text("Your Jarvises")')
+    assert not OLD_WORD_IN_STRING.search('static let approval = "JARVIS_APPROVAL"')
+    assert not OLD_WORD_IN_STRING.search('defaults.string(forKey: "JARVISTestServer")')
+    assert not OLD_WORD_IN_STRING.search('forHTTPHeaderField: "X-Jarvis-Install"')

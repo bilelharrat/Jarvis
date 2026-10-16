@@ -151,8 +151,8 @@ struct PhoneBrainSettings: View {
     }
 
     private var footer: String {
-        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. Without a key, a Jarvis account (Settings › Account) brings AI included: a trial, then Jarvis Plus (Claude always needs your own key). With none of these, or when they all fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
-        let more = " Heads-ups: Eden Secretary looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Eden Secretary” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Eden Secretary knows it’s you)."
+        let keys = "Eden answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. Without a key, an Eden Secretary account (Settings › Account) brings AI included: a trial, then Eden Plus (Claude always needs your own key). With none of these, or when they all fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
+        let more = " Heads-ups: Eden Secretary looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Eden” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Eden Secretary knows it’s you)."
         guard model.pairing != nil else { return keys + more }
         return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Eden Code) to the Mac, opening Eden Secretary there if it was quit. Without a key, or when both services fail, your Mac answers. Whatever you choose, when your Mac can’t be reached (you’re away, it’s asleep or off), this iPhone answers instead of waiting for it. Use My Mac’s Keys copies the keys saved in Eden Secretary on your Mac, over your paired connection."
     }
@@ -233,7 +233,7 @@ private struct KeyRow: View {
     }
 }
 
-/// How to reach Eden Secretary without touching the screen: "Hey Eden Secretary" in the app, Vocal
+/// How to reach Eden Secretary without touching the screen: "Hey Eden" in the app, Vocal
 /// Shortcuts for anywhere (Lock Screen included), Siri via the side button, the Action
 /// Button, Control Center and Back Tap.
 struct HeyJarvisView: View {
@@ -246,12 +246,12 @@ struct HeyJarvisView: View {
         GlassList {
             Section {
                 step(1, "Open **Settings › Accessibility › Vocal Shortcuts** and tap **Set Up Vocal Shortcuts** (or **+**).")
-                step(2, "Choose **Shortcut**, then **Eden Secretary** (Eden Secretary).")
-                step(3, "Say **“Eden Secretary”** three times when asked.")
+                step(2, "Choose **Shortcut**, then **Eden** (Eden Secretary).")
+                step(3, "Say **“Eden”** three times when asked.")
             } header: {
-                Text("Say “Eden Secretary” Anytime")
+                Text("Say “Eden” Anytime")
             } footer: {
-                Text("Then just say “Eden Secretary”, wait for “Yes?”, and ask. iOS itself listens for the word, all the time: locked, in your pocket, with Eden Secretary closed, even after a restart, with no extra battery. Eden Secretary answers out loud in its own voice without unlocking, through your Mac, or on this iPhone when the Mac can’t be reached. (Siri’s “Hey Siri, Eden Secretary” does the same.)")
+                Text("Then just say “Eden”, wait for “Yes?”, and ask. iOS itself listens for the word, all the time: locked, in your pocket, with Eden Secretary closed, even after a restart, with no extra battery. Eden Secretary answers out loud in its own voice without unlocking, through your Mac, or on this iPhone when the Mac can’t be reached. (Siri’s “Hey Siri, Eden Secretary” does the same.)")
             }
 
             Section {
@@ -259,7 +259,7 @@ struct HeyJarvisView: View {
                     HStack(spacing: Space.s) {
                         IconTile(symbol: "waveform", tint: .purple)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("Listen for “Hey Eden Secretary”")
+                            Text("Listen for “Hey Eden”")
                             Text(model.wake.isListening ? "Listening now" : "While Eden Secretary is open")
                                 .font(.footnote)
                                 .foregroundStyle(model.wake.isListening ? Color.green : Palette.muted)
@@ -284,8 +284,8 @@ struct HeyJarvisView: View {
                 Text("While the App Is Open")
             } footer: {
                 Text(WakeWordListener.supported
-                    ? "Say “Eden Secretary”, or “Eden Secretary, what’s next?” in one go, and the conversation carries on here on screen. Recognition happens on this iPhone; nothing is recorded or sent until Eden Secretary hears its name. In the background it keeps going (with the orange microphone dot) until a call, Siri or another app takes the microphone, and it uses more battery."
-                    : "This iPhone can’t recognise speech on-device, so “Hey Eden Secretary” in the app isn’t available. Use Vocal Shortcuts below instead.")
+                    ? "Say “Hey Eden”, or “Hey Eden, what’s next?” in one go, and the conversation carries on here on screen. Recognition happens on this iPhone; nothing is recorded or sent until it hears “Eden”. In the background it keeps going (with the orange microphone dot) until a call, Siri or another app takes the microphone, and it uses more battery."
+                    : "This iPhone can’t recognise speech on-device, so “Hey Eden” in the app isn’t available. Use Vocal Shortcuts below instead.")
             }
 
             Section {
@@ -296,10 +296,10 @@ struct HeyJarvisView: View {
             } header: {
                 Text("Buttons")
             } footer: {
-                Text("Apple keeps the side button for Siri in most countries, so holding it and saying “Eden Secretary” is the closest to a Eden Secretary button there; the Action Button can open Eden Secretary directly.")
+                Text("Apple keeps the side button for Siri in most countries, so holding it and saying “Eden Secretary” is the closest to an Eden Secretary button there; the Action Button can open Eden Secretary directly.")
             }
         }
-        .navigationTitle("“Eden Secretary”")
+        .navigationTitle("“Hey Eden”")
         .navigationBarTitleDisplayMode(.inline)
     }
 

@@ -37,7 +37,7 @@ struct ClaudeClient: Sendable {
 
     static let defaultModel = "claude-opus-5-5"
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
-    /// askeden.com's Anthropic-compatible proxy, for the AI included with a Eden Secretary account.
+    /// askeden.com's Anthropic-compatible proxy, for the AI included with an Eden Secretary account.
     static let accountEndpoint = URL(string: "https://askeden.com/api/anthropic/v1/messages")!
 
     init(apiKey: String, model: String = ClaudeClient.defaultModel, effort: String = "low") {

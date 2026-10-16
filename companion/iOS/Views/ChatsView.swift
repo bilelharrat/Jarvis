@@ -209,7 +209,7 @@ struct ChatsView: View {
     /// The chat as plain text, to share.
     static func transcript(_ chat: SavedChat) -> String {
         let lines = chat.lines.filter { $0.role != "problem" }.map { line in
-            "\(line.role == "user" ? "You" : "Jarvis"): \(line.text)"
+            "\(line.role == "user" ? "You" : "Eden"): \(line.text)"
         }
         return ([chat.title, ""] + lines).joined(separator: "\n\n")
     }

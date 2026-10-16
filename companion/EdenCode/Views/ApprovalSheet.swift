@@ -1,145 +1,173 @@
 import SwiftUI
 
-/// A card to answer (PhoneApprove mockup): a dark glass sheet with the risk icon, the
-/// question and where it's from, the command, Deny and Allow (with Face ID for a command or
-/// an "always", as the Mac asks Touch ID), and the always-allow link. A Mac-only card takes
-/// only its no here. A Claude question shows its options.
-struct ApprovalSheet: View {
+/// A card that waits on the owner, inside its session (G4, GAsk.dc.html): a glass card where
+/// the input bar was, with the question, why it asks, the command, Not now and Allow (Face ID
+/// first for a command or an "always", as the Mac asks Touch ID), and "Reply instead" (the
+/// input bar comes back; what the owner writes goes back as the card's no, with those words).
+/// A Mac-only card takes only its no here. A Claude question shows its options.
+struct AskCard: View {
     let card: PhoneCard
+    /// "Reply instead"; nil where there's no input bar to reply in.
+    var onReply: (() -> Void)?
+    var onAnswered: () -> Void = {}
     @Environment(EdenCodeStore.self) private var store
-    private func dismiss() { store.sheetCard = nil }
+    @Environment(\.colorScheme) private var scheme
     @State private var working = false
-    @State private var instead = ""
     @State private var problem: String?
 
-    private var session: PhoneSummary? { store.home.sessions.first { $0.id == card.taskID } }
     private var standing: [ApprovalChoice] { card.yesChoices.filter(card.isStanding) }
     private var yes: ApprovalChoice? { card.yesChoices.first { !card.isStanding($0) } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Capsule().fill(.white.opacity(0.3)).frame(width: 40, height: 5).frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
-            HStack(spacing: 12) {
-                Image(systemName: card.approval.isQuestion ? "questionmark" : "exclamationmark.triangle")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(card.approval.isQuestion ? Color(UIColor(hex: 0x0A84FF)) : Color(UIColor(hex: 0xFF9500)), in: .rect(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.approval.question).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                    Text([session?.title, session?.project].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 13)).foregroundStyle(Color(UIColor(hex: 0xC7C7CC))).lineLimit(1)
-                }
-            }
-            .accessibilityElement(children: .combine)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(card.approval.question)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(EdenTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Self.why(card))
+                .font(.system(size: 14))
+                .lineSpacing(3.5)
+                .foregroundStyle(EdenTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
             if !card.approval.detail.isEmpty {
-                Text(card.approval.detail.hasPrefix("$ ") ? String(card.approval.detail.dropFirst(2)) : card.approval.detail)
-                    .font(.system(size: 13, design: .monospaced))
-                    .lineSpacing(4)
-                    .foregroundStyle(Color(UIColor(hex: 0xE5E5EA)))
-                    .padding(.horizontal, 14).padding(.vertical, 12)
+                command
+                    .lineLimit(6)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.black.opacity(0.35), in: .rect(cornerRadius: 16))
+                    .gGlass(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .textSelection(.enabled)
-                    .lineLimit(8)
+                    .accessibilityLabel("Command: \(card.approval.detail)")
             }
-            Text(explanation).font(.system(size: 13)).lineSpacing(3).foregroundStyle(Color(UIColor(hex: 0xD1D1D6)))
-            if let problem { Text(problem).font(.system(size: 13)).foregroundStyle(Color(UIColor(hex: 0xFF6961))) }
+            if let problem {
+                Text(problem).font(.system(size: 13)).foregroundStyle(EdenTheme.failInk)
+            }
             if card.approval.isQuestion && !card.macOnly {
-                question
+                options
             } else {
                 buttons
             }
-            if !card.macOnly {
-                TextField("", text: $instead, prompt: Text("Or tell it what to do instead").foregroundStyle(.white.opacity(0.45)))
-                    .font(.system(size: 14)).foregroundStyle(.white)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(.white.opacity(0.08), in: .capsule)
-                    .submitLabel(.send)
-                    .onSubmit { answer(card.noChoice, feedback: instead) }
-            }
-            ForEach(standing) { choice in
-                Button { answer(choice) } label: {
-                    Text(choice.label).font(.system(size: 14)).foregroundStyle(Color(UIColor(hex: 0x8FC7FF)))
-                }
-                .frame(maxWidth: .infinity)
-                .disabled(working || card.macOnly)
-            }
+            links
         }
-        .padding(EdgeInsets(top: 12, leading: 20, bottom: 20, trailing: 20))
-        .background {
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
-                .fill(Color(UIColor(hex: 0x282A38, alpha: 0.62)))
-                .glassEffect(.regular.tint(Color(UIColor(hex: 0x282A38, alpha: 0.4))), in: .rect(cornerRadius: 34))
-                .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).strokeBorder(.white.opacity(0.22), lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 40, y: 30)
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 8)
-        .environment(\.colorScheme, .dark)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .gGlass(RoundedRectangle(cornerRadius: 30, style: .continuous), white: 0.55, shadowRadius: 20, shadowY: 16, shadowOpacity: 0.2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Eden Code asks")
     }
 
-    private var explanation: String {
-        if card.macOnly { return "This one needs Touch ID on your Mac. You can say no from here; to allow it, answer on your Mac." }
-        if card.faceID { return "It runs on your Mac. Face ID makes sure it’s you before it does." }
-        if card.approval.isQuestion { return "Pick one, or tell it what to do instead." }
-        return "Eden Code is waiting on your answer."
+    private var command: some View {
+        Text(card.approval.detail.hasPrefix("$ ") ? String(card.approval.detail.dropFirst(2)) : card.approval.detail)
+            .font(.system(size: 12, design: .monospaced))
+            // SF Mono sets a touch wider than the mockup's; a hair of tracking keeps a usual
+            // command on one line, as drawn.
+            .tracking(-0.25)
+            .foregroundStyle(EdenTheme.ink2)
+    }
+
+    /// Why it asks, in a line.
+    static func why(_ card: PhoneCard) -> String {
+        if card.macOnly { return "This one needs Touch ID on your Mac. You can say no here; to allow it, answer on your Mac." }
+        if card.approval.isQuestion { return "Pick one, or reply in your own words." }
+        if card.faceID { return "It runs this on your Mac. Face ID makes sure it’s you first." }
+        return "The session waits for your answer."
+    }
+
+    /// The no's words: "Not now" for an approval's plain deny, the Mac's own otherwise (a
+    /// question's "Skip").
+    static func noLabel(_ card: PhoneCard) -> String {
+        let no = card.noChoice
+        if card.approval.isQuestion { return no.label }
+        return ["deny", "no", "reject"].contains(no.id.lowercased()) || ["deny", "no"].contains(no.label.lowercased()) ? "Not now" : no.label
     }
 
     private var buttons: some View {
-        TwoButtons(ratio: 1.4) {
-            Button { answer(card.noChoice, feedback: instead) } label: {
-                Text(card.noChoice.label).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+        TwoButtons(ratio: 1.3, spacing: 8) {
+            Button { answer(card.noChoice) } label: {
+                Text(Self.noLabel(card))
+                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                     .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(.white.opacity(0.16), in: .capsule)
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 1))
+                    .background(EdenTheme.fill, in: .capsule)
+                    .contentShape(.capsule)
             }
             .buttonStyle(PressScale(scale: 0.97))
         } second: {
             if card.macOnly {
                 Label("Answer on your Mac", systemImage: "desktopcomputer")
-                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.muted)
                     .frame(maxWidth: .infinity, minHeight: 50)
             } else if let yes {
                 Button { answer(yes) } label: {
-                    HStack(spacing: 8) {
-                        if card.needsFaceID(yes) { Image(systemName: "faceid").font(.system(size: 17)) }
-                        Text(card.needsFaceID(yes) ? "\(yes.label) with Face ID" : yes.label).lineLimit(1).minimumScaleFactor(0.8)
+                    HStack(spacing: 7) {
+                        if card.needsFaceID(yes) { Image(systemName: "faceid").font(.system(size: 16, weight: .medium)) }
+                        Text(yes.label).lineLimit(1).minimumScaleFactor(0.8)
                     }
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(UIColor(hex: 0x1D1D1F)))
+                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(.white, in: .capsule)
+                    .background(EdenTheme.accent, in: .capsule)
+                    .contentShape(.capsule)
                 }
                 .buttonStyle(PressScale(scale: 0.97))
+                .accessibilityLabel(card.needsFaceID(yes) ? "\(yes.label), with Face ID" : yes.label)
             }
         }
         .disabled(working)
     }
 
-    private var question: some View {
+    private var options: some View {
         VStack(spacing: 8) {
             ForEach(card.yesChoices) { choice in
                 Button { answer(choice) } label: {
-                    Text(choice.label).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(UIColor(hex: 0x1D1D1F)))
-                        .frame(maxWidth: .infinity, minHeight: 46).background(.white, in: .capsule)
+                    Text(choice.label)
+                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(EdenTheme.fill, in: .capsule)
+                        .contentShape(.capsule)
                 }
                 .buttonStyle(PressScale(scale: 0.97))
-            }
-            Button { answer(card.noChoice, feedback: instead) } label: {
-                Text(card.noChoice.label).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 46).background(.white.opacity(0.16), in: .capsule)
             }
         }
         .disabled(working)
     }
 
-    private func answer(_ choice: ApprovalChoice, feedback: String? = nil) {
+    /// "Reply instead"; a question's skip; the always-allow answers.
+    @ViewBuilder private var links: some View {
+        let skip = card.approval.isQuestion && !card.macOnly
+        if onReply != nil || skip || (!standing.isEmpty && !card.macOnly) {
+            HStack(spacing: 22) {
+                if skip {
+                    Button(Self.noLabel(card)) { answer(card.noChoice) }
+                }
+                if let onReply {
+                    Button("Reply instead", action: onReply)
+                }
+                if !standing.isEmpty && !card.macOnly {
+                    Menu("Always…") {
+                        ForEach(standing) { choice in
+                            Button(choice.label) { answer(choice) }
+                        }
+                    }
+                }
+            }
+            .font(.system(size: 15))
+            .foregroundStyle(EdenTheme.accent)
+            .frame(maxWidth: .infinity)
+            .disabled(working)
+        }
+    }
+
+    private func answer(_ choice: ApprovalChoice) {
         working = true
+        problem = nil
         Task {
-            let ok = await store.answer(card, choice, feedback: feedback)
+            let ok = await store.answer(card, choice)
             working = false
-            if ok { dismiss() } else if !card.needsFaceID(choice) { problem = "Your Mac didn’t take that answer. The card may have gone." }
+            if ok {
+                onAnswered()
+                if store.sheetCard?.id == card.id { store.sheetCard = nil }
+            } else if !card.needsFaceID(choice) {
+                problem = "Your Mac didn’t take that answer. The card may have gone."
+            }
         }
     }
 }
@@ -147,13 +175,14 @@ struct ApprovalSheet: View {
 /// Two buttons side by side, the second `ratio` times as wide (the mockups' 1 : 1.4).
 struct TwoButtons<First: View, Second: View>: View {
     var ratio: CGFloat
+    var spacing: CGFloat = 10
     @ViewBuilder var first: First
     @ViewBuilder var second: Second
 
     var body: some View {
         GeometryReader { geo in
-            let width = geo.size.width - 10
-            HStack(spacing: 10) {
+            let width = geo.size.width - spacing
+            HStack(spacing: spacing) {
                 first.frame(width: width / (1 + ratio))
                 second.frame(width: width * ratio / (1 + ratio))
             }
@@ -162,9 +191,8 @@ struct TwoButtons<First: View, Second: View>: View {
     }
 }
 
-/// The approval sheet over every tab: a dimmed backdrop (a tap closes it) and the card
-/// rising from the bottom, as the mockup draws it (not the system sheet, whose own glass
-/// would show around it).
+/// A card with no session to show it in (G4's card on its own): a dimmed backdrop (a tap
+/// closes it) and the card rising from the bottom.
 struct ApprovalOverlay: View {
     @Environment(EdenCodeStore.self) private var store
 
@@ -176,8 +204,10 @@ struct ApprovalOverlay: View {
                     .accessibilityLabel("Close")
                     .accessibilityAddTraits(.isButton)
                     .transition(.opacity)
-                ApprovalSheet(card: card)
+                AskCard(card: card)
                     .id(card.id)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, -4)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .simultaneousGesture(DragGesture().onEnded { if $0.translation.height > 80 { store.sheetCard = nil } })
             }

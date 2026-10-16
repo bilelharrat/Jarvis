@@ -1,7 +1,7 @@
 import SwiftUI
 import UserNotifications
 
-/// Your Mac, Eden Secretary on this iPhone, voice and "Hey Eden Secretary", notifications, sensors, the
+/// Your Mac, Eden Secretary on this iPhone, voice and "Hey Eden", notifications, sensors, the
 /// Watch: grouped like the Settings app.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
@@ -71,7 +71,7 @@ struct SettingsView: View {
                     } label: {
                         HStack(spacing: Space.s) {
                             IconTile(symbol: "waveform", tint: .purple)
-                            Text("“Hey Eden Secretary” and the Action Button")
+                            Text("“Hey Eden” and the Action Button")
                         }
                     }
                 } header: {
@@ -231,7 +231,7 @@ struct SettingsView: View {
         HStack(spacing: Space.m) {
             OrbMark(size: 58)
             VStack(alignment: .leading, spacing: 2) {
-                Text("J.A.R.V.I.S.")
+                Text("Eden Secretary")
                     .font(.title2.weight(.semibold))
                 HStack(spacing: 6) {
                     if model.pairing != nil {

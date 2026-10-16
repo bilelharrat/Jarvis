@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings: the Macs (switch, pair another, unpair), how away-from-home works, spoken
+/// Settings (from the drawer's gear): the Macs (switch, pair another, unpair), how away-from-home works, spoken
 /// replies, Live Activities, and the usage glance in full.
 struct SettingsView: View {
     @Environment(EdenCodeStore.self) private var store

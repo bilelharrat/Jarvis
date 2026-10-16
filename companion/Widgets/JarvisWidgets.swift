@@ -31,7 +31,7 @@ struct JarvisStatusWidget: Widget {
             StatusWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
-        .configurationDisplayName("Jarvis")
+        .configurationDisplayName("Eden Secretary")
         .description("Your Mac, what needs your OK, and what’s next.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
@@ -131,7 +131,7 @@ private struct WidgetHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             OrbMark(size: 11)
-            Text("JARVIS")
+            Text("EDEN")
                 .font(.caption.weight(.semibold))
                 .tracking(1.2)
                 .foregroundStyle(Palette.ink2)

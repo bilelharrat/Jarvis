@@ -48,7 +48,7 @@ struct WatchHomeView: View {
                     withAnimation { proxy.scrollTo(first, anchor: .top) }
                 }
             }
-            .navigationTitle("JARVIS")
+            .navigationTitle("Eden")
             .containerBackground(for: .navigation) { WatchBackground() }
         }
     }
@@ -143,7 +143,7 @@ private struct WatchExchangeView: View {
                     .foregroundStyle(Palette.ink2)
             }
             VStack(alignment: .leading, spacing: 3) {
-                HUDText(exchange.problem == nil ? "Jarvis" : "Not sent", color: exchange.problem == nil ? Palette.ring : Palette.amber)
+                HUDText(exchange.problem == nil ? "Eden" : "Not sent", color: exchange.problem == nil ? Palette.ring : Palette.amber)
                 if let problem = exchange.problem {
                     Text(problem)
                         .font(.footnote)

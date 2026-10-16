@@ -61,7 +61,7 @@ final class AppModel {
     /// Eden Secretary on the iPhone itself: answers when there's no Mac, the Mac can't be reached,
     /// or the owner chose it.
     let brain = LocalBrain()
-    /// Listens for "Hey Eden Secretary" while the owner has it on.
+    /// Listens for "Hey Eden" while the owner has it on.
     let wake = WakeWordListener()
     /// Which Eden Secretary answers (Settings).
     private(set) var brainMode: BrainMode = .automatic
@@ -296,7 +296,7 @@ final class AppModel {
         if pending?.isOpen == true { return visibleApprovals.isEmpty ? "Thinking" : "Waiting for your OK" }
         if !answersOnPhone, let state = remote?.state, state.isBusy { return "Mac is \(state.label.lowercased())" }
         if !answersOnPhone, remote == nil { return "Connecting" }
-        return wake.isListening ? "Say “Hey Eden Secretary”, or tap" : "Tap to talk"
+        return wake.isListening ? "Say “Hey Eden”, or tap" : "Tap to talk"
     }
 
     // MARK: - Lifecycle
@@ -325,7 +325,7 @@ final class AppModel {
             stopPolling()
             speech.cancel()
             voice.stop()
-            // "Hey Eden Secretary" carries on in the background only when the owner turned that on.
+            // "Hey Eden" carries on in the background only when the owner turned that on.
             if !UserDefaults.standard.bool(forKey: Self.wakeBackgroundKey) { wake.stop() }
             if pairing != nil { BackgroundRefresh.schedule() }
         }
@@ -402,7 +402,7 @@ final class AppModel {
     /// first), or a place in the app.
     func open(_ url: URL) {
         if url.scheme == Destination.scheme, url.host == "listen" {
-            // "Hey Eden Secretary" from Siri or Vocal Shortcuts, the Action Button, a Control.
+            // "Hey Eden" from Siri or Vocal Shortcuts, the Action Button, a Control.
             if foreground { startListening() } else { listenOnOpen = true }
         } else if let link = PairingLink(url.absoluteString) {
             offeredLink = link
@@ -464,7 +464,7 @@ final class AppModel {
 
     // MARK: - Talking
 
-    /// Opened by "Hey Eden Secretary", the Action Button or a Control: listen as soon as the app is in front.
+    /// Opened by "Hey Eden", the Action Button or a Control: listen as soon as the app is in front.
     @ObservationIgnored var listenOnOpen = false
 
     /// Listen now (from a shortcut, a control, or the wake word).

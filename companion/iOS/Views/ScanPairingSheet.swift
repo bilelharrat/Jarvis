@@ -35,7 +35,7 @@ struct ScanPairingSheet: View {
             .safeAreaInset(edge: .bottom) {
                 if access == .granted {
                     VStack(spacing: Space.xs) {
-                        Text(notJarvis ? "That isn’t a Eden Secretary pairing code." : "Point at the code in Eden Secretary Settings › iPhone & Watch on your Mac.")
+                        Text(notJarvis ? "That isn’t an Eden Secretary pairing code." : "Point at the code in Eden Secretary Settings › iPhone & Watch on your Mac.")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(notJarvis ? Palette.amber : Palette.ink)
                             .multilineTextAlignment(.center)

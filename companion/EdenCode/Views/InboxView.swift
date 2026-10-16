@@ -1,16 +1,13 @@
 import SwiftUI
 
-/// Needs attention: every card that waits on the owner in Eden Code, newest last, each
-/// opening the approval sheet; sessions that need the owner without a card.
+/// Needs attention (from the drawer): every card that waits on the owner in Eden Code, newest
+/// last, each opening its session with the card in it (G4).
 struct InboxView: View {
     @Environment(EdenCodeStore.self) private var store
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Inbox").font(.system(size: 34, weight: .bold)).tracking(-0.68).foregroundStyle(EdenTheme.ink)
-                    .padding(.top, 12).padding(.horizontal, 4)
-                    .accessibilityAddTraits(.isHeader)
                 if store.home.attention.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "checkmark.circle").font(.system(size: 30)).foregroundStyle(EdenTheme.green)
@@ -18,23 +15,24 @@ struct InboxView: View {
                         Text("Approvals and questions from your sessions show up here, and as notifications.")
                             .font(.subheadline).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
                     }
-                    .frame(maxWidth: .infinity).padding(24).edenCard(radius: 20)
+                    .frame(maxWidth: .infinity).padding(24).gGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(store.home.attention.enumerated()), id: \.element.id) { index, card in
-                            Button { store.sheetCard = card } label: { CardRow(card: card, session: session(card)) }
+                            Button { store.show(card: card) } label: { CardRow(card: card, session: session(card)) }
                                 .buttonStyle(.plain)
                             if index < store.home.attention.count - 1 { Divider().overlay(EdenTheme.divider).padding(.leading, 60) }
                         }
                     }
-                    .edenCard()
+                    .gGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.top, 8)
             .padding(.bottom, 24)
         }
         .background(EdenBackground())
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Inbox")
         .refreshable { await store.refreshHome() }
     }
 

@@ -46,7 +46,7 @@ struct JarvisSwitcherSection: View {
                 }
             }
         } header: {
-            Text("Your Jarvises")
+            Text("Your Eden Secretaries")
         } footer: {
             Text("Pair your Mac and your cloud Eden Secretary, and switch here: the cloud one keeps Eden Code working while your Mac is shut or off.")
         }
@@ -77,7 +77,7 @@ struct JarvisSwitcherMenu: View {
 }
 
 enum JarvisSwitcher {
-    /// A cloud for a Eden Secretary named as one (or on a public address), a Mac otherwise.
+    /// A cloud for an Eden Secretary named as one (or on a public address), a Mac otherwise.
     static func symbol(for pairing: Pairing) -> String {
         let name = pairing.macLabel.lowercased()
         if name.contains("cloud") || name.contains("server") { return "cloud.fill" }

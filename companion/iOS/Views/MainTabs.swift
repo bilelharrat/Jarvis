@@ -16,7 +16,7 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Jarvis", systemImage: "sparkle", value: AppTab.jarvis) {
+            Tab("Eden", systemImage: "sparkle", value: AppTab.jarvis) {
                 JarvisView(showSettings: $showSettings, showOutbox: $showOutbox)
             }
             Tab("Today", systemImage: "sun.horizon", value: AppTab.today) {

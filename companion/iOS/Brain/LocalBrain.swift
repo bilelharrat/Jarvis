@@ -242,7 +242,7 @@ enum BrainSettings {
 
     static var hasAnyKey: Bool { BrainProvider.keyed.contains { key(for: $0) != nil } }
 
-    /// The AI included with a Eden Secretary account answers when the owner has no Claude key of
+    /// The AI included with an Eden Secretary account answers when the owner has no Claude key of
     /// their own: Claude through askeden.com, on Eden Plus or the trial.
     static var includedAIToken: String? {
         key(for: .claude) == nil ? AccountKeychain.token : nil
