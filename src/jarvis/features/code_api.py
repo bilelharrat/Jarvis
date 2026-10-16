@@ -78,7 +78,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from .. import jsonstore, lang, launches, prefs
+from .. import jsonstore, lang, launches, osplat, prefs
 from ..hook_listener import HookListener
 from ..proactive import Alert
 
@@ -178,8 +178,13 @@ def redact(item: dict[str, Any]) -> dict[str, Any]:
     return {**item, "title": "Eden Code", "text": HIDDEN, "said": HIDDEN, "choices": []}
 
 
-def cli_shim(python: str) -> str:
-    """~/.local/bin/eden-code: this backend's own Python, running the command's module."""
+def cli_shim(python: str, windows: bool | None = None) -> str:
+    """~/.local/bin/eden-code: this backend's own Python, running the command's module. On
+    Windows (item 49) eden-code.cmd beside Claude Code's own claude.exe (cmd and PowerShell
+    both run a .cmd by its name; the mark is a REM line), with CRLF line ends."""
+    if osplat.IS_WIN if windows is None else windows:
+        lines = ["@echo off", f"REM {CLI_MARK}", f'"{python}" -m jarvis.eden_code_cli %*', ""]
+        return "\r\n".join(lines)
     return f'#!/bin/sh\n{CLI_MARK}\nexec {shlex.quote(python)} -m jarvis.eden_code_cli "$@"\n'
 
 
@@ -246,7 +251,7 @@ class Api:
                 path.unlink()
 
     def cli_path(self) -> Path:
-        return self.cli_dir / "eden-code"
+        return self.cli_dir / ("eden-code.cmd" if osplat.IS_WIN else "eden-code")
 
     def cli_state(self) -> dict[str, Any]:
         path = self.cli_path()
@@ -713,7 +718,7 @@ class Api:
                                path=str(path))  # fmt: skip
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".part")
-            tmp.write_text(cli_shim(sys.executable))
+            tmp.write_text(cli_shim(sys.executable), newline="")  # (the .cmd's own CRLF)
             tmp.chmod(0o755)
             tmp.replace(path)
         except OSError as exc:

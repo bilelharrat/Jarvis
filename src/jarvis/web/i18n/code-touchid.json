@@ -5,7 +5,10 @@
     "Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as root, asks for your fingerprint. Without Touch ID, it asks you to confirm.": "切换到绕过权限，以及允许会删除、推送、发布或以 root 身份运行的步骤时，会要求验证你的指纹。没有触控 ID 时，会请你确认。",
     "This step can’t easily be undone, or reaches past this Mac. Allow it?": "这一步不容易撤销，或者会影响到这台 Mac 以外。要允许吗？",
     "Turn off Touch ID for Bypass and risky steps?": "要关闭绕过权限和有风险步骤的触控 ID 吗？",
-    "This rule lets Eden Code do much more without asking you. Change it?": "这条规则会让 Eden Code 不经询问就做更多的事。要修改吗？"
+    "This rule lets Eden Code do much more without asking you. Change it?": "这条规则会让 Eden Code 不经询问就做更多的事。要修改吗？",
+    "Windows Hello for Bypass and risky steps": "绕过权限和有风险的步骤使用 Windows Hello",
+    "Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as administrator, asks for Windows Hello (your face, fingerprint or PIN). Without Windows Hello, it asks you to confirm.": "切换到绕过权限，以及允许会删除、推送、发布或以管理员身份运行的步骤时，会要求 Windows Hello 验证（你的面容、指纹或 PIN）。没有 Windows Hello 时，会请你确认。",
+    "Turn off Windows Hello for Bypass and risky steps?": "要关闭绕过权限和有风险步骤的 Windows Hello 吗？"
   },
   "patterns": []
 }

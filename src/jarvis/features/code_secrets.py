@@ -44,6 +44,13 @@ nothing else:
 Values are Keychain items under connectors.SERVICE, "code-secret:<scope>:<NAME>"; the names
 of each project's secrets (no values) are kept in code-secrets.json beside the app's files.
 
+On Windows (codeparity.secret_runs_available is False: Python there has no Unix socket to hand
+a value over), ask_secret tells the session to have the owner run such a command in the
+Terminal pane instead of asking for a value nothing could use, and a command that names a
+placeholder is refused before any card (codeparity.NO_SECRET_RUN): never a card the owner
+says yes to and then a failure. The values would be Credential Manager's (keyring's Windows
+backend), but none is asked for there.
+
 Cost policy: no model is called; ask_secret is a card for the owner, never a model call.
 """
 
@@ -71,7 +78,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .. import jsonstore, key_proxy, lang, secret_run, tasks, tmp_sweep
+from .. import codeparity, jsonstore, key_proxy, lang, osplat, secret_run, tasks, tmp_sweep
 
 log = logging.getLogger("jarvis")
 
@@ -137,7 +144,10 @@ def _scope_of_folder(folder: str) -> str:
 def shell_argv(command: str) -> list[str]:
     """The owner's line as the backend runs it: in a shell that reads no startup file (the
     owner's or one a session wrote: ~/.zshenv, $ZDOTDIR's, a BASH_ENV's run with the values
-    in its environment)."""
+    in its environment). On Windows, Git for Windows' bash (codeparity.git_bash), the shell
+    Claude Code runs the session's commands in, so the line means the same."""
+    if osplat.IS_WIN:
+        return [codeparity.git_bash() or "bash.exe", "--norc", "--noprofile", "-c", command]
     shell = os.environ.get("SHELL", "")
     shell = (
         shell
@@ -194,7 +204,7 @@ def written_named(task: Any, command: str) -> list[str]:
         path = Path(raw)
         full = path if path.is_absolute() else cwd / path
         with contextlib.suppress(ValueError):
-            rel = str(full.relative_to(cwd))
+            rel = full.relative_to(cwd).as_posix()  # (as a command names it, on a PC too)
             if {rel, f"./{rel}", str(full), full.name} & words or rel in (command or ""):
                 found.append(rel)
                 continue
@@ -474,6 +484,8 @@ class Secrets:
     # ── the card ──
 
     async def ask(self, task: Any, name: str, why: str) -> dict[str, Any]:
+        if not codeparity.secret_runs_available():
+            return _text(codeparity.NO_SECRET_RUNS)
         if name in self.names_for(task) and self.value(self.scope_of(task, name), name):
             return _text(
                 f"${name} is already set for this session. Use it in a command as ${name}."
@@ -717,6 +729,8 @@ class Secrets:
                 return result
             if in_container(self.hub, task):  # (S3-8: the hook's deny, should it be missed)
                 return PermissionResultDeny(message=IN_CONTAINER)
+            if not codeparity.secret_runs_available():  # (Windows: before any card)
+                return PermissionResultDeny(message=codeparity.NO_SECRET_RUN)
             last = audit[-1] if audit else None
             carded = last is not None and last is not before and last.get("decision") == "allowed"
             wrote = written_named(task, command)

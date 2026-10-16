@@ -49,6 +49,7 @@ from .. import (
     devservers,
     diagnostics,
     jsonstore,
+    osplat,
     prefs,
     previewcheck,
     runproc,
@@ -837,17 +838,23 @@ class CodeVerify:
     def session_servers(self, task: Any) -> dict[str, Any]:
         servers: dict[str, Any] = {
             DEV: create_sdk_mcp_server(name=DEV, version="0.1.0", tools=dev_tools(self, task)),
-            simtools.SERVER: create_sdk_mcp_server(
+        }
+        if not osplat.IS_WIN:  # (item 49: the iOS Simulator and Xcode are the Mac's alone)
+            servers[simtools.SERVER] = create_sdk_mcp_server(
                 name=simtools.SERVER,
                 version="0.1.0",
                 tools=simtools.sim_tools(self.sim, lambda: task.cwd),
-            ),
-        }
+            )
         checks = self.sessions.get(task.id)
         if checks is not None and checks.mac:
             checks.screen = checks.screen or computer.Screen()
             servers[sessionmac.SERVER] = sessionmac.build(checks.screen)
-        if checks is not None and checks.xcode and codetests.xcode_container(task.cwd) is not None:
+        if (
+            checks is not None
+            and checks.xcode
+            and not osplat.IS_WIN
+            and codetests.xcode_container(task.cwd) is not None
+        ):
             # Xcode's MCP bridge, as `xcrun mcpbridge --help` describes it: with no
             # subcommand it's a stdio bridge to the running Xcode's tool service.
             servers[XCODE] = {"type": "stdio", "command": "/usr/bin/xcrun", "args": ["mcpbridge"]}

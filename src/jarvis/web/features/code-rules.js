@@ -50,6 +50,8 @@
   function sandboxLine(s) {
     if (!s) return '';
     if (s.other) return 'Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.';
+    // Windows (item 49): no sandbox to run in (features/code_sandbox.py asks for each command).
+    if (s.available === false) return s.on ? 'There’s no sandbox on Windows, so each of its commands asks you first.' : 'There’s no sandbox on Windows: its commands run as its mode lets them.';
     if (!s.on) return 'Its commands run outside the sandbox.';
     return s.live ? 'Its commands run in the sandbox.' : 'Its commands run in the sandbox from its next step; until then each one asks.';
   }
@@ -106,8 +108,9 @@
     if (!s) return parts;
     const row = el('div', 'jc-audit-switch');
     const text = el('span');
+    const none = s.available === false;  // (Windows: the switch makes each command ask instead)
     text.append(el('strong', '', 'Sandbox Bypass and unattended sessions'),
-      el('small', '', 'Their commands can write only in the project and reach only the domains allowed below.'));
+      el('small', '', none ? (s.why || 'Claude Code’s sandbox isn’t available on Windows.') : 'Their commands can write only in the project and reach only the domains allowed below.'));
     const sw = el('button', `sw${s.default ? ' on' : ''} cs-switch`);
     sw.type = 'button';
     sw.setAttribute('role', 'switch');
@@ -132,6 +135,7 @@
     mineRow.append(seg);
     const line = el('p', `jc-dim cs-line${s.on ? (s.live ? ' on' : ' pending') : ''}`, sandboxLine(s));
     parts.push(row, mineRow, line);
+    if (none) return parts;  // (no allowlist without a sandbox to keep to it)
     // The project's allowlist.
     const head = el('p', 'cr-group-head cs-domains-head');
     head.append(el('strong', '', 'Domains sandboxed commands may reach'));

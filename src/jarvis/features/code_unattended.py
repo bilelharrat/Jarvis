@@ -62,7 +62,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .. import code_changes, jsonstore, lang, routines, tasks
+from .. import code_changes, codeparity, jsonstore, lang, routines, tasks
 from ..proactive import Alert
 
 log = logging.getLogger("jarvis")
@@ -669,7 +669,11 @@ class Runs:
         """Start a run the owner has approved (or scheduled, or opted a repository in for).
         launch_token (launches.py) names the session for the starter; an untrusted run's
         session is stamped untrusted too (task.untrusted: never read for @-mentions, kept
-        locked down after the run), not only its run."""
+        locked down after the run), not only its run. One that must be in the sandbox doesn't
+        start where there's none (Windows: codeparity.NO_SANDBOX_RUN, said to whoever asked):
+        an issue's words would otherwise run with the network open."""
+        if sandbox and not codeparity.sandbox_available():
+            return codeparity.NO_SANDBOX_RUN
         self.load()
         own = self.hub.tasks.defaults_for(scope.project)
         cfg = self.hub._model_config(
@@ -848,7 +852,7 @@ class Runs:
         options.strict_mcp_config = True
         options.allowed_tools = [t for t in options.allowed_tools if not t.startswith("mcp__")]
         options.disallowed_tools = [*options.disallowed_tools, *UNTRUSTED_OFF]
-        if sandbox:
+        if sandbox and codeparity.sandbox_available():
             options.sandbox = {
                 "enabled": True,
                 "autoAllowBashIfSandboxed": False,

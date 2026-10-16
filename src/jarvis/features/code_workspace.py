@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import code_editor, code_memory, code_search, lang, mac_tools
+from .. import code_editor, code_memory, code_search, lang, mac_tools, osplat
 from ..code_editor import Editors
 from ..code_records import RecordMedia
 from ..hub import _msg_int
@@ -234,8 +234,11 @@ class Workspace:
             line = msg.get("line") if isinstance(msg.get("line"), int) else 0
             command = code_editor.open_command(editor, path, max(0, line))
         try:
-            await mac_tools.run_command(*command, timeout=20)
-        except (mac_tools.ToolFailure, OSError) as exc:
+            if osplat.IS_WIN:  # (started and left running: code_editor.launch)
+                await asyncio.to_thread(code_editor.launch, command)
+            else:
+                await mac_tools.run_command(*command, timeout=20)
+        except (mac_tools.ToolFailure, OSError, ValueError) as exc:
             self.caption(f"Couldn't open it: {exc}")
 
 

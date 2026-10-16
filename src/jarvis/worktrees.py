@@ -41,7 +41,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from . import code_changes
+from . import code_changes, codeparity, osplat
 from .code_changes import NO_HOOKS, git
 
 BRANCH_PREFIX = "jarvis/"
@@ -341,7 +341,8 @@ def link_dependencies(repo: code_changes.Repo, copy: Copy) -> list[str]:
     """node_modules and .venv from the main folder, as links: nothing to install again,
     but shared (a package added or upgraded in the copy changes the main folder's too). A
     link git would see as a new file isn't made: node_modules then goes one folder above
-    the copy, where Node still finds it; .venv isn't linked."""
+    the copy, where Node still finds it; .venv isn't linked. On Windows a link needs
+    Developer Mode (codeparity.link_folder: never a junction); without it, the note says so."""
     notes: list[str] = []
     main = repo.top / repo.prefix
     here = copy.cwd
@@ -350,8 +351,10 @@ def link_dependencies(repo: code_changes.Repo, copy: Copy) -> list[str]:
         if not source.is_dir() or target.exists() or target.is_symlink():
             continue
         try:
-            target.symlink_to(source, target_is_directory=True)
+            codeparity.link_folder(target, source)
         except OSError:
+            if osplat.IS_WIN:  # (no Developer Mode: Windows lets no app make a link)
+                notes.append(codeparity.NO_LINKS.format(name=name))
             continue
         if _ignored(Path(copy.checkout), f"{copy.prefix}{name}"):
             notes.append(f"Linked {name} from the main folder (shared with it).")
@@ -360,7 +363,7 @@ def link_dependencies(repo: code_changes.Repo, copy: Copy) -> list[str]:
         if name == "node_modules":
             above = copy.folder / name
             with contextlib.suppress(OSError):
-                above.symlink_to(source, target_is_directory=True)
+                codeparity.link_folder(above, source)
                 notes.append("Linked node_modules from the main folder (shared with it).")
                 continue
         notes.append(f"{name} isn't linked: git would see the link as a new file.")
