@@ -372,6 +372,10 @@ class Alerts:
             "error": self.tr(lis.error) if lis is not None else "",
         }
         self.load()
+        if self._cut_off:
+            # (no loop of its own at start: Eden Code alone starts none that reads the owner's
+            # life; the window's first look at these settings says them instead)
+            self.hub._spawn(self.tell_cut_off())
         state["today"] = {
             "spent": round(self.today_spent(), 2),
             "runs": {s: RUNS_A_DAY - self.caps.left(s) for s in SERVICES},
@@ -881,12 +885,6 @@ class Alerts:
         self.save()
         self.hub._spawn(self.post(job, f"Pull request: {pr['url']}"))
 
-    async def boot_up(self) -> None:
-        """At start: the fixes the last quit cut short are said on their alerts."""
-        self.load()
-        if self._cut_off:
-            await self.tell_cut_off()
-
     # ── window commands ──
 
     def _reply(self, coro: Any) -> None:
@@ -939,4 +937,3 @@ def install(hub: Any) -> None:
     hub.register_command("code_alert_off", alerts.cmd_off)
     end_hooks_of(hub).append(alerts.on_run_end)
     hub.add_event_sink(("code_pr",), alerts.on_pr)
-    hub.register_loop("code_alerts_boot", alerts.boot_up)
