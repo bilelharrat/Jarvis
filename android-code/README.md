@@ -6,6 +6,11 @@ pinned certificate, the Eden relay away from home, and the G design (2026-10-16)
 the screen, ☰ opens the sessions drawer (which also reaches the Inbox, the Queue and Settings), ✎
 starts a new session, and a card that waits on you sits in the session as a glass card.
 
+Pairing: Scan QR code reads the Mac's code (Eden Code › On your phone) with CameraX and ZXing,
+chosen over ML Kit so it needs no Google Play services and no model download; scanning the same
+code with the phone's camera app opens `edencode://pair?…` in Eden Code and pairs too. The typed
+six-digit code stays as the fallback.
+
 ## Build and test
 
 ```sh
