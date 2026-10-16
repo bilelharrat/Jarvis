@@ -25,23 +25,36 @@ struct SessionScreen: View {
 
     var body: some View {
         GeometryReader { geo in
-            let top = geo.safeAreaInsets.top
-            ZStack(alignment: .top) {
-                EdenBackground()
-                Group {
-                    if let model {
-                        transcript(model, top: top, width: geo.size.width)
-                    }
-                    header
-                        .padding(.top, top + 5)
-                        .ignoresSafeArea(edges: .top)
+            Group {
+                if let model {
+                    transcript(model, width: geo.size.width)
+                } else {
+                    Color.clear
                 }
-                .movesForDrawer(drawer)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                bottom.movesForDrawer(drawer)
+            // The header and the input bar are bars over the transcript, not drawn on it: the
+            // list starts below the header and ends above the input bar (and the keyboard,
+            // any keyboard: the bar rides on it), and what scrolls under either goes softly
+            // under a blur that reaches up behind the clock and the Dynamic Island (Apple's
+            // scroll edge effect) instead of colliding with them. (Owner's TestFlight 2
+            // screenshots: the first reply behind the title pill, a step over the clock, the
+            // last lines behind the input bar.)
+            .safeAreaBar(edge: .top, spacing: 0) {
+                header
+                    .padding(.top, 5)
+                    .padding(.bottom, 6)
+                    .movesForDrawer(drawer)
+                    .background { GBarScrim(edge: .top) }
             }
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                bottom
+                    .padding(.top, 6)
+                    .movesForDrawer(drawer)
+                    .background { GBarScrim(edge: .bottom) }
+            }
+            .scrollEdgeEffectStyle(.soft, for: .all)
         }
+        .background { EdenBackground() }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             if model == nil, let backend = store.backend {
@@ -79,7 +92,7 @@ struct SessionScreen: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            GCircleButton(glyph: MenuGlyph(), label: "Your sessions") { store.drawerOpen = true }
+            GCircleButton(glyph: MenuGlyph(), label: "Your sessions") { Keyboard.dismiss(); store.drawerOpen = true }
             titlePill
             GCircleButton(glyph: PencilGlyph(), label: "New session") { store.startNew() }
         }
@@ -114,7 +127,7 @@ struct SessionScreen: View {
             if model?.working ?? false {
                 Button(role: .destructive) { Task { await model?.stop() } } label: { Label("Stop", systemImage: "stop.fill") }
             }
-            Button { store.drawerOpen = true } label: { Label("Your sessions", systemImage: "list.bullet") }
+            Button { Keyboard.dismiss(); store.drawerOpen = true } label: { Label("Your sessions", systemImage: "list.bullet") }
         } label: {
             VStack(spacing: 0) {
                 Text(title)
@@ -141,7 +154,7 @@ struct SessionScreen: View {
 
     // MARK: - The transcript
 
-    private func transcript(_ model: SessionModel, top: CGFloat, width: CGFloat) -> some View {
+    private func transcript(_ model: SessionModel, width: CGFloat) -> some View {
         let inner = width - 40
         return ScrollViewReader { proxy in
             ScrollView {
@@ -187,14 +200,25 @@ struct SessionScreen: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, top + 61)
-                .padding(.bottom, 24)
+                .padding(.top, 10)
+                .padding(.bottom, 14)
+                .movesForDrawer(drawer)
             }
-            .ignoresSafeArea(edges: .top)
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
+            // The newest stays in sight when the list's room changes (the keyboard up or down,
+            // the input bar growing a line, a card taking its place), not only when it grows.
+            // (A short one still starts at the top, under the header.)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .defaultScrollAnchor(.top, for: .alignment)
             .onChange(of: model.entries.count) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: model.view.live) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: pendingCard?.id) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            // A keyboard's height (Gboard's too) comes in one or more notes as it settles.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
     }
@@ -334,6 +358,7 @@ struct SessionScreen: View {
                 modeID: view?.mode ?? "ask",
                 modeLabel: view?.modeLabel ?? "Manual",
                 modelLabel: view?.modelLabel ?? "",
+                modelRef: view?.model ?? "",
                 modes: store.options.modes,
                 models: store.options.models,
                 dictating: dictation.listening,

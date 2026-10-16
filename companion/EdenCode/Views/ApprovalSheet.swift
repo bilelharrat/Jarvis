@@ -215,7 +215,7 @@ struct ApprovalOverlay: View {
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.sheetCard?.id)
         .onChange(of: store.sheetCard?.id) { _, id in
             // (the composer's keyboard goes down: the card's buttons are where it was)
-            if id != nil { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+            if id != nil { Keyboard.dismiss() }
         }
     }
 }

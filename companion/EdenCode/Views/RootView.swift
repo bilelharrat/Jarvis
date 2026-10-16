@@ -111,7 +111,7 @@ struct GHome: View {
         .animation(.spring(response: 0.36, dampingFraction: 0.88), value: store.drawerOpen)
         .onChange(of: store.drawerOpen) { _, open in
             drag = 0
-            if open { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+            if open { Keyboard.dismiss() }
         }
         .sheet(item: $store.panel) { panel in
             PanelSheet(panel: panel)
@@ -120,7 +120,10 @@ struct GHome: View {
 
     private var opening: some Gesture {
         DragGesture(minimumDistance: 8)
-            .onChanged { drag = max(0, $0.translation.width) }
+            .onChanged {
+                if drag == 0 { Keyboard.dismiss() }  // (as the finger starts pulling it open)
+                drag = max(0, $0.translation.width)
+            }
             .onEnded { value in
                 let open = value.translation.width > 80 || value.predictedEndTranslation.width > 180
                 withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
@@ -140,6 +143,16 @@ struct GHome: View {
                     if close { store.drawerOpen = false }
                 }
             }
+    }
+}
+
+/// Puts the keyboard away, whatever has it (the input bar, a sheet's field; Gboard or Apple's).
+enum Keyboard {
+    @MainActor static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        for scene in UIApplication.shared.connectedScenes {
+            (scene as? UIWindowScene)?.windows.forEach { $0.endEditing(true) }
+        }
     }
 }
 

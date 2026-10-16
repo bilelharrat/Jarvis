@@ -276,17 +276,24 @@ struct PhoneOptions: Equatable, Sendable, Decodable {
         var name: String
         var group: String
         var needsKey: Bool
+        /// One quiet line under the name: Model Router's "Picks the model and effort for each
+        /// message", what a keyless model needs, an owner's own model's provider.
+        var note: String
+        /// Model Router (ref "router"): routing on rather than a model (docs/eden-code-phone.md).
+        var router: Bool
         var id: String { ref }
 
-        init(ref: String, name: String, group: String = "", needsKey: Bool = false) {
+        init(ref: String, name: String, group: String = "", needsKey: Bool = false, note: String = "", router: Bool = false) {
             self.ref = ref
             self.name = name
             self.group = group
             self.needsKey = needsKey
+            self.note = note
+            self.router = router
         }
 
         private enum Key: String, CodingKey {
-            case ref, name, group
+            case ref, name, group, note, router
             case needsKey = "needs_key"
         }
 
@@ -299,19 +306,26 @@ struct PhoneOptions: Equatable, Sendable, Decodable {
             name = c.text(.name) ?? ref
             group = c.text(.group) ?? ""
             needsKey = c.flag(.needsKey) ?? false
+            note = c.text(.note) ?? ""
+            router = c.flag(.router) ?? (ref == ModelMenu.routerRef)
+            // An older Mac sent raw ids ("kimi-k2.7-code") for the owner's own models.
+            name = ModelMenu.friendly(name, ref: ref)
         }
     }
 
     struct Mode: Identifiable, Equatable, Hashable, Sendable, Decodable {
         var id: String
         var name: String
+        /// The input bar's pill: "Bypass", not "Bypass permissions" (app.js JC_MODES short).
+        var short: String
 
-        init(id: String, name: String) {
+        init(id: String, name: String, short: String? = nil) {
             self.id = id
             self.name = name
+            self.short = short ?? CodeModes.short(id, name: name)
         }
 
-        private enum Key: String, CodingKey { case id, name }
+        private enum Key: String, CodingKey { case id, name, short }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Key.self)
@@ -320,6 +334,7 @@ struct PhoneOptions: Equatable, Sendable, Decodable {
             }
             self.id = id
             name = c.text(.name) ?? CodeModes.name(id)
+            short = c.text(.short) ?? CodeModes.short(id, name: name)
         }
     }
 
@@ -395,6 +410,11 @@ enum CodeModes {
         case "auto": "Bypass permissions"
         default: id
         }
+    }
+
+    /// The input bar's pill's words: app.js JC_MODES' short where it has one.
+    static func short(_ id: String, name: String? = nil) -> String {
+        id == "auto" ? "Bypass" : (name ?? self.name(id))
     }
 
     static func symbol(_ id: String) -> String {
@@ -502,6 +522,9 @@ struct PhoneView: Equatable, Sendable, Decodable {
     var modeLabel = "Manual"
     var model = ""
     var modelLabel = ""
+    /// Model Router is on: modelLabel says "Model Router", routedLabel the model it last chose.
+    var router = false
+    var routedLabel = ""
     var live = ""
     var todos: [Todo] = []
     var cards: [PhoneCard] = []
@@ -519,6 +542,8 @@ struct PhoneView: Equatable, Sendable, Decodable {
         case id, title, project, status, doing, mode, model, live, todos, cards, copy, next, seen, v, entries, changed, more
         case modeLabel = "mode_label"
         case modelLabel = "model_label"
+        case router
+        case routedLabel = "routed_label"
     }
 
     init(from decoder: Decoder) throws {
@@ -534,7 +559,9 @@ struct PhoneView: Equatable, Sendable, Decodable {
         mode = c.text(.mode) ?? "ask"
         modeLabel = c.text(.modeLabel) ?? CodeModes.name(mode)
         model = c.text(.model) ?? ""
-        modelLabel = c.text(.modelLabel) ?? model
+        modelLabel = ModelMenu.friendly(c.text(.modelLabel) ?? model, ref: model)
+        router = c.flag(.router) ?? (model == ModelMenu.routerRef)
+        routedLabel = c.text(.routedLabel) ?? ""
         live = c.text(.live) ?? ""
         todos = c.list(Todo.self, .todos)
         cards = c.list(PhoneCard.self, .cards)
@@ -1038,5 +1065,89 @@ struct PhoneOK: Equatable, Sendable, Decodable {
 enum Money {
     static func text(_ dollars: Double) -> String {
         dollars >= 100 ? String(format: "$%.0f", dollars) : String(format: "$%.2f", dollars)
+    }
+}
+
+/// The model picker's list, as the Mac's model menu lays it out (web/features/code-router.js
+/// and app.js): Model Router first (no heading), then Eden chat's providers under their
+/// headings in the Mac's order (Anthropic Claude, OpenAI GPT, Google Gemini, Moonshot Kimi),
+/// the owner's own models, "On this Mac" last; every row by a name a person reads. The Mac
+/// sends those names and headings (_code_phone_routes.models, providers.friendly_name); this
+/// also tidies an older Mac's answer, which had raw ids ("kimi-k2.7-code-highspeed") and its
+/// providers' own names for headings.
+enum ModelMenu {
+    static let routerRef = "router"
+    static let order = ["Anthropic Claude", "OpenAI GPT", "Google Gemini", "Moonshot Kimi"]
+    static let local = "On this Mac"
+
+    struct Section: Identifiable, Equatable {
+        var title: String
+        var models: [PhoneOptions.Model]
+        var id: String { title }
+    }
+
+    /// The rows in sections: Model Router's (title ""), the known headings in order, any
+    /// other heading as it came, On this Mac last. Empty sections are left out.
+    static func sections(_ models: [PhoneOptions.Model]) -> [Section] {
+        var titles: [String] = []
+        var rows: [String: [PhoneOptions.Model]] = [:]
+        for model in models {
+            let title = model.router ? "" : heading(model)
+            if rows[title] == nil { titles.append(title) }
+            rows[title, default: []].append(model)
+        }
+        func rank(_ title: String) -> Int {
+            if title.isEmpty { return 0 }
+            if let known = order.firstIndex(of: title) { return 1 + known }
+            return title == local ? 100 : 50
+        }
+        return titles.enumerated()
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map { Section(title: $0.element, models: rows[$0.element] ?? []) }
+    }
+
+    /// A row's heading: the Mac's when it's one of the menu's, else the provider its model
+    /// belongs to, by the model's name ("Claude", "Kimi K2.6" -> Anthropic Claude, Moonshot Kimi).
+    static func heading(_ model: PhoneOptions.Model) -> String {
+        let group = model.group.trimmingCharacters(in: .whitespaces)
+        if order.contains(group) || group == local { return group }
+        let words = "\(group) \(model.name) \(model.ref)".lowercased()
+        if words.contains("claude") || words.contains("anthropic") || ["opus", "sonnet", "haiku", "fable"].contains(where: words.contains) {
+            return order[0]
+        }
+        if words.contains("gpt") || words.contains("openai") { return order[1] }
+        if words.contains("gemini") || words.contains("google") { return order[2] }
+        if words.contains("kimi") || words.contains("moonshot") { return order[3] }
+        if ["ollama", "lm studio", "local"].contains(where: words.contains) { return local }
+        return group.isEmpty ? "Your models" : group
+    }
+
+    /// The row the session is on: by ref (Model Router's is "router"), else by name.
+    static func current(_ models: [PhoneOptions.Model], ref: String, label: String) -> PhoneOptions.Model? {
+        models.first { !ref.isEmpty && $0.ref == ref } ?? models.first { !label.isEmpty && $0.name == label }
+    }
+
+    /// A name to read where the Mac sent an id: "kimi-k2.7-code-highspeed" is "Kimi K2.7
+    /// Code Highspeed", "gpt-oss:20b" "GPT-OSS 20B"; a name with a space or a capital stays.
+    /// "kimi-k2.6 · Moonshot" (the Mac's own-model title) keeps its provider after the dot.
+    static func friendly(_ name: String, ref: String = "") -> String {
+        let text = name.trimmingCharacters(in: .whitespaces)
+        if text.isEmpty { return text }
+        if let dot = text.range(of: " · ") {
+            return friendly(String(text[..<dot.lowerBound])) + text[dot.lowerBound...]
+        }
+        if text.contains(" ") || text.contains(where: \.isUppercase) { return text }
+        let brands = ["gpt": "GPT", "claude": "Claude", "gemini": "Gemini", "kimi": "Kimi", "llama": "Llama", "qwen": "Qwen",
+                      "mistral": "Mistral", "deepseek": "DeepSeek", "glm": "GLM", "grok": "Grok", "oss": "OSS", "gemma": "Gemma"]
+        let last = text.split(separator: "/").last.map(String.init) ?? text
+        let words = last.split(whereSeparator: { "-_: ".contains($0) }).map { word -> String in
+            let low = word.lowercased()
+            if let brand = brands[low] { return brand }
+            if low.range(of: #"^\d+(\.\d+)?[bkm]$"#, options: .regularExpression) != nil { return low.uppercased() }
+            return low.prefix(1).uppercased() + low.dropFirst()
+        }
+        let joined = words.joined(separator: " ")
+        // "GPT 6.1" as its makers write it: GPT-6.1 (and GPT-OSS).
+        return joined.replacingOccurrences(of: #"\bGPT (?=\d|OSS)"#, with: "GPT-", options: .regularExpression)
     }
 }

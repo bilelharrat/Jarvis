@@ -12,11 +12,29 @@ struct SessionDrawer: View {
     private var dark: Bool { scheme == .dark }
 
     var body: some View {
+        // The list scrolls in its own region, clipped, fading out just above the Inbox, the
+        // Queue and the Mac, which stay pinned below it (on TestFlight 2 the last sessions
+        // drew over them).
         VStack(alignment: .leading, spacing: 0) {
             top
             list
+                .frame(maxHeight: .infinity)
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 18)
+                    }
+                }
+                .clipped()
+                .layoutPriority(-1)
             shortcuts
+                .padding(.top, 6)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(EdenTheme.divider).frame(height: 1).padding(.horizontal, 18)
+                }
+                .fixedSize(horizontal: false, vertical: true)
             footer
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity)
         .background { pane }
@@ -91,7 +109,7 @@ struct SessionDrawer: View {
                 if !store.home.exterminator.isEmpty && store.search.trimmed.isEmpty { exterminator }
             }
             .padding(.horizontal, 10)
-            .padding(.bottom, 8)
+            .padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
@@ -236,6 +254,9 @@ struct DrawerRow: View {
     @Environment(\.colorScheme) private var scheme
 
     private var status: CodeStatus { waiting ? .needsYou : session.status }
+    private var word: String {
+        GStatus.showsIndicator(status) ? GStatus.drawerWord(status) : GStatus.restingLine(session.updatedAt)
+    }
 
     var body: some View {
         Button(action: action) {
@@ -243,11 +264,11 @@ struct DrawerRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(session.title).font(.system(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
                     if showsStatus {
-                        Text(GStatus.drawerWord(status)).font(.system(size: 13)).foregroundStyle(GStatus.ink(status)).lineLimit(1)
+                        Text(word).font(.system(size: 13)).foregroundStyle(GStatus.ink(status)).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if showsStatus { indicator }
+                if showsStatus && GStatus.showsIndicator(status) { indicator }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -266,7 +287,7 @@ struct DrawerRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(session.title), \(GStatus.drawerWord(status))")
+        .accessibilityLabel("\(session.title), \(word)")
         .accessibilityAddTraits(current ? [.isButton, .isSelected] : .isButton)
     }
 
