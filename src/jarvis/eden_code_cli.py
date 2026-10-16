@@ -135,7 +135,9 @@ def _session_line(s: dict[str, Any]) -> str:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="eden-code", description="Control Eden Code from scripts.")
-    p.add_argument("--url", help="the API's address (default: what Eden Code wrote, or %s)" % DEFAULT_URL)
+    p.add_argument(
+        "--url", help=f"the API's address (default: what Eden Code wrote, or {DEFAULT_URL})"
+    )
     p.add_argument("--json", action="store_true", help="print the API's answers as JSON")
     p.add_argument("--timeout", type=float, default=330.0, help="seconds to wait for an answer")
     sub = p.add_subparsers(dest="command", required=True)
@@ -153,7 +155,9 @@ def parser() -> argparse.ArgumentParser:
     iso.add_argument("--isolated", dest="isolated", action="store_true", default=None)
     iso.add_argument("--shared", dest="isolated", action="store_false")
     s.add_argument("--cloud", action="store_true")
-    s.add_argument("--untrusted", action="store_true", help="the prompt is someone else's words: lock it down")
+    s.add_argument(
+        "--untrusted", action="store_true", help="the prompt is someone else's words: lock it down"
+    )
     s = sub.add_parser("send", help="send a session a message")
     s.add_argument("id", type=int)
     s.add_argument("text", help="the message ('-' reads it from stdin)")
@@ -210,14 +214,23 @@ def parser() -> argparse.ArgumentParser:
 
 def _run_options(s: argparse.ArgumentParser) -> None:
     s.add_argument("--title")
-    s.add_argument("--command", dest="commands", action="append", default=[],
-                   help="a command it may run (again for more)")
+    s.add_argument(
+        "--command",
+        dest="commands",
+        action="append",
+        default=[],
+        help="a command it may run (again for more)",
+    )
     s.add_argument("--spend-cap", type=float)
     s.add_argument("--hours", type=float)
 
 
 def _scope(args: argparse.Namespace) -> dict[str, Any]:
-    out: dict[str, Any] = {"project": args.project, "prompt": args.prompt, "commands": args.commands}
+    out: dict[str, Any] = {
+        "project": args.project,
+        "prompt": args.prompt,
+        "commands": args.commands,
+    }
     for key in ("title", "spend_cap", "hours"):
         if getattr(args, key, None) is not None:
             out[key] = getattr(args, key)
@@ -261,7 +274,9 @@ def run(argv: list[str], client: Client, out: Any, stdin: Any = None) -> int:
         return done(a, f"Started session {started.get('id')} in {started.get('folder', args.project)}." if a.get("started")
                     else a.get("note", "Asked."))  # fmt: skip
     if c == "send":
-        a = client.call("POST", f"/v1/sessions/{args.id}/messages", {"text": _stdin(args.text, stdin)})
+        a = client.call(
+            "POST", f"/v1/sessions/{args.id}/messages", {"text": _stdin(args.text, stdin)}
+        )
         return done(a, f"Sent to session {args.id}.")
     if c == "tail":
         a = client.call("GET", f"/v1/sessions/{args.id}/transcript?tail={max(1, args.n)}")
@@ -274,11 +289,16 @@ def run(argv: list[str], client: Client, out: Any, stdin: Any = None) -> int:
             for ev in client.lines("/v1/events"):
                 if ev.get("type") == "entry" and ev.get("id") == args.id:
                     e = ev.get("entry") or {}
-                    _say(out, json.dumps(e) if show_json else f"[{e.get('role')}] {e.get('text', '')}")
+                    _say(
+                        out,
+                        json.dumps(e) if show_json else f"[{e.get('role')}] {e.get('text', '')}",
+                    )
         return 0
     if c in ("stop", "end", "land", "discard"):
         a = client.call("POST", f"/v1/sessions/{args.id}/{c}", {})
-        return done(a, a.get("asked") and f"Asked: {a['asked']}." or f"Session {args.id}: {c} sent.")
+        return done(
+            a, a.get("asked") and f"Asked: {a['asked']}." or f"Session {args.id}: {c} sent."
+        )
     if c == "exterminate":
         body = {"project": args.project}
         if args.spend_cap is not None:
@@ -327,7 +347,9 @@ def run(argv: list[str], client: Client, out: Any, stdin: Any = None) -> int:
         a = client.call("DELETE", f"/v1/watches/{args.id}")
         return done(a, "Removed." if a.get("removed") else "No such watch.")
     if c == "webhook":
-        a = client.call("POST", "/v1/webhooks", {**_scope(args), "name": args.name, "sandbox": not args.network})
+        a = client.call(
+            "POST", "/v1/webhooks", {**_scope(args), "name": args.name, "sandbox": not args.network}
+        )
         if show_json:
             return done(a)
         port = a.get("port")

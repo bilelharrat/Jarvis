@@ -193,7 +193,9 @@ class Api:
         self._locked_until = 0.0
         self._calls: deque[float] = deque()
         self.streams: set[asyncio.Queue] = set()
-        self.routes: list[Any] = []  # (method, path) -> handler, from other features (code_automate)
+        self.routes: list[
+            Any
+        ] = []  # (method, path) -> handler, from other features (code_automate)
         self.cli_dir = Path.home() / ".local" / "bin"
 
     async def _no_hooks(self, _name: str, _request: Any) -> Any:
@@ -369,7 +371,9 @@ class Api:
                 self._locked_until = stamp + LOCKED_FOR
                 wrong.clear()
                 log.warning("code api: too many wrong tokens; refusing them for a while")
-            raise Refused(401, "unauthorized: send Authorization: Bearer <your Eden Code API token>")
+            raise Refused(
+                401, "unauthorized: send Authorization: Bearer <your Eden Code API token>"
+            )
 
     async def _body(self, request: Any) -> dict[str, Any]:
         if "application/json" not in request.headers.get("content-type", ""):
@@ -469,7 +473,9 @@ class Api:
     async def sessions(self, request: Any, method: str, rest: list[str]) -> Any:
         if not rest:
             if method == "GET":
-                items = [session_view(i) for i in self.hub.tasks.public() if i.get("kind") == "code"]
+                items = [
+                    session_view(i) for i in self.hub.tasks.public() if i.get("kind") == "code"
+                ]
                 return _json_response({"sessions": items})
             if method == "POST":
                 return await self.start(await self._body(request))
@@ -492,7 +498,7 @@ class Api:
             body = await self._body(request)
             text = str(body.get("text") or "").strip()
             if not text:
-                raise Refused(400, "say what to send: {\"text\": \"…\"}")
+                raise Refused(400, 'say what to send: {"text": "…"}')
             if text.startswith("/"):
                 raise Refused(400, "slash commands are typed in the window; send words")
             await self.hub.handle({"type": "task_send", "id": task.id, "text": text[:20000]})
@@ -508,7 +514,9 @@ class Api:
             if not slug:
                 raise Refused(409, "that session isn't in an isolated copy")
             await self.hub.handle({"type": "code_copy", "slug": slug, "action": action})
-            return _json_response({"id": task.id, "asked": "on its card in the Eden Code window"}, 202)
+            return _json_response(
+                {"id": task.id, "asked": "on its card in the Eden Code window"}, 202
+            )
         raise Refused(404, "not found")
 
     def safe_mode(self, project: str, mode: Any) -> str:
@@ -531,7 +539,7 @@ class Api:
     def project(self, body: dict[str, Any]) -> str:
         project = str(body.get("project") or "").strip()[:500]
         if not project:
-            raise Refused(400, "name the project: {\"project\": \"…\"}")
+            raise Refused(400, 'name the project: {"project": "…"}')
         try:
             self.hub.tasks.resolve_dir(project)
         except (ValueError, OSError) as exc:
@@ -542,7 +550,7 @@ class Api:
         project = self.project(body)
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
-            raise Refused(400, "say what the session should do: {\"prompt\": \"…\"}")
+            raise Refused(400, 'say what the session should do: {"prompt": "…"}')
         if prompt.startswith("/"):
             raise Refused(400, "slash commands are typed in the window; send words")
         mode = self.safe_mode(project, body.get("mode"))
@@ -588,7 +596,9 @@ class Api:
             raise Refused(409, "Exterminator Mode isn't available here")
         project = self.project(body)
         msg: dict[str, Any] = {"type": "code_bugfix_start", "project": project}
-        if isinstance(body.get("spend_cap"), int | float) and not isinstance(body["spend_cap"], bool):
+        if isinstance(body.get("spend_cap"), int | float) and not isinstance(
+            body["spend_cap"], bool
+        ):
             msg["spend_cap"] = body["spend_cap"]
         if isinstance(body.get("focus"), str):
             msg["focus"] = body["focus"][:2000]
@@ -602,7 +612,7 @@ class Api:
         project = self.project(body)
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
-            raise Refused(400, "say what the card's session should do: {\"prompt\": \"…\"}")
+            raise Refused(400, 'say what the card\'s session should do: {"prompt": "…"}')
         mode = body.get("mode")
         if mode not in (None, "") and mode not in SAFE_MODES:
             raise Refused(400, "mode is ask, plan or edits")
@@ -707,7 +717,9 @@ class Api:
             tmp.chmod(0o755)
             tmp.replace(path)
         except OSError as exc:
-            return self.tr("Couldn't install the eden-code command: {why}", why=exc.strerror or str(exc))
+            return self.tr(
+                "Couldn't install the eden-code command: {why}", why=exc.strerror or str(exc)
+            )
         return self.tr("Installed the eden-code command in {path}.", path=str(path.parent))
 
     # ── window commands ──

@@ -48,8 +48,13 @@ def test_nothing_waiting_says_so(hub):
 def test_an_approval_card_for_a_session_is_listed_first_with_its_choices(hub):
     task(hub, 3, status="running", title="Add a retry")
     task(hub, 4, status="failed", result="Traceback: boom")
-    hub.approvals["a1"] = {"id": "a1", "question": "Run npm install?", "detail": "$ npm install",
-                           "task_id": 3, "choices": [{"id": "allow", "label": "Allow"}, {"id": "deny", "label": "Not now"}]}
+    hub.approvals["a1"] = {
+        "id": "a1",
+        "question": "Run npm install?",
+        "detail": "$ npm install",
+        "task_id": 3,
+        "choices": [{"id": "allow", "label": "Allow"}, {"id": "deny", "label": "Not now"}],
+    }
     items = hub.code_attention.collect()
     assert [i["kind"] for i in items] == ["approval", "failed"]
     first = items[0]
@@ -78,16 +83,45 @@ def test_stopped_runs_failed_cards_and_conflicts_are_listed(hub):
     bug = hub.code_bugfix
     bug.load()
     bug.runs.append(BugRun(id="b1", project="app", state="stopped", why="spend", ended=time.time()))
-    bug.runs.append(BugRun(id="b2", project="app", state="stopped", why="owner"))  # (the owner's own stop)
-    bug.runs.append(BugRun(id="b3", project="app", state="done", landed="Landed."))  # (landed: over)
+    bug.runs.append(
+        BugRun(id="b2", project="app", state="stopped", why="owner")
+    )  # (the owner's own stop)
+    bug.runs.append(
+        BugRun(id="b3", project="app", state="done", landed="Landed.")
+    )  # (landed: over)
     runs = hub.code_runs
     runs.load()
-    runs.runs.append(Run("r1", "Nightly tests", "p", "app", "edits", [], 5.0, 2.0, state="stopped",
-                         why="time", started=time.time(), ended=time.time()))
-    runs.runs.append(Run("r2", "Fine", "p", "app", "edits", [], 5.0, 2.0, state="done", why="finished"))
-    hub.code_todo.board.cards.append({"id": "c1", "folder": str(hub.projects / "app"), "title": "Write the migration",
-                                      "prompt": "x", "state": "failed"})
-    hub.code_pairing.pairs()["app-1"] = Pair("app-1", "/tmp/copy", "/tmp/pair", conflicts={"a.py": {}, "b.py": {}})
+    runs.runs.append(
+        Run(
+            "r1",
+            "Nightly tests",
+            "p",
+            "app",
+            "edits",
+            [],
+            5.0,
+            2.0,
+            state="stopped",
+            why="time",
+            started=time.time(),
+            ended=time.time(),
+        )
+    )
+    runs.runs.append(
+        Run("r2", "Fine", "p", "app", "edits", [], 5.0, 2.0, state="done", why="finished")
+    )
+    hub.code_todo.board.cards.append(
+        {
+            "id": "c1",
+            "folder": str(hub.projects / "app"),
+            "title": "Write the migration",
+            "prompt": "x",
+            "state": "failed",
+        }
+    )
+    hub.code_pairing.pairs()["app-1"] = Pair(
+        "app-1", "/tmp/copy", "/tmp/pair", conflicts={"a.py": {}, "b.py": {}}
+    )
     items = hub.code_attention.collect()
     assert [i["kind"] for i in items] == ["conflict", "exterminator", "run", "queue"]
     said = [i["said"] for i in items]
@@ -95,20 +129,29 @@ def test_stopped_runs_failed_cards_and_conflicts_are_listed(hub):
     assert said[1] == "Exterminator Mode in app stopped: it reached its spending cap"
     assert said[2] == "The run without you in app stopped: it ran out of time"
     assert said[3] == "The queue's card Write the migration failed"
-    assert items[1]["pane"] == "bugfix" and items[2]["pane"] == "unattended" and items[3]["pane"] == "board"
+    assert (
+        items[1]["pane"] == "bugfix"
+        and items[2]["pane"] == "unattended"
+        and items[3]["pane"] == "board"
+    )
 
 
 def test_the_summary_names_three_and_counts_the_rest(hub):
     for tid in range(1, 6):
         task(hub, tid, status="failed")
     summary = hub.code_attention.summary()
-    assert summary.startswith("5 things are waiting for you: Session 5 (job 5) stopped with an error;")
+    assert summary.startswith(
+        "5 things are waiting for you: Session 5 (job 5) stopped with an error;"
+    )
     assert summary.endswith(", and 2 more.")
     task(hub, 9, status="waiting")
     for tid in range(1, 6):
         del hub.tasks.tasks[tid]
     hub.code_attention.on_task("task_finished", {"id": 9, "task_kind": "code"})
-    assert hub.code_attention.summary() == "One thing is waiting for you: Session 9 (job 9) finished and waits for your reply."
+    assert (
+        hub.code_attention.summary()
+        == "One thing is waiting for you: Session 9 (job 9) finished and waits for your reply."
+    )
 
 
 async def test_the_summary_in_chinese(hub):
@@ -139,8 +182,17 @@ def test_a_source_that_fails_leaves_the_rest(hub, monkeypatch):
     assert kinds(hub) == ["failed"]
 
 
-@pytest.mark.parametrize("words", ["What's waiting?", "what needs me", "Eden, what's waiting for me?",
-                                   "anything waiting", "what needs my attention", "有什么在等我"])
+@pytest.mark.parametrize(
+    "words",
+    [
+        "What's waiting?",
+        "what needs me",
+        "Eden, what's waiting for me?",
+        "anything waiting",
+        "what needs my attention",
+        "有什么在等我",
+    ],
+)
 async def test_whats_waiting_is_answered_at_once(hub, words):
     task(hub, 4, status="failed")
     said = await hub.code_attention.instant(words)

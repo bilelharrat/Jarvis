@@ -286,7 +286,9 @@ class Automate:
         keys = ("id", "project", "prompt")
         for kind, into in (("watches", self.watches), ("hooks", self.hooks)):
             for raw in data.get(kind) if isinstance(data.get(kind), list) else []:
-                if isinstance(raw, dict) and all(isinstance(raw.get(k), str) and raw[k] for k in keys):
+                if isinstance(raw, dict) and all(
+                    isinstance(raw.get(k), str) and raw[k] for k in keys
+                ):
                     into.append(raw)
         now = time.time()
         for row in data.get("seen") if isinstance(data.get("seen"), list) else []:
@@ -308,7 +310,17 @@ class Automate:
     def public(self) -> dict[str, Any]:
         self.load()
         lis = self.listener
-        hook_keys = ("id", "name", "project", "prompt", "commands", "spend_cap", "hours", "sandbox", "created")
+        hook_keys = (
+            "id",
+            "name",
+            "project",
+            "prompt",
+            "commands",
+            "spend_cap",
+            "hours",
+            "sandbox",
+            "created",
+        )
         return {
             "on": self.on,
             "watches": [dict(w) | {"last_run": self.last_run.get(w["id"], 0.0)} for w in self.watches],
@@ -396,7 +408,10 @@ class Automate:
     async def add_watch(self, raw: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
         self.load()
         if not self.on:
-            return "Turn on watches and webhooks first (Eden Code settings › Control from code).", None
+            return (
+                "Turn on watches and webhooks first (Eden Code settings › Control from code).",
+                None,
+            )
         if len(self.watches) >= WATCHES_MAX:
             return "That's as many as can be kept; remove one first.", None
         pattern = str(raw.get("glob") or "").strip()
@@ -425,18 +440,28 @@ class Automate:
     async def add_hook(self, raw: dict[str, Any]) -> tuple[str, dict[str, Any] | None, str]:
         self.load()
         if not self.on:
-            return "Turn on watches and webhooks first (Eden Code settings › Control from code).", None, ""
+            return (
+                "Turn on watches and webhooks first (Eden Code settings › Control from code).",
+                None,
+                "",
+            )
         if len(self.hooks) >= HOOKS_MAX:
             return "That's as many as can be kept; remove one first.", None, ""
         name = " ".join(str(raw.get("name") or "").split())
         if not NAME.match(name):
-            return "A webhook's name is up to 40 letters, digits, spaces, dots, dashes or underscores.", None, ""
+            return (
+                "A webhook's name is up to 40 letters, digits, spaces, dots, dashes or underscores.",
+                None,
+                "",
+            )
         found = await self._scope(raw)
         if isinstance(found, str):
             return found, None, ""
         scope, project = found
         sandbox = raw.get("sandbox") is not False
-        question, detail = self.runs.card(scope, project, self.tr("whenever the webhook {name} is called", name=name))
+        question, detail = self.runs.card(
+            scope, project, self.tr("whenever the webhook {name} is called", name=name)
+        )
         detail += "\n" + ("Its text is data: the run is locked down, its commands in the sandbox."
                           if sandbox else "Its text is data: the run is locked down.")  # fmt: skip
         if not await self.runs.ask(question, detail, "Make it", False):
@@ -502,7 +527,9 @@ class Automate:
                       mode="edits", commands=list(item.get("commands") or []),
                       spend_cap=float(item.get("spend_cap") or 5.0),
                       hours=float(item.get("hours") or 2.0))  # fmt: skip
-        run = self.runs.start(scope, origin=origin, job=item["id"], untrusted=untrusted, sandbox=sandbox)
+        run = self.runs.start(
+            scope, origin=origin, job=item["id"], untrusted=untrusted, sandbox=sandbox
+        )
         if isinstance(run, str):
             self.notify(f"automate:{item['id']}:{time.time():.0f}",
                         self.tr("{name} didn't start a run: {why}", name=name, why=run))  # fmt: skip
@@ -558,7 +585,10 @@ class Automate:
 
     def route(self) -> Any:
         async def handle(request: Any) -> tuple[int, dict[str, Any]]:
-            if not came_through(request) and _hostname(request.headers.get("host", "")) not in LOOPBACK:
+            if (
+                not came_through(request)
+                and _hostname(request.headers.get("host", "")) not in LOOPBACK
+            ):
                 return 403, {"error": f"point the tunnel at http://127.0.0.1:{self.port()}"}
             return await self.door(request)
 
@@ -588,8 +618,12 @@ class Automate:
         when = str(headers.get("x-eden-timestamp") or "").strip()
         offered = str(headers.get("x-eden-signature") or "").strip()
         secret = await asyncio.to_thread(self.secret, hook_id)
-        good = bool(secret) and bool(when) and hmac.compare_digest(
-            offered.encode(errors="replace"), sign(secret, when, body).encode()
+        good = (
+            bool(secret)
+            and bool(when)
+            and hmac.compare_digest(
+                offered.encode(errors="replace"), sign(secret, when, body).encode()
+            )
         )
         if not good:
             self._bad(hook_id, stamp)
@@ -605,7 +639,13 @@ class Automate:
             return 200, {"ok": True, "started": False, "note": "already had this one"}
         if self.busy(hook_id):
             return 409, {"error": "a run for this webhook is still going"}
-        why = self.start(hook, hook_prompt(hook, body), "webhook", untrusted=True, sandbox=hook.get("sandbox") is not False)
+        why = self.start(
+            hook,
+            hook_prompt(hook, body),
+            "webhook",
+            untrusted=True,
+            sandbox=hook.get("sandbox") is not False,
+        )
         if why:
             return 429 if "used up" in why else 409, {"error": why}
         return 202, {"ok": True, "started": True}
@@ -618,7 +658,9 @@ class Automate:
         if len(wrong) >= WRONG_MAX:
             self._locked[hook_id] = stamp + LOCKED_FOR
             wrong.clear()
-            log.warning("automate: too many bad signatures for a webhook; refusing them for a while")
+            log.warning(
+                "automate: too many bad signatures for a webhook; refusing them for a while"
+            )
 
     def _once(self, key: str) -> bool:
         now = time.time()
@@ -673,7 +715,11 @@ class Automate:
         async def run() -> None:
             hook_id = str(msg.get("id") or "")
             if any(h["id"] == hook_id for h in self.hooks):
-                self.hub.emit("code_hook_secret", id=hook_id, secret=await asyncio.to_thread(self.secret, hook_id))
+                self.hub.emit(
+                    "code_hook_secret",
+                    id=hook_id,
+                    secret=await asyncio.to_thread(self.secret, hook_id),
+                )
 
         self.hub._spawn(run())
 
@@ -701,7 +747,7 @@ async def api_schedules(api: Any, request: Any, rest: list[str]) -> Any:
         body = await api._body(request)
         schedule = body.get("schedule")
         if not isinstance(schedule, dict) or schedule.get("kind") in (None, "", "now"):
-            raise Refused(400, "say when: {\"schedule\": {\"kind\": \"daily\", \"time\": \"01:00\"}}")
+            raise Refused(400, 'say when: {"schedule": {"kind": "daily", "time": "01:00"}}')
         api.project(body)
         said = await runs.request({**body, "mode": "edits"})
         return _json_response({"said": said, "scheduled": said.startswith("Scheduled")}, 200)
@@ -734,7 +780,12 @@ async def api_hooks(api: Any, request: Any, rest: list[str]) -> Any:
     desk = _automate(api)
     desk.load()
     if request.method == "GET" and not rest:
-        return _json_response({"on": desk.on, **{k: v for k, v in desk.public().items() if k in ("hooks", "listener")}})
+        return _json_response(
+            {
+                "on": desk.on,
+                **{k: v for k, v in desk.public().items() if k in ("hooks", "listener")},
+            }
+        )
     if request.method == "POST" and not rest:
         body = await api._body(request)
         api.project(body)

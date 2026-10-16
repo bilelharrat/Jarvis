@@ -150,7 +150,9 @@ class Attention:
                 log.exception("attention: %s failed", source.__name__)
         rank = {kind: n for n, kind in enumerate(ORDER)}
         # (the newest first within a kind; the higher session number first when they tie)
-        items.sort(key=lambda i: (rank.get(i["kind"], len(ORDER)), -float(i.get("at") or 0), -i["task"]))
+        items.sort(
+            key=lambda i: (rank.get(i["kind"], len(ORDER)), -float(i.get("at") or 0), -i["task"])
+        )
         return items
 
     def _code_task(self, task_id: Any) -> Any:
@@ -248,7 +250,9 @@ class Attention:
             if time.time() - (run.ended or run.started) > 7 * 86400:
                 continue  # a week on, it's history (the Without you pane still has it)
             why = self.tr(WHY.get(run.why, "it failed"))
-            said = self.tr("The run without you in {project} stopped: {why}", project=run.project, why=why)
+            said = self.tr(
+                "The run without you in {project} stopped: {why}", project=run.project, why=why
+            )
             task = self._code_task(run.task_id)
             out.append(self._item(f"run:{run.id}", "run", task, _line(run.title) or "Without you",
                                   said, said, pane="unattended", at=run.ended, run=run.id))  # fmt: skip
@@ -303,7 +307,11 @@ class Attention:
             if rec.state not in ("idle", "failed") or rec.pending:
                 continue  # (its permission requests are cards already: approval items)
             title = _line(rec.title) or rec.project
-            template = "{title} on {alias} waits for you" if rec.state == "idle" else "{title} on {alias} failed"
+            template = (
+                "{title} on {alias} waits for you"
+                if rec.state == "idle"
+                else "{title} on {alias} failed"
+            )
             said = self.tr(template, title=title, alias=rec.alias)
             task = self._code_task(rec.task_id)
             out.append(self._item(f"handoff:{rec.id}", "handoff", task, title, said, said,
@@ -322,7 +330,9 @@ class Attention:
                 continue
             task = None
             if desk is not None:
-                task = next((self._code_task(tid) for tid, s in desk.bound.items() if s == slug), None)
+                task = next(
+                    (self._code_task(tid) for tid, s in desk.bound.items() if s == slug), None
+                )
             title = _title(task) if task is not None else slug
             said = self.tr("{n} files changed on both sides in {title}'s pairing folder",
                            n=len(pair.conflicts), title=title)  # fmt: skip

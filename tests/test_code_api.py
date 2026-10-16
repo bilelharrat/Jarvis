@@ -68,8 +68,14 @@ def capture(hub, monkeypatch, start=True):
         hub.sent.append(msg)
         if msg["type"] == "task_new" and start:
             tid = 10 + len(hub.tasks.tasks)
-            t = ClaudeTask(id=tid, prompt=msg["prompt"], cwd=hub.projects / "app", mode=msg["mode"],
-                           status="running", **launches.stamp(msg))
+            t = ClaudeTask(
+                id=tid,
+                prompt=msg["prompt"],
+                cwd=hub.projects / "app",
+                mode=msg["mode"],
+                status="running",
+                **launches.stamp(msg),
+            )
             hub.tasks.tasks[tid] = t
 
     monkeypatch.setattr(hub, "handle", handle)
@@ -78,7 +84,9 @@ def capture(hub, monkeypatch, start=True):
 def client(hub, host="127.0.0.1:8767", token=TOKEN, **headers):
     transport = httpx.ASGITransport(app=hub.code_api.listener.app)
     auth = {"Authorization": f"Bearer {token}"} if token else {}
-    return httpx.AsyncClient(transport=transport, base_url=f"http://{host}", headers={**auth, **headers})
+    return httpx.AsyncClient(
+        transport=transport, base_url=f"http://{host}", headers={**auth, **headers}
+    )
 
 
 def task(hub, tid, **extra):
@@ -126,8 +134,11 @@ async def test_a_post_must_be_json(hub, monkeypatch):
     turn_on(hub)
     capture(hub, monkeypatch)
     async with client(hub) as c:
-        answer = await c.post("/v1/sessions", content="project=app&prompt=x",
-                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+        answer = await c.post(
+            "/v1/sessions",
+            content="project=app&prompt=x",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
     assert answer.status_code == 415 and hub.sent == []
 
 
@@ -151,8 +162,17 @@ async def test_start_sends_the_windows_task_new_and_answers_with_the_session(hub
     turn_on(hub)
     capture(hub, monkeypatch)
     async with client(hub) as c:
-        answer = await c.post("/v1/sessions", json={"project": "app", "prompt": "Add a retry", "mode": "edits",
-                                                    "model": "sonnet", "isolated": True, "title": "Retry"})
+        answer = await c.post(
+            "/v1/sessions",
+            json={
+                "project": "app",
+                "prompt": "Add a retry",
+                "mode": "edits",
+                "model": "sonnet",
+                "isolated": True,
+                "title": "Retry",
+            },
+        )
     assert answer.status_code == 201
     body = answer.json()
     assert body["started"] is True and body["session"]["mode"] == "edits"
@@ -185,11 +205,17 @@ async def test_untrusted_and_a_bad_project_and_a_slash_command(hub, monkeypatch)
     turn_on(hub)
     capture(hub, monkeypatch)
     async with client(hub) as c:
-        await c.post("/v1/sessions", json={"project": "app", "prompt": "the issue says…", "untrusted": True})
+        await c.post(
+            "/v1/sessions", json={"project": "app", "prompt": "the issue says…", "untrusted": True}
+        )
         assert hub.sent[-1]["untrusted"] is True
         assert hub.tasks.tasks[max(hub.tasks.tasks)].untrusted is True
-        assert (await c.post("/v1/sessions", json={"project": "../../etc", "prompt": "x"})).status_code == 400
-        assert (await c.post("/v1/sessions", json={"project": "app", "prompt": "/bypass"})).status_code == 400
+        assert (
+            await c.post("/v1/sessions", json={"project": "../../etc", "prompt": "x"})
+        ).status_code == 400
+        assert (
+            await c.post("/v1/sessions", json={"project": "app", "prompt": "/bypass"})
+        ).status_code == 400
     assert len(hub.sent) == 1
 
 
@@ -209,9 +235,14 @@ async def test_messages_stop_end_and_the_transcript(hub, monkeypatch):
     turn_on(hub)
     capture(hub, monkeypatch)
     t = task(hub, 4, status="waiting")
-    t.transcript = [{"n": i, "role": "assistant", "text": f"line {i}", "at": "x", "secret": 1} for i in range(30)]
+    t.transcript = [
+        {"n": i, "role": "assistant", "text": f"line {i}", "at": "x", "secret": 1}
+        for i in range(30)
+    ]
     async with client(hub) as c:
-        assert (await c.post("/v1/sessions/4/messages", json={"text": "Now add a test"})).status_code == 202
+        assert (
+            await c.post("/v1/sessions/4/messages", json={"text": "Now add a test"})
+        ).status_code == 202
         assert (await c.post("/v1/sessions/4/messages", json={"text": "/clear"})).status_code == 400
         assert (await c.post("/v1/sessions/4/messages", json={"text": "  "})).status_code == 400
         await c.post("/v1/sessions/4/stop", json={})
@@ -235,24 +266,34 @@ async def test_land_and_discard_go_to_the_copys_own_card(hub, monkeypatch):
         assert (await c.post("/v1/sessions/6/land", json={})).status_code == 409
         # Nothing answers a card from here.
         assert (await c.post("/v1/approve", json={"id": "x", "choice": "allow"})).status_code == 404
-    assert hub.sent == [{"type": "code_copy", "slug": "app-ab12", "action": "land"},
-                        {"type": "code_copy", "slug": "app-ab12", "action": "discard"}]
+    assert hub.sent == [
+        {"type": "code_copy", "slug": "app-ab12", "action": "land"},
+        {"type": "code_copy", "slug": "app-ab12", "action": "discard"},
+    ]
 
 
 async def test_exterminator_mode_and_a_todo_card(hub, monkeypatch):
     turn_on(hub)
     capture(hub, monkeypatch)
     async with client(hub) as c:
-        answer = await c.post("/v1/exterminate", json={"project": "app", "spend_cap": 10, "focus": "uploads"})
+        answer = await c.post(
+            "/v1/exterminate", json={"project": "app", "spend_cap": 10, "focus": "uploads"}
+        )
         assert answer.status_code == 202
-        assert (await c.post("/v1/todos", json={"project": "app", "prompt": "x", "mode": "auto"})).status_code == 400
-    assert hub.sent == [{"type": "code_bugfix_start", "project": "app", "spend_cap": 10, "focus": "uploads"}]
+        assert (
+            await c.post("/v1/todos", json={"project": "app", "prompt": "x", "mode": "auto"})
+        ).status_code == 400
+    assert hub.sent == [
+        {"type": "code_bugfix_start", "project": "app", "spend_cap": 10, "focus": "uploads"}
+    ]
 
 
 async def test_a_todo_card_is_added_through_todo_add(hub):
     turn_on(hub)
     async with client(hub) as c:
-        answer = await c.post("/v1/todos", json={"project": "app", "prompt": "Write the migration", "mode": "plan"})
+        answer = await c.post(
+            "/v1/todos", json={"project": "app", "prompt": "Write the migration", "mode": "plan"}
+        )
     assert answer.status_code == 202
     card = hub.code_todo.board.get(answer.json()["added"])
     assert card["prompt"] == "Write the migration" and card["mode"] == "plan"
@@ -264,15 +305,25 @@ async def test_the_attention_list_and_a_card_that_isnt_eden_codes_is_never_told(
     async with client(hub) as c:
         body = (await c.get("/v1/attention")).json()
     assert body["count"] == 1 and body["summary"].startswith("One thing is waiting for you")
-    hub.approvals["m1"] = {"id": "m1", "question": "Send this email to Ann about the lawsuit?",
-                           "choices": [{"id": "allow", "label": "Send"}]}
+    hub.approvals["m1"] = {
+        "id": "m1",
+        "question": "Send this email to Ann about the lawsuit?",
+        "choices": [{"id": "allow", "label": "Send"}],
+    }
     async with client(hub) as c:
         body = (await c.get("/v1/attention")).json()
     assert "Ann" not in json.dumps(body)
     assert body["items"][0]["said"] == code_api.HIDDEN and body["items"][0]["choices"] == []
-    streamed = hub.code_api.shape({"type": "code_attention", "items": hub.code_attention.collect(), "count": 2})
+    streamed = hub.code_api.shape(
+        {"type": "code_attention", "items": hub.code_attention.collect(), "count": 2}
+    )
     assert "Ann" not in json.dumps(streamed) and streamed["count"] == 2
-    assert hub.code_api.shape({"type": "approval", "id": "m1", "question": "Send this email to Ann?"})["question"] == ""
+    assert (
+        hub.code_api.shape({"type": "approval", "id": "m1", "question": "Send this email to Ann?"})[
+            "question"
+        ]
+        == ""
+    )
 
 
 # ── the event stream ──
@@ -283,13 +334,41 @@ def test_the_stream_carries_eden_codes_own_events_only(hub):
     task(hub, 3)
     task(hub, 4, kind="research")
     shape = api.shape
-    assert shape({"type": "task_log", "id": 3, "entry": {"n": 1, "role": "assistant", "text": "hi"}})["entry"]["text"] == "hi"
-    assert shape({"type": "task_log", "id": 4, "entry": {"n": 1, "role": "assistant", "text": "secret research"}}) is None
+    assert (
+        shape({"type": "task_log", "id": 3, "entry": {"n": 1, "role": "assistant", "text": "hi"}})[
+            "entry"
+        ]["text"]
+        == "hi"
+    )
+    assert (
+        shape(
+            {
+                "type": "task_log",
+                "id": 4,
+                "entry": {"n": 1, "role": "assistant", "text": "secret research"},
+            }
+        )
+        is None
+    )
     assert shape({"type": "task_finished", "id": 4, "task_kind": "research"}) is None
-    assert shape({"type": "approval", "id": "a", "question": "Send this email to Ann?", "task_id": None}) == {
-        "type": "approval", "id": "a", "task": 0, "question": ""}
-    assert shape({"type": "approval", "id": "b", "question": "Run npm test?", "task_id": 3})["question"] == "Run npm test?"
-    for kind in ("mail", "imessage", "caption", "heard", "turn", "code_api_token", "code_hook_secret"):
+    assert shape(
+        {"type": "approval", "id": "a", "question": "Send this email to Ann?", "task_id": None}
+    ) == {"type": "approval", "id": "a", "task": 0, "question": ""}
+    assert (
+        shape({"type": "approval", "id": "b", "question": "Run npm test?", "task_id": 3})[
+            "question"
+        ]
+        == "Run npm test?"
+    )
+    for kind in (
+        "mail",
+        "imessage",
+        "caption",
+        "heard",
+        "turn",
+        "code_api_token",
+        "code_hook_secret",
+    ):
         assert kind not in code_api.STREAMED and shape({"type": kind}) is None
 
 
@@ -329,7 +408,9 @@ async def test_turning_it_on_asks_on_a_touch_id_card_and_makes_a_token(hub):
 
 
 async def test_the_switch_never_changes_by_feature_prefs(hub):
-    await hub.handle({"type": "feature_prefs", "changes": {code_api.PREF: True, "code_api_port": 9001}})
+    await hub.handle(
+        {"type": "feature_prefs", "changes": {code_api.PREF: True, "code_api_port": 9001}}
+    )
     assert hub.prefs.feature(code_api.PREF) is False
     assert hub.prefs.feature("code_api_port") == 9001
 

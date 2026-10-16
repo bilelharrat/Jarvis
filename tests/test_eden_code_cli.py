@@ -35,7 +35,10 @@ def run(argv, answers=None, stdin=""):
 
 
 def test_the_address_from_the_environment_then_the_apps_file_then_the_default(tmp_path):
-    assert cli.find_url({"EDEN_CODE_URL": "http://127.0.0.1:9100/"}, tmp_path) == "http://127.0.0.1:9100"
+    assert (
+        cli.find_url({"EDEN_CODE_URL": "http://127.0.0.1:9100/"}, tmp_path)
+        == "http://127.0.0.1:9100"
+    )
     assert cli.find_url({}, tmp_path) == cli.DEFAULT_URL
     (tmp_path / "code_api.json").write_text(json.dumps({"url": "http://127.0.0.1:9200"}))
     assert cli.find_url({}, tmp_path) == "http://127.0.0.1:9200"
@@ -60,11 +63,34 @@ def test_the_token_from_the_environment_else_the_keychain():
 
 def test_start_sends_what_was_asked_and_says_which_session():
     answers = {("POST", "/v1/sessions"): {"started": True, "session": {"id": 7, "folder": "app"}}}
-    code, out, calls = run(["start", "--project", "app", "--prompt", "Add a retry", "--mode", "edits",
-                            "--isolated", "--untrusted"], answers)
+    code, out, calls = run(
+        [
+            "start",
+            "--project",
+            "app",
+            "--prompt",
+            "Add a retry",
+            "--mode",
+            "edits",
+            "--isolated",
+            "--untrusted",
+        ],
+        answers,
+    )
     assert code == 0 and out.strip() == "Started session 7 in app."
-    assert calls == [("POST", "/v1/sessions", {"project": "app", "prompt": "Add a retry", "mode": "edits",
-                                                "isolated": True, "untrusted": True})]
+    assert calls == [
+        (
+            "POST",
+            "/v1/sessions",
+            {
+                "project": "app",
+                "prompt": "Add a retry",
+                "mode": "edits",
+                "isolated": True,
+                "untrusted": True,
+            },
+        )
+    ]
 
 
 def test_a_mode_past_accept_edits_isnt_even_offered():
@@ -79,7 +105,17 @@ def test_the_prompt_from_stdin():
 
 def test_sessions_and_tail_print_lines():
     answers = {
-        ("GET", "/v1/sessions"): {"sessions": [{"id": 3, "status": "waiting", "folder": "app", "title": "Add a retry", "cost_usd": 0.42}]},
+        ("GET", "/v1/sessions"): {
+            "sessions": [
+                {
+                    "id": 3,
+                    "status": "waiting",
+                    "folder": "app",
+                    "title": "Add a retry",
+                    "cost_usd": 0.42,
+                }
+            ]
+        },
         ("GET", "/v1/sessions/3/transcript"): {"entries": [{"role": "assistant", "text": "Done."}]},
     }
     _c, out, _calls = run(["sessions"], answers)
@@ -89,7 +125,9 @@ def test_sessions_and_tail_print_lines():
 
 
 def test_land_and_friends_and_json_out():
-    answers = {("POST", "/v1/sessions/3/land"): {"id": 3, "asked": "on its card in the Eden Code window"}}
+    answers = {
+        ("POST", "/v1/sessions/3/land"): {"id": 3, "asked": "on its card in the Eden Code window"}
+    }
     _c, out, calls = run(["land", "3"], answers)
     assert calls == [("POST", "/v1/sessions/3/land", {})] and "card" in out
     _c, out, _calls = run(["--json", "land", "3"], answers)
@@ -97,7 +135,13 @@ def test_land_and_friends_and_json_out():
 
 
 def test_attention_says_the_summary():
-    answers = {("GET", "/v1/attention"): {"count": 1, "summary": "One thing is waiting for you: x.", "items": [{"said": "x"}]}}
+    answers = {
+        ("GET", "/v1/attention"): {
+            "count": 1,
+            "summary": "One thing is waiting for you: x.",
+            "items": [{"said": "x"}],
+        }
+    }
     _c, out, _calls = run(["attention", "--say"], answers)
     assert out.strip() == "One thing is waiting for you: x."
 
@@ -109,10 +153,32 @@ def test_events_print_json_lines():
 
 
 def test_watch_schedule_and_webhook_bodies():
-    _c, _o, calls = run(["watch", "app", "src/**/*.py", "Run the tests", "--command", "npm test", "--spend-cap", "3"])
-    assert calls[0] == ("POST", "/v1/watches", {"project": "app", "prompt": "Run the tests", "commands": ["npm test"],
-                                                 "spend_cap": 3.0, "glob": "src/**/*.py"})
-    _c, _o, calls = run(["schedule", "app", "Nightly", "--kind", "weekly", "--time", "01:00", "--days", "1,5"])
+    _c, _o, calls = run(
+        [
+            "watch",
+            "app",
+            "src/**/*.py",
+            "Run the tests",
+            "--command",
+            "npm test",
+            "--spend-cap",
+            "3",
+        ]
+    )
+    assert calls[0] == (
+        "POST",
+        "/v1/watches",
+        {
+            "project": "app",
+            "prompt": "Run the tests",
+            "commands": ["npm test"],
+            "spend_cap": 3.0,
+            "glob": "src/**/*.py",
+        },
+    )
+    _c, _o, calls = run(
+        ["schedule", "app", "Nightly", "--kind", "weekly", "--time", "01:00", "--days", "1,5"]
+    )
     assert calls[0][2]["schedule"] == {"kind": "weekly", "time": "01:00", "days": [1, 5]}
     _c, _o, calls = run(["webhook", "deploy", "app", "Fix the deploy"])
     assert calls[0][2]["sandbox"] is True and calls[0][2]["name"] == "deploy"
