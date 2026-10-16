@@ -14,3 +14,8 @@
 .rc-files { margin-top: 4px; font-size: 12px; }
 .rc-qa { margin-top: 6px; font-size: 12px; }
 .rc-video { display: block; max-width: 320px; margin-top: 6px; border-radius: 6px; }
+.rc-facts .rc-guard { color: rgb(var(--c-success-ink, 40 130 70)); }
+.rc-facts .rc-guard.rc-flag { color: rgb(var(--c-warning-ink, 170 110 20)); }
+.rc-guards { margin-top: 4px; font-size: 12px; }
+.rc-guards .rc-guard-act { font-weight: 600; }
+.rc-guards .rc-guard-flagged .rc-guard-act { color: rgb(var(--c-warning-ink, 170 110 20)); }

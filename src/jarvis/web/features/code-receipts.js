@@ -1,6 +1,7 @@
 // A turn's proof (features/code_receipts.py): the transcript's "Proof · …" entry drawn as one
 // card: what changed, the tests, the check after the turn with its picture, and the risk,
-// in a colour and in words; for a Spec mode task, which requirements it met (code-spec.js).
+// in a colour and in words; for a Spec mode task, which requirements it met (code-spec.js);
+// the guardrails that fired (code_guardrails: blocked, asked, flagged).
 // The entry's text stays the same everywhere else (the phone, voice).
 (function (root) {
   'use strict';
@@ -15,7 +16,18 @@
     return t.passed ? ['rc-ok', 'Tests passed', n] : ['rc-bad', 'Tests failed', n];
   }
 
-  if (typeof module === 'object' && module.exports) { module.exports = { testsLine }; return; }
+  // The guardrails that fired in the turn (code_guardrails), as [class, words]: blocked, asked
+  // and flagged with how many times each; null when none fired.
+  const GUARD_WORDS = { blocked: 'blocked', asked: 'asked', flagged: 'flagged' };
+  function guardsLine(list) {
+    if (!Array.isArray(list) || !list.length) return null;
+    const counts = {};
+    for (const g of list) if (GUARD_WORDS[g.action]) counts[g.action] = (counts[g.action] || 0) + (Number(g.count) || 1);
+    const said = Object.keys(GUARD_WORDS).filter((a) => counts[a]).map((a) => `${counts[a]} ${GUARD_WORDS[a]}`);
+    return said.length ? [counts.flagged ? 'rc-guard rc-flag' : 'rc-guard', `Guardrails: ${said.join(', ')}`] : null;
+  }
+
+  if (typeof module === 'object' && module.exports) { module.exports = { testsLine, guardsLine }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
   const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
@@ -47,6 +59,8 @@
     // The session's own check of its work (code_selfcheck: "Check it yourself").
     const selfCheck = r.selfcheck;
     if (selfCheck && selfCheck.headline) facts.append(el('li', selfCheck.verdict === 'pass' ? 'rc-ok' : 'rc-bad', selfCheck.headline));
+    const guards = guardsLine(r.guardrails);  // the owner's rules that held (code-guardrails.js)
+    if (guards) facts.append(el('li', guards[0], guards[1]));
     li.replaceChildren(head, facts);
     const thumb = picture((r.check && r.check.thumb) || (selfCheck && selfCheck.thumb));
     if (thumb) {
@@ -93,6 +107,19 @@
     qa.title = F.t(own('Eden Secretary has the session use what it built in the browser or Simulator, then report what broke', 'Eden Code has the session use what it built in the browser or Simulator, then report what broke'));
     qa.addEventListener('click', () => { const t = F.currentTask(); if (t) F.send({ type: 'code_qa', id: t.id }); qa.disabled = true; });
     li.append(qa);
+    if (guards) {
+      const fired = el('details', 'rc-guards');
+      fired.append(el('summary', '', F.t('Guardrails')));
+      for (const g of r.guardrails.slice(0, 10)) {
+        const row = el('div', `rc-guard-${g.action}`);
+        row.append(el('span', 'rc-guard-act', F.t(GUARD_WORDS[g.action] || g.action)), document.createTextNode(' '));
+        const rule = el('span', '', `${g.rule}${g.what ? ` (${g.what})` : ''}${g.count > 1 ? ` ×${g.count}` : ''}`);
+        rule.setAttribute('data-no-i18n', '');
+        row.append(rule);
+        fired.append(row);
+      }
+      li.append(fired);
+    }
     if (r.files && r.files.length) {
       const more = el('details', 'rc-files');
       more.append(el('summary', '', F.t('Files')), ...r.files.map((f) => el('div', '', f)));

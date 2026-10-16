@@ -31,6 +31,11 @@ is told, and nothing is called):
                                low or medium; one tool-less turn on at most 2,000
                                characters of its question, answer and evidence
                                (features/code_assumptions.py)             100 a day
+  guardrail        Haiku 4.5   when the owner presses Suggest on one of their rules that
+                               the guardrails compiler couldn't turn into a check: one
+                               tool-less turn on that rule's words (features/
+                               code_guardrails.py); it holds only once they confirm it
+                                                                           30 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -61,6 +66,7 @@ POLICY: dict[str, tuple[str, int]] = {
     "pr_draft": ("haiku", 30),
     "spec_check": ("haiku", 40),
     "assume_risk": ("haiku", 100),  # features/code_assumptions.py, only when the owner turns it on
+    "guardrail": ("haiku", 30),  # Suggest on a rule (features/code_guardrails.py)
 }
 CALL_SECONDS = 90.0
 
