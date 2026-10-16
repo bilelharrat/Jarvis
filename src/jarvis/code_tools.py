@@ -24,6 +24,7 @@ READ_ONLY = [
     f"mcp__{BROWSER}__browser_read",
     f"mcp__{BROWSER}__browser_screenshot",
     f"mcp__{BROWSER}__browser_snapshot",
+    f"mcp__{BROWSER}__browser_find",
     f"mcp__{BROWSER}__browser_wait",
     f"mcp__{BROWSER}__browser_console",
     f"mcp__{BROWSER}__browser_network",

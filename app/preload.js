@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('jarvisApp', {
     park: () => ipcRenderer.invoke('browser:park'),
     external: () => ipcRenderer.invoke('browser:external'),
     devtools: () => ipcRenderer.invoke('browser:devtools'),
+    // …and the rest of its asks (app/browser-pane.js): history and ⋯ menus, docked DevTools, light/dark, screenshots, source, logs.
+    pane: (msg) => ipcRenderer.invoke('browser:pane', msg),
     setBounds: (bounds) => ipcRenderer.invoke('browser:bounds', bounds),
     nav: (action, url) => ipcRenderer.invoke('browser:nav', { action, url }),
     command: (command) => ipcRenderer.invoke('browser:command', command),

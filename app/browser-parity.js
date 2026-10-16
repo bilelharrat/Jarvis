@@ -848,7 +848,7 @@ class BrowserParity {
       { label: this.label('duplicate'), enabled: /^https?:/i.test(url) && Boolean(this.hooks.openTab), click: () => this.hooks.openTab(url, this.profileOf(wc)) },
       { label: this.label(view.pinned ? 'unpinTab' : 'pinTab'), click: () => this.tabAction({ action: view.pinned ? 'unpin' : 'pin', id }) },
       { label: this.label(wc.isAudioMuted() ? 'unmuteTab' : 'muteTab'), click: () => this.tabAction({ action: wc.isAudioMuted() ? 'unmute' : 'mute', id }) },
-      { label: this.label('besideThis'), enabled: view !== this.hooks.active() && view !== this.split && !view.popout, click: () => this.splitWith(view) },
+      { label: this.label('besideThis'), enabled: !this.hooks.noSplit && view !== this.hooks.active() && view !== this.split && !view.popout, click: () => this.splitWith(view) }, // (none in Eden Code's pane)
       { label: this.label('popOut'), enabled: !view.popout, click: () => this.popOut(view) },
       { type: 'separator' },
       { label: this.label('closeTab'), enabled: many && Boolean(this.hooks.closeTab), click: () => this.hooks.closeTab(view) },

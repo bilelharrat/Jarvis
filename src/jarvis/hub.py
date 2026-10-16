@@ -212,6 +212,7 @@ TOOL_LABELS = {
     "browser_back": "Went back in the browser",
     "browser_screenshot": "Looked at the browser page",
     "browser_snapshot": "Looked over the browser page",
+    "browser_find": "Looked for something on the browser page",
     "browser_act": "Acted in the browser",
     "browser_wait": "Waited for the browser page",
     "browser_tabs": "Worked with browser tabs",
@@ -5373,7 +5374,7 @@ class Hub:
         """The address an Eden Code session's next browser action lands on: the tab it
         names (tab), else its own tab's page, or the tab on show while it has none (where
         such a session acts)."""
-        tab = tab or self.browser_tabs.session_tab(task_id)
+        tab = tab or self.browser_tabs.acting_tab(task_id)  # (the pane's tab on show while it's open)
         where = {"tab": tab} if tab else {}
 
         async def read(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -7350,6 +7351,8 @@ class Hub:
             if future is not None and not future.done():
                 result = msg.get("result")
                 future.set_result(result if isinstance(result, dict) else {"error": "bad result"})
+        elif kind == "code_browser_pane":  # Eden Code's Browser pane opened or closed
+            self.browser_tabs.set_pane(msg.get("open"))
         elif kind == "browser_result":
             future = self._browser_calls.get(str(msg.get("id")))
             if future is not None and not future.done():
