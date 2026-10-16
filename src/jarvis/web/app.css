@@ -798,7 +798,10 @@ body[data-look="console"] .sheet { box-shadow: -24px 0 60px rgba(0, 0, 0, 0.55);
 }
 
 /* ── floating sidebar ── */
-.jc-side { position: absolute; top: 12px; left: 12px; bottom: 12px; width: 268px; border-radius: 18px; padding: 14px 10px 10px; display: flex; flex-direction: column; gap: 10px; z-index: 2; }
+/* The sidebar's width (features/code-side.js sets it inline once the owner drags its edge)
+   and the main column's left edge, beside it. */
+.deck.jc { --jc-side-w: 268px; --jc-main-l: calc(var(--jc-side-w) + 24px); }
+.jc-side { position: absolute; top: 12px; left: 12px; bottom: 12px; width: var(--jc-side-w); border-radius: 18px; padding: 14px 10px 10px; display: flex; flex-direction: column; gap: 10px; z-index: 2; }
 body.in-app .jc-side { top: 40px; }
 .jc-side-head { display: flex; align-items: center; gap: 9px; padding: 2px 6px 2px 8px; }
 .jc-side-head h2 { margin: 0; flex: 1; font-size: 15px; font-weight: 600; letter-spacing: -0.014em; }
@@ -836,7 +839,7 @@ body.in-app .jc-side { top: 40px; }
 .jc-side-foot { padding: 4px 8px 0; font-size: 11.5px; color: rgb(var(--c-muted)); min-height: 16px; }
 
 /* ── main column ── */
-.jc-main { position: absolute; inset: 0 0 0 292px; display: flex; flex-direction: column; min-width: 0; }
+.jc-main { position: absolute; inset: 0 0 0 var(--jc-main-l); display: flex; flex-direction: column; min-width: 0; }
 .jc-toolbar { display: flex; align-items: center; gap: 10px; padding: 14px 16px 8px 18px; min-height: 60px; }
 body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-titles { flex: 1; min-width: 0; }
@@ -1937,7 +1940,7 @@ body.in-app .jc-side-head { padding-left: 70px; min-height: 32px; }
    faint for a panel), over the base glass panel's blur, rim and shadow */
 .deck.jc .jc-side.glass-panel::before { background-color: rgba(250, 250, 252, 0.68); }
 @media (prefers-color-scheme: dark) { .deck.jc .jc-side.glass-panel::before { background-color: rgba(34, 34, 38, 0.64); } }
-.jc-main { left: 284px; }
+.deck.jc { --jc-main-l: calc(var(--jc-side-w) + 16px); }
 body.in-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
 body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
 /* (in a narrow window the sidebar is hidden: the main column takes its place, as above) */

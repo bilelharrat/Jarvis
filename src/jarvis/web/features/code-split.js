@@ -639,6 +639,7 @@
       divider.setAttribute('aria-valuetext', `${pct}% · ${100 - pct}%`);
     }
     new ResizeObserver(() => { if (R.on) layout(); }).observe(cc);
+    cc.addEventListener('jc-side-resize', () => { if (R.on) layout(); });  // (the sidebar dragged wider or narrower: code-side.js)
     // The sidebar folding, and Eden Code opening (the frame loads once it's first seen).
     new MutationObserver(() => {
       if (!R.on) return;

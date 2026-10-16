@@ -4,8 +4,8 @@
    over from the sidebar; and the frame's own page, Eden Code alone. The Summit Glass tokens
    of .deck.jc. */
 
-/* The room right of the sidebar (app.css: .jc-main's left), split at --sv-ratio. */
-.deck.jc { --sv-l: 284px; --sv-gap: 8px; --sv-ratio: 0.5; }
+/* The room right of the sidebar (app.css: .jc-main's left, --jc-main-l), split at --sv-ratio. */
+.deck.jc { --sv-l: var(--jc-main-l, 284px); --sv-gap: 8px; --sv-ratio: 0.5; }
 .deck.jc.side-hidden { --sv-l: 0px; }
 @media (max-width: 900px) { .deck.jc { --sv-l: 0px; } }
 .deck.jc.sv-on { --sv-room: calc(100% - var(--sv-l) - var(--sv-gap)); }

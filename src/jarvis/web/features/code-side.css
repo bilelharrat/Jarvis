@@ -1,0 +1,29 @@
+/* The sidebar's resize handle (features/code-side.js): a strip on its right edge, straddling
+   the gap to the main column, with a hairline in the accent on hover, focus and while it's
+   dragged. Eden's look uses its own accent; the other looks app.css's --c-accent (Stark
+   Glass night and white, Obsidian). */
+.jc-side-handle {
+  position: absolute; top: 14px; bottom: 14px; right: -7px; width: 12px; z-index: 3;
+  cursor: col-resize; touch-action: none; outline: none; background: transparent;
+}
+.jc-side-handle::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px;
+  border-radius: 1px; background: transparent; transition: background-color 140ms ease;
+}
+.jc-side-handle:hover::after, .deck.jc.jc-side-dragging .jc-side-handle::after { background: rgb(var(--c-accent) / 0.6); }
+.jc-side-handle:focus-visible::after { background: rgb(var(--c-accent) / 0.9); width: 3px; margin-left: -1.5px; }
+body:not([data-skin]) .jc-side-handle:hover::after,
+body:not([data-skin]) .deck.jc.jc-side-dragging .jc-side-handle::after { background: var(--eden-accent); opacity: 0.6; }
+body:not([data-skin]) .jc-side-handle:focus-visible::after { background: var(--eden-accent); opacity: 1; }
+/* Obsidian's sidebar runs edge to edge: the handle sits on its hairline. */
+html body[data-skin="obsidian"] .deck.jc .jc-side-handle { top: 0; bottom: 0; right: -6px; }
+html body[data-skin="obsidian"] .deck.jc.sv-on.lb-folded .jc-side-handle { display: none; }  /* (the folded margin is 64px, not dragged) */
+/* Folded away, it goes with the sidebar (and out of the keys' way). */
+.deck.jc.side-hidden .jc-side-handle { visibility: hidden; }
+
+/* While it's dragged: no glide, no frame swallowing the pointer, no text selected. */
+.deck.jc.jc-side-dragging, .deck.jc.jc-side-dragging * { cursor: col-resize; user-select: none; }
+.deck.jc.jc-side-dragging .sv-frame { pointer-events: none; }
+.deck.jc.jc-side-dragging .jc-side, .deck.jc.jc-side-dragging .jc-main,
+.deck.jc.jc-side-dragging .sv-divider, .deck.jc.jc-side-dragging .sv-pane { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .jc-side-handle::after { transition: none; } }
