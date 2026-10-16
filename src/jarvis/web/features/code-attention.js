@@ -29,6 +29,7 @@
     handoff: 'Another machine',
     conflict: 'Pairing conflict',
     assumption: 'Assumption',
+    rollout: 'After a merge',
   };
 
   // The buttons an item has: an approval's answers (never "no", which wants a reason: Open
@@ -44,6 +45,10 @@
     if (item && item.kind === 'assumption' && item.assumption) {
       out.push({ label: 'Keep', choice: 'keep', command: { type: 'code_assume_keep', id: item.assumption } });
       out.push({ label: 'Undo', choice: 'undo', command: { type: 'code_assume_undo', id: item.assumption } });
+    }
+    if (item && item.kind === 'rollout' && item.rollout) {  // (features/code-rollouts.js)
+      out.push({ label: 'Open a fix session', choice: 'fix', command: { type: 'code_rollout_fix', id: item.rollout } });
+      out.push({ label: 'Prepare a revert PR', choice: 'revert', command: { type: 'code_rollout_revert', id: item.rollout } });
     }
     out.push({ label: 'Open', open: true });
     return out;

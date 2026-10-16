@@ -18,6 +18,9 @@ test('an approval’s buttons are its yeses, then Open; never the no that wants 
   const item = { kind: 'approval', choices: [{ id: 'allow', label: 'Allow' }, { id: 'always', label: 'Always' }, { id: 'deny', label: 'Not now' }] };
   assert.deepEqual(pure.actionsOf(item).map((a) => a.label), ['Allow', 'Always', 'Open']);
   assert.deepEqual(pure.actionsOf({ kind: 'failed' }).map((a) => a.label), ['Open']);
+  const rollout = pure.actionsOf({ kind: 'rollout', rollout: 'ro-1' });
+  assert.deepEqual(rollout.map((a) => a.label), ['Open a fix session', 'Prepare a revert PR', 'Open']);
+  assert.deepEqual(rollout.slice(0, 2).map((a) => a.command), [{ type: 'code_rollout_fix', id: 'ro-1' }, { type: 'code_rollout_revert', id: 'ro-1' }]);
 });
 
 test('a reply is seen once its session isn’t unread in the sidebar', () => {

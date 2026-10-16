@@ -1,5 +1,6 @@
 """A Sentry and a Datadog of the tests' own, behind httpx.MockTransport: Sentry's issue,
-its latest event and comments; Datadog's events, read and posted. Kept in dicts and lists,
+its latest event, comments and a project's issue search; Datadog's events, read, searched
+and posted. Kept in dicts and lists,
 with helpers that sign (or, for Datadog, header) a webhook as each service does. Nothing
 ever leaves the machine; every request is recorded."""
 
@@ -33,6 +34,9 @@ class FakeSentry:
         self.comments: list[dict[str, Any]] = []
         self.requests: list[httpx.Request] = []
         self.down = False
+        # project slug -> its issues, for a search (a "regressed" substatus answers
+        # is:regressed, the rest the other searches)
+        self.project_issues: dict[str, list[dict[str, Any]]] = {}
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -50,6 +54,12 @@ class FakeSentry:
         if m:
             found = self.issues.get(m.group(2))
             return httpx.Response(200, json=found) if found else httpx.Response(404, json={})
+        m = re.match(r"^/api/0/projects/([^/]+)/([^/]+)/issues/$", path)
+        if m:
+            regressed = "is:regressed" in request.url.params.get("query", "")
+            found = [i for i in self.project_issues.get(m.group(2), [])
+                     if (i.get("substatus") == "regressed") == regressed]  # fmt: skip
+            return httpx.Response(200, json=found)
         m = re.match(r"^/api/0/issues/([^/]+)/comments/$", path)
         if m and request.method == "POST":
             self.comments.append({"issue": m.group(1), **json.loads(request.content),
@@ -63,6 +73,7 @@ class FakeDatadog:
         self.events: dict[str, dict[str, Any]] = {}
         self.posted: list[dict[str, Any]] = []
         self.requests: list[httpx.Request] = []
+        self.stream: list[dict[str, Any]] = []  # the event stream a search reads
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -78,6 +89,12 @@ class FakeDatadog:
                 if found
                 else httpx.Response(404, json={})
             )
+        if path == "/api/v1/events" and request.method == "GET":
+            tags = request.url.params.get("tags", "")
+            start = int(request.url.params.get("start", "0"))
+            found = [e for e in self.stream if tags in e.get("tags", [])
+                     and int(e.get("date_happened") or 0) >= start]  # fmt: skip
+            return httpx.Response(200, json={"events": found})
         if path == "/api/v1/events" and request.method == "POST":
             self.posted.append({**json.loads(request.content), "host": request.url.host,
                                 "keys": (request.headers.get("dd-api-key"),

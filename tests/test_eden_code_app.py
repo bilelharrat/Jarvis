@@ -366,6 +366,7 @@ EDEN_CODE_S_OWN = {
         "code_pr_review_watch",
         "code_pr_watch",
         "code_queue_tick",
+        "code_rollouts_watch",  # (GitHub, and the owner's Sentry/Datadog for a merged PR)
         "code_sessions",
         "code_stack_watch",
         "code_triggers_listener",
