@@ -203,7 +203,7 @@ class FixtureBackend : CodeBackend {
 
     override fun home() = homeNow
     override fun options() = optionsNow
-    override fun session(id: Int, after: Int, seen: Int, v: String, wait: Int): PhoneView {
+    override fun session(id: Int, after: Int, seen: Long, v: String, wait: Int): PhoneView {
         if (v == "fixture") Thread.sleep(wait * 1000L)
         val view = view(id)
         return if (after > 0) view.copy(entries = view.entries.filter { it.i > after }) else view

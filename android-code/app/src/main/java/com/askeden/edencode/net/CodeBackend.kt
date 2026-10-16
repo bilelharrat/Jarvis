@@ -25,7 +25,7 @@ interface CodeBackend {
     fun home(): PhoneHome
     fun options(): PhoneOptions
     /** The long poll (docs/eden-code-phone.md): answers at once when there is anything new. */
-    fun session(id: Int, after: Int, seen: Int, v: String, wait: Int): PhoneView
+    fun session(id: Int, after: Int, seen: Long, v: String, wait: Int): PhoneView
     fun send(id: Int, text: String): PhoneOK
     /** A message with pictures: the companion's /api/code/send, which takes them. */
     fun send(id: Int, text: String, pictures: List<Picture>): PhoneOK
@@ -61,7 +61,7 @@ class LiveBackend(val api: MacApi) : CodeBackend {
     override fun home() = PhoneHome.from(get("home"))
     override fun options() = PhoneOptions.from(get("options", timeout = 20))
 
-    override fun session(id: Int, after: Int, seen: Int, v: String, wait: Int) = PhoneView.from(
+    override fun session(id: Int, after: Int, seen: Long, v: String, wait: Int) = PhoneView.from(
         get("session", mapOf("id" to "$id", "after" to "$after", "seen" to "$seen", "v" to v, "wait" to "$wait"), wait + 15L),
     )
 

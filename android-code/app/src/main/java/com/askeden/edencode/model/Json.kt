@@ -47,6 +47,19 @@ fun JSONObject.integer(key: String): Int? {
     return if (whole in Int.MIN_VALUE..Int.MAX_VALUE) whole.toInt() else null
 }
 
+/**
+ * A whole number that may not fit an Int, exactly (no trip through a Double): the session view's
+ * "seen" is the Mac's clock in nanoseconds (about 1.8e18), far past what integer() takes.
+ */
+fun JSONObject.long(key: String): Long? = when (val v = raw(key)) {
+    is Int -> v.toLong()
+    is Long -> v
+    is Boolean -> null
+    is String -> v.trim().toLongOrNull()
+    is java.math.BigInteger -> if (v.bitLength() < 64) v.toLong() else null
+    else -> integer(key)?.toLong()
+}
+
 fun JSONObject.flag(key: String): Boolean? = when (val v = raw(key)) {
     is Boolean -> v
     is Int -> v != 0

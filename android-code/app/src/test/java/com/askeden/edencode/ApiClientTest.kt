@@ -54,10 +54,36 @@ class ApiClientTest {
         assertEquals("GET", req.method)
     }
 
+    // The Mac closes idle connections after 5 s and the app polls every 5: a read that finds its
+    // connection gone is asked once more; a send never is (it may have arrived).
+    @Test fun aReadWhoseConnectionDroppedIsAskedAgain() {
+        server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        server.enqueue(ok("""{"sessions": [], "attention": [], "pinned": null, "exterminator": []}"""))
+        assertTrue(backend().home().sessions.isEmpty())
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun aSendWhoseConnectionDroppedIsNotRepeated() {
+        server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        server.enqueue(ok("""{"ok": true}"""))
+        try {
+            backend().send(5, "hello")
+            fail("expected the dropped connection")
+        } catch (e: MacError) {
+            assertEquals(MacError.ConnectionLost, e)
+        }
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun idleConnectionsGoBeforeTheMacClosesThem() = assertTrue(com.askeden.edencode.net.PinnedClients.KEEP_ALIVE_SECONDS < 5)
+
     @Test fun theLongPollAsksWithWhatItHas() {
-        server.enqueue(ok("""{"id": 5, "next": 9, "seen": 4, "v": "abc", "entries": []}"""))
+        server.enqueue(ok("""{"id": 5, "next": 9, "seen": 1792181775536281001, "v": "abc", "entries": []}"""))
         val view = backend().session(5, after = 7, seen = 3, v = "x y", wait = 25)
         assertEquals(9, view.next)
+        // The Mac's "seen" is its clock in nanoseconds: kept exactly, or every poll gets the
+        // changed entries again and answers at once (the phone then polls flat out).
+        assertEquals(1792181775536281001L, view.seen)
         val url = server.takeRequest().requestUrl!!
         assertEquals("/api/code/phone/session", url.encodedPath)
         assertEquals("5", url.queryParameter("id"))

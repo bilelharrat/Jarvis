@@ -2,6 +2,7 @@ package com.askeden.edencode.net
 
 import com.askeden.edencode.model.body
 import com.askeden.edencode.model.text
+import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -62,11 +63,18 @@ object PinnedClients {
             .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS))
             .followRedirects(false)
             .retryOnConnectionFailure(false)
+            // The Mac's server (uvicorn) hangs up an idle connection after 5 seconds, and the app
+            // polls every 5: a pooled connection kept longer is dead by the next request, which then
+            // fails as "The connection dropped". Let go of idle ones sooner than the Mac does.
+            .connectionPool(ConnectionPool(5, KEEP_ALIVE_SECONDS, TimeUnit.SECONDS))
             .cache(null)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS)
             .callTimeout(180, TimeUnit.SECONDS)
     }
+
+    /** Below uvicorn's 5-second keep-alive (see builder). */
+    const val KEEP_ALIVE_SECONDS = 3L
 
     fun forPin(fingerprint: String): OkHttpClient = clients.getOrPut(fingerprint) { builder(PinTrustManager(fingerprint)).build() }
 }
@@ -184,9 +192,13 @@ class MacApi(val baseURL: String, val token: String?, val fingerprint: String?) 
         }.build()
         val client = PinnedClients.forPin(fp).newBuilder().callTimeout(timeoutSeconds, TimeUnit.SECONDS).build()
         try {
-            client.newCall(request).execute().use { response ->
-                val text = response.body?.string() ?: ""
-                return MacError.check(response.code, text, pairing)
+            return try {
+                client.newCall(request).execute().use { response -> MacError.check(response.code, response.body?.string() ?: "", pairing) }
+            } catch (e: IOException) {
+                // A read whose pooled connection the Mac had already closed: ask once more on a new
+                // one. Only reads (GET) — a send is never repeated, as iOS doesn't either.
+                if (body != null || !droppedBeforeAnswer(e)) throw e
+                client.newCall(request).execute().use { response -> MacError.check(response.code, response.body?.string() ?: "", pairing) }
             }
         } catch (e: IOException) {
             val mapped = map(e)
@@ -197,6 +209,9 @@ class MacApi(val baseURL: String, val token: String?, val fingerprint: String?) 
             throw mapped
         }
     }
+
+    /** The connection broke (not a timeout, a refusal or a certificate): the Mac hung up on it. */
+    private fun droppedBeforeAnswer(e: IOException) = map(e) == MacError.ConnectionLost
 
     private fun mayBeRelayRefusal(e: MacError) = e is MacError.ConnectionLost || e is MacError.NotEncrypted || e is MacError.Unreachable
 
