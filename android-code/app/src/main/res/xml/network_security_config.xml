@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No plain HTTP anywhere: the Mac is reached over its own TLS, pinned in code (net/MacApi.kt). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
