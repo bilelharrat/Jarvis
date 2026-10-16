@@ -98,7 +98,7 @@ struct EdenComposer: View {
         HStack(alignment: .bottom, spacing: 8) {
             orb.padding(.bottom, 1)
             TextField("", text: $text, prompt: placeholder, axis: .vertical)
-                .font(.system(size: 16))
+                .font(.eden(size: 16))
                 .foregroundStyle(ComposerInk.ink(dark))
                 .tint(ComposerInk.accent(dark))
                 .lineLimit(1...6)
@@ -126,7 +126,7 @@ struct EdenComposer: View {
 
     private var placeholder: Text {
         Text(working ? "Steer or reply…" : "Message Eden Code…")
-            .font(.system(size: 14.5))
+            .font(.eden(size: 14.5))
             .foregroundStyle(ComposerInk.subtle(dark))
     }
 
@@ -152,7 +152,7 @@ struct EdenComposer: View {
         Button(action: onSteer) {
             HStack(spacing: 5) {
                 SteerGlyph().stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round)).frame(width: 13, height: 13)
-                Text("Steer").font(.system(size: 12, weight: .semibold))
+                Text("Steer").font(.eden(size: 12, weight: .semibold))
             }
             .foregroundStyle(ComposerInk.ink(dark))
             .padding(.leading, 9).padding(.trailing, 11)
@@ -218,8 +218,8 @@ struct EdenComposer: View {
                 Section("Bypass permissions and Auto are set on your Mac") {}
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: CodeModes.symbol(modeID)).font(.system(size: 12, weight: .semibold))
-                    Text(modeShort).font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize()
+                    Image(systemName: CodeModes.symbol(modeID)).font(.eden(size: 12, weight: .semibold))
+                    Text(modeShort).font(.eden(size: 12, weight: .semibold)).lineLimit(1).fixedSize()
                     ChevronDown().stroke(style: StrokeStyle(lineWidth: 1.6)).frame(width: 9, height: 9)
                 }
                 .foregroundStyle(ComposerInk.accentInk(dark))
@@ -237,7 +237,7 @@ struct EdenComposer: View {
                 HStack(spacing: 6) {
                     Circle().fill(ComposerInk.accent(dark)).frame(width: 6, height: 6)
                         .shadow(color: ComposerInk.glow(dark).opacity(0.6), radius: 2)
-                    Text(modelLabel.isEmpty ? "Model" : modelLabel).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(modelLabel.isEmpty ? "Model" : modelLabel).font(.eden(size: 12, weight: .semibold)).lineLimit(1)
                     ChevronDown().stroke(style: StrokeStyle(lineWidth: 1.6)).frame(width: 9, height: 9)
                 }
                 .foregroundStyle(ComposerInk.ink2(dark))
@@ -325,12 +325,12 @@ struct ModelPicker: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if models.isEmpty {
                     Text("Your Mac hasn’t sent its models yet.")
-                        .font(.system(size: 14)).foregroundStyle(EdenTheme.muted).padding(16)
+                        .font(.eden(size: 14)).foregroundStyle(EdenTheme.muted).padding(16)
                 }
                 ForEach(sections) { section in
                     if !section.title.isEmpty {
                         Text(section.title)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.eden(size: 12, weight: .semibold))
                             .foregroundStyle(EdenTheme.muted)
                             .padding(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
                             .accessibilityAddTraits(.isHeader)
@@ -359,16 +359,16 @@ struct ModelPicker: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(model.name)
-                        .font(.system(size: 16, weight: model.router ? .semibold : .regular))
+                        .font(.eden(size: 16, weight: model.router ? .semibold : .regular))
                         .foregroundStyle(EdenTheme.ink)
                         .lineLimit(1)
                     if !note.isEmpty {
-                        Text(note).font(.system(size: 12)).foregroundStyle(EdenTheme.muted).lineLimit(2)
+                        Text(note).font(.eden(size: 12)).foregroundStyle(EdenTheme.muted).lineLimit(2)
                     }
                 }
                 Spacer(minLength: 8)
                 if chosen {
-                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.accent)
+                    Image(systemName: "checkmark").font(.eden(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.accent)
                 }
             }
             .padding(.horizontal, 16)

@@ -26,8 +26,10 @@ final class EdenCodeStore {
     private(set) var macs: [Pairing] = []
     private(set) var current: Pairing?
     private(set) var backend: (any CodeBackend)?
-    /// The debug fixtures stand in for a Mac (screenshots, the Simulator without a Mac).
-    private(set) var usingFixtures = false
+    /// "Try a demo": DemoBackend's sample data stands in for a Mac (App Review, anyone without
+    /// a Mac yet, the debug screenshots). While it's on, nothing reaches the network: no push
+    /// registration, no Live Activities, no relay, no widget, and its Macs are never saved.
+    private(set) var demo = false
 
     var home = PhoneHome()
     var options = PhoneOptions()
@@ -78,7 +80,7 @@ final class EdenCodeStore {
         liveActivitiesOn = UserDefaults.standard.object(forKey: "edencode.liveActivities") as? Bool ?? true
         #if DEBUG
         if EdenDebug.fixtures {
-            useFixtures()
+            startDemo()
             return
         }
         #endif
@@ -86,11 +88,23 @@ final class EdenCodeStore {
         select(MacStore.current(in: macs))
     }
 
+    /// The connection's problem as the banner shows it (what happened, what to do, a button).
+    var issue: EdenCodeProblem?
+
     // MARK: - Macs
 
     var paired: Bool { backend != nil }
 
     func select(_ pairing: Pairing?) {
+        if demo {
+            // The demo's Macs are only labels: switching between them never makes a connection.
+            if let pairing, DemoBackend.macs.contains(where: { PairingStore.same($0, pairing) }) {
+                current = pairing
+                return
+            }
+            demo = false
+            macs = MacStore.load()
+        }
         current = pairing
         MacStore.currentID = pairing.map(MacStore.key)
         backend = pairing.map { LiveBackend(api: $0.api) }
@@ -104,6 +118,8 @@ final class EdenCodeStore {
         todos = PhoneTodos(cards: [])
         loaded = false
         problem = nil
+        issue = nil
+        switchedOff = false
         path = []
         openSession = nil
         landed = false
@@ -111,13 +127,18 @@ final class EdenCodeStore {
     }
 
     func added(_ pairing: Pairing) {
+        if demo { endDemo() }
         macs = MacStore.adding(pairing, to: macs)
         MacStore.save(macs)
         select(pairing)
+        // Notifications are asked for here, once a real Mac is paired and can send them
+        // (never at first launch, and never for the demo).
+        PushRegistrar.shared.requestPermissionIfNeeded()
         PushRegistrar.shared.registerAgain()
     }
 
     func remove(_ pairing: Pairing) {
+        if demo { endDemo(); return }
         let api = pairing.api
         Task { try? await api.unregisterPush() }
         macs = MacStore.removing(pairing, from: macs)
@@ -127,6 +148,7 @@ final class EdenCodeStore {
 
     /// The push token for every paired Mac (each sends this app's pushes on its own).
     func registerPush(token: String) async {
+        if demo { return }
         let bundle = Bundle.main.bundleIdentifier ?? "com.askeden.jarvis.edencode"
         #if DEBUG
         let environment = "development"
@@ -158,8 +180,10 @@ final class EdenCodeStore {
             loaded = true
             land()
             problem = nil
+            issue = nil
             switchedOff = false
             openPinIfNew(found.pinned)
+            if demo { return }
             await liveActivities.sync(found.sessions, enabled: liveActivitiesOn, api: current?.api)
             WidgetSnapshotStore.save(home: found, mac: current?.macLabel ?? "")
             let count = found.needsYouCount
@@ -195,15 +219,17 @@ final class EdenCodeStore {
     }
 
     func note(_ error: Error) {
-        if let jarvis = error as? JarvisError {
-            if case .rejected(let message) = jarvis, (message.contains("Open on my phone") || message.contains("Hand off to phone")) {
-                switchedOff = true
-                problem = "Turn on Eden Code on your phone on the Mac: Eden Code › More › Open on my phone."
-                return
-            }
-            problem = jarvis.errorDescription
-        } else if !(error is CancellationError) {
-            problem = error.localizedDescription
+        guard let found = EdenCodeProblem(error, online: NetworkWatch.shared.online) else { return }
+        switchedOff = found.kind == .switchedOff
+        issue = found
+        problem = found.text
+    }
+
+    /// The banner's button: try again now, or pair again when the Mac forgot this iPhone.
+    func recover() {
+        switch issue?.action {
+        case .pairAgain: showPairing = true
+        default: Task { await refreshAll() }
         }
     }
 
@@ -346,28 +372,47 @@ final class EdenCodeStore {
             if let id = ok?.id { open(session: id) }
             return nil
         } catch {
-            return (error as? JarvisError)?.message ?? error.localizedDescription
+            return EdenCodeProblem.describe(error)
         }
     }
 
-    // MARK: - Fixtures
+    // MARK: - The demo
 
-    #if DEBUG
-    func useFixtures() {
-        usingFixtures = true
-        let fixture = FixtureBackend.shared
-        macs = FixtureBackend.macs
+    /// "Try a demo": sample sessions, cards and changes instead of a Mac. Nothing is saved and
+    /// nothing is sent anywhere (DemoBackend); Exit demo or pairing a real Mac ends it.
+    func startDemo() {
+        let fixture = DemoBackend.shared
+        fixture.reset()
+        demo = true
+        macs = DemoBackend.macs
         current = macs.first
         backend = fixture
+        MacRouter.pairingSource = { nil }
         home = fixture.homeNow
         options = fixture.optionsNow
         usage = fixture.usageNow
         todos = fixture.todosNow
+        problem = nil
+        issue = nil
+        switchedOff = false
         loaded = true
+        path = []
+        openSession = nil
+        panel = nil
+        drawerOpen = false
         landed = false
         land()
     }
-    #endif
+
+    /// Back to the pairing screen (or the Macs this iPhone really is paired with).
+    func endDemo() {
+        demo = false
+        panel = nil
+        drawerOpen = false
+        sheetCard = nil
+        macs = MacStore.load()
+        select(MacStore.current(in: macs))
+    }
 }
 
 /// The app icon's badge: what waits on the owner.

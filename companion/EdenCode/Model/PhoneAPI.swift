@@ -1,7 +1,7 @@
 import Foundation
 
 /// Everything Eden Code asks the Mac, as one protocol: the live Mac (JarvisAPI, pinned TLS,
-/// straight or through the relay) and the debug fixtures (FixtureBackend) both answer it,
+/// straight or through the relay) and the demo (DemoBackend) both answer it,
 /// so every screen can be shown, and tested, without a Mac.
 protocol CodeBackend: Sendable {
     func home() async throws -> PhoneHome

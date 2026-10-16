@@ -29,10 +29,16 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -95,12 +101,20 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
         drag = 0f
         store.drawerOpen = if (opening) travel > 80 * density.density || velocity > 600f else !(travel < -80 * density.density || velocity < -600f)
     }
-    CompositionLocalProvider(LocalEnv provides env, LocalBackground provides background, LocalDrawer provides progress) {
+    val demoStrip = if (store.demo && store.paired) DemoStripHeight else 0.dp
+    CompositionLocalProvider(LocalEnv provides env, LocalBackground provides background, LocalDrawer provides progress, LocalTopExtra provides demoStrip) {
         BackHandler(enabled = store.sheetCard != null || store.showPairing || store.panel != null || store.drawerOpen || store.path.isNotEmpty()) {
             store.back()
         }
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().backdropSource(screen)) {
+            Box(
+                Modifier.fillMaxSize().backdropSource(screen).drawerPull(
+                    enabled = store.paired && !store.drawerOpen && store.path.isEmpty() && store.panel == null && store.sheetCard == null && !store.showPairing,
+                    onStart = { keyboard?.hide() },
+                    onDelta = { drag = (drag + it).coerceAtLeast(0f) },
+                    onEnd = { release(it, opening = true) },
+                ),
+            ) {
                 EdenBackground(Modifier.backdropSource(background))
                 if (!store.paired) {
                     PairingScreen(first = true, onDone = {})
@@ -158,6 +172,7 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
                     )
                 }
             }
+            if (store.demo && store.paired) DemoStrip(store, Modifier.align(Alignment.TopCenter))
             Sheets(store)
             if (store.scanning) {
                 BackHandler { store.scanning = false }
@@ -167,6 +182,74 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
                 }
             }
         }
+    }
+}
+
+/**
+ * A swipe to the right anywhere on the screen pulls the drawer open (the iPhone's whole-screen pan).
+ * It watches in the Main pass, after the children, so a list or a pager that took the gesture keeps
+ * it: only a mostly-horizontal (steeper than about 27 degrees counts as vertical) rightward movement
+ * that nothing else consumed becomes the drawer's. The transcript's vertical scroll is untouched.
+ */
+private fun Modifier.drawerPull(enabled: Boolean, onStart: () -> Unit, onDelta: (Float) -> Unit, onEnd: (Float) -> Unit): Modifier =
+    if (!enabled) this else pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val tracker = VelocityTracker()
+            tracker.addPosition(down.uptimeMillis, down.position)
+            var dx = 0f
+            var dy = 0f
+            var pulling = false
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                if (!pulling && change.isConsumed) return@awaitEachGesture  // a scroller took it
+                if (!change.pressed) {
+                    if (pulling) onEnd(tracker.calculateVelocity().x)
+                    return@awaitEachGesture
+                }
+                val moved = change.positionChange()
+                dx += moved.x
+                dy += moved.y
+                tracker.addPosition(change.uptimeMillis, change.position)
+                if (!pulling) {
+                    if (kotlin.math.hypot(dx, dy) < viewConfiguration.touchSlop) continue
+                    if (dx > 0f && dx > 2f * kotlin.math.abs(dy)) {
+                        pulling = true
+                        onStart()
+                        onDelta(dx)
+                        change.consume()
+                    } else return@awaitEachGesture
+                } else {
+                    onDelta(moved.x)
+                    change.consume()
+                }
+            }
+        }
+    }
+
+/** Height of the demo's strip, which the screens' headers make room for. */
+val DemoStripHeight = 46.dp
+
+/** The demo's strip over every screen: it's sample data, nothing reaches a Mac, and the way out. */
+@Composable
+private fun DemoStrip(store: EdenCodeStore, modifier: Modifier = Modifier) {
+    val c = Eden.colors
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Row(
+        modifier.fillMaxWidth().padding(top = top).height(DemoStripHeight).background(c.orange.copy(alpha = 0.18f))
+            .padding(horizontal = 14.dp).semantics { contentDescription = "Demo mode. Sample sessions. Nothing reaches a Mac." },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            T("Demo", sf(13f, androidx.compose.ui.text.font.FontWeight.Bold), c.ink, maxLines = 1)
+            T("Sample sessions. Nothing reaches a Mac.", sf(12f), c.ink, maxLines = 1)
+        }
+        Box(
+            Modifier.height(32.dp).background(c.fill, RoundedCornerShape(50)).padding(horizontal = 14.dp)
+                .pressable(0.95f, label = "Exit demo. Goes back to pairing with your Mac") { store.endDemo() },
+            contentAlignment = Alignment.Center,
+        ) { T("Exit demo", sf(13f, androidx.compose.ui.text.font.FontWeight.SemiBold), c.ink, maxLines = 1) }
     }
 }
 
