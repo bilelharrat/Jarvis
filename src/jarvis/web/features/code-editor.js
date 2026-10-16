@@ -172,6 +172,18 @@
   const views = new Map();  // registered views: id -> { label, render(host, ctx) }
   let editors = null;  // the editors on this Mac, once asked
   let rootEl = null;
+  // Other features' parts of an open file (code-provenance.js's "Who wrote this"): bar(doc)
+  // adds buttons to its bar, caret(doc, line) hears the caret's line, filled(doc) hears its
+  // text put in (opened, reloaded). Registered with JarvisEditor.extendDoc.
+  const docExts = [];
+  function forExts(name, ...args) {
+    const out = [];
+    for (const ext of docExts) {
+      if (typeof ext[name] !== 'function') continue;
+      try { out.push(...(ext[name](...args) || [])); } catch (err) { console.error('editor extension', err); }
+    }
+    return out;
+  }
   let seenFileView = null;
   const pendingLines = new Map();  // path -> { start, end } asked by voice, till it opens
   const restoredScopes = new Set();  // scopes whose files with unsaved changes were reopened
@@ -354,6 +366,7 @@
     doc.unit = indentUnit(text);
     ta.style.tabSize = doc.unit === '\t' ? '4' : String(doc.unit.length);
     numberLines(doc);
+    forExts('filled', doc);
   }
 
   function numberLines(doc) {
@@ -421,6 +434,7 @@
     const { line, col } = lineCol(ta.value, ta.selectionStart);
     const picked = ta.selectionEnd - ta.selectionStart;
     doc.ui.caret.textContent = `Ln ${line}, Col ${col}${picked ? ` (${picked} selected)` : ''}`;
+    forExts('caret', doc, line);
   }
 
   // Typing as the owner would, so ⌘Z undoes it: the box's own undo keeps every step.
@@ -768,6 +782,7 @@
       parts.push(button(doc.preview ? 'Edit' : 'Preview', 'jc-mini', () => { doc.preview = !doc.preview; drawDoc(doc); }));
     }
     if (!doc.error && !doc.loading) parts.push(button('Find', 'jc-mini', () => { if (doc.preview) { doc.preview = false; drawDoc(doc); } openFind(doc); }, 'Find (⌘F)'));
+    if (!doc.error && !doc.loading) parts.push(...forExts('bar', doc));
     parts.push(button('Open in…', 'jc-mini', (e) => openInMenu(e.currentTarget, doc)));
     if (doc.editable) {
       const s = button(doc.saving ? 'Saving…' : 'Save', `jc-mini ce-save${doc.dirty ? ' ready' : ''}`, () => save(doc, false), 'Save (⌘S)');
@@ -1117,6 +1132,8 @@
     // A memory file: 'project', 'local' or 'user'.
     openMemory,
     registerView(id, view) { views.set(id, view); if (rootEl) draw(); },
+    extendDoc(ext) { docExts.push(ext); },
+    redrawBar(doc) { drawDocBar(doc); },
     showView(id) { const { state } = current(); state.view = id; if (!paneShown()) F.openPane('files'); else draw(); },
     where: () => where(F.currentTask()),
     dirty: () => [...docs.values()].filter((d) => d.dirty).map((d) => d.path),

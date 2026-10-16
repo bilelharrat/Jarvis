@@ -570,12 +570,17 @@ class Desk:
         async with self.lock(copy.repo):
             if copy not in self.store().copies:
                 return False, "That isolated copy isn't there any more."
+            # Provenance notes (features/code_provenance.py) need where the branch was.
+            prov = getattr(self.hub, "code_provenance", None)
+            before = await asyncio.to_thread(prov.tip_of, copy) if prov is not None else ""
             landed = await asyncio.to_thread(worktrees.land, copy, message)
             if not landed.ok:
                 if landed.conflicts:
                     self.conflicts[copy.slug] = landed.conflicts
                 return False, landed.message
             self.conflicts.pop(copy.slug, None)
+            if prov is not None:  # (while its sessions, and their marks, are still here)
+                await prov.landed(copy, landed.commit, before)
             # The sessions in it now: one resumed or started in it while it landed too.
             inside = self.tasks_in(copy)
             for task in inside:
