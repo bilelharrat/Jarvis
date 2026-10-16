@@ -308,6 +308,8 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode
       PRODUCT_NAME: EdenCode
       INFOPLIST_FILE: EdenCode/Info.plist
+      # Eden Code's own build number (TestFlight takes each upload's once): 2 since QR pairing.
+      CURRENT_PROJECT_VERSION: "2"
       GENERATE_INFOPLIST_FILE: false
       TARGETED_DEVICE_FAMILY: "1"
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
@@ -328,6 +330,7 @@ targets:
           - _jarvis._tcp
         NSSpeechRecognitionUsageDescription: Turns what you say into a message for your Eden Code session, on your iPhone when it can.
         NSMicrophoneUsageDescription: Listens while you dictate a message to Eden Code.
+        NSCameraUsageDescription: Scans the pairing code your Mac shows in Eden Code › On your phone. Nothing is recorded or sent.
         NSFaceIDUsageDescription: Before your iPhone lets an Eden Code session run a command on your Mac, or allows something from now on, Face ID makes sure it’s you.
         CFBundleURLTypes:
           - CFBundleURLName: com.askeden.jarvis.edencode.open
@@ -365,6 +368,7 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.edencode.widgets
       INFOPLIST_FILE: EdenCodeWidgets/Info.plist
+      CURRENT_PROJECT_VERSION: "2"  # (an extension's build number is its app's)
       GENERATE_INFOPLIST_FILE: false
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       TARGETED_DEVICE_FAMILY: "1"

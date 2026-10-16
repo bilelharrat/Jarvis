@@ -1,11 +1,5 @@
 {
   "strings": {
-    "Hand off to phone": "交给手机",
-    "Carry on with this session on your phone": "在手机上继续这个会话",
-    "Hand this session off to your phone": "把这个会话交给你的手机",
-    "Start at the desk, carry on from your phone: Hand off pins this session to your phone’s view and sends a notification with its link.": "在桌前开始，在手机上继续：“交给手机”会把这个会话固定到手机的视图里，并发送一条带链接的通知。",
-    "Hand off this session": "把这个会话交给手机",
-    "Pins it for your phone and sends a notification": "为手机固定它并发送一条通知",
     "Nothing pinned for your phone.": "还没有为手机固定任何会话。",
     "Eden Code in your phone’s browser (sessions, messages, cards, Stop, model and mode; never Bypass permissions)": "在手机浏览器里使用 Eden Code（会话、消息、卡片、停止、模型和模式；绝不会开启绕过权限）",
     "Turn on the phone companion in Settings › iPhone & Watch: the page is served by it.": "请在设置 › iPhone 与手表里打开手机伴侣：这个页面由它提供。",
@@ -13,7 +7,29 @@
     "QR code for the phone page": "手机页面的二维码",
     "Open it on your phone, pair with the code from Settings › iPhone & Watch, then Share › Add to Home Screen. It works on this Mac’s Wi-Fi, or over Tailscale when you’re away.": "在手机上打开它，用设置 › iPhone 与手表里的代码配对，然后选 分享 › 添加到主屏幕。它在这台 Mac 的 Wi-Fi 上可用，出门时可以通过 Tailscale 使用。",
     "Safari warns about this Mac’s own certificate once. Its fingerprint starts": "Safari 会对这台 Mac 自己的证书提示一次。它的指纹开头是",
-    "On your phone": "在手机上"
+    "On your phone": "在手机上",
+    "Open on my phone": "在我的手机上打开",
+    "Opens this session on your phone": "在你的手机上打开这个会话",
+    "Open this session on your phone": "在你的手机上打开这个会话。",
+    "Your sessions are on your phone too, live. To jump straight to this one there, use Open on my phone.": "你的会话在手机上也有，实时同步。想在手机上直接跳到这一个，用“在我的手机上打开”。",
+    "Sends a notification that opens this session on your phone. Sessions stay in sync either way.": "发送一条通知，在你的手机上打开这个会话。无论如何，会话都会保持同步。",
+    "Pair the Eden Code app": "配对 Eden Code 应用",
+    "Show pairing code": "显示配对代码",
+    "Turn on and show pairing code": "打开并显示配对代码",
+    "A one-time code for five minutes, the same one Settings › iPhone & Watch shows": "一次性代码，五分钟有效，和设置 › iPhone 与手表里显示的是同一个",
+    "Open Eden Code on your iPhone or Android phone, tap Scan QR code, and point it here. Or scan with the phone’s Camera.": "在 iPhone 或安卓手机上打开 Eden Code，点“扫描二维码”，对准这里。也可以用手机的相机扫描。",
+    "Scan with Eden Code (Scan QR code) or the phone’s Camera. Or type this code:": "用 Eden Code（扫描二维码）或手机的相机扫描。也可以输入这个代码：",
+    "QR code to pair the Eden Code app": "配对 Eden Code 应用的二维码",
+    "Pairing code": "配对代码",
+    "Expires in": "剩余时间",
+    "New code": "新代码",
+    "Makes a new code; the old one stops working": "生成新代码；旧代码将失效",
+    "This Mac:": "这台 Mac：",
+    "Certificate": "证书",
+    "Paired. Your phone is connected to this Mac.": "已配对。你的手机已连接到这台 Mac。",
+    "Turn on the phone companion in Settings › iPhone & Watch: pairing goes through it.": "请在设置 › iPhone 与手表里打开手机伴侣：配对要通过它。",
+    "Eden Code on your phone is off: the app pairs, but sees nothing until you turn it on below.": "“手机上的 Eden Code”已关闭：应用可以配对，但在你在下面打开之前什么也看不到。",
+    "Or open Eden Code in the phone’s browser": "或者在手机浏览器里打开 Eden Code"
   },
   "patterns": [
     [

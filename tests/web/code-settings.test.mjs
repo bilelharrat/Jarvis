@@ -170,7 +170,7 @@ test('every word the sections show has its Chinese, and no English has two', () 
   for (const f of files) Object.assign(strings, JSON.parse(readFileSync(new URL(f, dir), 'utf8')).strings || {});
   const mine = JSON.parse(readFileSync(new URL('code-settings.json', dir), 'utf8')).strings;
   for (const s of S.SECTIONS) for (const words of [s.label, s.title, s.text]) assert.ok(strings[words], words);
-  for (const words of ['Hand off and QR code', 'Eden Code on your phone', 'Show…', 'Voice coding', 'Narrate progress', 'Reply length', 'Search results', 'No settings match your search.', 'Productivity ledger', 'Engine']) {
+  for (const words of ['Open on my phone and QR code', 'Pair the Eden Code app', 'Pair…', 'Eden Code on your phone', 'Show…', 'Voice coding', 'Narrate progress', 'Reply length', 'Search results', 'No settings match your search.', 'Productivity ledger', 'Engine']) {
     assert.ok(strings[words], words);
   }
   for (const f of files.filter((x) => x !== 'code-settings.json')) {

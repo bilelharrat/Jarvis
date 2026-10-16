@@ -73,4 +73,32 @@ enum MacStore {
         }
         return pairing
     }
+
+    /// Pairing from the Mac's QR code (PairPayload): no probe and nothing to compare by eye,
+    /// the fingerprint in the code is pinned from the first byte. Its addresses are tried in
+    /// order (.local, the LAN IPv4, Tailscale) while one can't be reached or presents another
+    /// certificate; a Mac that answers (a wrong or expired code, say) ends it, so the code is
+    /// never offered twice.
+    static func pair(_ payload: PairPayload, deviceName: String,
+                     attempt: (URL, String, String, String) async throws -> Pairing = { try await pair(base: $0, fingerprint: $1, code: $2, deviceName: $3) }) async throws -> Pairing {
+        var last: Error = JarvisError.invalidAddress
+        for base in payload.candidates {
+            do {
+                return try await attempt(base, payload.fingerprint, payload.code, deviceName)
+            } catch {
+                last = error
+                guard tryNext(after: error) else { throw error }
+            }
+        }
+        throw last
+    }
+
+    /// Whether the next address is worth a try: this one wasn't the Mac (or wasn't reachable).
+    static func tryNext(after error: Error) -> Bool {
+        switch error as? JarvisError {
+        case .unreachable, .connectionLost, .timedOut, .certificateMismatch, .fingerprintRefused, .notEncrypted, .notJarvis, .unsupported: true
+        case .none: error is URLError
+        default: false
+        }
+    }
 }

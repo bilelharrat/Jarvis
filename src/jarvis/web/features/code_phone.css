@@ -1,4 +1,4 @@
-/* Eden Code's Phone pane (features/code_phone.py): Hand off to phone, and the phone's page. */
+/* Eden Code's Phone pane (features/code_phone.py): Open on my phone, and the phone's page. */
 .jcx-phonepane { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 .jcx-phonepane > p { margin: 0; }
 .deck.jc .jcx-phonepane .jc-btn { font-size: 12px; align-self: flex-start; }
@@ -9,3 +9,17 @@
 .jcx-phone-switch { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
 .jcx-phone-url { font: 12px var(--mono); }
 .jcx-phone-qr { width: 168px; height: 168px; border-radius: 8px; align-self: flex-start; }
+/* Pair the Eden Code app (features/code_phone_pair.py): a glass card at the pane's top. */
+.jcx-pair { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px;
+  background: rgba(var(--c-ink), 0.04); border: 1px solid rgba(var(--c-ink), 0.08);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); }
+.jcx-pair > p { margin: 0; }
+.jcx-pair-title { margin: 0; font-size: 13px; font-weight: 600; color: rgb(var(--c-ink)); }
+.jcx-pair-web { margin-top: 6px; }
+.jcx-pair-row { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.jcx-pair-side { display: flex; flex-direction: column; gap: 6px; min-width: 150px; flex: 1; }
+.jcx-pair-side > p { margin: 0; }
+.jcx-pair-code { font: 600 26px/1.1 var(--mono); letter-spacing: 0.06em; color: rgb(var(--c-ink)); user-select: all; }
+.jcx-pair-left { font-variant-numeric: tabular-nums; }
+.jcx-pair-done { font-size: 12.5px; font-weight: 600; color: rgb(var(--c-success-ink)); }
+.jcx-pair-qr { box-shadow: 0 0 0 1px rgba(var(--c-ink), 0.08); }

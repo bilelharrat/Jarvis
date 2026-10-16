@@ -52,6 +52,10 @@ final class EdenCodeStore {
     /// session is picked once, never over the owner's own choice.
     private(set) var landed = false
     var showPairing = false
+    /// A pairing QR code opened from outside (the Camera app, edencode://pair?…), for the
+    /// pairing screen to pair with; or why it couldn't be read.
+    var pendingPair: PairPayload?
+    var pendingPairProblem: String?
     var search = ""
 
     /// Settings, kept on this iPhone.
@@ -192,9 +196,9 @@ final class EdenCodeStore {
 
     func note(_ error: Error) {
         if let jarvis = error as? JarvisError {
-            if case .rejected(let message) = jarvis, message.contains("Hand off to phone") {
+            if case .rejected(let message) = jarvis, (message.contains("Open on my phone") || message.contains("Hand off to phone")) {
                 switchedOff = true
-                problem = "Turn on Eden Code on your phone on the Mac: Eden Code › More › Hand off to phone."
+                problem = "Turn on Eden Code on your phone on the Mac: Eden Code › More › Open on my phone."
                 return
             }
             problem = jarvis.errorDescription
@@ -280,8 +284,23 @@ final class EdenCodeStore {
         }
     }
 
+    /// The Mac's pairing QR code, scanned with the Camera app: the pairing screen (the first
+    /// screen when no Mac is paired yet, else its sheet) pairs with it.
+    func openPairing(_ url: URL) {
+        switch PairPayload.parse(url) {
+        case .success(let payload):
+            pendingPair = payload
+            pendingPairProblem = nil
+        case .failure(let problem):
+            pendingPair = nil
+            pendingPairProblem = PairPayload.message(problem)
+        }
+        if paired { showPairing = true }
+    }
+
     /// edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue,
-    /// edencode://settings, edencode://new; anything else opens the drawer.
+    /// edencode://settings, edencode://new, edencode://pair?… (openPairing); anything else
+    /// opens the drawer.
     func open(url: URL) {
         guard url.scheme?.lowercased() == "edencode" else {
             if let destination = Destination(url: url), case .codeSession(let id) = destination { open(session: id) }
@@ -289,6 +308,7 @@ final class EdenCodeStore {
         }
         let parts = ([url.host ?? ""] + url.pathComponents.filter { $0 != "/" }).filter { !$0.isEmpty }
         switch parts.first {
+        case "pair": openPairing(url)
         case "session": if let id = parts.dropFirst().first.flatMap({ Int($0) }) { open(session: id) }
         case "changes": if let id = parts.dropFirst().first.flatMap({ Int($0) }) { openChanges(id) }
         case "inbox": show(.inbox)

@@ -20,8 +20,11 @@
     "Git & Integrations": "Git 与集成",
     "GitHub, Linear, Slack, production alerts, other machines and control from code.": "GitHub、Linear、Slack、生产环境警报、其他机器，以及用代码控制。",
     "Eden Code surfaces that aren’t finished, off until you switch them on. A change takes effect at the next start.": "尚未完成的 Eden Code 功能，在你打开之前一直关闭。改动在下次启动时生效。",
-    "Hand off and QR code": "交接与二维码",
-    "Pin a session to your phone’s view, and the code to open its page": "把一个会话固定到手机视图，以及打开其页面的二维码",
+    "Open on my phone and QR code": "在我的手机上打开与二维码",
+    "Open a session on your phone, and the code for its page": "在手机上打开一个会话，以及其页面的二维码",
+    "Pair the Eden Code app": "配对 Eden Code 应用",
+    "A QR code your iPhone or Android phone scans, and its six-digit code": "你的 iPhone 或安卓手机扫描的二维码，以及它的六位代码",
+    "Pair…": "配对…",
     "Show…": "显示…",
     "Eden Code on your phone": "手机上的 Eden Code",
     "A web page on your network for following and answering sessions from the phone": "你网络中的一个网页，用手机跟进和回复会话"

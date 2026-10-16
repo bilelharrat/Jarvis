@@ -15,9 +15,9 @@ files, never an answer). Away from the Mac's Wi-Fi it works over Tailscale (the 
 address there); the encrypted relay through askeden.com carries the iPhone app only (raw TLS
 in a WebSocket, which a browser can't speak: docs/eden-code-shared-sessions.md).
 
-"Hand off to phone" (a session's More menu, or /phone): pins the session to the phone's
-view (the page opens it, once per handoff) and sends a push through the existing path
-(companion_push: the owner's key or their account), whatever the phone's push settings and
+"Open on my phone" (a session's More menu, or /phone; once called Hand off to phone): pins the
+session to the phone's view (the page opens it, once per handoff) and sends a push through the
+existing path (companion_push: the owner's key or their account), whatever the phone's push settings and
 whether the owner is at the Mac (they asked for it, now), with the session's number and the
 page's link in it. Today's iPhone app opens the session from it (kind code_done, as a
 session that finished: its Destination for a code push); its later screen reads handoff.
@@ -130,7 +130,7 @@ HEADERS = {
 }
 
 ZH = {
-    "Turn on Eden Code on your phone in Eden Code › More › Hand off to phone first.": "请先在 Eden Code › 更多 › 交给手机 里打开“手机上的 Eden Code”。",
+    "Turn on Eden Code on your phone in Eden Code › More › Open on my phone first.": "请先在 Eden Code › 更多 › 在我的手机上打开 里打开“手机上的 Eden Code”。",
     "No such session.": "没有这个会话。",
     "That card isn't up any more.": "那张卡片已经不在了。",
     "Answer this one on your Mac: it needs Touch ID there.": "请在 Mac 上回答这张卡片：它需要在那里用触控 ID 确认。",

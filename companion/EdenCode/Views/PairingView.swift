@@ -1,9 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// Pair with a Mac: its address (found with Bonjour on the same Wi-Fi, or typed), the
-/// certificate fingerprint to compare with the Mac's Settings, then the six-digit code from
-/// Settings › iPhone & Watch › Pair a phone, as the companion pairs.
+/// Pair with a Mac. One scan: Scan QR code reads the code in Eden Code › On your phone on the
+/// Mac (PairPayload: its addresses, the one-time code and the certificate's fingerprint, pinned
+/// from the first request) and pairs. The same code opened from the Camera app arrives as
+/// store.pendingPair. Typing stays as the fallback: the Mac's address, the certificate
+/// fingerprint to compare with the Mac's Settings, then the six-digit code.
 struct PairingView: View {
     var first: Bool
     @Environment(EdenCodeStore.self) private var store
@@ -13,6 +15,9 @@ struct PairingView: View {
     @State private var probed: (base: URL, fingerprint: String)?
     @State private var working = false
     @State private var problem: String?
+    @State private var scanning = false
+    @State private var pairingWith: String?  // the Mac's name while a scanned code pairs
+    @State private var pairedWith: String?  // and once it has
     @FocusState private var codeFocused: Bool
 
     var body: some View {
@@ -34,8 +39,37 @@ struct PairingView: View {
 
                 if let problem { ProblemBanner(text: problem) }
 
+                if let pairedWith {
+                    Label("Paired with \(pairedWith)", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(EdenTheme.checkGreen)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .edenCard(radius: 20)
+                        .transition(.scale.combined(with: .opacity))
+                        .accessibilityAddTraits(.updatesFrequently)
+                } else if let pairingWith {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Pairing with \(pairingWith)…").font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .edenCard(radius: 20)
+                } else {
+                    VStack(spacing: 10) {
+                        Button { scanning = true } label: {
+                            Label("Scan QR code", systemImage: "qrcode.viewfinder")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .accessibilityHint("Scans the code in Eden Code › On your phone on your Mac")
+                        Text("On your Mac, open Eden Code › On your phone (or Settings › iPhone › Pair the Eden Code app) and scan its code. Or type it below.")
+                            .font(.system(size: 13)).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 12) {
-                    step(1, "On your Mac, open Eden › Settings › iPhone & Watch and turn on “Let my phone connect”. In Eden Code › More › Hand off to phone, turn on Eden Code on your phone.")
+                    step(1, "On your Mac, open Eden › Settings › iPhone & Watch and turn on “Let my phone connect”. In Eden Code › More › Open on my phone, turn on Eden Code on your phone.")
                     TextField("Mac address, like my-mac.local", text: $address)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -90,6 +124,12 @@ struct PairingView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(EdenBackground())
+        .animation(.spring(duration: 0.35), value: pairedWith)
+        .fullScreenCover(isPresented: $scanning) {
+            PairScanner { pair(scanned: $0) }
+        }
+        .onChange(of: store.pendingPair, initial: true) { _, _ in takePending() }
+        .onChange(of: store.pendingPairProblem, initial: true) { _, _ in takePending() }
         .toolbar {
             if !first { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
@@ -108,6 +148,57 @@ struct PairingView: View {
             Text("\(n)").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
                 .frame(width: 22, height: 22).background(EdenTheme.accent, in: .circle)
             Text(text).font(.system(size: 14)).foregroundStyle(EdenTheme.ink2)
+        }
+    }
+
+    /// A code opened from the Camera app (edencode://pair?…).
+    private func takePending() {
+        if let message = store.pendingPairProblem {
+            store.pendingPairProblem = nil
+            problem = message
+        }
+        if let payload = store.pendingPair {
+            store.pendingPair = nil
+            pair(scanned: payload)
+        }
+    }
+
+    /// Pairs with a scanned code: its fingerprint pinned, its addresses tried in turn, the
+    /// code sent once. Success shows for a moment before the app moves on.
+    private func pair(scanned payload: PairPayload) {
+        guard !working else { return }
+        working = true
+        problem = nil
+        pairingWith = payload.label
+        Task {
+            do {
+                let pairing = try await MacStore.pair(payload, deviceName: "\(UIDevice.current.name) (Eden Code)")
+                pairingWith = nil
+                pairedWith = pairing.macName ?? payload.label
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                try? await Task.sleep(for: .seconds(1.2))
+                working = false
+                store.added(pairing)
+                if !first { dismiss() }
+                pairedWith = nil
+            } catch {
+                working = false
+                pairingWith = nil
+                print("Eden Code pairing by QR failed: \(error)")
+                problem = Self.scanProblem(error)
+            }
+        }
+    }
+
+    nonisolated static func scanProblem(_ error: Error) -> String {
+        switch error as? JarvisError {
+        case .wrongCode(let message) where message.localizedCaseInsensitiveContains("too many"): message
+        case .wrongCode, .rejected: "That code was used or has expired. Click New code on your Mac and scan again."
+        case .certificateMismatch, .fingerprintRefused:
+            "Something other than your Mac answered at its address, so the code wasn’t sent. Check you’re on the same Wi-Fi and scan again."
+        case .unreachable, .timedOut, .connectionLost:
+            "Can’t reach your Mac. Use the same Wi-Fi, or turn on Tailscale or sign in to your Eden account, then scan again."
+        default: (error as? JarvisError)?.errorDescription ?? error.localizedDescription
         }
     }
 

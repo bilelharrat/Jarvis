@@ -395,12 +395,26 @@
   phoneLabel.dataset.ecsSection = phone.dataset.ecsSection = 'iphone';
   const handoffRow = el('div', 'jcs-row');
   const handoffText = el('span');
-  handoffText.append(doc.createTextNode('Hand off and QR code'), el('small', '', 'Pin a session to your phone’s view, and the code to open its page'));
+  handoffText.append(doc.createTextNode('Open on my phone and QR code'), el('small', '', 'Open a session on your phone, and the code for its page'));
   const open = el('button', 'jc-btn small', 'Show…');
   open.type = 'button';
   open.addEventListener('click', () => { if (close) close.click(); F.openPane('phone'); });
   handoffRow.append(handoffText, open);
+  // Pair the Eden Code app: the pairing QR code at the top of the On your phone pane
+  // (features/code_phone.js, code_phone_pair.py).
+  const pairRow = el('div', 'jcs-row');
+  const pairText = el('span');
+  pairText.append(doc.createTextNode('Pair the Eden Code app'), el('small', '', 'A QR code your iPhone or Android phone scans, and its six-digit code'));
+  const pairOpen = el('button', 'jc-btn small', 'Pair…');
+  pairOpen.type = 'button';
+  pairOpen.id = 'ecs-phone-pair';
+  pairOpen.addEventListener('click', () => {
+    if (close) close.click();
+    if (root.edenCodePair) root.edenCodePair.open(); else F.openPane('phone');
+  });
+  pairRow.append(pairText, pairOpen);
   phone.append(
+    pairRow,
     switchRow('ecs-phone-web', 'Eden Code on your phone', 'A web page on your network for following and answering sessions from the phone',
       () => F.send({ type: 'feature_prefs', changes: { code_phone_web: features.code_phone_web !== true } })),
     handoffRow,

@@ -84,8 +84,45 @@ test('the pane draws the QR code and says what is pinned', () => {
 
 test('the pane strings have their Chinese', () => {
   const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code_phone.json', import.meta.url), 'utf8'));
-  for (const s of ['Hand off to phone', 'On your phone', 'Hand off this session', 'Nothing pinned for your phone.']) {
+  for (const s of ['Open on my phone', 'On your phone', 'Opens this session on your phone', 'Open this session on your phone', 'Pair the Eden Code app', 'New code', 'Expires in', 'Or open Eden Code in the phone’s browser', 'Nothing pinned for your phone.']) {
     assert.ok(zh.strings[s], s);
   }
   assert.ok(zh.patterns.some(([re]) => new RegExp(re).test('On your phone: Login fix')));
+});
+
+// ── Pair the Eden Code app (features/code_phone_pair.py) ──
+
+test('the pairing code counts down in m:ss and reads as two groups of three', () => {
+  assert.equal(pane.countdown(300), '5:00');
+  assert.equal(pane.countdown(61.9), '1:01');
+  assert.equal(pane.countdown(9), '0:09');
+  assert.equal(pane.countdown(0), '');
+  assert.equal(pane.countdown(-5), '');
+  assert.equal(pane.countdown(undefined), '');
+  assert.equal(pane.spaced('042917'), '042 917');
+  assert.equal(pane.spaced('12345'), '');
+  assert.equal(pane.spaced(''), '');
+});
+
+test('the pairing section shows the code only while it lives and the companion runs', () => {
+  assert.equal(pane.pairView(null, 0), 'ask');
+  assert.equal(pane.pairView({ running: false, code: '123456' }, 200), 'off');
+  assert.equal(pane.pairView({ running: true, error: 'No QR code: x.', code: '' }, 0), 'error');
+  assert.equal(pane.pairView({ running: true, code: '123456', qr: ['1'] }, 200), 'code');
+  assert.equal(pane.pairView({ running: true, code: '123456', qr: ['1'] }, 0), 'ask');
+  assert.equal(pane.pairView({ running: true, code: '' }, 200), 'ask');
+});
+
+test('the pane asks for the app’s QR code, keeps the page’s labelled for the browser, and puts no code in markup', () => {
+  assert.match(PANE, /Pair the Eden Code app/);
+  assert.match(PANE, /type: 'code_phone_pair', peek: true/);
+  assert.match(PANE, /type: 'code_phone_pair', fresh: fresh === true/);
+  assert.match(PANE, /Or open Eden Code in the phone’s browser/);
+  assert.match(PANE, /New code/);
+  assert.doesNotMatch(PANE, /innerHTML/);
+  // the Mac's name and the error come from outside the window's words: never translated
+  assert.match(PANE, /mine\(el\('p', 'jcx-phone-warn', pair\.error\)\)/);
+  const SETTINGS = readFileSync(new URL('../../src/jarvis/web/features/code-settings.js', import.meta.url), 'utf8');
+  assert.match(SETTINGS, /Pair the Eden Code app/);
+  assert.match(SETTINGS, /edenCodePair\.open\(\)/);
 });

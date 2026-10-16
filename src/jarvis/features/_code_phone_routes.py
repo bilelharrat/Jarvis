@@ -28,7 +28,7 @@ from .code_phone import (
 
 log = logging.getLogger("jarvis")
 
-OFF = "Turn on Eden Code on your phone in Eden Code › More › Hand off to phone first."
+OFF = "Turn on Eden Code on your phone in Eden Code › More › Open on my phone first."
 NO_CHANGES = "The Changes pane isn't available here."
 HUNKS_AT_ONCE = 200  # hunks one Keep or Undo takes (the phone's Undo all)
 RECEIPTS_DEFAULT = 5

@@ -10,11 +10,11 @@ Review, on the same API.
 |---|---|
 | The API and its checks | `src/jarvis/features/code_phone.py`, `features/_code_phone_routes.py` |
 | The mobile page (PWA) | `web/code-phone.html`, `.js`, `.css`, `web/code-phone-sw.js`, served at `/code/` |
-| Hand off to phone (the Mac's window) | `web/features/code_phone.js` (More › Hand off to phone, `/phone`, the "On your phone" pane) |
+| Open on my phone (the Mac's window; was "Hand off to phone") | `web/features/code_phone.js` (More › Open on my phone, `/phone`, the "On your phone" pane) |
 | The handoff push | `companion_push.Notifier.deliver(note, asked=True)`, `Note.extra` |
 | Tests | `tests/test_code_phone.py`, `tests/web/code-phone.test.mjs`, `tests/web/code-phone.e2e.cjs` (Electron at 390 × 844) |
 
-**Turning it on.** Eden Code › More › Hand off to phone opens the pane; tick *Eden Code in your phone's
+**Turning it on.** Eden Code › More › Open on my phone opens the pane; tick *Eden Code in your phone's
 browser* (`prefs.features.code_phone_web`, off by default). The phone companion has to be on (Settings ›
 iPhone & Watch). The pane shows the page's address (`https://<mac>.local:8765/code/`) and a QR code. On the
 phone: open it, accept Safari's warning about the Mac's own certificate once (the pane shows the fingerprint
@@ -26,7 +26,7 @@ tailnet address too). The encrypted relay through askeden.com (`relay.py`) carri
 the companion's own TLS inside a WebSocket, pinned by the app, which a browser can't speak. So "away from
 the Wi-Fi" for the page means Tailscale; for the native app it means the relay, with nothing to set up.
 
-**Hand off to phone.** One click on the Mac pins the session for the phone (the page opens it by itself,
+**Open on my phone** (the command is still `code_phone_handoff`). One click on the Mac pins the session for the phone (the page opens it by itself,
 once per handoff; the pin lives in memory, until Unpin, another handoff or a restart) and pushes to every
 phone registered for Eden's notifications, now: whatever its settings say, the owner at the Mac or not,
 with sound even in quiet hours, still within its push rate limit. The push is the existing path (the owner's
@@ -128,6 +128,48 @@ session in one list grouped Today / Yesterday / Earlier, what needs the owner fi
 Mac in use (switch or pair another) and Settings at the bottom. A session's card takes the input bar's place until
 answered or "Reply instead". `-EDENCODEOpen session:5 | drawer:5 | new | approve | inbox | queue | settings |
 changes:5 | pair` opens each screen for screenshots.
+
+## Pairing by QR (2026-10-16)
+
+The Mac shows a QR code at the top of Eden Code's **On your phone** pane (and Settings › iPhone › Pair the Eden
+Code app opens it): the native Eden Code apps (iPhone `companion/EdenCode`, Android) pair with one scan, in the app
+(Scan QR code) or with the phone's Camera app (the `edencode` URL scheme opens the app, which pairs). It is the
+companion's own pairing, nothing new: the code in it is the one-time six-digit code Settings › iPhone & Watch ›
+Pair a phone shows (`remote.Devices.start_pairing`: five minutes, one pairing per code, the same lockouts), traded at
+`POST /api/pair` for the device's own token. Built by `src/jarvis/features/code_phone_pair.py` (window command
+`code_phone_pair {fresh?, peek?}`, event `code_phone_pair`). The web page's QR code stays below it, labelled "Or open
+Eden Code in the phone's browser".
+
+The payload (version 1, fixed; clients must accept parameters in any order and ignore ones they don't know):
+
+```
+edencode://pair?v=1&code=<6 digits>&host=<Mac .local name>&ip=<LAN IPv4>&port=<port>&fp=<sha256 hex>&name=<Mac name>&ts=<tailscale host>&relay=1
+```
+
+| Parameter | Required | What it is |
+| --- | --- | --- |
+| `v` | yes | `1`. A client refuses a version it doesn't know ("update Eden Code"). |
+| `code` | yes | The pairing code: exactly six ASCII digits, leading zeros kept. Lives five minutes, spent by one pairing. |
+| `host` | yes | The Mac's Bonjour name (`studio.local`); its LAN IPv4 when it has none; a cloud Jarvis's public host. |
+| `ip` | no | The Mac's LAN IPv4 (dotted quad), tried when `.local` doesn't resolve (Android often can't). |
+| `port` | yes | The companion's HTTPS port (8765 by default), 1–65535. |
+| `fp` | yes | 64 lowercase hex: SHA-256 of the Mac's TLS certificate (DER), the fingerprint the app pins. |
+| `name` | no | The Mac's name to show ("Bilel's Mac Studio"), at most 60 characters. |
+| `ts` | no | The Mac's Tailscale host (MagicDNS name, else its 100.x IPv4), for away from home. |
+| `relay` | no | `1` when the askeden.com encrypted relay carries this Mac (account linked, relay on). Absent otherwise. |
+
+Every value is percent-encoded (RFC 3986: a space is `%20`, an apostrophe `%27`, never `+`; clients should still
+read `+` as a space). Optional parameters are left out, never sent empty. Nothing else rides in it: no token,
+account id or key; the code is short-lived and single-use.
+
+What a client does with it: parse and validate (scheme `edencode`, host `pair`, `v=1`, six-digit code, 64-hex `fp`,
+port in range; else "That isn't an Eden Code pairing code"); try `https://host:port`, then `ip`, then `ts`, each with
+the certificate pinned to `fp` (a connection whose certificate's SHA-256 isn't `fp` is dropped before any request);
+`POST /api/pair {"code", "device_name", "fingerprint": fp}` on the first that answers (the Mac answers 409
+`{"error": "fingerprint"}` if the pin isn't its certificate, 403 for a wrong or expired code); keep the token, the
+address that worked and `fp`; with `relay=1`, read `account.device_id` from `/api/state` for the relay as usual.
+Then the app's own calls (`/api/code/phone/*`) need Eden Code on your phone switched on: the Mac's Pair button turns
+it on when it's off.
 
 ## The native iPhone screens (after App Review)
 

@@ -39,6 +39,8 @@
 	<array>
 		<string>_jarvis._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scans the pairing code your Mac shows in Eden Code › On your phone. Nothing is recorded or sent.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Before your iPhone lets an Eden Code session run a command on your Mac, or allows something from now on, Face ID makes sure it’s you.</string>
 	<key>NSLocalNetworkUsageDescription</key>
