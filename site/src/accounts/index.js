@@ -13,6 +13,7 @@ import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { checkSignups } from './turnstile.js';
 import { redeemPromo } from './promo.js';
+import { liveApi } from './live.js';
 import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
@@ -37,6 +38,7 @@ export { Account } from './account.js';
 export { Link } from './link.js';
 export { Identity } from './identity.js';
 export { Space } from './space.js';
+export { LiveRoom } from './live.js';
 
 const accountStub = (env, id) => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id));
 const linkStub = (env, code) => env.LINKS.get(env.LINKS.idFromName(code));
@@ -103,6 +105,7 @@ export async function api(request, env, ctx) {
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     if (path.startsWith('/anthropic/')) return await anthropic(request, env, ctx, path.slice('/anthropic'.length));
     if (path.startsWith('/relay/')) return await relay(request, env, path.slice('/relay/'.length));
+    if (path === '/live' || path.startsWith('/live/')) return await liveApi(request, env, path, { auth, call, limited }); // Eden Code's Share live (live.js)
     if (path === '/account/apple' && method === 'POST') return json(await signIn(request, env));
     if (path === '/account' && method === 'GET') return json(await callAs(env, request, 'get'));
     if (path === '/account' && method === 'DELETE') return await deleteAccount(request, env);

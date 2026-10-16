@@ -40,9 +40,14 @@ main { padding-bottom: 48px; }
 .hunk .ln { display: block; padding: 0 12px; white-space: pre; }
 .hunk .ln.add { background: var(--add); }
 .hunk .ln.del { background: var(--del); }
-#suggest { margin-top: 20px; padding: 12px 14px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 0.5px var(--line); }
-#suggest label { display: block; margin: 8px 0; font-size: 12.5px; color: var(--ink-2); }
-#suggest input, #suggest textarea { display: block; width: 100%; margin-top: 3px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
-#suggest button { font: inherit; font-size: 13px; padding: 6px 14px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+#suggest, #drive { margin-top: 20px; padding: 12px 14px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 0.5px var(--line); }
+#suggest label, #drive label { display: block; margin: 8px 0; font-size: 12.5px; color: var(--ink-2); }
+#suggest input, #suggest textarea, #drive textarea { display: block; width: 100%; margin-top: 3px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+#suggest button, #drive button, .ask button { font: inherit; font-size: 13px; padding: 6px 14px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
 .ended { max-width: 900px; margin: 0 auto 32px; padding: 10px 16px; color: var(--bad); font-weight: 600; }
 .gone { padding-top: 64px; text-align: center; }
+.asks { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.ask { padding: 10px 14px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 0.5px var(--line); }
+.ask-q { margin: 0 0 4px; font-weight: 600; overflow-wrap: anywhere; }
+.ask-detail { margin: 0 0 6px; max-height: 160px; overflow: auto; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; color: var(--ink-2); }
+.ask-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }

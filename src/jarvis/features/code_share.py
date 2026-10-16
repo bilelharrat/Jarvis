@@ -24,18 +24,26 @@ on lets its viewers post a comment or a suggestion. It arrives as a card for the
 the Share pane (and a caption), never as a message to the session: the owner reads it,
 and copies it into the composer or dismisses it. Viewers still can't act on anything.
 
-The link works on the Mac's own network. Outside it, it needs askeden.com's relay to carry
-viewers too: docs/eden-code-shared-sessions.md (the site is frozen until then).
+The link works on the Mac's own network. Phase 3 (code_share_live.py, its own switch
+code_share_internet, off): a second link through askeden.com, sealed end to end with a key
+in the link's fragment, pushed over the relay's control line. Phase 4 (code_share_drive.py):
+personal links with a role each (viewer, commenter, driver), a driver's requests as cards the
+owner sends as their own, every one attributed and logged; teams (code_teams.py) name who
+the owner works with and the most each may be. docs/eden-code-shared-sessions.md.
 
 Window commands: code_share_start {id, minutes?, comments?}, code_share_revoke {share},
-code_share_state {}, code_share_dismiss {share, comment}, code_share_kick {share, viewer}.
+code_share_state {}, code_share_dismiss {share, comment}, code_share_kick {share, viewer},
+code_share_invite {share, role, name? | team + member, trusted?}, code_share_uninvite {share,
+invite}, code_share_send {share, request}, code_share_settle {share, request, outcome}.
 Events: code_share {shares: [{share, id, title, url, expires, viewers, watchers: [{viewer,
-address, since, name}], comments_on, comments}], error?}, code_share_comment {share, id,
-comment}.
+address, since, name}], comments_on, comments, internet: {state, error, viewers, url},
+invites: [{invite, name, role, role_now, url, internet_url, ...}], requests, log}], error?},
+code_share_comment {share, id, comment}, code_share_request {share, id, request}.
 HTTP (remote.py's server, its own checks: the share's token, never a device's):
 GET /share/<token> (the page), GET /share/<token>/state?v=<viewer>&since=<n>&u=<u>&ck=<key>,
 POST /share/<token>/comment {v, name?, text} (only with suggestions on, from a viewer that
-is watching).
+is watching), POST /share/<token>/act {v, kind: message|approve, text? | approval + choice}
+(a driver's personal link only, from a viewer that is watching).
 
 What a link can cost the app: anyone with it can send as many requests as they like and
 make up as many viewer ids as they like, so every limit is kept three ways (per viewer id,
@@ -48,7 +56,8 @@ buckets themselves kept for the most recently used BUCKETS_KEPT keys only. The h
 are done once for everyone watching: the changes are worked out by one request at a time
 per share (the others wait for its answer), and an entry is cleaned once (kept by its number
 until it changes) in a thread, never on the app's loop.
-Settings (prefs.features): code_share_comments (bool, off).
+Settings (prefs.features): code_share_comments (bool, off), and code_share_internet,
+code_share_drivers, code_share_trusted_drivers (each off; in the Share pane, as this one).
 
 Cost policy (Claude): nothing here calls a model.
 """
@@ -71,6 +80,9 @@ from .. import code_changes, lang, prefs, secret_scan
 from ..code_export import Anonymizer, redact_secrets
 from ..hub import _msg_int
 from ..textclean import clean_text
+from . import code_teams
+from .code_share_drive import PREF_DRIVERS, PREF_TRUSTED, Drive, Invite, Seat
+from .code_share_live import PREF_INTERNET, Live, LiveLink
 
 PREF_COMMENTS = "code_share_comments"
 prefs.register_feature_pref(PREF_COMMENTS, False)
@@ -105,6 +117,9 @@ RATES = {
     "share_view": (1200, 200),
     "share_comment": (20, 5),
     "new_viewer": (6, 4),
+    "act": (12, 4),  # a driver's requests
+    "address_act": (20, 6),
+    "share_act": (30, 8),
 }
 VIEWERS_PER_ADDRESS = 3  # watching one share at once from one network address
 BUCKETS_KEPT = 4096  # the limiter's most recently used keys; older ones go
@@ -195,6 +210,8 @@ class Share:
     # for everyone watching, and again only when it changed (a step's outcome came in).
     cleaned: OrderedDict[int, tuple[Any, dict[str, Any]]] = field(default_factory=OrderedDict)
     cleaning: asyncio.Lock = field(default_factory=asyncio.Lock)
+    drive: Seat = field(default_factory=Seat)  # personal links, requests, the log (phase 4)
+    live_link: LiveLink | None = None  # the link through askeden.com (phase 3)
 
     def live(self, now: float | None = None) -> bool:
         return not self.revoked and (now if now is not None else time.time()) < self.expires
@@ -274,20 +291,24 @@ class Shares:
         self.limiter = Limiter()
         self._looking: asyncio.Task | None = None
         self._counts: dict[str, int] = {}  # what the windows were last told
+        self.max_viewers = MAX_VIEWERS
+        self.drive = Drive(self)
+        self.live = Live(self)
 
     def tr(self, text: str) -> str:
         return lang.translate(text, self.hub.language)
 
     # ── the owner's side ──
 
-    def url_for(self, share: Share) -> str:
+    def url_for(self, share: Share, invite: Invite | None = None) -> str:
         """The link: the Mac's .local name (its address when it has none) and the
-        companion server's port."""
+        companion server's port; a personal link has its own token."""
         from ..remote import lan_address
 
         remote = self.hub.remote
         host = f"{remote.host_name}.local" if remote.host_name else (lan_address() or "")
-        return f"https://{host}:{remote.port}/share/{share.token}" if host else ""
+        token = invite.token if invite is not None else share.token
+        return f"https://{host}:{remote.port}/share/{token}" if host else ""
 
     def public(self) -> list[dict[str, Any]]:
         self.prune()
@@ -309,15 +330,32 @@ class Shares:
                     "watchers": share.watchers(),
                     "comments_on": share.comments_on,
                     "comments": list(share.comments),
+                    "internet": self.live.public(share),
+                    **self.drive.public(share),
                 }
             )
+            for item in out[-1]["invites"]:
+                invite = share.drive.invites[item["invite"]]
+                item["url"] = self.url_for(share, invite)
+                item["internet_url"] = self.live.url(share, invite)
         return out
 
     def publish(self, **extra: Any) -> None:
         shares = self.public()
         self._counts = {s["share"]: s["viewers"] for s in shares}
-        self.hub.emit("code_share", shares=shares, comments_allowed=self.comments_allowed(),
-                      **extra)  # fmt: skip
+        account = getattr(self.hub, "account", None)
+        self.hub.emit(
+            "code_share",
+            shares=shares,
+            comments_allowed=self.comments_allowed(),
+            # The other switches, and whether the internet link can be (linked, relay there).
+            internet_on=self.hub.prefs.feature(PREF_INTERNET) is True,
+            internet_ready=self.live.wanted(),
+            account_linked=bool(account is not None and account.linked),
+            drivers_allowed=self.drive.feature(PREF_DRIVERS),
+            trusted_allowed=self.drive.feature(PREF_TRUSTED),
+            **extra,
+        )
 
     def comments_allowed(self) -> bool:
         return self.hub.prefs.feature(PREF_COMMENTS) is True
@@ -327,6 +365,8 @@ class Shares:
         for share in [s for s in self.shares.values() if not s.live(now)]:
             self.shares.pop(share.id, None)
             self.by_hash.pop(_hash(share.token), None)
+            self.drive.forget(share)
+            self.live.revoke_soon(share)
 
     def cmd_state(self, _msg: dict[str, Any]) -> None:
         self.publish()
@@ -372,6 +412,7 @@ class Shares:
             return "This Mac has no address on the network, so there's no link to give."
         self.shares[share.id] = share
         self.by_hash[_hash(share.token)] = share.id
+        self.live.begin(share)
         self._look_soon()
         return ""
 
@@ -385,6 +426,8 @@ class Shares:
             return False
         share.revoked = True
         self.by_hash.pop(_hash(share.token), None)
+        self.drive.forget(share)
+        self.live.revoke_soon(share)
         return True
 
     def cmd_kick(self, msg: dict[str, Any]) -> None:
@@ -419,6 +462,31 @@ class Shares:
             share.comments = [c for c in share.comments if c["id"] != wanted]
         self.publish()
 
+    # ── personal links and drivers' requests (code_share_drive.py) ──
+
+    def cmd_invite(self, msg: dict[str, Any]) -> None:
+        share = self.shares.get(str(msg.get("share") or ""))
+        made = self.drive.invite(share, msg) if share is not None and share.live() else "This share isn't live."
+        self.publish(**({"error": self.tr(made)} if isinstance(made, str) else {"invited": made.id}))
+
+    def cmd_uninvite(self, msg: dict[str, Any]) -> None:
+        share = self.shares.get(str(msg.get("share") or ""))
+        if share is not None:
+            self.drive.revoke(share, str(msg.get("invite") or ""))
+        self.publish()
+
+    def cmd_send(self, msg: dict[str, Any]) -> None:
+        share = self.shares.get(str(msg.get("share") or ""))
+        said = self.drive.send(share, str(msg.get("request") or "")) if share is not None else "That request is gone."
+        self.publish(**({"error": self.tr(said)} if said else {}))
+
+    def cmd_settle(self, msg: dict[str, Any]) -> None:
+        share = self.shares.get(str(msg.get("share") or ""))
+        if share is not None:
+            outcome = str(msg.get("outcome") or "")
+            self.drive.settle(share, str(msg.get("request") or ""), outcome)
+        self.publish()
+
     def _look_soon(self) -> None:
         if self._looking is None or self._looking.done():
             self._looking = self.hub._spawn(self._look())
@@ -437,14 +505,46 @@ class Shares:
     # ── the viewer's side ──
 
     def find(self, token: str) -> Share | None:
+        found = self.resolve(token)
+        return found[0] if found is not None else None
+
+    def resolve(self, token: str) -> tuple[Share, Invite | None] | None:
+        """The share a link's token is for, and the personal link it is (None: the share's
+        own link). A revoked personal link, or one whose member left their team, is no link."""
         if not _TOKEN.fullmatch(token or ""):
             return None
+        invite = None
         share_id = self.by_hash.get(_hash(token))
+        if share_id is None:
+            personal = self.drive.find_token(token)
+            if personal is None:
+                return None
+            share_id, invite_id = personal
+            share = self.shares.get(share_id)
+            invite = share.drive.invites.get(invite_id) if share is not None else None
+            if invite is None or not self.drive.role_of(share, invite):
+                return None
         share = self.shares.get(share_id or "")
         if share is None or not share.live():
             return None
         task = self.hub.tasks.tasks.get(share.task_id)
-        return share if task is not None else None
+        return (share, invite) if task is not None else None
+
+    def approvals_for(self, task: Any) -> list[dict[str, Any]]:
+        """The session's questions waiting on the owner, for its viewers (a driver may
+        suggest an answer): each one's words cleaned, and its answers' ids and labels."""
+        out = []
+        for a in list(self.hub.approvals.values()):
+            if a.get("task_id") != task.id:
+                continue
+            out.append({
+                "id": str(a.get("id") or "")[:40],
+                "question": self.clean(task, a.get("question"), 300),
+                "detail": self.clean(task, a.get("detail"), 800),
+                "choices": [{"id": str(c.get("id") or "")[:40], "label": self.clean(task, c.get("label"), 60)}
+                            for c in a.get("choices") or [] if isinstance(c, dict)][:8],
+            })  # fmt: skip
+        return out[:10]
 
     def clean(self, task: Any, text: Any, limit: int = ENTRY_CHARS) -> str:
         """Text for a viewer: the session's redactors, share-safe's, this Mac's paths, and
@@ -621,12 +721,14 @@ class Shares:
             self.publish()
         return True
 
-    def comment(self, share: Share, viewer: str, name: Any, text: Any) -> dict[str, Any] | str:
-        """A viewer's suggestion, as a card for the owner (never a message to the session)."""
+    def comment(self, share: Share, viewer: str, name: Any, text: Any,
+                allowed: bool | None = None) -> dict[str, Any] | str:  # fmt: skip
+        """A viewer's suggestion, as a card for the owner (never a message to the session).
+        allowed: a personal link's role said it may (code_share_drive); the switch still holds."""
         task = self.hub.tasks.tasks.get(share.task_id)
         if task is None:
             return "gone"
-        if not share.comments_on or not self.comments_allowed():
+        if not self.comments_allowed() or not (share.comments_on if allowed is None else allowed):
             return "off"
         words = clean_text(str(text or "")).strip()[:COMMENT_CHARS]
         if not words:
@@ -724,7 +826,8 @@ class Shares:
                             headers=headers)  # fmt: skip
 
         async def state(request: Any) -> Any:
-            share = self.find(str(request.path_params.get("token") or ""))
+            found = self.resolve(str(request.path_params.get("token") or ""))
+            share, invite = found if found is not None else (None, None)
             viewer = viewer_of(request)
             if share is None:
                 return gone()
@@ -745,6 +848,7 @@ class Shares:
                     return full()
             if not self.heard(share, viewer, address):
                 return full()
+            self.drive.opened(share, invite)
             task = self.hub.tasks.tasks[share.task_id]
             since, seen = (_count(request.query_params.get(k)) for k in ("since", "u"))
             key, found = await self.changes(share, task)
@@ -761,13 +865,17 @@ class Shares:
                     "changes_key": key,
                     "changes": None if known == key else found,
                     "expires": share.expires,
-                    "comments": share.comments_on and self.comments_allowed(),
+                    "comments": self.drive.may(share, invite, "comment"),
+                    "role": self.drive.role_of(share, invite),
+                    "you": invite.name if invite is not None else "",
+                    "approvals": self.approvals_for(task),
                 },
                 headers=headers,
             )
 
         async def comment(request: Any) -> Any:
-            share = self.find(str(request.path_params.get("token") or ""))
+            found = self.resolve(str(request.path_params.get("token") or ""))
+            share, invite = found if found is not None else (None, None)
             if share is None:
                 return gone()
             data = await gate.json(request, cap=COMMENT_CHARS * 4 + 1000)
@@ -776,7 +884,7 @@ class Shares:
             viewer = str(data.get("v") or "")
             if not _VIEWER.fullmatch(viewer):
                 return JSONResponse({"error": "viewer"}, status_code=400, headers=headers)
-            if not share.comments_on or not self.comments_allowed():
+            if not self.drive.may(share, invite, "comment"):
                 return JSONResponse({"error": "Suggestions are off for this share."},
                                     status_code=403, headers=headers)  # fmt: skip
             # Only from a viewer that is watching (its page polls the state, which counts
@@ -792,7 +900,9 @@ class Shares:
             refused = limited(share, viewer, address, "comment")
             if refused is not None:
                 return refused
-            card = self.comment(share, viewer, data.get("name"), data.get("text"))
+            # A personal link's suggestion carries the name the owner gave it, never one typed.
+            name = invite.name if invite is not None else data.get("name")
+            card = self.comment(share, viewer, name, data.get("text"), allowed=True)
             if card == "empty":
                 return JSONResponse({"error": "Write something first."}, status_code=400,
                                     headers=headers)  # fmt: skip
@@ -800,13 +910,55 @@ class Shares:
                 return gone()
             return JSONResponse({"ok": True}, headers=headers)
 
+        async def act(request: Any) -> Any:
+            """A driver's request (code_share_drive.Drive.ask): from a personal link only,
+            from a viewer that is watching, within its own, its address's and the share's
+            budgets; its role is looked at now, not when the link was made."""
+            found = self.resolve(str(request.path_params.get("token") or ""))
+            if found is None:
+                return gone()
+            share, invite = found
+            data = await gate.json(request, cap=TEXT_BODY)
+            if data is None:
+                return gate.too_big()
+            viewer = str(data.get("v") or "")
+            if not _VIEWER.fullmatch(viewer):
+                return JSONResponse({"error": "viewer"}, status_code=400, headers=headers)
+            kind = str(data.get("kind") or "")
+            if invite is None or not self.drive.may(share, invite, kind):
+                return JSONResponse({"error": "This link can't ask for that."}, status_code=403,
+                                    headers=headers)  # fmt: skip
+            share.watching()
+            address = address_of(request)
+            if share.is_stopped(viewer, address):
+                return stopped()
+            if share.addresses.get(viewer) != address:
+                return JSONResponse({"error": "Open the share's page first."}, status_code=403,
+                                    headers=headers)  # fmt: skip
+            refused = limited(share, viewer, address, "act")
+            if refused is not None:
+                return refused
+            asked = self.drive.ask(share, invite, data, "network")
+            if isinstance(asked, str):
+                status = {"forbidden": 403, "gone": 404, "full": 429}.get(asked, 400)
+                words = {"empty": "Write something first.", "full": "The owner has many requests waiting already.",
+                         "gone": "That question was already answered.", "forbidden": "This link can't ask for that."}  # fmt: skip
+                return JSONResponse({"error": words.get(asked, "That can't be asked.")}, status_code=status,
+                                    headers=headers)  # fmt: skip
+            return JSONResponse({"ok": True, "status": asked.get("status", "waiting")}, headers=headers)
+
         return [
             Route("/share.js", asset("share.js", "text/javascript")),
+            Route("/share-view.js", asset("share-view.js", "text/javascript")),
             Route("/share.css", asset("share.css", "text/css")),
             Route("/share/{token}", page),
             Route("/share/{token}/state", state),
             Route("/share/{token}/comment", comment, methods=["POST"]),
+            Route("/share/{token}/act", act, methods=["POST"]),
         ]
+
+
+TEXT_BODY = 2000 * 4 + 1000  # a driver's request, at most
 
 
 def _count(value: Any) -> int:
@@ -827,3 +979,10 @@ def install(hub: Any) -> None:
     hub.register_command("code_share_state", shares.cmd_state)
     hub.register_command("code_share_dismiss", shares.cmd_dismiss)
     hub.register_command("code_share_kick", shares.cmd_kick)
+    hub.register_command("code_share_invite", shares.cmd_invite)
+    hub.register_command("code_share_uninvite", shares.cmd_uninvite)
+    hub.register_command("code_share_send", shares.cmd_send)
+    hub.register_command("code_share_settle", shares.cmd_settle)
+    teams = code_teams.attach(hub)
+    teams.on_change.append(shares.drive.team_changed)
+    shares.live.attach()

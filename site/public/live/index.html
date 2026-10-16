@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Eden Code: live session</title>
+<link rel="stylesheet" href="/live/share.css" integrity="sha384-WvAM1Qqekmnh2/4yR9YYTeouCP/pIranHNazOeuCMG+7G3WU/saVRY41I6S8Z16Z">
+<script src="/live/share-view.js" integrity="sha384-Cb+nt9xwbf9C0+N1/0pzFV48q+4TYW43EZIIagyyJYdii7oZtuiCvCggkHvZVrNV" defer></script>
+<script src="/live/live.js" integrity="sha384-ilJZ3ErKcOb3Gwo95xah+qXGF9jIJDbyHxGmFFsMX2TxVJ5LBkUoJikuwjLE/m0o" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="who">
+    <p class="brand">Eden Code · shared live, sealed end to end</p>
+    <h1 id="title">Connecting…</h1>
+    <p class="meta"><span id="status" class="chip" role="status" aria-live="polite">connecting</span> <span id="doing"></span> <span id="expires"></span></p>
+    <p class="meta" id="seat"></p>
+    <p class="dim">The key to this share is in the link, after the #. It never reaches askeden.com, which passes on only what it can’t read.</p>
+  </div>
+</header>
+<nav class="tabs" role="tablist" aria-label="What to show">
+  <button type="button" role="tab" id="tab-talk" aria-controls="talk" aria-selected="true">Transcript</button>
+  <button type="button" role="tab" id="tab-changes" aria-controls="changes" aria-selected="false" tabindex="-1">Changes <span id="changes-count"></span></button>
+</nav>
+<main>
+  <section id="talk" role="tabpanel" aria-labelledby="tab-talk">
+    <ol id="entries" class="entries" aria-live="polite" aria-relevant="additions"></ol>
+  </section>
+  <section id="changes" role="tabpanel" aria-labelledby="tab-changes" hidden>
+    <p id="changes-empty" class="dim">No changes yet.</p>
+    <div id="files"></div>
+  </section>
+  <section id="asks" class="asks" hidden aria-label="Questions waiting on the owner"></section>
+  <section id="drive" hidden aria-labelledby="drive-head">
+    <h2 id="drive-head">Ask the owner to send a message</h2>
+    <p class="dim">You’re a driver on this share: your message goes to the owner as a card with your name, and they send it. Nothing reaches the session without them.</p>
+    <label>Message <textarea id="drive-text" rows="3" maxlength="2000" required></textarea></label>
+    <p><button type="button" id="drive-send">Send to the owner</button> <span id="drive-said" role="status" aria-live="polite"></span></p>
+  </section>
+  <section id="suggest" hidden aria-labelledby="suggest-head">
+    <h2 id="suggest-head">Suggest something</h2>
+    <p class="dim">Your suggestion goes to the session’s owner as a card. It never reaches the session itself.</p>
+    <label id="suggest-name-row">Your name (optional) <input id="suggest-name" maxlength="40" autocomplete="name"></label>
+    <label>Suggestion <textarea id="suggest-text" rows="3" maxlength="2000" required></textarea></label>
+    <p><button type="button" id="suggest-send">Send to the owner</button> <span id="suggest-said" role="status" aria-live="polite"></span></p>
+  </section>
+</main>
+<p id="ended" class="ended" role="alert" hidden>This share has ended.</p>
+</body>
+</html>

@@ -2,14 +2,14 @@
 
 What a teammate can see of a session, how it gets to them, and what's still to build.
 
-## Where it stands (2026-10-13)
+## Where it stands (2026-10-16)
 
 | Phase | What | Where | State |
 |---|---|---|---|
-| 1 | Read-only live view by link, on the Mac's network | `features/code_share.py`, `web/share.*`, `web/features/code_share.*` | Built (Labs: Share live) |
+| 1 | Read-only live view by link, on the Mac's network | `features/code_share.py`, `web/share.*`, `web/share-view.js`, `web/features/code_share.*` | Built (Labs: Share live) |
 | 2 | Viewers' comments and suggestions, as cards for the owner | same, switch `code_share_comments` (off) | Built, behind its switch |
-| 3 | Links that work outside the network, through askeden.com | Worker + Durable Object, viewer page on the site; a relay transport in `code_share.py` | **Design below. Site frozen: not built** |
-| 4 | Co-control with roles | | Not started; outline at the end |
+| 3 | Links that work outside the network, through askeden.com | Mac: `features/code_share_live.py`, `share_seal.py`, `relay.py`; site: `src/accounts/live.js` (`LiveRoom`), `public/live/` | **Built and tested, switch `code_share_internet` (off). Not deployed** (owner step, below) |
+| 4 | Co-control with roles; teams | `features/code_share_drive.py`, `features/code_teams.py` | Built, switches `code_share_drivers` and `code_share_trusted_drivers` (both off) |
 
 ### Phase 1, as built
 
@@ -48,7 +48,33 @@ the Share pane and a caption. The owner can **Copy into the composer** (their ow
 edit and send) or **Dismiss**. A suggestion is never a message to the session: there is no code path
 from a viewer to `task.inbox`. Turning the switch off stops new ones at once, for every share.
 
-## Phase 3: the askeden.com relay (not built: the site is frozen)
+## Phase 3: the askeden.com relay (built 2026-10-16; not deployed)
+
+As designed below, with these differences (each for a reason):
+
+- **Paths.** `/s/` and the account's `share-` ops are hosted Eden's shared chats (askeden Q3), so
+  this is `/live/<id>` (the page), `POST /api/live`, `DELETE /api/live/<id>`, `GET
+  /api/live/<id>/watch`, and the account ops `live-register`, `live-revoke`, `live-to-mac`. The
+  Durable Object is `LiveRoom` (binding `LIVE_ROOMS`, migration `v8`), the rate limit `LIVE_RATE`
+  (namespace 1009).
+- **Message types.** `share_comment` became `share_up`: a viewer's suggestions and a driver's
+  requests ride the same sealed message, `{type: "up", id, blob}` from the page, sealed with
+  additional data `eden-live-v1|<share>|up|<id>`; the Mac keeps the ids it has seen (replays
+  dropped) and drops one more than ten minutes off its clock. Pushes carry `kind: "full" |
+  "delta"` in the clear, so the room knows where a new viewer starts; also new:
+  `share_resync` (the room's history passed 1.5 MB: send a full one) and `share_ended` (expired).
+- **Deltas.** New and changed entries, the changes only when their key changed, and the status;
+  a full snapshot (the last 200 entries) first, on `share_resync`, and whenever the control line
+  comes back. A snapshot too big for 64 parts loses the changes' lines first, then the oldest entries.
+- **No Turnstile yet.** The room limits what goes up (6 a minute a viewer, 30 a room), the Mac
+  limits again per personal link, and only a personal link's secret makes anything a driver's;
+  Turnstile before a first suggestion waits for the launch gate's Turnstile work (security review).
+- **Kick** stays a network-link control; on askeden.com the owner revokes the personal link
+  (or the share), which ends that person's access at once.
+- **SRI**: `public/live/index.html` pins its two scripts and stylesheet (`site/test/live-share.test.js`
+  checks the hashes). `share-view.js` and `share.css` are the Mac's own files, byte for byte.
+
+The original design:
 
 ### Why the phone relay can't simply carry viewers
 
@@ -112,7 +138,10 @@ askeden.com; the page that reads it does come from askeden.com").
 - **Site** (frozen until App Review is through): the `ShareRoom` Durable Object, the two API routes,
   the viewer page at `/s/`, Wrangler config for the DO binding (`wrangler.nor2.toml` has no R2; the DO
   needs a migration entry). Deploy only with the other sessions' agreement, per the shared-tree gate.
-- **Owner steps:** none beyond the deploy; it uses the existing account link.
+- **Owner steps:** deploy the site (with the other sessions' agreement; `wrangler.toml` has the
+  `LIVE_ROOMS` binding, migration `v8` and `LIVE_RATE`; a `wrangler.nor2.toml` made from it needs
+  them too), then turn on "Also make a link that works anywhere" in the Share pane. Before a public
+  launch: the independent security review (below).
 
 ### Tests to write with it
 
@@ -121,7 +150,27 @@ deleted on the Worker; frames over 64 KB split and join; a comment that fails to
 replayed seq) is dropped. Worker (miniflare): expiry alarm, viewer cap, rate limit, a non-owner can't
 register or revoke, the room never stores plaintext (it never has the key).
 
-## Phase 4: co-control (outline)
+## Phase 4: co-control (built 2026-10-16)
+
+As outlined below, with identities from **personal links** rather than askeden.com accounts
+(teammates needn't have one): each personal link is made for one person by name (typed, or a team
+member's, `features/code_teams.py`) with a role, and its secret is what makes a request theirs (on
+the network, the link's own token; through askeden.com, `<invite id>.<secret>` in the fragment,
+sent inside each sealed message). Every check is made again on each request and on the owner's Send:
+the link revoked, the share ended, a switch off, the member removed or moved down a role. A driver's
+message is a card (Send as yours / Copy into the composer / Dismiss; a `!` or `/` message is only
+ever copied); a suggested answer goes through the window's own answer (`jarvisFeatures.answerApproval`,
+so Touch ID asks for a risky step as on its card). Trusted drivers (their own switch, and the
+link's) skip the tap for plain messages only, never in Bypass. Every request and its outcome is in
+the share's log (the Share pane) and the companion's audit log, by the owner's name for the person,
+never the words.
+
+Teams (basic): kept on this Mac (`code-teams.json`), each with members (`admin` or `member`) and the
+most each may be in a share (viewer, commenter, driver; only an admin can be a driver). "Invite the
+team" on a share makes a personal link per member. Joining a team to an askeden.com team space is
+for later.
+
+The original outline:
 
 Roles per share: **viewer** (phase 1), **commenter** (phase 2), **driver**. A driver's message is
 still not sent straight to the session: it arrives as a card naming who sent it, and the owner's
@@ -129,3 +178,17 @@ tap (Touch ID for anything the session would run unattended) sends it as the own
 "trusted driver" role can skip the tap for plain messages but never for permission answers, Bypass,
 `!` commands, landing, or anything Touch ID guards today. Every driver action goes in the companion's
 audit log. Needs teammates to have identities (askeden.com accounts), so it comes after phase 3.
+
+## For the independent security review
+
+- The viewer page's end-to-end encryption rests on askeden.com serving the page honestly (SRI pins
+  the files the page names, not the page itself).
+- `live.js`'s room trusts the account object's word on who owns a share; the account ops
+  (`live-register`, `live-revoke`, `live-to-mac`) are reachable only through the Worker's own
+  routes, like the other internal ops.
+- A personal link is a bearer secret: anyone it is forwarded to is that person. Revoke is the remedy.
+- What a driver's request can do: a card only (or, trusted, a plain message with no `!` or `/`, not in
+  Bypass). Its text is the teammate's and goes to the model as the owner's message once sent.
+- The up channel is on for every internet share (`up: true`), so the Mac decrypts at most what the
+  room's limits let through for a read-only share too.
+- No Turnstile on suggestions yet.

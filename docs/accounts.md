@@ -780,6 +780,24 @@ in with their own Eden account and uses part of the owner's: a **grant**.
   `…/revoke { id }`, `…/accept { code }`, `…/use { id }` (sets the cookie), `…/leave` (clears it),
   `…/quit { id }` (the delegate gives it up).
 
+### Eden Code's Share live, anywhere (not deployed yet)
+
+`site/src/accounts/live.js`, the Mac's `features/code_share_live.py`; the design and its
+differences from it: JARVIS V1 `docs/eden-code-shared-sessions.md`, phase 3. A session shared from
+the Mac, watched at `/live/<id>#k=<key>`: sealed end to end on the Mac (AES-256-GCM, the key only
+in the fragment), relayed and kept as ciphertext only.
+
+- `POST /live { share, expires, max_viewers, up }` (auth: a `mac` device only) → `{ share, expires,
+  max_viewers }`; 409 an id already registered (by anyone), 429 past 10 live shares an account. A
+  day at most, 20 viewers at most. `DELETE /live/<id>` (the same Mac) → 204, the room ends at once.
+- `GET /live/<id>/watch`: a viewer's WebSocket, no sign-in, `LIVE_RATE` per network address; 404
+  ended or unknown, 429 full. The room sends `hello`, the frames since the last full snapshot,
+  then each push; a viewer sends `{type: "up", id, blob}` (6 a minute, 30 a room), passed on to the Mac unread.
+- On the Mac's relay control line: `share_push` up; `share_viewers`, `share_up`, `share_resync`,
+  `share_ended` down. Only the registering Mac's pushes are taken (its account and device, on every push).
+- `LiveRoom` (binding `LIVE_ROOMS`, migration `v8`), one per share, named by its id; the account
+  keeps `live:<id> → { device, expires, max_viewers, up }`.
+
 ### Team spaces (G8)
 
 `site/src/accounts/space.js`, `~/askeden/web/chat/spaces.js`. A shared project across

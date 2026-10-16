@@ -3530,14 +3530,17 @@ function approvalShown(id) { if (!approvalSeen.has(id)) approvalSeen.set(id, per
 function answerApproval(a, choice, feedback, deliberate = false) {
   const now = performance.now();
   // (deliberate: a notification's own button, not a pointer or key in the window: no settle)
-  if (!deliberate && (now - approvalAnsweredAt < APPROVAL_SETTLE || now - (approvalSeen.get(a.id) ?? -Infinity) < APPROVAL_SETTLE)) return;
+  if (!deliberate && (now - approvalAnsweredAt < APPROVAL_SETTLE || now - (approvalSeen.get(a.id) ?? -Infinity) < APPROVAL_SETTLE)) return false;
   const go = () => {
     approvalAnsweredAt = performance.now();  // (one a check turned down can be tried again at once)
     send({ type: 'approve', id: a.id, choice, feedback: feedback || '' });
     document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
   };
+  // (whether it was answered, for a feature that answers for someone: Share live's drivers)
   const check = featureCheck('approve', { approval: a, choice });
-  if (check) check.then((ok) => { if (ok) go(); }); else go();
+  if (check) return check.then((ok) => { if (ok) go(); return Boolean(ok); });
+  go();
+  return true;
 }
 
 // ── the composer: messages, / commands, @ files, pictures ──
