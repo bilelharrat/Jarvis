@@ -80,12 +80,18 @@ class Cloud:
     def desk(self) -> Any:
         return getattr(self.hub, "code_handoff", None)
 
-    def alias(self) -> str:
-        """The cloud machine: the one Settings names, else the only one added ("" none)."""
+    def alias(self, project: str = "") -> str:
+        """The cloud machine: a project's own (an Eden-made one kept warm for it:
+        code_provision.py), else the one Settings names, else the only one added ("" none)."""
         desk = self.desk()
         if desk is None:
             return ""
         desk.load()
+        provision = getattr(self.hub, "code_provision", None)
+        if project and provision is not None:
+            own = provision.for_project(project.rstrip("/").rsplit("/", 1)[-1])
+            if own and desk.machine(own) is not None:
+                return own
         wanted = str(self.hub.prefs.feature(PREF_MACHINE) or DEFAULT_MACHINE)
         if desk.machine(wanted) is not None:
             return wanted
@@ -121,7 +127,7 @@ class Cloud:
         prompt = str(msg.get("prompt") or "").strip()
         if not prompt:
             return False  # nothing to do there yet: an ordinary session
-        alias = self.alias()
+        alias = self.alias(str(msg.get("directory") or ""))
         if not alias:
             self.hub.emit(
                 "error",
