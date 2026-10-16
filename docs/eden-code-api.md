@@ -63,6 +63,11 @@ All under `http://127.0.0.1:8767/v1`. Errors are `{"error": "…"}` with a 4xx s
 | `POST /sessions/<id>/end` | `{}` | 202: ends the session |
 | `POST /sessions/<id>/land` | `{}` | 202: its card is up in the window |
 | `POST /sessions/<id>/discard` | `{}` | 202: its card is up in the window |
+| `GET /sessions/<id>/changes?view=turn\|session\|branch&path=` | | the Changes pane's view: `{id, view, git, workspace, base, files: [{path, status, added, removed, hunks: [{id, n, old_start, old_count, new_start, new_count, where, line, lines: [[tag, text]], kept}]}], totals}`; with `path`, `{file}` for that one file |
+| `GET /sessions/<id>/lines?path=&start=&end=` | | `{path, start, lines}`: unchanged lines between hunks (200 at most; never credentials or a file outside the session's folder) |
+| `GET /sessions/<id>/receipts?tail=N` | | `{receipts: [{n, at, text, receipt: {files, tests, check, risk, why…}}]}` |
+| `POST /sessions/<id>/hunks` | `{hunk, action: keep\|unkeep\|undo, view?}` | `{done, said, changes}`: Keep marks it reviewed (in the window too); Undo puts back just that hunk |
+| `POST /sessions/<id>/comments` | `{comments: [{path, line, side?, excerpt?, text}]}` | 202 `{sent, text}`: sent to the session as one "Review comments:" message, as the window's pane sends them (`side: "o"` for a removed line) |
 | `POST /exterminate` | `{project, spend_cap?, focus?}` | 202: Exterminator Mode's card is up |
 | `POST /todos` | `{project, prompt, title?, model?, mode?}` | 202 `{added: <card id>}` |
 | `GET /attention` | | `{items, count, summary}` (the Needs attention inbox) |
@@ -83,6 +88,7 @@ it, or its folder's path.
 - `{"type": "finished", "id": 3, "status": "done", "result": "…", "files": [...]}`
 - `{"type": "approval", "id": "…", "task": 3, "question": "…"}` and `{"type": "approval_resolved", "id": "…"}`
 - `{"type": "attention", "count": 2, "summary": "…", "items": [...]}`
+- `{"type": "changes", "id": 3}`: a hunk of session 3 was kept or undone (GET its changes)
 - `{"type": "code_bugfix"}`, `{"type": "code_runs"}`, `{"type": "todo_state"}`: something changed there
 - `{"type": "ping"}` every 15 seconds while it's quiet
 
@@ -114,6 +120,13 @@ eden-code webhook deploy-failed app "Find why the deploy failed and fix it"
 address the app wrote to `code_api.json` in its data folder, else `http://127.0.0.1:8767`. The
 token: `EDEN_CODE_TOKEN`, else the Keychain. Exit codes: 0 done, 1 the API said no (its reason
 on stderr), 2 a wrong command line, 3 Eden Code can't be reached (or no token).
+
+## In your editor
+
+`editors/vscode/` is an extension for VS Code (and Cursor, Windsurf and VSCodium, which load
+VS Code extensions): your sessions in a side bar, each one's changes in the file itself with
+Keep and Undo over every hunk, line comments sent to the session together, the turns'
+receipts, and a message to a session. See `editors/vscode/README.md`.
 
 ## Watches, schedules and webhooks
 

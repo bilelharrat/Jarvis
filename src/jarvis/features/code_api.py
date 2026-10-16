@@ -37,11 +37,18 @@ lock-down features):
   under way: task_interrupt), POST …/end (task_cancel);
 - POST /v1/sessions/<id>/land and …/discard: the isolated copy's own card in the window
   (code_copy), with its secret scan and its Touch ID; the API never answers a card itself;
+- the Changes pane, for an editor (editors/vscode: the VS Code extension, which Cursor,
+  Windsurf and VSCodium load too): GET /v1/sessions/<id>/changes?view=turn|session|branch
+  &path= (code_hunks' own payload, the same hunk ids and numbers), GET …/lines?path&start&end
+  (the unchanged lines between hunks), GET …/receipts?tail=N (the turns' receipts), POST
+  …/hunks {hunk, action: keep | unkeep | undo, view?} (the pane's Keep and Undo, the window's
+  pane kept in step) and POST …/comments {comments: [{path, line, side?, excerpt?, text}]}
+  (line comments sent to the session as one message, worded as the pane sends them);
 - POST /v1/exterminate {project, spend_cap?, focus?}: Exterminator Mode's own card;
 - POST /v1/todos {project, prompt, title?, model?, mode?}: a to-do card (todo_add);
 - GET /v1/attention: the Needs attention inbox (code_attention.py);
 - GET /v1/events: JSON lines as things happen (sessions, their transcripts, approvals up
-  and down, the inbox), one {"type": "ping"} every PING seconds while it's quiet. Only
+  and down, the inbox, a hunk kept or undone), one {"type": "ping"} every PING seconds while it's quiet. Only
   Eden Code's own events: nothing of the owner's mail, calendar, messages or chat goes out.
 - schedules, watches and webhooks: features/code_automate.py (POST /v1/schedules,
   /v1/watches, /v1/webhooks…), behind a second switch of their own.
@@ -78,7 +85,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from .. import jsonstore, lang, launches, prefs
+from .. import code_changes, jsonstore, lang, launches, prefs
 from ..hook_listener import HookListener
 from ..proactive import Alert
 
@@ -100,10 +107,13 @@ PING = 15.0
 STREAM_QUEUE = 1000  # events a slow reader may fall behind by before it's cut off
 STREAM_MAX = 8  # event streams open at once
 CLI_MARK = "# eden-code: written by Eden Code"
+REVIEW_VIEWS = ("turn", "session", "branch")  # the Changes pane's views (code_hunks.VIEWS)
+COMMENTS_MAX = 100  # line comments sent at once
 
 # The events a stream carries: Eden Code's own, nothing else of the owner's.
 STREAMED = ("tasks", "task_log", "task_finished", "approval", "approval_resolved",
-            "code_attention", "code_bugfix", "code_runs", "todo_state")  # fmt: skip
+            "code_attention", "code_bugfix", "code_runs", "todo_state",
+            "code_kept", "code_hunk_undone")  # fmt: skip
 
 
 def _bool(value: Any) -> bool | None:
@@ -164,6 +174,30 @@ def session_view(item: dict[str, Any]) -> dict[str, Any]:
 def entry_view(entry: dict[str, Any]) -> dict[str, Any]:
     keep = ("n", "role", "text", "at", "tool", "status", "detail")
     return {k: entry[k] for k in keep if k in entry}
+
+
+def comment_message(comments: Any) -> str:
+    """Line comments as one message to the session, word for word as the window's Changes
+    pane sends them (web/features/code_changes.js, commentMessage): "Review comments:", then
+    file:line, the line itself, and the comment. A removed line (side "o") is named so."""
+    if not isinstance(comments, list) or not comments:
+        raise Refused(400, 'send the comments: {"comments": [{"path", "line", "text"}]}')
+    rows = []
+    for c in comments[:COMMENTS_MAX]:
+        if not isinstance(c, dict):
+            continue
+        path = str(c.get("path") or "").strip()[:500]
+        text = " ".join(str(c.get("text") or "").split())[:2000]
+        line = c.get("line")
+        if not path or not text or not isinstance(line, int) or isinstance(line, bool):
+            continue
+        where = f"{path} (removed line {line})" if c.get("side") == "o" else f"{path}:{line}"
+        excerpt = str(c.get("excerpt") or "")[:300].replace("`", "'")
+        quote = f" (`{excerpt}`)" if excerpt else ""
+        rows.append(f"- {where}{quote} — {text}")
+    if not rows:
+        raise Refused(400, "each comment needs a path, a line number and its words")
+    return "Review comments:\n" + "\n".join(rows)
 
 
 HIDDEN = "A card is waiting for you in the Eden Code window."
@@ -492,8 +526,17 @@ class Api:
             tail = max(1, min(TAIL_MAX, tail))
             entries = [entry_view(e) for e in task.transcript[-tail:]]
             return _json_response({"id": task.id, "entries": entries})
+        if method == "GET" and action in ("changes", "lines", "receipts"):
+            return _json_response(await getattr(self, action)(task, request.query_params))
         if method != "POST":
             raise Refused(405, "use POST")
+        if action == "hunks":
+            return _json_response(await self.hunk(task, await self._body(request)))
+        if action == "comments":
+            body = await self._body(request)
+            text = comment_message(body.get("comments"))
+            await self.hub.handle({"type": "task_send", "id": task.id, "text": text[:20000]})
+            return _json_response({"id": task.id, "sent": True, "text": text}, 202)
         if action == "messages":
             body = await self._body(request)
             text = str(body.get("text") or "").strip()
@@ -518,6 +561,80 @@ class Api:
                 {"id": task.id, "asked": "on its card in the Eden Code window"}, 202
             )
         raise Refused(404, "not found")
+
+    # ── the Changes pane, for an editor (editors/vscode) ──
+
+    def _hunks(self) -> Any:
+        hunks = getattr(self.hub, "code_hunks", None)
+        if hunks is None:
+            raise Refused(409, "the Changes pane isn't available here")
+        return hunks
+
+    async def changes(self, task: Any, query: Any) -> dict[str, Any]:
+        """What the window's Changes pane shows (code_hunks.payload): the same views, the
+        same hunk ids and numbers, the hunks kept marked."""
+        hunks = self._hunks()
+        which = query.get("view") if query.get("view") in REVIEW_VIEWS else "session"
+        path = str(query.get("path") or "")[:1000]
+        view = await asyncio.to_thread(code_changes.task_view, task, which)
+        return hunks.payload(task, which, view, path)
+
+    async def lines(self, task: Any, query: Any) -> dict[str, Any]:
+        """Unchanged lines between two hunks, as the pane unfolds them (code_hunks.read_lines:
+        inside the session's folder, never credentials, at most LINES_AT_ONCE)."""
+        from .code_hunks import LINES_AT_ONCE, read_lines
+
+        path = str(query.get("path") or "")[:1000]
+        try:
+            start = max(1, int(query.get("start") or 1))
+            end = min(int(query.get("end") or start), start + LINES_AT_ONCE - 1)
+        except (TypeError, ValueError, OverflowError):
+            raise Refused(400, "start and end are line numbers") from None
+        found = await asyncio.to_thread(read_lines, task.cwd, path, start, end)
+        if found is None:
+            raise Refused(404, "that file can't be read here")
+        return {"id": task.id, "path": path, "start": start, "lines": found}
+
+    async def receipts(self, task: Any, query: Any) -> dict[str, Any]:
+        """The turns' receipts (code_receipts.py) still in the transcript, newest last: the
+        card's fields and its words, without the check's picture (the window has it)."""
+        try:
+            tail = max(1, min(TAIL_MAX, int(query.get("tail", TAIL_DEFAULT))))
+        except ValueError:
+            raise Refused(400, "tail is a number") from None
+        found = [e for e in task.transcript if isinstance(e.get("receipt"), dict)][-tail:]
+        out = []
+        for e in found:
+            receipt = dict(e["receipt"])
+            if isinstance(receipt.get("check"), dict):
+                receipt["check"] = {k: v for k, v in receipt["check"].items() if k != "thumb"}
+            out.append({"n": e.get("n"), "at": e.get("at"), "text": e.get("text", ""),
+                        "receipt": receipt})  # fmt: skip
+        return {"id": task.id, "receipts": out}
+
+    async def hunk(self, task: Any, body: dict[str, Any]) -> dict[str, Any]:
+        """Keep, un-keep or undo one hunk by its id, as the pane's buttons do (code_hunks):
+        a kept hunk is marked in the window too, an undo puts back just that hunk and the
+        window's pane is drawn again. Answers with the view as it is now."""
+        hunks = self._hunks()
+        action = str(body.get("action") or "")
+        hunk_id = str(body.get("hunk") or "")[:40]
+        which = body.get("view") if body.get("view") in REVIEW_VIEWS else "session"
+        if not hunk_id or action not in ("keep", "unkeep", "undo"):
+            raise Refused(
+                400, 'say which hunk and what: {"hunk": "…", "action": "keep" | "unkeep" | "undo"}'
+            )
+        said = ""
+        if action == "undo":
+            said = await hunks.undo(task, which, [hunk_id])
+            await hunks.changes({"id": task.id, "view": which})  # (the window's pane, again)
+            self.hub.emit("code_hunk_undone", id=task.id, undone=said.startswith("Undid"),
+                          file=str(body.get("path") or "")[:1000])  # fmt: skip
+        else:
+            hunks.keep(task, [hunk_id], action == "keep")
+        view = await asyncio.to_thread(code_changes.task_view, task, which)
+        return {"id": task.id, "action": action, "done": action != "undo" or said.startswith("Undid"),
+                "said": self.tr(said) if said else "", "changes": hunks.payload(task, which, view)}  # fmt: skip
 
     def safe_mode(self, project: str, mode: Any) -> str:
         """The mode a session or card from the API starts in: Ask, Plan or Accept edits."""
@@ -674,6 +791,8 @@ class Api:
             items = [redact(i) for i in event.get("items") or [] if isinstance(i, dict)]
             summary = attention.summary(items) if attention is not None else ""
             return {"type": "attention", "count": len(items), "summary": summary, "items": items}
+        if kind in ("code_kept", "code_hunk_undone"):  # (a hunk kept or undone: GET its changes)
+            return {"type": "changes", "id": event.get("id")} if event.get("id") in code else None
         if kind in ("code_bugfix", "code_runs", "todo_state"):
             return {"type": kind}  # (something changed there: GET what's needed)
         return None
