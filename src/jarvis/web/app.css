@@ -1090,6 +1090,10 @@ html body[data-skin="obsidian"]:not([data-tone="light"]) .deck.jc .jc-dock {
 .jc-menu { position: fixed; z-index: 60; min-width: 250px; max-width: 340px; max-height: min(460px, calc(100vh - 24px)); overflow-y: auto; border-radius: 15px; padding: 5px; background: var(--menu-fill); backdrop-filter: blur(34px) saturate(190%); -webkit-backdrop-filter: blur(34px) saturate(190%); box-shadow: var(--clear-rim), var(--glass-edge), var(--shadow-sheet); display: flex; flex-direction: column; font-size: 13.5px; }
 .jc-menu.rich { min-width: 292px; }
 .jc-menu[hidden] { display: none; }
+/* Rows keep their height when the list is taller than the menu: it scrolls instead. Flex items
+   shrink by default, so a two-line row (the Model Router's, with its note) was squashed to one
+   line and its note ran out of its highlight. */
+.jc-menu > * { flex-shrink: 0; }
 .jc-menu button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; text-align: left; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: rgb(var(--c-ink)); }
 .jc-menu button:hover, .jc-menu button:focus-visible { background: rgb(var(--c-accent)); color: #fff; outline: none; }
 .jc-menu button .k { margin-left: auto; font-size: 12px; opacity: 0.6; }
