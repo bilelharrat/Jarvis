@@ -1,0 +1,17 @@
+{
+ "strings": {
+  "Approval": "待批准",
+  "Waiting for your reply": "等你回复",
+  "Queue": "队列",
+  "Another machine": "另一台机器",
+  "Pairing conflict": "配对冲突",
+  "Needs attention (⌘⇧A)": "需要处理（⌘⇧A）",
+  "Everything waiting for you": "所有在等你的事",
+  "Nothing is waiting for you.": "没有在等你的事。",
+  "Needs attention: nothing waiting": "需要处理：没有在等的事"
+ },
+ "patterns": [
+  ["^Needs attention: (\\d+) waiting$", "需要处理：$1 件在等"],
+  ["^(\\d+) things are waiting for you\\.$", "有 $1 件事在等你。"]
+ ]
+}
