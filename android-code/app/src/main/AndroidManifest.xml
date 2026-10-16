@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Scan QR code: pairing with the Mac's code. A phone without a camera types the code instead. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <queries>
         <intent>
@@ -42,7 +45,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- edencode://session/5, edencode://changes/5, edencode://inbox, edencode://new -->
+            <!-- edencode://session/5, edencode://changes/5, edencode://inbox, edencode://new, and
+                 edencode://pair?v=1&code=…: the Mac's pairing QR code scanned with the phone's
+                 camera app opens Eden Code and pairs. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

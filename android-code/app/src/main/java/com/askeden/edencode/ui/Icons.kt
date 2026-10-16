@@ -82,6 +82,9 @@ object Glyphs {
     )
     val pencil = icon("pencil", 24f, 1.8f, "M4 20h4L19 9l-4-4L4 16z", "M13 20h7")
     // The G design's own SVGs (GChat, GDrawer, GNew mockups).
+    /** qrcode.viewfinder: four corners round a small code. */
+    val qrScan = icon("qrscan", 24f, 1.8f, "M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3",
+        "M7.5 7.5h3v3h-3zM13.5 7.5h3v3h-3zM7.5 13.5h3v3h-3zM13.5 13.5h1M16.5 13.5v3h-3")
     /** arrowshape.turn.up.left.fill: "Replying to". */
     val replyArrow = icon("reply", 24f, 0f, filled = listOf("M10 4.5L2.5 11l7.5 6.5v-4c5.5 0 9 1.5 11.5 6c-0.8-6-4-11-11.5-11.5z"))
     /** ☰: three lines of 16, 10 and 13, the drawer's button. */

@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import com.askeden.edencode.BuildConfig
 import com.askeden.edencode.model.CodeModes
@@ -135,6 +136,42 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
     var working by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
     val codeFocus = remember { FocusRequester() }
+    var pairingWith by remember { mutableStateOf<String?>(null) }  // the Mac's name while a scanned code pairs
+    var pairedWith by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * Pairs with a scanned code: its fingerprint pinned, its addresses tried in turn, the code
+     * sent once. Success shows for a moment before the app moves on.
+     */
+    fun pairScanned(payload: com.askeden.edencode.net.PairPayload) {
+        if (working) return
+        working = true
+        problem = null
+        pairingWith = payload.label
+        scope.launch {
+            try {
+                val pairing = io {
+                    com.askeden.edencode.net.PairPayload.pair(payload) { base, fp, code -> MacStore.pair(base, fp, code, "${Build.MODEL} (Eden Code)") }
+                }
+                pairingWith = null
+                pairedWith = pairing.macName ?: payload.label
+                kotlinx.coroutines.delay(1200)
+                working = false
+                store.added(pairing)
+                pairedWith = null
+                onDone()
+            } catch (e: Exception) {
+                working = false
+                pairingWith = null
+                problem = com.askeden.edencode.net.PairPayload.scanProblem(e)
+            }
+        }
+    }
+    // A code opened from the camera app (edencode://pair?…), or why it couldn't be read.
+    LaunchedEffect(store.pendingPair, store.pendingPairProblem) {
+        store.pendingPairProblem?.let { problem = it; store.pendingPairProblem = null }
+        store.pendingPair?.let { store.pendingPair = null; pairScanned(it) }
+    }
 
     fun pair() {
         val p = probed ?: return
@@ -179,6 +216,7 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
     LaunchedEffect(Unit) { if (DebugPairing.server != null && probed == null) probe() }
 
     val top = if (first) safeTop() else 0.dp
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().then(if (first) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             .padding(top = top + if (first) 40.dp else 2.dp, start = 20.dp, end = 20.dp, bottom = 30.dp),
@@ -193,8 +231,39 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
             T(if (first) "Eden Code" else "Pair a Mac", sf(34f, Bold), c.ink, maxLines = 1)
             T("Carry on from your phone: your sessions, their changes and what waits on you, from Eden Code on your Mac.", sf(15f), c.muted, align = TextAlign.Center)
         }
+        problem?.let { ProblemBanner(it) }
+        val shown = pairedWith
+        val busy = pairingWith
+        when {
+            shown != null -> Row(
+                Modifier.fillMaxWidth().height(50.dp).edenCard(radius = 20.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Glyph(Glyphs.checkCircle, 20.dp, c.checkGreen)
+                T("Paired with $shown", sf(17f, Semibold), c.checkGreen, maxLines = 1)
+            }
+            busy != null -> Row(
+                Modifier.fillMaxWidth().height(50.dp).edenCard(radius = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spinner(c.accent)
+                T("Pairing with $busy…", sf(15f, Medium), c.ink, maxLines = 1)
+            }
+            else -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().height(50.dp).background(c.accent, RoundedCornerShape(50))
+                        .pressable(0.97f, enabled = !working, dim = false, label = "Scan QR code. Scans the code in Eden Code › On your phone on your Mac") { store.scanning = true },
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Glyph(Glyphs.qrScan, 20.dp, Color.White)
+                    T("Scan QR code", sf(17f, Semibold), Color.White, maxLines = 1)
+                }
+                T("On your Mac, open Eden Code › On your phone (or Settings › iPhone › Pair the Eden Code app) and scan its code. Or type it below.",
+                    sf(13f), c.muted, align = TextAlign.Center)
+            }
+        }
         Column(Modifier.fillMaxWidth().edenCard(radius = 20.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Step(1, "On your Mac, open Eden › Settings › iPhone & Watch and turn on “Let my phone connect”. In Eden Code › More › Hand off to phone, turn on Eden Code on your phone.")
+            Step(1, "On your Mac, open Eden › Settings › iPhone & Watch and turn on “Let my phone connect”. In Eden Code › More › Open on my phone, turn on Eden Code on your phone.")
             FilledField(
                 address, { address = it; probed = null }, "Mac address, like my-mac.local",
                 keyboard = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
@@ -213,7 +282,6 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
                 )
             }
         }
-        problem?.let { ProblemBanner(it) }
         val enabled = !working && address.isNotBlank() && (probed == null || code.length == 6)
         Box(
             // .glassProminent: the accent while it can be pressed, plain glass with grey words while it can't.
@@ -228,6 +296,7 @@ fun PairingScreen(first: Boolean, onDone: () -> Unit) {
             T("Look around with sample sessions", sf(14f), c.accent, Modifier.pressable(0.97f) { DebugPairing.useFixtures?.invoke() })
         }
         Spacer(Modifier.height(0.dp))
+    }
     }
 }
 

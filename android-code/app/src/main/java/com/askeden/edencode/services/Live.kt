@@ -46,14 +46,23 @@ class LiveSessionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val app = application as EdenCodeApp
         val home = app.store.home
-        val notification = notification(this, home) ?: run {
+        val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0
+        val notification = notification(this, home)
+        if (notification == null) {
+            // Started with startForegroundService, it must go to the foreground before it may stop,
+            // or Android ends the app (ForegroundServiceDidNotStartInTimeException): the session
+            // may have finished between the start and now.
+            ServiceCompat.startForeground(
+                this, Notifications.LIVE_ID,
+                NotificationCompat.Builder(this, Notifications.CHANNEL_LIVE).setSmallIcon(R.drawable.ic_stat_eden)
+                    .setContentTitle("Eden Code").setSilent(true).build(),
+                type,
+            )
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
-        ServiceCompat.startForeground(
-            this, Notifications.LIVE_ID, notification,
-            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
-        )
+        ServiceCompat.startForeground(this, Notifications.LIVE_ID, notification, type)
         if (started == 0L) started = System.currentTimeMillis()
         if (loop?.isActive != true) loop = scope.launch {
             while (isActive) {

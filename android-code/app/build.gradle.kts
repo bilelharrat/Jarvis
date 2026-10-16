@@ -62,6 +62,17 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // A risky yes asks for the owner's fingerprint or face first (Face ID on the iPhone).
     implementation("androidx.biometric:biometric:1.1.0")
+    // biometric 1.1.0 brings an old androidx.fragment whose permission requests refuse the
+    // request codes today's activity-result registry uses (the camera prompt crashed); this
+    // brings it up to date.
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+    // Scan QR code (pairing): CameraX for the camera, ZXing to read the code. ZXing rather than
+    // ML Kit so scanning needs no Google Play services and no model download (works offline,
+    // and on phones without Google).
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("com.google.zxing:core:3.5.3")
     // Pushes, once firebase.properties exists (initialised by hand: no google-services plugin).
     implementation("com.google.firebase:firebase-messaging:24.1.0")
     debugImplementation("androidx.compose.ui:ui-tooling")

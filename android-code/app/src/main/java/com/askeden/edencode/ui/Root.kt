@@ -159,6 +159,13 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
                 }
             }
             Sheets(store)
+            if (store.scanning) {
+                BackHandler { store.scanning = false }
+                QrScanner(onCancel = { store.scanning = false }) { payload ->
+                    store.scanning = false
+                    store.pendingPair = payload
+                }
+            }
         }
     }
 }

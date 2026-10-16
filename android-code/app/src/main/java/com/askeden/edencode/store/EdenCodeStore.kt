@@ -90,6 +90,11 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     var path by mutableStateOf(emptyList<Route>())
     var sheetCard by mutableStateOf<PhoneCard?>(null)
     var showPairing by mutableStateOf(false)
+    /** A pairing QR code opened from outside (the camera app, edencode://pair?…) for the pairing screen to pair with; or why it couldn't be read. */
+    var pendingPair by mutableStateOf<com.askeden.edencode.net.PairPayload?>(null)
+    var pendingPairProblem by mutableStateOf<String?>(null)
+    /** Scan QR code: the camera over everything; what it reads goes to [pendingPair]. */
+    var scanning by mutableStateOf(false)
     var search by mutableStateOf("")
 
     /** Settings, kept on this phone. */
@@ -272,9 +277,9 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
 
     fun note(error: Throwable) {
         if (error is MacError) {
-            if (error is MacError.Rejected && error.message.contains("Hand off to phone")) {
+            if (error is MacError.Rejected && (error.message.contains("Open on my phone") || error.message.contains("Hand off to phone"))) {
                 switchedOff = true
-                problem = "Turn on Eden Code on your phone on the Mac: Eden Code › More › Hand off to phone."
+                problem = "Turn on Eden Code on your phone on the Mac: Eden Code › More › Open on my phone."
                 return
             }
             problem = error.description
@@ -376,6 +381,18 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         }
     }
 
+    /**
+     * The Mac's pairing QR code, scanned with the phone's camera app: the pairing screen (the
+     * first screen when no Mac is paired yet, else its sheet) pairs with it.
+     */
+    fun openPairing(url: String) {
+        when (val parsed = com.askeden.edencode.net.PairPayload.parse(url)) {
+            is com.askeden.edencode.net.PairPayload.Parsed.Ok -> { pendingPair = parsed.payload; pendingPairProblem = null }
+            is com.askeden.edencode.net.PairPayload.Parsed.Refused -> { pendingPair = null; pendingPairProblem = com.askeden.edencode.net.PairPayload.message(parsed.problem) }
+        }
+        if (paired) { panel = null; drawerOpen = false; showPairing = true }
+    }
+
     /** edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue, edencode://settings, edencode://new; anything else opens the drawer */
     fun open(url: String) {
         val uri = try {
@@ -386,6 +403,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         if (uri.scheme?.lowercase() != "edencode") return
         val parts = (listOf(uri.host ?: "") + (uri.path ?: "").split("/")).filter { it.isNotEmpty() }
         when (parts.firstOrNull()) {
+            "pair" -> openPairing(url)
             "session" -> parts.getOrNull(1)?.toIntOrNull()?.let { open(session = it) }
             "changes" -> parts.getOrNull(1)?.toIntOrNull()?.let { openChanges(it) }
             "inbox" -> show(Panel.Inbox)
