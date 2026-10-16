@@ -62,9 +62,10 @@ fun SettingsScreen() {
     LaunchedEffect(Unit) { store.refreshUsage() }
     val top = safeTop()
     val bottom = safeBottom()
+    val backdrop = rememberBackdrop()
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = top, bottom = bottom + TabBarHeight + 40.dp)) {
-            LargeTitle("Settings", Modifier.padding(start = 16.dp, top = 54.dp, bottom = 16.dp))
+        Column(Modifier.fillMaxSize().backdropSource(backdrop).verticalScroll(rememberScrollState()).padding(top = top - 6.dp + 44.dp + 12.dp, bottom = bottom + 40.dp)) {
+            LargeTitle("Settings", Modifier.padding(start = 16.dp, top = 0.dp, bottom = 16.dp))
             FormSection(
                 header = "Macs",
                 footer = "Away from home, Eden Code reaches your Mac through Eden’s encrypted relay when this phone is signed in to your Eden account, or over Tailscale.",
@@ -107,6 +108,9 @@ fun SettingsScreen() {
             }
             FormSection { FormValueRow("Version", BuildConfig.VERSION_NAME, divider = false) }
         }
+        GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp)) {
+            Spacer(Modifier.weight(1f))
+        }
         removing?.let { mac ->
             ConfirmDialog(
                 "Unpair ${mac.macLabel}?", "Eden Code on this phone forgets it. Remove the device on the Mac too, in Settings › iPhone & Watch.",
@@ -116,66 +120,6 @@ fun SettingsScreen() {
                 store.remove(mac)
             }
         }
-    }
-}
-
-/** A new session in a project (NewSessionSheet.swift): what to do, the mode, the model, an isolated copy. */
-@Composable
-fun NewSessionSheet() {
-    val env = LocalEnv.current
-    val store = env.store
-    val voice = env.speech
-    val c = Eden.colors
-    val scope = rememberCoroutineScope()
-    val options = store.options
-    var project by remember { mutableStateOf(options.projects.firstOrNull()?.name ?: "") }
-    var prompt by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf(if (CodeModes.phone.any { it.id == options.defaultMode }) options.defaultMode else "ask") }
-    var model by remember { mutableStateOf("") }
-    var isolated by remember { mutableStateOf(false) }
-    var starting by remember { mutableStateOf(false) }
-    var problem by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(options.projects) { if (project.isEmpty()) project = options.projects.firstOrNull()?.name ?: "" }
-    LaunchedEffect(Unit) { if (options.projects.isEmpty()) store.refreshAll() }
-    LaunchedEffect(voice.heard) { if (voice.heard.isNotEmpty() && voice.listening) prompt = voice.heard }
-
-    FormSheet(
-        "New session", onCancel = { voice.stopDictation(); store.showNewSession = false }, action = "Start",
-        actionEnabled = !starting && project.isNotEmpty() && prompt.isNotBlank(), busy = starting,
-        onAction = {
-            starting = true
-            voice.stopDictation()
-            scope.launch {
-                problem = store.newSession(project, prompt.trim(), mode, model.ifEmpty { null }, isolated)
-                starting = false
-            }
-        },
-    ) {
-        FormSection(header = "Project") {
-            FormPicker("Project", options.projects, options.projects.firstOrNull { it.name == project }, { if (it.branch.isEmpty()) it.name else "${it.name} · ${it.branch}" }, divider = false, navigation = true) { project = it.name }
-        }
-        FormSection(header = "Task", footer = voice.problem) {
-            Box(Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
-                BasicTextField(
-                    prompt, { prompt = it }, Modifier.fillMaxWidth(), textStyle = sf(17f).copy(color = c.ink), minLines = 4, maxLines = 10,
-                    cursorBrush = SolidColor(c.accent),
-                    decorationBox = { inner -> Box { if (prompt.isEmpty()) T("What should it do?", sf(17f), placeholderInk()); inner() } },
-                )
-            }
-            RowDivider(16.dp)
-            FormRow(onClick = { scope.launch { voice.toggleDictation() } }, divider = false) {
-                Glyph(if (voice.listening) Glyphs.stop else Glyphs.mic, 22.dp, c.accent)
-                T(if (voice.listening) "Stop dictating" else "Dictate", sf(17f), c.accent, maxLines = 1)
-            }
-        }
-        FormSection(footer = "From your phone a session runs in Manual or Accept edits. Bypass permissions is set on your Mac.") {
-            FormPicker("Mode", options.modes, options.modes.firstOrNull { it.id == mode }, { it.name }) { mode = it.id }
-            val your = PhoneOptions.Model("", "Your default")
-            FormPicker("Model", listOf(your) + options.models, (listOf(your) + options.models).firstOrNull { it.ref == model },
-                { if (it.needsKey) "${it.name} (needs a key on the Mac)" else it.name }, enabled = { !it.needsKey }) { model = it.ref }
-            FormToggle("Work in an isolated copy", isolated, divider = false) { isolated = it }
-        }
-        problem?.let { p -> FormSection { Box(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) { T(p, sf(17f), c.failInk) } } }
     }
 }
 

@@ -35,7 +35,8 @@ import kotlinx.coroutines.launch
  *     adb shell am start -n com.askeden.edencode/.MainActivity --es EDENCODEFixtures YES --es EDENCODEOpen session:5
  *
  * EDENCODEFixtures YES: sample sessions instead of a Mac (to look at the screens).
- * EDENCODEOpen session:<id> | changes:<id> | approve | inbox | queue | settings | new | pair
+ * EDENCODEOpen session:<id> | changes:<id> | ask (session 6 and its card) | approve (a card over the screen)
+ *   | drawer | inbox | queue | settings | new | pair
  * EDENCODEServer host:port, EDENCODECode 123456: pairs with a test Mac at launch.
  * EDENCODEReset YES: forgets every paired Mac. EDENCODETyped <text>, EDENCODEComposerOpen YES.
  * None of this exists in release builds (src/release has an empty one).
@@ -68,16 +69,28 @@ object DebugLaunch {
             when (parts.first()) {
                 "session" -> store.open(session = id)
                 "changes" -> store.openChanges(id)
+                "ask" -> store.open(session = 6)
                 "approve" -> store.sheetCard = store.home.attention.firstOrNull()
-                "inbox" -> store.tab = EdenCodeStore.Tab.Inbox
-                "queue" -> store.tab = EdenCodeStore.Tab.Queue
-                "settings" -> store.tab = EdenCodeStore.Tab.Settings
-                "new" -> store.showNewSession = true
+                "drawer", "sessions" -> { store.open(session = 5); store.drawerOpen = true }
+                "inbox" -> store.show(EdenCodeStore.Tab.Inbox)
+                "queue" -> store.show(EdenCodeStore.Tab.Queue)
+                "settings" -> store.show(EdenCodeStore.Tab.Settings)
+                "new" -> store.newSession()
                 "pair" -> store.showPairing = true
             }
         }
     }
 }
+
+private fun today(minutesAgo: Int): Long {
+    val now = System.currentTimeMillis()
+    val midnight = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    return maxOf(midnight + 60_000L * (60 - minutesAgo / 2), now - 60_000L * minutesAgo).coerceAtMost(now)
+}
+
+private fun daysAgo(days: Int): Long = System.currentTimeMillis() - days * 86_400_000L - 3_600_000L
 
 /** Sample data for every screen, as a Mac would answer it (the iPhone app's FixtureBackend, the same data). */
 class FixtureBackend : CodeBackend {
@@ -94,7 +107,7 @@ class FixtureBackend : CodeBackend {
 
         val migrationCard = PhoneCard(
             Approval(
-                "c-migrate", "Run a database migration?", "npx wrangler d1 migrations apply eden --remote",
+                "c-migrate", "Can I add the passkeys table?", "wrangler d1 migrations apply eden --remote",
                 listOf(ApprovalChoice("allow", "Allow"), ApprovalChoice("always", "Always allow migrations in this project"), ApprovalChoice("deny", "Deny")),
                 source = "code", taskID = 6,
             ),
@@ -122,11 +135,16 @@ class FixtureBackend : CodeBackend {
 
     val homeNow: PhoneHome
         get() = PhoneHome(
+            // The G mockups' sessions (GDrawer): four today, two yesterday, two earlier.
             sessions = listOf(
-                PhoneSummary(5, "Fix share-sheet crash", "askeden / site", CodeStatus.Working, "ask", "Manual", "Opus 5.5", 1.42),
-                PhoneSummary(6, "Passkey sign-in", "askeden / site", CodeStatus.NeedsYou, "edits", "Accept edits", "Sonnet 5.5", 0.61),
-                PhoneSummary(4, "No-zoom lock for iPad", "askeden / site", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.38),
-                PhoneSummary(3, "Redesign the chat list", "eden messenger", CodeStatus.Failed, model = "Opus 5.5", costUSD = 2.10),
+                PhoneSummary(6, "Passkey sign-in", "askeden", CodeStatus.NeedsYou, "edits", "Accept edits", "Sonnet 5.5", 0.61, today(5)),
+                PhoneSummary(5, "Fix share-sheet crash", "askeden", CodeStatus.Working, "ask", "Manual", "Opus 5.5", 1.42, today(12)),
+                PhoneSummary(7, "Chat list redesign", "eden messenger", CodeStatus.Done, model = "Opus 5.5", costUSD = 2.10, updatedAt = today(40)),
+                PhoneSummary(8, "VoiceOver labels", "eden messenger", CodeStatus.Working, model = "Sonnet 5.5", costUSD = 0.20, updatedAt = today(55)),
+                PhoneSummary(4, "No-zoom lock for iPad", "askeden", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.38, updatedAt = daysAgo(1)),
+                PhoneSummary(9, "Router log cleanup", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.05, updatedAt = daysAgo(1)),
+                PhoneSummary(3, "README refresh", "jarvis", CodeStatus.Done, model = "Haiku 5", costUSD = 0.02, updatedAt = daysAgo(3)),
+                PhoneSummary(10, "Windows installer check", "jarvis", CodeStatus.Done, model = "Sonnet 5.5", costUSD = 0.44, updatedAt = daysAgo(6)),
             ),
             attention = listOf(migrationCard, questionCard),
         )
@@ -160,14 +178,21 @@ class FixtureBackend : CodeBackend {
     fun view(id: Int): PhoneView {
         val summary = homeNow.sessions.firstOrNull { it.id == id }
         val status = summary?.status ?: CodeStatus.Working
-        val entries = mutableListOf(
-            PhoneEntry(1, PhoneEntry.Role.User, "The share sheet crashes with an image. Fix it and prove it in the simulator."),
-            PhoneEntry(2, PhoneEntry.Role.Tool, "Read share.js, ShareSheet.swift +4"),
-            PhoneEntry(3, PhoneEntry.Role.Tool, "Reproduced in iPhone 17 simulator"),
-            PhoneEntry(4, PhoneEntry.Role.Tool, "Edited 2 files"),
-            PhoneEntry(5, PhoneEntry.Role.Assistant, "Found it: the image goes to the share sheet before its upload finishes. I now wait for the upload and fall back to the local file."),
+        // The GChat mockup's conversation (and GAsk's for the passkey session).
+        val entries = if (id == 6) mutableListOf(
+            PhoneEntry(1, PhoneEntry.Role.User, "Add passkey sign-in to the site."),
+            PhoneEntry(2, PhoneEntry.Role.Assistant, "Done with the code. The last step is the database: I need to add one table for passkeys."),
+            PhoneEntry(3, PhoneEntry.Role.Tool, "Wrote the sign-in flow"),
+            PhoneEntry(4, PhoneEntry.Role.Tool, "24 tests passed"),
+        ) else mutableListOf(
+            PhoneEntry(1, PhoneEntry.Role.User, "The share sheet crashes when I share a chat with a photo. Fix it and prove it in the simulator."),
+            PhoneEntry(2, PhoneEntry.Role.Assistant, "On it. I reproduced the crash: the photo goes to the share sheet before its upload finishes, so the link is empty."),
+            PhoneEntry(3, PhoneEntry.Role.Tool, "Read share.js and ShareSheet.swift"),
+            PhoneEntry(4, PhoneEntry.Role.Tool, "Reproduced it in the iPhone simulator"),
+            PhoneEntry(5, PhoneEntry.Role.Tool, "Fixed it in 2 files"),
+            PhoneEntry(6, PhoneEntry.Role.Assistant, "Now it waits for the upload and falls back to the photo on the phone. Running the tests to make sure nothing else broke."),
         )
-        if (status == CodeStatus.Working) entries += PhoneEntry(6, PhoneEntry.Role.Tool, "Running tests · 3 of 41…")
+        if (status == CodeStatus.Working) entries += PhoneEntry(7, PhoneEntry.Role.Tool, "Running tests · 3 of 41…")
         val mode = summary?.mode ?: "ask"
         return PhoneView(
             id = id, title = summary?.title ?: "Fix share-sheet crash", project = summary?.project ?: "askeden / site", status = status,
@@ -225,7 +250,7 @@ class FixtureBackend : CodeBackend {
         return PhoneHunkResult(true, "", changesNow)
     }
     override fun comment(id: Int, comments: List<PhoneComment>) = PhoneOK(true)
-    override fun receipts(id: Int) = PhoneReceipts(listOf(receipt))
+    override fun receipts(id: Int) = PhoneReceipts(if (id == 6) emptyList() else listOf(receipt))
     override fun todos() = todosNow
     override fun startTodo(card: String) = PhoneOK(true, id = 5)
     override fun usage() = usageNow

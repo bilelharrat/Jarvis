@@ -162,20 +162,55 @@ private fun android.graphics.Canvas.clipOutPathCompat(path: android.graphics.Pat
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) clipOutPath(path) else clipPath(path, android.graphics.Region.Op.DIFFERENCE)
 }
 
-/** The soft lights behind every screen: blue top left, violet right, teal at the bottom. */
+/**
+ * The soft coloured wallpaper behind every screen (the G mockups' background): blue top left,
+ * violet right, teal low left, peach bottom right, over a pale blue-grey. Each light is a CSS
+ * `radial-gradient(circle at x y, colour 0, transparent p%)`, whose p is of the distance to the
+ * farthest corner, drawn the same way here. Dark keeps the same lights, deeper.
+ */
 @Composable
 fun EdenBackground(modifier: Modifier = Modifier) {
     val dark = Eden.dark
     Canvas(modifier.fillMaxSize()) {
-        drawRect(hex(if (dark) 0x141A2E else 0xE6ECF7))
-        val m = maxOf(size.width, size.height)
-        fun glow(rgb: Long, at: Offset, radius: Float) {
-            drawCircle(Brush.radialGradient(listOf(hex(rgb), hex(rgb, 0f)), center = at, radius = radius), radius = radius, center = at)
+        drawRect(hex(if (dark) 0x141A2E else 0xE4EAF6))
+        fun glow(rgb: Long, fx: Float, fy: Float, stop: Float) {
+            val at = Offset(size.width * fx, size.height * fy)
+            val far = maxOf(at.x, size.width - at.x).let { w -> maxOf(at.y, size.height - at.y).let { h -> kotlin.math.sqrt(w * w + h * h) } }
+            val radius = far * stop
+            drawRect(Brush.radialGradient(listOf(hex(rgb), hex(rgb, 0f)), center = at, radius = radius))
         }
-        glow(if (dark) 0x3C5BD8 else 0x9CCBFF, Offset(size.width * 0.1f, size.height * 0.1f), m * 0.45f)
-        glow(if (dark) 0x8A3FD1 else 0xD2B6FF, Offset(size.width * 0.95f, size.height * 0.4f), m * 0.4f)
-        glow(if (dark) 0x138A8A else 0x8BE6D4, Offset(size.width * 0.4f, size.height), m * 0.45f)
+        glow(if (dark) 0x3C5BD8 else 0x8EC2FF, 0.12f, 0.08f, 0.45f)
+        glow(if (dark) 0x8A3FD1 else 0xCDB2FF, 0.92f, 0.38f, 0.42f)
+        glow(if (dark) 0x138A8A else 0x8BE6D4, 0.25f, 0.78f, 0.45f)
+        glow(if (dark) 0x7A3C55 else 0xFFC9A8, 0.85f, 0.95f, 0.40f)
     }
+}
+
+/**
+ * The G design's Liquid Glass (every floating control, bubble and panel): the backdrop blurred
+ * 24 and saturated 1.9×, white at 42% over it (or [tint]), a bright top edge and a faint white
+ * ring inside, and a soft blue-grey shadow (`0 6 18 rgba(40,60,120,.10)`). In dark the glass is a
+ * deep grey and the edges dimmer. [backdrop] null (or no RenderEffect) draws the tint more opaque.
+ */
+@Composable
+fun Modifier.gGlass(
+    backdrop: Backdrop?,
+    radius: Dp,
+    tint: Color? = null,
+    shadowY: Dp = 6.dp,
+    shadowBlur: Dp = 18.dp,
+    shadowAlpha: Float = 0.10f,
+    blur: Dp = 24.dp,
+    saturate: Float = 1.9f,
+): Modifier {
+    val dark = Eden.dark
+    val shape = RoundedCornerShape(radius)
+    val fill = tint ?: if (dark) hex(0x2C2C30, 0.5f) else hex(0xFFFFFF, 0.42f)
+    return this
+        .boxShadow(if (dark) Color.Black.copy(alpha = shadowAlpha * 3.5f) else hex(0x283C78, shadowAlpha), y = shadowY, blur = shadowBlur, radius = radius)
+        .glass(backdrop, shape, fill, blur = blur, saturate = saturate)
+        .border(1.dp, if (dark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.55f), shape)
+        .topRim(radius, if (dark) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.95f), Color.Transparent)
 }
 
 /** The mockups' white glass card (18–20 corners, a bright 1 pt rim), over the screen's lights. */

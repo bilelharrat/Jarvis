@@ -26,7 +26,7 @@ import com.askeden.edencode.model.PhoneSummary
 import com.askeden.edencode.model.PhoneTodoCard
 import kotlinx.coroutines.launch
 
-/** Needs attention (InboxView.swift): every card that waits on the owner, each opening the approval sheet. */
+/** Needs attention (InboxView.swift): every card that waits on the owner, each opening its session, where it waits. */
 @Composable
 fun InboxScreen() {
     val store = LocalEnv.current.store
@@ -39,7 +39,7 @@ fun InboxScreen() {
         } else {
             Column(Modifier.fillMaxWidth().edenCard()) {
                 cards.forEachIndexed { index, card ->
-                    CardRow(card, store.home.sessions.firstOrNull { it.id == card.taskID }) { store.sheetCard = card }
+                    CardRow(card, store.home.sessions.firstOrNull { it.id == card.taskID }) { store.showCard(card) }
                     if (index < cards.size - 1) RowDivider(60.dp)
                 }
             }

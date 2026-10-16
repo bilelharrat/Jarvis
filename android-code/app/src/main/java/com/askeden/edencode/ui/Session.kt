@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -69,10 +70,12 @@ object DebugComposer {
 }
 
 /**
- * One session, live (PhoneSession mockup, SessionScreen.swift): a floating glass header pill
- * (back, title, project · model, Changes), the transcript (the owner's words in blue bubbles,
- * steps as "✓ Read file" lines, Eden's replies on glass with Read aloud and the files changed),
- * its cards inline, the isolated copy's Land and Discard, and Eden chat's composer.
+ * One session, filling the screen (the GChat mockup): over the wallpaper, a floating ☰, the title
+ * pill (its dot and one word, its project; tap for the changes) and ✎; the owner's words in blue
+ * bubbles, Eden's replies in frosted glass, the steps in a glass panel, the running step with its
+ * ring, "N files changed ›", the isolated copy's Land and Discard, and Eden chat's input bar. A
+ * card that waits on the owner takes the input bar's place (GAsk) until answered, or until
+ * Reply instead, which turns the bar into the answer.
  */
 @Composable
 fun SessionScreen(id: Int) {
@@ -86,6 +89,10 @@ fun SessionScreen(id: Int) {
     var text by remember { mutableStateOf(DebugComposer.typed ?: "") }
     var pictures by remember { mutableStateOf(emptyList<Picture>()) }
     var confirmCopy by remember { mutableStateOf<String?>(null) }
+    // The card the input bar answers after Reply instead (its id), and the card that waits.
+    var replyingTo by remember(id) { mutableStateOf<String?>(null) }
+    val asking = model.view.cards.firstOrNull()
+    val replyCard = model.view.cards.firstOrNull { it.id == replyingTo }
     val backdrop = rememberBackdrop()
     val c = Eden.colors
 
@@ -125,54 +132,42 @@ fun SessionScreen(id: Int) {
                 Modifier.fillMaxSize(),
                 state = list,
                 contentPadding = PaddingValues(
-                    start = 16.dp, end = 16.dp, top = top + 8.dp + 56.dp + 12.dp,
-                    bottom = with(density) { composerHeight.toDp() } + 12.dp,
+                    start = 20.dp, end = 20.dp, top = top - 6.dp + 44.dp + 12.dp,
+                    bottom = with(density) { composerHeight.toDp() } + 18.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 model.problem?.let { item("problem") { ProblemBanner(it) } }
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is Transcript.Row.User -> UserBubble(row.entry.text)
                         is Transcript.Row.Steps -> Steps(row.steps, model.working)
-                        is Transcript.Row.Reply -> ReplyBubble(
-                            row.entry.text, typing = false, speaking = voice.speaking == "r${row.entry.i}",
-                            filesChanged = if (row.entry.i == lastReply) model.latestReceipt?.fileCount ?: 0 else 0,
-                            onRead = { voice.toggle(row.entry.text, "r${row.entry.i}") },
-                            onChanges = { store.push(EdenCodeStore.Route.Changes(id)) },
-                        )
+                        is Transcript.Row.Reply -> Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                            ReplyBubble(row.entry.text, typing = false, speaking = voice.speaking == "r${row.entry.i}") {
+                                voice.toggle(row.entry.text, "r${row.entry.i}")
+                            }
+                            // "2 files changed ›" under the last reply, when its turn changed files.
+                            val files = model.latestReceipt?.fileCount ?: 0
+                            if (row.entry.i == lastReply && files > 0) FilesChanged(files) { store.push(EdenCodeStore.Route.Changes(id)) }
+                        }
                         is Transcript.Row.Note -> T(
                             row.entry.text, sf(13f), c.muted,
                             Modifier.fillMaxWidth().background(c.fill.copy(alpha = c.fill.alpha * 0.6f), RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }
                 }
-                if (model.view.live.isNotEmpty()) item("live") { ReplyBubble(model.view.live, typing = true, speaking = false, filesChanged = 0, onRead = {}, onChanges = {}) }
-                items(model.view.cards, key = { "card" + it.id }) { InlineCard(it) { store.sheetCard = it } }
+                if (model.view.live.isNotEmpty()) item("live") { ReplyBubble(model.view.live, typing = true, speaking = false) {} }
+                if (model.working && model.view.doing.isNotEmpty() && rows.lastOrNull() !is Transcript.Row.Steps) item("doing") { Running(model.view.doing) }
                 model.view.copy?.let { copy -> item("copy") { CopyBar(copy) { confirmCopy = it } } }
                 if (model.view.todos.isNotEmpty()) item("todos") { TodoList(model.view.todos) }
-                item("bottom") {
-                    T(model.statusLine, sf(12f), c.muted, Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, align = TextAlign.Center)
-                }
+                // What the title pill's word says, for TalkBack as it changes.
+                item("bottom") { Box(Modifier.fillMaxWidth().height(1.dp).semantics { contentDescription = model.statusLine; liveRegion = LiveRegionMode.Polite }) }
             }
         }
 
-        // The header pill.
-        Row(
-            Modifier.padding(top = top + 4.dp, start = 12.dp, end = 12.dp).fillMaxWidth()
-                .boxShadow(hex(0x1E2850, if (Eden.dark) 0.4f else 0.12f), y = 6.dp, blur = 20.dp, radius = 999.dp)
-                .glass(backdrop, RoundedCornerShape(50), if (Eden.dark) hex(0x2C2C30, 0.5f) else hex(0xFFFFFF, 0.6f), blur = 30.dp, saturate = 1.9f)
-                .topRim(999.dp, if (Eden.dark) Color.White.copy(alpha = 0.2f) else Color.White, Color.Transparent)
-                .border(1.dp, if (Eden.dark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.85f), RoundedCornerShape(50))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RoundGlassButton(Glyphs.chevronLeft, "Back to sessions") { store.back() }
-            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                T(model.title, sf(15f, Semibold), c.ink, maxLines = 1)
-                T(listOf(model.view.project, model.view.modelLabel).filter { it.isNotEmpty() }.joinToString(" · "), sf(11f), c.muted, maxLines = 1)
-            }
-            RoundGlassButton(Glyphs.changes, "Changes", iconSize = 17.dp) { store.push(EdenCodeStore.Route.Changes(id)) }
+        // The floating header: ☰, the title pill, ✎.
+        GHeader(backdrop, onMenu = { store.drawerOpen = true }, onNew = { store.newSession() }, modifier = Modifier.padding(top = top - 6.dp)) {
+            GTitlePill(model.title, model.view.status, model.view.project, backdrop) { store.push(EdenCodeStore.Route.Changes(id)) }
         }
 
         // The composer.
@@ -197,13 +192,26 @@ fun SessionScreen(id: Int) {
                 }
             }
             val view = model.view
+            if (asking != null && replyingTo != asking.id) {
+                AskCard(asking, backdrop, Modifier.padding(horizontal = 12.dp), onReplyInstead = { replyingTo = asking.id })
+                return@Column
+            }
+            if (replyCard != null) {
+                T("Answer the question instead", sf(13f), gInk.blue, Modifier.pressable(0.97f, label = "Answer the question instead") { replyingTo = null })
+            }
             EdenComposer(
                 text = text, onText = { text = it }, working = model.working,
                 modeID = view.mode, modeLabel = view.modeLabel, modelLabel = view.modelLabel,
                 modes = store.options.modes, models = store.options.models,
                 dictating = voice.listening, talking = voice.speaking == "last", attachments = pictures.size,
                 backdrop = backdrop, startExpanded = DebugComposer.open,
-                onSend = { submit(model, text, pictures, false, scope, voice) { t, p -> text = t; pictures = p } },
+                placeholder = if (replyCard != null) "Tell it what to do instead…" else null,
+                onSend = {
+                    if (replyCard != null) {
+                        val said = text.trim()
+                        if (said.isNotEmpty()) scope.launch { if (store.answer(replyCard, replyCard.noChoice, said)) { text = ""; replyingTo = null } }
+                    } else submit(model, text, pictures, false, scope, voice) { t, p -> text = t; pictures = p }
+                },
                 onSteer = { submit(model, text, pictures, true, scope, voice) { t, p -> text = t; pictures = p } },
                 onStop = { scope.launch { model.stop() } },
                 onDictate = { scope.launch { voice.toggleDictation() } },
@@ -251,75 +259,103 @@ private suspend fun loadPictures(context: android.content.Context, uris: List<Ur
     }
 }
 
+/** The owner's words: a blue bubble with a light top sheen (GChat), at most 78 % of the width. */
 @Composable
 private fun UserBubble(text: String) {
-    val c = Eden.colors
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        val shape = RoundedCornerShape(20.dp)
         SelectionContainer {
             T(
-                text, sf(15f, lineHeight = 21f), Color.White,
-                Modifier.widthIn(max = 300.dp).background(c.accent, RoundedCornerShape(20.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+                text, sf(16f, lineHeight = 21.6f), Color.White,
+                Modifier.widthIn(max = maxWidth * 0.78f)
+                    .boxShadow(hex(0x007AFF, 0.25f), y = 6.dp, blur = 16.dp, radius = 20.dp)
+                    .background(hex(0x007AFF, 0.88f), shape)
+                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.White.copy(alpha = 0.25f), 0.55f to Color.White.copy(alpha = 0f)), shape)
+                    .topRim(20.dp, Color.White.copy(alpha = 0.45f), Color.Transparent)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
                     .semantics { contentDescription = "You: $text" },
             )
         }
     }
 }
 
+/** The steps so far in one glass panel, ✓ each; the one running now is its own line with the ring. */
 @Composable
 private fun Steps(steps: List<PhoneEntry>, working: Boolean) {
-    val c = Eden.colors
-    Column(Modifier.padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        steps.forEachIndexed { index, step ->
-            val running = index == steps.size - 1 && working && step.stepRunning
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = (if (running) "Running: " else "Done: ") + step.stepLine },
+    val g = gInk
+    val runningLast = working && steps.lastOrNull()?.stepRunning == true
+    val done = if (runningLast) steps.dropLast(1) else steps
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        if (done.isNotEmpty()) {
+            Column(
+                Modifier.gGlass(LocalBackground.current, 16.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (!running && !step.stepFailed) Glyph(Glyphs.checkThin, 14.dp, c.checkGreen, Modifier.padding(top = 2.dp))
-                else T(if (running) "◌" else "✗", sf(14f), if (running) c.accent else c.red, maxLines = 1)
-                T(step.stepLine.replace("…", ""), sf(14f), if (running) c.ink else c.ink2, maxLines = 2)
+                for (step in done) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = (if (step.stepFailed) "Failed: " else "Done: ") + step.stepLine },
+                    ) {
+                        if (step.stepFailed) T("✗", sf(14f), g.red, maxLines = 1) else Glyph(Glyphs.check, 13.dp, g.green)
+                        T(step.stepLine.replace("…", ""), sf(14f, lineHeight = 17f), g.steps, maxLines = 2)
+                    }
+                }
             }
         }
+        if (runningLast) Running(steps.last().stepLine.replace("…", ""))
     }
 }
 
-/** Eden's reply on glass, with Read aloud and the files it changed. */
+/** What runs now: the blue ring and its words, in grey. */
 @Composable
-fun ReplyBubble(text: String, typing: Boolean, speaking: Boolean, filesChanged: Int, onRead: () -> Unit, onChanges: () -> Unit) {
-    val c = Eden.colors
-    Column(
-        Modifier.widthIn(max = 360.dp)
-            .background(c.card, RoundedCornerShape(20.dp)).border(1.dp, c.cardRim, RoundedCornerShape(20.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        SelectionContainer { T(text, sf(15f, lineHeight = 21f), c.ink) }
-        if (typing) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.semantics { contentDescription = "Writing" }) {
-                repeat(3) { Box(Modifier.size(5.dp).background(c.muted, CircleShape)) }
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip(if (speaking) "Stop" else "Read aloud", if (speaking) Glyphs.stop else Glyphs.play, modifier = Modifier.pressable(0.96f, label = if (speaking) "Stop reading" else "Read aloud", onClick = onRead))
-                if (filesChanged > 0) Chip("$filesChanged file${if (filesChanged == 1) "" else "s"} changed", modifier = Modifier.pressable(0.96f, onClick = onChanges))
-            }
-        }
-    }
-}
-
-/** A card inside the transcript: opens the approval sheet. */
-@Composable
-private fun InlineCard(card: PhoneCard, onClick: () -> Unit) {
-    val c = Eden.colors
+private fun Running(text: String) {
     Row(
-        Modifier.fillMaxWidth().background(c.orange.copy(alpha = 0.14f), RoundedCornerShape(18.dp)).pressable(0.98f, label = card.approval.question, onClick = onClick).padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Running: $text" },
     ) {
-        Badge(if (card.approval.isQuestion) c.accent else c.orange) { Glyph(if (card.approval.isQuestion) Glyphs.questionFill else Glyphs.warningFill, 19.dp, Color.White) }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            T(card.approval.question, sf(15f, Semibold), c.ink, maxLines = 2)
-            T(if (card.macOnly) "Answer on your Mac" else "Tap to answer", sf(13f), c.needsInk, maxLines = 1)
+        RingSpinner()
+        T(text, sf(14f, lineHeight = 17f), gInk.grey2, maxLines = 2)
+    }
+}
+
+/** Eden's reply in frosted glass, at most 88 % of the width; a long press reads it aloud (or stops). */
+@Composable
+fun ReplyBubble(text: String, typing: Boolean, speaking: Boolean, onRead: () -> Unit) {
+    val g = gInk
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.widthIn(max = maxWidth * 0.88f).gGlass(LocalBackground.current, 20.dp)
+                .semantics { customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction(if (speaking) "Stop reading" else "Read aloud") { onRead(); true }) }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SelectionContainer { T(text, sf(16f, lineHeight = 24f), g.ink) }
+            if (typing) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.semantics { contentDescription = "Writing" }) {
+                    repeat(3) { Box(Modifier.size(5.dp).background(g.grey, CircleShape)) }
+                }
+            } else if (speaking) {
+                Row(Modifier.pressable(0.96f, label = "Stop reading", onClick = onRead), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Glyph(Glyphs.stop, 12.dp, g.blue)
+                    T("Stop reading", sf(13f, Medium), g.blue, maxLines = 1)
+                }
+            }
         }
+    }
+}
+
+/** "2 files changed ›": a small glass button to the changes. */
+@Composable
+private fun FilesChanged(count: Int, onClick: () -> Unit) {
+    val g = gInk
+    val words = "$count file${if (count == 1) "" else "s"} changed"
+    Row(
+        Modifier.gGlass(LocalBackground.current, 14.dp).pressable(0.97f, label = words, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Glyph(Glyphs.diffBox, 16.dp, g.ink)
+        T(words, sf(14f, lineHeight = 17f), g.ink, maxLines = 1)
+        T("›", sf(14f, lineHeight = 17f), g.grey, maxLines = 1)
     }
 }
 

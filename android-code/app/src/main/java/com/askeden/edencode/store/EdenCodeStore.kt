@@ -51,7 +51,11 @@ interface Platform {
  * (a push, a handoff, the ongoing notification tapped). One per app.
  */
 class EdenCodeStore(context: Context, private val platform: Platform, fixtures: Fixtures?) {
-    enum class Tab { Sessions, Inbox, Queue, Settings }
+    /**
+     * What shows when no session is open (the G design, 2026-10-16: no tab bar; the drawer reaches
+     * all of them). New is the "What should we build?" page, the app's home.
+     */
+    enum class Tab { New, Inbox, Queue, Settings }
 
     sealed class Route {
         data class Session(val id: Int) : Route()
@@ -76,10 +80,11 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     var switchedOff by mutableStateOf(false)
     var loaded by mutableStateOf(false)
 
-    var tab by mutableStateOf(Tab.Sessions)
+    var tab by mutableStateOf(Tab.New)
+    /** The glass drawer from the left: search, New session, every session, the Mac and Settings. */
+    var drawerOpen by mutableStateOf(false)
     var path by mutableStateOf(emptyList<Route>())
     var sheetCard by mutableStateOf<PhoneCard?>(null)
-    var showNewSession by mutableStateOf(false)
     var showPairing by mutableStateOf(false)
     var search by mutableStateOf("")
 
@@ -279,13 +284,32 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     }
 
     fun open(session: Int) {
-        tab = Tab.Sessions
+        drawerOpen = false
         path = listOf(Route.Session(session))
     }
 
     fun openChanges(id: Int) {
-        tab = Tab.Sessions
+        drawerOpen = false
         path = listOf(Route.Session(id), Route.Changes(id))
+    }
+
+    /** A page the drawer reaches (New, Inbox, Queue, Settings), with no session over it. */
+    fun show(page: Tab) {
+        drawerOpen = false
+        path = emptyList()
+        tab = page
+    }
+
+    /** The New page ("What should we build?"): the ✎ in a session's header and the drawer's New session. */
+    fun newSession() = show(Tab.New)
+
+    /**
+     * A card to answer: in its session, where it waits as a glass card above the transcript (the
+     * GAsk mockup); a card from no session we know rises over the screen instead.
+     */
+    fun showCard(card: PhoneCard) {
+        val id = card.taskID
+        if (id != null && home.sessions.any { it.id == id }) open(session = id) else sheetCard = card
     }
 
     fun push(route: Route) {
@@ -296,10 +320,10 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     fun back(): Boolean {
         when {
             sheetCard != null -> sheetCard = null
-            showNewSession -> showNewSession = false
             showPairing -> showPairing = false
+            drawerOpen -> drawerOpen = false
             path.isNotEmpty() -> path = path.dropLast(1)
-            tab != Tab.Sessions -> tab = Tab.Sessions
+            tab != Tab.New -> tab = Tab.New
             else -> return false
         }
         return true
@@ -315,7 +339,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
             when (kind) {
                 "code_approval", "code_needs_you" -> {
                     val card = home.attention.firstOrNull { it.id == cardID || (taskID != null && it.taskID == taskID) }
-                    if (card != null) sheetCard = card else if (taskID != null) open(session = taskID)
+                    if (card != null) showCard(card) else if (taskID != null) open(session = taskID)
                 }
                 else -> {
                     if (taskID != null) open(session = taskID)
@@ -325,7 +349,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         }
     }
 
-    /** edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue, edencode://new */
+    /** edencode://session/5, edencode://changes/5, edencode://inbox, edencode://queue, edencode://new, edencode://sessions (the drawer) */
     fun open(url: String) {
         val uri = try {
             java.net.URI(url)
@@ -337,11 +361,12 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         when (parts.firstOrNull()) {
             "session" -> parts.getOrNull(1)?.toIntOrNull()?.let { open(session = it) }
             "changes" -> parts.getOrNull(1)?.toIntOrNull()?.let { openChanges(it) }
-            "inbox" -> tab = Tab.Inbox
-            "queue" -> tab = Tab.Queue
-            "settings" -> tab = Tab.Settings
-            "new" -> showNewSession = true
-            else -> tab = Tab.Sessions
+            "inbox" -> show(Tab.Inbox)
+            "queue" -> show(Tab.Queue)
+            "settings" -> show(Tab.Settings)
+            "new" -> newSession()
+            "sessions" -> drawerOpen = true
+            else -> {}
         }
     }
 
@@ -383,7 +408,6 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         val b = backend ?: return "Pair a Mac first."
         return try {
             val ok = io { b.newSession(directory, prompt, mode, model, isolated) }
-            showNewSession = false
             ok.id?.let { open(session = it) }
             scope.launch { refreshHome() }
             null

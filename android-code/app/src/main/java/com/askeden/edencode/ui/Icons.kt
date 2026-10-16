@@ -81,6 +81,18 @@ object Glyphs {
         "M8 13V6.5a1.5 1.5 0 0 1 3 0V11", "M11 11V4.5a1.5 1.5 0 0 1 3 0V11", "M14 11V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-0.5a6 6 0 0 1-5-2.7L3.8 14a1.5 1.5 0 0 1 2.5-1.7L8 14",
     )
     val pencil = icon("pencil", 24f, 1.8f, "M4 20h4L19 9l-4-4L4 16z", "M13 20h7")
+    // The G design's own SVGs (GChat, GDrawer, GNew mockups).
+    /** ☰: three lines of 16, 10 and 13, the drawer's button. */
+    val menu = icon("menu", 24f, 2f, "M4 7h16M4 12h10M4 17h13")
+    /** ✎ with its base line: New session. */
+    val compose = icon("compose", 24f, 2f, "M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z")
+    val search = icon("search", 24f, 2f, "M11 4a7 7 0 1 1 0 14a7 7 0 0 1 0-14z", "M20 20l-4-4")
+    /** The outline gear at the drawer's foot. */
+    val gear = icon("gear", 24f, 2f, "M12 9a3 3 0 1 1 0 6a3 3 0 0 1 0-6z", "M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1")
+    /** "N files changed": a square with ± inside (20-unit box). */
+    val diffBox = icon("diffbox", 20f, 1.6f, "M6 3h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z", "M10 6.5v5M7.5 9h5M7.5 14h5")
+    val inboxLine = icon("inboxline", 24f, 2f, "M4 13l2.5-7.5h11L20 13v5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z", "M4 13h4.5a3.5 3.5 0 0 0 7 0H20")
+    val queueLine = icon("queueline", 24f, 2f, "M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01")
     val desktop = icon("desktop", 24f, 1.8f, "M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z", "M8 20h8M12 16v4")
     val circle = icon("circle", 24f, 1.8f, "M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17z")
     val checkCircle = icon("checkc", 24f, 1.8f, "M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17z", "M8 12.5l2.8 2.8L16.5 9.5")
@@ -99,7 +111,11 @@ object Glyphs {
     val chevD = icon("chev10", 10f, 1.6f, "M2.5 3.8L5 6.3l2.5-2.5")
 
     /** The Eden mark (the orb's mask: two polygons in a 43 81 410 422 box, stroked 18). */
-    val edenMark: ImageVector = ImageVector.Builder("eden", 15.dp, 15.dp, 422f, 422f).apply {
+    val edenMark: ImageVector = mark(18f)
+    /** The G mockups' mark: the same polygons stroked 28 (their avatars and the New page's tile). */
+    val edenMarkBold: ImageVector = mark(28f)
+
+    private fun mark(stroke: Float): ImageVector = ImageVector.Builder("eden$stroke", 15.dp, 15.dp, 422f, 422f).apply {
         // viewBox 43 81 410 422, centred in a square 422 box.
         val dx = -43f + 6f
         val dy = -81f
@@ -107,7 +123,7 @@ object Glyphs {
         for (p in listOf(
             listOf(211 to 93, 314 to 90, 444 to 236, 343 to 353, 249 to 352, 333 to 251),
             listOf(252 to 235, 160 to 346, 282 to 491, 186 to 494, 52 to 350, 151 to 234),
-        )) addPath(addPathNodes(poly(p)), fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 18f, strokeLineJoin = StrokeJoin.Round)
+        )) addPath(addPathNodes(poly(p)), fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = stroke, strokeLineJoin = StrokeJoin.Round)
     }.build()
 }
 

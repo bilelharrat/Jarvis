@@ -118,15 +118,12 @@ fun ChangesScreen(id: Int) {
             EdenBackground()
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(top = top, start = 14.dp, end = 14.dp, bottom = bottom + 8.dp + 50.dp + 90.dp),
+                    .padding(top = top - 6.dp, start = 14.dp, end = 14.dp, bottom = bottom + 8.dp + 50.dp + 90.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(36.dp).glassControl(18.dp)
-                            .pressable(0.94f, label = "Back to session") { store.back() }.semantics { contentDescription = "Back to session" },
-                        contentAlignment = Alignment.Center,
-                    ) { Glyph(Glyphs.chevronLeft, 16.dp, c.ink) }
+                Row(Modifier.padding(start = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // The G header's round glass button, as ☰ is on the session.
+                    GCircleButton(Glyphs.chevronLeft, "Back to session", LocalBackground.current, iconSize = 18.dp) { store.back() }
                     T("Changes", sf(22f, Bold), c.ink, Modifier.weight(1f).semantics { heading() }, maxLines = 1)
                     Segmented(listOf("turn" to "Turn", "session" to "Session"), which, Modifier.width(150.dp)) { which = it }
                 }

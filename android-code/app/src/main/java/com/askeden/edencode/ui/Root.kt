@@ -38,6 +38,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -54,21 +58,20 @@ class Env(val store: EdenCodeStore, val screen: Backdrop, val speech: com.askede
 
 val LocalEnv = androidx.compose.runtime.staticCompositionLocalOf<Env> { error("no Env") }
 
-/** The floating tab bar's height (8 + 4 + 22 + 2 + 13 + 4 + 8), for the space content leaves under it. */
-val TabBarHeight: Dp = 60.dp
-
 /**
- * Four tabs under a floating glass tab bar (Sessions, Inbox, Queue, Settings), a session or its
- * changes pushed over Sessions, the approval sheet over everything, and pairing when no Mac is
- * paired yet (RootView.swift).
+ * The G design (2026-10-16): no tab bar. A session fills the screen, or with none open the New
+ * page; ☰ slides the sessions drawer in from the left (moving the screen aside, as the ChatGPT and
+ * Claude apps do), which also reaches the Inbox, the Queue and Settings; a session's changes are
+ * pushed over it; a card from no session we know, and pairing, rise over everything.
  */
 @Composable
 fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
     val screen = rememberBackdrop()
     val background = rememberBackdrop()
     val env = remember(store, screen, voice) { Env(store, screen, voice) }
+    val drawer by animateFloatAsState(if (store.drawerOpen && store.paired) 1f else 0f, tween(320), label = "drawer")
     CompositionLocalProvider(LocalEnv provides env, LocalBackground provides background) {
-        BackHandler(enabled = store.sheetCard != null || store.showNewSession || store.showPairing || store.path.isNotEmpty() || store.tab != EdenCodeStore.Tab.Sessions) {
+        BackHandler(enabled = store.sheetCard != null || store.showPairing || store.drawerOpen || store.path.isNotEmpty() || store.tab != EdenCodeStore.Tab.New) {
             store.back()
         }
         Box(Modifier.fillMaxSize()) {
@@ -78,100 +81,47 @@ fun Root(store: EdenCodeStore, voice: com.askeden.edencode.services.Voice) {
                     PairingScreen(first = true, onDone = {})
                 } else {
                     val route = store.path.lastOrNull()
-                    AnimatedContent(
-                        targetState = route to store.tab,
-                        transitionSpec = {
-                            val pushing = (targetState.first != null && initialState.first == null) ||
-                                (targetState.first is EdenCodeStore.Route.Changes && initialState.first is EdenCodeStore.Route.Session)
-                            val popping = initialState.first != null && (targetState.first == null || targetState.first is EdenCodeStore.Route.Session && initialState.first is EdenCodeStore.Route.Changes)
-                            when {
-                                pushing -> slideInHorizontally(tween(320)) { it } togetherWith slideOutHorizontally(tween(320)) { -it / 3 }
-                                popping -> slideInHorizontally(tween(320)) { -it / 3 } togetherWith slideOutHorizontally(tween(320)) { it }
-                                else -> fadeIn(tween(160)) togetherWith fadeOut(tween(160))
-                            }
-                        },
-                        label = "screens",
-                    ) { (r, tab) ->
-                        Box(Modifier.fillMaxSize()) {
-                            when (r) {
-                                is EdenCodeStore.Route.Session -> SessionScreen(r.id)
-                                is EdenCodeStore.Route.Changes -> ChangesScreen(r.id)
-                                null -> when (tab) {
-                                    EdenCodeStore.Tab.Sessions -> SessionsScreen()
-                                    EdenCodeStore.Tab.Inbox -> InboxScreen()
-                                    EdenCodeStore.Tab.Queue -> QueueScreen()
-                                    EdenCodeStore.Tab.Settings -> SettingsScreen()
+                    Box(Modifier.fillMaxSize().graphicsLayer { translationX = drawer * 300.dp.toPx() }) {
+                        AnimatedContent(
+                            targetState = route to store.tab,
+                            transitionSpec = {
+                                val pushing = targetState.first is EdenCodeStore.Route.Changes && initialState.first is EdenCodeStore.Route.Session
+                                val popping = initialState.first is EdenCodeStore.Route.Changes && targetState.first is EdenCodeStore.Route.Session
+                                when {
+                                    pushing -> slideInHorizontally(tween(320)) { it } togetherWith slideOutHorizontally(tween(320)) { -it / 3 }
+                                    popping -> slideInHorizontally(tween(320)) { -it / 3 } togetherWith slideOutHorizontally(tween(320)) { it }
+                                    else -> fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+                                }
+                            },
+                            label = "screens",
+                        ) { (r, tab) ->
+                            Box(Modifier.fillMaxSize()) {
+                                when (r) {
+                                    is EdenCodeStore.Route.Session -> SessionScreen(r.id)
+                                    is EdenCodeStore.Route.Changes -> ChangesScreen(r.id)
+                                    null -> when (tab) {
+                                        EdenCodeStore.Tab.New -> NewScreen()
+                                        EdenCodeStore.Tab.Inbox -> InboxScreen()
+                                        EdenCodeStore.Tab.Queue -> QueueScreen()
+                                        EdenCodeStore.Tab.Settings -> SettingsScreen()
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            if (store.paired) {
-                AnimatedVisibility(
-                    visible = store.path.isEmpty(),
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    enter = fadeIn(tween(200)), exit = fadeOut(tween(120)),
-                ) { TabBar(store) }
-            }
-            Sheets(store)
-        }
-    }
-}
-
-/**
- * iOS 26's floating glass tab bar: 21 in from the sides, 22 above the bottom edge, 60 tall, four
- * equal segments, the selected one in a tinted capsule, SF's filled symbols over 10 pt labels.
- * In dark the iPhone's glass takes on the teal at the foot of the backdrop (which is always there:
- * the backdrop is a fixed gradient), so its fill, rim and symbols are teal and cyan, not grey;
- * these are the colours measured off the iPhone screenshots.
- */
-@Composable
-private fun TabBar(store: EdenCodeStore) {
-    val dark = Eden.dark
-    val env = LocalEnv.current
-    val shape = RoundedCornerShape(50)
-    Row(
-        Modifier
-            .padding(start = 21.dp, end = 21.dp, bottom = safeBottom() - 12.dp)
-            .fillMaxWidth()
-            .height(60.dp)
-            .boxShadow(if (dark) Color.Black.copy(alpha = 0.45f) else hex(0x1E2850, 0.14f), y = 8.dp, blur = 28.dp, radius = 30.dp)
-            .glass(env.screen, shape, if (dark) hex(0x008A90, 0.5f) else hex(0xFFFFFF, 0.42f), blur = 24.dp, saturate = 2.1f)
-            .topRim(30.dp, if (dark) Color.White.copy(alpha = 0.22f) else Color.White, Color.Transparent)
-            .border(1.dp, if (dark) hex(0x3CE0F0, 0.45f) else Color.White.copy(alpha = 0.7f), shape)
-            .padding(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TabItem("Sessions", Glyphs.tabSessions, store.tab == EdenCodeStore.Tab.Sessions, 0) { store.tab = EdenCodeStore.Tab.Sessions }
-        TabItem("Inbox", Glyphs.tabInbox, store.tab == EdenCodeStore.Tab.Inbox, store.home.needsYouCount) { store.tab = EdenCodeStore.Tab.Inbox }
-        TabItem("Queue", Glyphs.tabQueue, store.tab == EdenCodeStore.Tab.Queue, 0) { store.tab = EdenCodeStore.Tab.Queue }
-        TabItem("Settings", Glyphs.tabSettings, store.tab == EdenCodeStore.Tab.Settings, 0) { store.tab = EdenCodeStore.Tab.Settings }
-    }
-}
-
-@Composable
-private fun RowScope.TabItem(label: String, icon: ImageVector, selected: Boolean, badge: Int, onClick: () -> Unit) {
-    val c = Eden.colors
-    val ink = if (Eden.dark) (if (selected) hex(0x17CFFF) else hex(0x9EFFFF)) else if (selected) c.accent else c.ink
-    Box(
-        Modifier.weight(1f).fillMaxHeight()
-            .background(if (selected) (if (Eden.dark) hex(0x2BC4C8, 0.45f) else hex(0x1D1D1F, 0.06f)) else Color.Transparent, RoundedCornerShape(50))
-            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
-            .semantics { role = Role.Tab; this.selected = selected; contentDescription = if (badge > 0) "$label, $badge" else label },
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Box {
-                Glyph(icon, 28.dp, ink)
-                if (badge > 0) {
-                    Box(
-                        Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-4).dp).size(18.dp).background(c.red, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) { T("$badge", sf(12f, Semibold, lineHeight = 14f), Color.White, maxLines = 1) }
+            if (drawer > 0f) {
+                // The scrim right of the drawer (rgba(0,0,0,.08)): a tap closes it.
+                Box(
+                    Modifier.fillMaxSize().graphicsLayer { alpha = drawer }.background(Color.Black.copy(alpha = if (Eden.dark) 0.3f else 0.08f))
+                        .clickable(remember { MutableInteractionSource() }, null) { store.drawerOpen = false },
+                )
+                Box(Modifier.graphicsLayer { translationX = (drawer - 1f) * (DrawerWidth.toPx() + 60.dp.toPx()) }) {
+                    SessionsDrawer(store) { store.drawerOpen = false }
                 }
             }
-            T(label, sf(10f, Semibold, lineHeight = 12f), ink, maxLines = 1)
+            Sheets(store)
         }
     }
 }
@@ -179,7 +129,7 @@ private fun RowScope.TabItem(label: String, icon: ImageVector, selected: Boolean
 /** The sheets over everything: an approval, a new session, pairing another Mac. */
 @Composable
 private fun BoxScope.Sheets(store: EdenCodeStore) {
-    val showing = store.sheetCard != null || store.showNewSession || store.showPairing
+    val showing = store.sheetCard != null || store.showPairing
     AnimatedVisibility(showing, enter = fadeIn(tween(220)), exit = fadeOut(tween(200))) {
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (store.sheetCard != null) 0.35f else 0.25f))
@@ -190,12 +140,10 @@ private fun BoxScope.Sheets(store: EdenCodeStore) {
         store.sheetCard != null, Modifier.align(Alignment.BottomCenter),
         enter = slideInVertically(tween(340)) { it }, exit = slideOutVertically(tween(260)) { it },
     ) {
-        store.sheetCard?.let { ApprovalSheet(it) }
+        store.sheetCard?.let { card ->
+            AskCard(card, LocalEnv.current.screen, Modifier.padding(start = 12.dp, end = 12.dp, bottom = safeBottom() + 8.dp).imePadding(), onAnswered = { store.sheetCard = null })
+        }
     }
-    AnimatedVisibility(
-        store.showNewSession, Modifier.align(Alignment.BottomCenter),
-        enter = slideInVertically(tween(340)) { it }, exit = slideOutVertically(tween(260)) { it },
-    ) { NewSessionSheet() }
     AnimatedVisibility(
         store.showPairing, Modifier.align(Alignment.BottomCenter),
         enter = slideInVertically(tween(340)) { it }, exit = slideOutVertically(tween(260)) { it },
