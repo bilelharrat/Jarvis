@@ -28,6 +28,7 @@ import { approvalOp } from './approvals.js';
 import { scopedOp } from './scoped.js';
 import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
+import { liveAccountOp, liveControl, liveToMac } from './live.js';
 import { GRANT_CLIENTS } from './apple.js';
 import { publishedOp } from './published.js';
 import { sharedChatsOp, sharedIds } from './shared-chats.js';
@@ -123,6 +124,8 @@ export class Account {
       // Before the `web-` ops below (the Mac relay's): a browser's sign-in, made by the Worker.
       if (op === 'web-signin') return json(await this.webSignIn(await request.json().catch(() => ({}))));
       if (op.startsWith('web-')) return await webOp(this, op, request); // hosted Eden → the Mac (webrelay.js)
+      if (op === 'live-to-mac') return await liveToMac(this, request); // a live share's room → its Mac (live.js)
+      if (op === 'live-register' || op === 'live-revoke') return await liveAccountOp(this, op, request); // Eden Code's Share live through askeden.com (live.js)
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       if (op.startsWith('share-')) return await sharedChatsOp(this, op, request); // shared chats, /s/<id> (shared-chats.js, askeden Q3)
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
@@ -1018,8 +1021,9 @@ export class Account {
 
   async webSocketMessage(ws, message) {
     if (this.tagsOf(ws).includes('web')) return webMessage(this, ws, message);
+    if (this.tagsOf(ws).includes('listen')) return liveControl(this, ws, message); // a live share's push (live.js); its pings answer themselves
     const route = this.peerOf(ws);
-    if (!route) return; // the listen line: nothing to do (its pings answer themselves)
+    if (!route) return;
     const size = typeof message === 'string' ? message.length : message.byteLength;
     if (size > RELAY.frame) {
       ws.close(1009, 'frame too big');

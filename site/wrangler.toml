@@ -204,6 +204,15 @@ class_name = "Promo"
 tag = "v7"
 new_sqlite_classes = ["Promo"]
 
+# Eden Code's Share live through askeden.com (src/accounts/live.js): one room per share, sealed frames only.
+[[durable_objects.bindings]]
+name = "LIVE_ROOMS"
+class_name = "LiveRoom"
+
+[[migrations]]
+tag = "v8"
+new_sqlite_classes = ["LiveRoom"]
+
 # Browser Rendering (Workers Paid: 10 browser hours and 10 concurrent browsers a month included).
 [browser]
 binding = "BROWSER"
@@ -255,6 +264,12 @@ simple = { limit = 20, period = 60 }
 name = "RUN_RATE"
 namespace_id = "1007"
 simple = { limit = 20, period = 60 }
+
+# Share live's viewers (src/accounts/live.js): new watching sockets a minute per network address.
+[[ratelimits]]
+name = "LIVE_RATE"
+namespace_id = "1009"
+simple = { limit = 30, period = 60 }
 
 # Keep the R2 bucket last: wrangler.nor2.toml is this file up to here (deploys before R2).
 [[r2_buckets]]

@@ -50,9 +50,9 @@ import { ltiAdmin, ltiRoute } from './edu/lti.js';
 import { edenPage } from './eden/pages.js';
 import { helpApi } from './eden/help.js';
 import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
-import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
+import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin, withHeaders } from './eden/web.js';
 
-export { Account, Identity, Link, Space } from './accounts/index.js';
+export { Account, Identity, Link, Space, LiveRoom } from './accounts/index.js';
 export { Promo } from './accounts/promo.js';
 export { BrowserSession } from './browser/session.js';
 export { Course } from './edu/course.js';
@@ -151,6 +151,7 @@ async function route(request, env, ctx) {
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
   if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
   if (path === '/eden/connect') return connectPage(request, env, url); // "Connect Eden Messenger?" (eden/ask.js)
+  if (path.startsWith('/live/')) return livePage(request, env, url, path); // Eden Code's Share live (accounts/live.js)
   const eden = await edenPage(request, env, path);
   if (eden) return eden;
   if (path.startsWith('/jarvis/')) {
@@ -171,6 +172,21 @@ async function landing(request, env, url) {
 // read, or a WebSocket upgrade, with a foreign Origin is refused. (Apple's sign-in posts back
 // from appleid.apple.com, to that one address, where its state cookie and nonce guard it; a
 // browser may send that Origin as "null".)
+// Eden Code's Share live viewer (accounts/live.js): /live/<id> is the one page (public/live/index.html,
+// its scripts pinned with SRI), and its own three files. Strict CSP: its own files only, and its own
+// WebSocket. The key is in the link's #fragment; no-referrer all the same.
+const LIVE_FILES = new Set(['/live/live.js', '/live/share-view.js', '/live/share.css']);
+export function liveCsp(host) {
+  return `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' wss://${host}; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+}
+
+async function livePage(request, env, url, path) {
+  const isPage = /^\/live\/[0-9a-f]{32}$/.test(path);
+  if (!isPage && !LIVE_FILES.has(path)) return new Response('Not found', { status: 404 });
+  const asset = await env.ASSETS.fetch(new Request(new URL(isPage ? '/live/' : path, url), request));
+  return withHeaders(page(asset, liveCsp(url.host)), { 'referrer-policy': 'no-referrer', 'x-robots-tag': 'noindex, nofollow' });
+}
+
 function fromElsewhere(request, path) {
   const upgrade = (request.headers.get('upgrade') || '').toLowerCase() === 'websocket';
   if ((request.method === 'GET' || request.method === 'HEAD') && !upgrade) return null;

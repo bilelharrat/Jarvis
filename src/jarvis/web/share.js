@@ -1,14 +1,17 @@
 // Eden Code's Share live viewer (features/code_share.py): the session's transcript, its
-// changes and its status, polled from the Mac, read-only. Everything shown is text put in
-// with textContent: nothing from the session is ever read as HTML. Pure helpers are
-// exported for node --test (tests/web/share.test.mjs).
+// changes and its status, polled from the Mac. Read-only, unless this is a driver's personal
+// link (features/code_share_drive.py): then a box asks the owner to send a message, and a
+// question the session has can get a suggested answer; the owner's tap does either. The
+// drawing is web/share-view.js, the same as askeden.com's page. Everything shown is text put
+// in with textContent: nothing from the session is ever read as HTML. Pure helpers are
+// exported for node --test (tests/web/code-share.test.mjs).
 (function (root) {
   'use strict';
 
+  const view = (typeof module === 'object' && module.exports) ? require('./share-view.js') : root.edenShareView;
   const POLL_MS = 2000;
   const MORE_MS = 200;  // the next page soon, when the Mac said there's more
-  const KEPT = 1000;  // entries shown at most: the oldest go (a long session stays light)
-  const ROLE_NAMES = { user: 'Request', assistant: 'Eden', tool: 'Step', system: 'Note', note: 'Note', plan: 'Plan', turn: '' };
+  const { KEPT, ROLE_NAMES, leftText, placeEntries } = view;
 
   // A viewer's own id for this tab (the owner sees how many are watching): random, never a name.
   function viewerId(random) {
@@ -24,39 +27,6 @@
     const q = new URLSearchParams({ v: viewer, since: String(since || 0), ck: key || '' });
     if (seen) q.set('u', String(seen));
     return `${base}/state?${q}`;
-  }
-
-  // Entries into the list: a new one at the end; one already shown (a step whose outcome
-  // and output came in after it was sent) in its place; past KEPT, the oldest go. shown is a
-  // Map n -> node; make(entry) a node or null; list has append/insertBefore/removeChild.
-  function placeEntries(list, shown, entries, make, kept) {
-    for (const e of entries || []) {
-      const n = e.n || 0;
-      const node = make(e);
-      const old = shown.get(n);
-      if (old) {
-        if (node) list.replaceChild(node, old); else list.removeChild(old);
-        if (node) shown.set(n, node); else shown.delete(n);
-        continue;
-      }
-      if (!node) continue;
-      list.appendChild(node);
-      shown.set(n, node);
-    }
-    const most = kept || KEPT;
-    while (shown.size > most) {
-      const [n, node] = shown.entries().next().value;
-      shown.delete(n);
-      if (node.parentNode === list) list.removeChild(node);
-    }
-  }
-
-  // How long is left, in words.
-  function leftText(expires, now) {
-    const s = Math.max(0, Math.round(expires - now));
-    if (s <= 0) return 'ended';
-    if (s < 3600) return `ends in ${Math.max(1, Math.round(s / 60))} min`;
-    return `ends in ${Math.round(s / 3600)} h`;
   }
 
   const STOPPED = 'The owner stopped your view of this share.';
@@ -79,39 +49,20 @@
   let expires = 0;
   let timer = null;
 
-  function entry(e) {
-    if (e.role === 'turn') return null;
-    const li = make('li', `entry ${e.role}`);
-    const who = ROLE_NAMES[e.role] || e.role;
-    li.append(make('div', 'who', e.role === 'tool' ? `${who}: ${e.tool || ''}` : who));
-    const body = make('div', 'body', e.text || '');
-    if (e.output) body.append(make('pre', '', e.output));
-    li.append(body);
-    return li;
-  }
+  let role = 'viewer';
+  const entry = (e) => view.entryNode(doc, e);
+  const drawChanges = (c) => view.drawChanges(doc, { files: $('files'), empty: $('changes-empty'), count: $('changes-count') }, c);
 
-  function drawChanges(c) {
-    const files = $('files');
-    files.replaceChildren();
-    const list = (c && c.files) || [];
-    $('changes-empty').hidden = list.length > 0;
-    $('changes-count').textContent = list.length ? `(${list.length})` : '';
-    for (const f of list) {
-      const box = make('article', 'file');
-      const head = make('h3', '', f.path);
-      head.append(make('span', '', ` +${f.added} −${f.removed}${f.withheld ? ' · lines not shared' : ''}`));
-      box.append(head);
-      for (const h of f.hunks || []) {
-        const pre = make('pre', 'hunk');
-        pre.setAttribute('aria-label', `Change ${h.n}, line ${h.line}`);
-        pre.append(make('span', 'head', `@@ change ${h.n}${h.where ? ` in ${h.where}` : ''}, line ${h.line}`));
-        for (const [tag, text] of h.lines) {
-          pre.append(make('span', `ln${tag === '+' ? ' add' : tag === '-' ? ' del' : ''}`, `${tag === ' ' ? ' ' : tag} ${text}`));
-        }
-        box.append(pre);
-      }
-      files.append(box);
-    }
+  // A driver's request to the owner (kind: message | approve): "" when it went, else why not.
+  async function ask(body) {
+    try {
+      const reply = await fetch(`${root.location.pathname.replace(/\/+$/, '')}/act`, {
+        method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ v: viewer, ...body }),
+      });
+      if (reply.ok) return '';
+      return (await reply.json().catch(() => ({}))).error || 'Couldn’t send that.';
+    } catch (_) { return 'Couldn’t send that.'; }
   }
 
   // A 403 is the owner's Stop on this viewer, not the share's end: said so (round 3, U3-12),
@@ -122,6 +73,8 @@
     $('ended').hidden = false;
     $('status').textContent = 'ended';
     $('suggest').hidden = true;
+    $('drive').hidden = true;
+    $('asks').hidden = true;
   }
 
   async function poll() {
@@ -149,6 +102,15 @@
     placeEntries($('entries'), shown, data.entries, entry);
     if (data.changes) { key = data.changes_key || ''; drawChanges(data.changes); }
     $('suggest').hidden = !data.comments;
+    role = data.role || 'viewer';
+    $('seat').textContent = view.seatText(data.you, role);
+    $('drive').hidden = role !== 'driver';
+    // (the name is the owner's for this link: a driver's or commenter's box doesn't ask for one)
+    $('suggest-name-row').hidden = Boolean(data.you);
+    view.drawApprovals(doc, $('asks'), data.approvals, role === 'driver' ? async (approval, choice, b) => {
+      const said = await ask({ kind: 'approve', approval, choice });
+      b.textContent = said || 'Suggested to the owner';
+    } : null);
     timer = setTimeout(poll, data.more ? MORE_MS : POLL_MS);
   }
 
@@ -187,7 +149,18 @@
     });
   }
 
+  function driving() {
+    $('drive-send').addEventListener('click', async () => {
+      const text = $('drive-text').value.trim();
+      const said = $('drive-said');
+      if (!text) { said.textContent = 'Write something first.'; return; }
+      const why = await ask({ kind: 'message', text });
+      if (!why) { $('drive-text').value = ''; said.textContent = 'Sent to the owner to send.'; } else said.textContent = why;
+    });
+  }
+
   tabs();
   suggestions();
+  driving();
   poll();
 })(typeof window === 'object' ? window : globalThis);

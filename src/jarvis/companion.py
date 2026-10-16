@@ -73,6 +73,13 @@ ACTIONS = {
     "shortcut_run": "Ran a shortcut",
     "switch_set": "Flipped a Mac switch",
     "prefs_changed": "Changed settings",
+    # Share live's personal links (features/code_share_drive.py): a teammate's, by the name the owner gave.
+    "share_asked_message": "Asked to send a message to an Eden Code session (Share live)",
+    "share_asked_approve": "Suggested an answer in an Eden Code session (Share live)",
+    "share_sent": "Had their message sent by you (Share live)",
+    "share_answered": "Had their suggested answer given by you (Share live)",
+    "share_dismissed": "Had a request dismissed (Share live)",
+    "share_trusted_sent": "Sent a message as a trusted driver (Share live)",
 }
 WORDS = {
     "en": {"photo_question": "What's in this photo?"},

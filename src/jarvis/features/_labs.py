@@ -31,7 +31,7 @@ KEY = "labs"
 # setting that still names either just drops it (_clean).
 LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
-    "code_share": ("Share live", "A read-only live view of a session for a teammate, by link, on your network.", ("code_share",)),
+    "code_share": ("Share live", "A live view of a session for teammates, by link: read-only unless you let a driver ask; on your network, or anywhere through askeden.com.", ("code_share",)),
 }  # fmt: skip
 # Out of Labs (on for everyone now; a name still in an owner's list is dropped by _clean):
 # code_queue, the routing queue, on 2026-10-16, with the cost forecast beside it

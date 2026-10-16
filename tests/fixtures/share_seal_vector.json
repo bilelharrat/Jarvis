@@ -1,0 +1,15 @@
+{
+  "about": "Share live's sealing (src/jarvis/share_seal.py; site/public/live/live.js does the same with WebCrypto). Checked by tests/test_code_share_live.py and site/test/live-share.test.js.",
+  "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "share": "00112233445566778899aabbccddeeff",
+  "down": {
+    "seq": 7,
+    "plaintext": "{\"kind\": \"full\", \"title\": \"Fix the login\"}",
+    "blob": "AAECAwQFBgcICQoLPCC9cquB4CGtY/H+3YVaQaP0812EFzpeAkfHw3QRIMZpdY6QwKZ79lbZIDENB7NziiDR2C5pMnHtEg=="
+  },
+  "up": {
+    "id": "0123456789abcdef",
+    "plaintext": "{\"kind\": \"message\", \"text\": \"hi\", \"at\": 1}",
+    "blob": "ZGVmZ2hpamtsbW5vMzm1DxeNdKQeQDKNqRYLmifgKiqpGJYK0/OWaNnLzGq4yWKhODChJMyOephDy4JBPz2TksXdAtUdew=="
+  }
+}

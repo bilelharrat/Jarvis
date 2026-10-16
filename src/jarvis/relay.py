@@ -12,6 +12,12 @@ What travels is the companion's own TLS, end to end from the phone (pinned to th
 certificate) to the companion server: askeden.com sees only ciphertext, and the companion
 still asks every request for its paired phone's token, exactly as on the Wi-Fi.
 
+The control line also carries Share live's pushes for links that work outside the network
+(features/code_share_live.py, docs/eden-code-shared-sessions.md phase 3): a feature puts a
+handler in Relay.handlers for its message types ("share_viewers", "share_up", ...), and sends
+its own with Relay.send (False while the line is down). What it sends is sealed already
+(share_seal.py): askeden.com never has the key.
+
 The control line is kept alive by WebSocket pings (the library's own); it reconnects after
 1, 2, 4 … 60 seconds whenever it drops. A 401 means the Mac was signed out of the account:
 the account forgets it and the relay stops. Nothing here is logged with a token.
@@ -75,6 +81,10 @@ class Relay:
         self.state = "off"  # off | connecting | listening | waiting (to reconnect)
         self.streams: set[asyncio.Task] = set()
         self.opened = 0  # streams opened since it started, for Settings and tests
+        # Other message types on the control line, each a feature's (type -> handler(message)).
+        self.handlers: dict[str, Callable[[dict[str, Any]], Any]] = {}
+        self.on_listening: list[Callable[[], Any]] = []  # each time the line is up again
+        self._ws: Any = None  # the control line, while listening
 
     @property
     def base(self) -> str:
@@ -102,10 +112,17 @@ class Relay:
                         max_size=MAX_FRAME,
                     ) as ws:
                         self.state = "listening"
+                        self._ws = ws
                         log.info("relay: listening for the iPhone through the account")
-                        async for message in ws:
-                            if isinstance(message, str):
-                                await self._heard(ws, message)
+                        for hook in list(self.on_listening):
+                            with contextlib.suppress(Exception):
+                                hook()
+                        try:
+                            async for message in ws:
+                                if isinstance(message, str):
+                                    await self._heard(ws, message)
+                        finally:
+                            self._ws = None
                     log.info("relay: the control line closed")
                 except InvalidStatus as exc:
                     status = exc.response.status_code
@@ -148,7 +165,33 @@ class Relay:
                 return
             task = asyncio.get_running_loop().create_task(self._stream(stream))
             self.streams.add(task)
+        elif isinstance(kind, str) and kind in self.handlers:
+            try:
+                done = self.handlers[kind](message)
+                if asyncio.iscoroutine(done):
+                    await done
+            except Exception:
+                log.exception("relay: a %s message failed", kind[:40])
         # anything else (a type this build doesn't know) is left alone
+
+    @property
+    def listening(self) -> bool:
+        return self._ws is not None
+
+    async def send(self, message: dict[str, Any]) -> bool:
+        """One text frame on the control line (False while it's down, or the frame is over
+        askeden.com's limit)."""
+        ws = self._ws
+        if ws is None:
+            return False
+        text = json.dumps(message, separators=(",", ":"))
+        if len(text.encode()) > MAX_FRAME:
+            return False
+        try:
+            await ws.send(text)
+        except Exception:
+            return False
+        return True
 
     async def _stream(self, stream: str) -> None:
         """One phone connection: its relay WebSocket joined to the companion server."""

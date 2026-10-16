@@ -122,7 +122,13 @@
     "Controlled the music": "控制了音乐",
     "Ran a shortcut": "运行了一个快捷指令",
     "Flipped a Mac switch": "切换了 Mac 的开关",
-    "Changed settings": "修改了设置"
+    "Changed settings": "修改了设置",
+    "Asked to send a message to an Eden Code session (Share live)": "请求向 Eden Code 会话发送消息（实时分享）",
+    "Suggested an answer in an Eden Code session (Share live)": "为 Eden Code 会话建议了回答（实时分享）",
+    "Had their message sent by you (Share live)": "其消息已由你发送（实时分享）",
+    "Had their suggested answer given by you (Share live)": "其建议的回答已由你给出（实时分享）",
+    "Had a request dismissed (Share live)": "其请求已被忽略（实时分享）",
+    "Sent a message as a trusted driver (Share live)": "以受信任的驾驶员身份发送了消息（实时分享）"
   },
   "patterns": [
     [
