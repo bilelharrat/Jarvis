@@ -218,6 +218,9 @@
     }
     if (Number.isFinite(row.costUSD)) bits.push(`ran ${fmtCost(row.costUSD)}`);
     if (row.complexity) bits.push(row.complexity);
+    // (a message that didn't come from this window: the backend routed it the same way)
+    const from = { phone: 'from your phone', api: 'from the local API', queue: 'from the queue' }[row.from];
+    if (from) bits.push(from);
     return {
       head,
       kind: row.shadow ? 'Shadow' : 'Routed',

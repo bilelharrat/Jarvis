@@ -240,6 +240,8 @@ def routes(api: Any) -> list[Route]:
                 command[key] = data[key][:200]
         if isinstance(data.get("isolated"), bool):
             command["isolated"] = data["isolated"]
+        if "model" not in command:
+            command["from"] = "phone"  # (Model Router picks for it: code_router_backend)
         pictures = _pictures(data)
         if pictures:
             command["images"] = pictures

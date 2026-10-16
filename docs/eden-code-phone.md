@@ -96,8 +96,14 @@ capped body (413: 20 KB, a message 120 KB). Then the switch: `403 {"error", "off
   no heading). Check the row whose `ref` equals the session's `model` (View) or `defaults.model` (a new session).
 - **Model Router on a session** (View): while routing is on, `model` is `"router"`, `model_label` "Model Router",
   `router` true and `routed_label` the model it last put the session on ("" before its first message); otherwise
-  `model` is the session's ref, `model_label` its name, `router` false, `routed_label` "". Routing is the Mac
-  window's (its router runs there): a message typed on the phone goes on the model the router last chose.
+  `model` is the session's ref, `model_label` its name, `router` false, `routed_label` "".
+- **Routing a phone's message** (2026-10-16, `features/code_router_backend.py`): `send`, `comments`, `steer` (while
+  the session is idle) and `new` (unless a model is named) are routed on the Mac as the window routes its own: the
+  session moves to the pick before the message goes, in order with the window's messages, never mid-step. The pick is
+  made by the backend running the window's own router in Node (no window needed), else by an open Eden Code window,
+  else not at all: the message goes on the session's own model and that turn's receipt says why (`router_note`).
+  Shadow mode (the default while Model Router isn't chosen) logs the pick and moves nothing. The answer is still
+  `{ok}` at once; `routed_label` shows the new model once the session has moved.
 - **Modes**: `mode_label` is the full name for menus ("Bypass permissions"), `mode_short` the pill's words
   ("Bypass"; the others as their names), as the Mac's composer (`JC_MODES` short).
 

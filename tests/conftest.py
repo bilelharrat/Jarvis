@@ -52,6 +52,16 @@ def _no_real_model_router(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _no_router_worker(monkeypatch):
+    """No test starts the backend's Model Router worker in Node by chance
+    (code_router_backend: messages from the phones and the local API): Node isn't found.
+    A test that wants the worker sets backend.find_node (tests/test_code_router_backend.py)."""
+    from jarvis.features import code_router_backend
+
+    monkeypatch.setattr(code_router_backend, "find_node", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_claude_engine(monkeypatch):
     """The checkup finds no Claude Code engine of its own: running the real one (its
     --version, its auth status) rewrites the owner's ~/.claude.json and reads the Keychain.

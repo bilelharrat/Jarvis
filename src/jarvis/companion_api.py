@@ -736,8 +736,13 @@ class Api:
         if not text and not images:
             return _bad("empty")
         steer = data["steer"] if isinstance(data.get("steer"), bool) else None
-        # Queued as the composer queues it; steer: into the running step now.
-        ok = self.hub.tasks.send(task.id, text, images, steer=steer)
+        # Queued as the composer queues it; steer: into the running step now. Routed by
+        # Model Router first, as the window's messages are (code_router_backend).
+        router = getattr(self.hub, "code_router", None)
+        if router is not None:
+            ok = router.send(task.id, text, images, source="phone", steer=steer)
+        else:
+            ok = self.hub.tasks.send(task.id, text, images, steer=steer)
         if ok:
             self.companion.record(device, "code_sent", f"#{task.id}")
         return _ok(ok)

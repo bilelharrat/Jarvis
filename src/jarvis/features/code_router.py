@@ -18,6 +18,13 @@ the session on them before the message goes.
   moved. info: the route's numbers for the event log (code_router_events; never prompt text).
   fallbacks: the route's next picks ({ref, model, effort?}, at most 3), for the fallback.
 - task_new with route: the new session starts on that model (and effort).
+- From elsewhere (2026-10-16): a task_send or task_new marked "from" (ELSEWHERE: "phone",
+  "api") with no route, and Router.send (the phones' send, comments and steer), are routed
+  here with the pick the window would make (code_router_backend.decide: the window's router
+  in Node, else an open window asked), held in the same per-session order as the window's.
+  Never mid-step; a new session on the rules' pick (no rating: its sender waits for it to
+  start), not at all when a model is named. With nothing to pick while Model Router is the
+  model, the message goes on the session's own and its receipt says so (take_unrouted).
 - route_wait: <token> on either (with the route): Gemini's rating of this very text is still
   on its way. The window sends the best pick it has at once (the rules' while Gemini rates)
   and the rated one after it; the message waits for it, inside its hold (so the session's
@@ -121,6 +128,10 @@ EARLY_SECONDS = 120.0  # a rating that came before its message (one sent after a
 MAX_TOKENS = 64  # ratings kept ahead of their messages, and tokens remembered as done
 MAX_INFO = 16_000  # bytes of JSON a route's info may be (the event log's numbers)
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{8,64}")
+# Where a message came from when it wasn't an Eden Code window, as the sender marks it (a
+# task_send or task_new's "from", or Router.send's source): the backend routes these
+# (code_router_backend), and the event log keeps it as the route's source.
+ELSEWHERE = ("phone", "api")
 
 ON_PREF = "code_router_on"
 # Shadow mode while the router isn't the model (2026-10-16): on by default, where before the
@@ -265,6 +276,9 @@ class Router:
         # Each session's latest Shadow pick, till its next receipt says it (take_shadow).
         self.shadows: dict[int, dict[str, Any]] = {}
         self._claude_told: dict[str, Any] | None = None  # model_router_claude, as last sent
+        # Sessions whose latest message from elsewhere Model Router couldn't route, till
+        # their next receipt says so (take_unrouted).
+        self.unrouted: dict[int, dict[str, Any]] = {}
 
     def tr(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
@@ -280,8 +294,11 @@ class Router:
         except (TypeError, ValueError, OverflowError):  # (null, words, infinity: no session)
             return False
         token = self._wait_token(msg)
-        if not isinstance(msg.get("route"), dict) and not token and key not in self.queues:
-            return False
+        if not isinstance(msg.get("route"), dict) and not token:
+            if self._elsewhere(msg):  # (the phones, the local API: routed here)
+                return self._hold(key, self._send(msg, elsewhere=True))
+            if key not in self.queues:
+                return False
         return self._hold(key, self._send(msg, self._expect(token)))
 
     def on_new(self, msg: dict[str, Any]) -> bool | None:
@@ -289,8 +306,11 @@ class Router:
             return False
         key = ("new", str(msg.get("directory") or ""))
         token = self._wait_token(msg)
-        if not isinstance(msg.get("route"), dict) and not token and key not in self.queues:
-            return False
+        if not isinstance(msg.get("route"), dict) and not token:
+            if self._elsewhere(msg) and not msg.get("model"):  # (a model named: theirs)
+                return self._hold(key, self._new(msg, elsewhere=True))
+            if key not in self.queues:
+                return False
         return self._hold(key, self._new(msg, self._expect(token)))
 
     # ── Gemini's rating, for a message sent on the rules' pick (route_wait) ──
@@ -384,12 +404,16 @@ class Router:
     def _events(self) -> Any:
         return getattr(self.hub, "code_router_events", None)
 
-    async def _send(self, msg: dict[str, Any], wait: tuple[str, float] = ("", 0.0)) -> None:
+    async def _send(
+        self, msg: dict[str, Any], wait: tuple[str, float] = ("", 0.0), elsewhere: bool = False
+    ) -> None:
         loop = asyncio.get_running_loop()
         came = loop.time()
-        task_id, skipped, before = 0, "", msg.get("route")
+        task_id, skipped, before, via = 0, "", msg.get("route"), ""
         try:
             task_id = int(msg.get("id") or 0)
+            if elsewhere:
+                msg, via = await self._route_elsewhere(msg, task_id, str(msg.get("text") or ""))
             msg = await self._rated(msg, wait, self._movable(task_id))
             ref, effort = self._route(msg)
             if ref and not self._shadow(msg):
@@ -397,11 +421,142 @@ class Router:
         except Exception:  # whatever went wrong, the message itself still goes
             log.exception("Model Router: couldn't move a session to its routed model")
             skipped = "error"
-        source = "chip" if not wait[0] else "rated" if msg.get("route") is not before else "rules"
+        if elsewhere:
+            source = str(msg.get("from"))
+        else:
+            source = (
+                "chip" if not wait[0] else "rated" if msg.get("route") is not before else "rules"
+            )
         self._log_route(
-            task_id, msg, str(msg.get("text") or ""), source, skipped, loop.time() - came
+            task_id, msg, str(msg.get("text") or ""), source, skipped, loop.time() - came, via=via
         )
         await self.hub._handle_logged(self._onward(msg))
+
+    # ── messages from elsewhere: the phones, the local API (code_router_backend) ──
+
+    def _elsewhere(self, msg: dict[str, Any]) -> bool:
+        """A message from somewhere other than an Eden Code window, while the router works
+        (Model Router chosen, or Shadow mode): the backend routes it. When nothing can pick
+        (no Node.js, no window), a Shadow pick is simply not made, and a live one is said on
+        the receipt (held for that, so the new session is known)."""
+        backend = getattr(self.hub, "code_router_backend", None)
+        if msg.get("from") not in ELSEWHERE or backend is None:
+            return False
+        mode = backend.mode()
+        if not mode or backend.can_route():
+            return bool(mode)
+        if mode == "live" and msg.get("type") == "task_send":
+            task = self._task(msg.get("id"))
+            if task is not None and not task.busy and str(msg.get("text") or "").strip():
+                self._note_unrouted(task, str(msg.get("from")))
+            return False
+        return mode == "live"
+
+    def _task(self, value: Any) -> Any:
+        with contextlib.suppress(TypeError, ValueError, OverflowError):
+            task = self.hub.tasks.tasks.get(int(value or 0))
+            return task if task is not None and task.kind == "code" else None
+        return None
+
+    async def _route_elsewhere(
+        self, msg: dict[str, Any], task_id: int | None, text: str, rate: bool = True
+    ) -> tuple[dict[str, Any], str]:
+        """The message with the route the backend picked for it (as the window would have),
+        and how it was picked ("worker", "window"; "" for none). Never mid-step, as the
+        window never routes a busy session's message. None to be had while Model Router is
+        the model: the session's own model takes it, and its next receipt says why."""
+        backend = getattr(self.hub, "code_router_backend", None)
+        task = self.hub.tasks.tasks.get(task_id) if task_id else None
+        if backend is None or (task_id and (task is None or task.kind != "code" or task.busy)):
+            return msg, ""
+        route, via = await backend.decide(task, text, rate=rate)
+        if route is not None:
+            return {**msg, "route": route}, via
+        if task is not None and backend.mode() == "live" and text.strip():
+            self._note_unrouted(task, str(msg.get("from") or ""))
+        return msg, ""
+
+    def send(
+        self,
+        task_id: int,
+        text: str,
+        images: list[dict[str, str]] | None = None,
+        *,
+        source: str = "phone",
+        steer: bool | None = None,
+    ) -> bool:
+        """TaskManager.send for a message from elsewhere (the phones' send, line comments and
+        steer): routed first, as the window routes its own, while the router works. It
+        answers at once, as tasks.send does: True when the message is on its way (the route
+        is picked and the session moved behind it, in the session's order with the window's
+        own messages), else tasks.send's own answer."""
+        tasks = self.hub.tasks
+        task = tasks.tasks.get(task_id)
+        text = str(text or "").strip()
+        key: Any = ("send", task_id)
+        backend = getattr(self.hub, "code_router_backend", None)
+        mode = backend.mode() if backend is not None else ""
+        if (
+            task is None
+            or task.kind != "code"
+            or not text
+            or not mode
+            or (task.busy and key not in self.queues)  # (mid-step: never routed)
+        ):
+            return self._deliver(task_id, text, images, steer)
+        if not backend.can_route() and key not in self.queues:  # (nothing could pick)
+            sent = self._deliver(task_id, text, images, steer)
+            if sent and mode == "live":
+                self._note_unrouted(task, source)
+            return sent
+        from ..tasks import MAX_QUEUED
+
+        if task.untaken >= MAX_QUEUED:
+            return self._deliver(task_id, text, images, steer)  # (it says why)
+        msg = {"type": "task_send", "id": task_id, "text": text, "from": source}
+        self._hold(key, self._send_direct(msg, images, steer))
+        return True
+
+    async def _send_direct(
+        self, msg: dict[str, Any], images: list[dict[str, str]] | None, steer: bool | None
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        came = loop.time()
+        task_id, text, skipped, via = int(msg["id"]), str(msg["text"]), "", ""
+        try:
+            msg, via = await self._route_elsewhere(msg, task_id, text)
+            ref, effort = self._route(msg)
+            if ref and not self._shadow(msg):
+                skipped = await self._switch(task_id, ref, effort)
+        except Exception:  # whatever went wrong, the message itself still goes
+            log.exception("Model Router: couldn't route a message from elsewhere")
+            skipped = "error"
+        self._log_route(
+            task_id, msg, text, str(msg.get("from")), skipped, loop.time() - came, via=via
+        )
+        self._deliver(task_id, text, images, steer)
+
+    def _deliver(
+        self, task_id: int, text: str, images: list[dict[str, str]] | None, steer: bool | None
+    ) -> bool:
+        """tasks.send, with only what the sender gave (images, steer)."""
+        kw: dict[str, Any] = {} if steer is None else {"steer": steer}
+        if images:
+            return bool(self.hub.tasks.send(task_id, text, images, **kw))
+        return bool(self.hub.tasks.send(task_id, text, **kw))
+
+    def _note_unrouted(self, task: Any, source: str) -> None:
+        """Model Router is the model but nothing could pick for this message (no Node.js
+        here and no Eden Code window open): its receipt says it went to the session's own."""
+        self.unrouted[task.id] = {
+            "from": source,
+            "model": str(task.model or ""),
+            "label": self._label(str(task.model_ref or "")) or str(task.model or ""),
+        }
+
+    def take_unrouted(self, task_id: int) -> dict[str, Any] | None:
+        """The session's latest message Model Router couldn't route, for its receipt, once."""
+        return self.unrouted.pop(task_id, None)
 
     def _log_route(
         self,
@@ -412,6 +567,7 @@ class Router:
         skipped: str,
         waited: float,
         new: bool = False,
+        via: str = "",
     ) -> None:
         """The route into the event log (before the message goes, so its turn is expected),
         and remembered for the fallback when the router moved the session on it."""
@@ -425,7 +581,7 @@ class Router:
         if events is not None:
             sent = events.routed(
                 task, text, route, source=source, moved=not skipped, skipped=skipped,
-                shadow=shadow, waited_ms=round(waited * 1000), new=new,
+                shadow=shadow, waited_ms=round(waited * 1000), new=new, via=via,
             )  # fmt: skip
         if shadow:
             self._note_shadow(task_id, route)
@@ -472,10 +628,19 @@ class Router:
         """The session's latest Shadow pick since its last receipt (code_receipts), once."""
         return self.shadows.pop(task_id, None)
 
-    async def _new(self, msg: dict[str, Any], wait: tuple[str, float] = ("", 0.0)) -> None:
+    async def _new(
+        self, msg: dict[str, Any], wait: tuple[str, float] = ("", 0.0), elsewhere: bool = False
+    ) -> None:
         loop = asyncio.get_running_loop()
         came = loop.time()
-        before = msg.get("route")
+        before, via = msg.get("route"), ""
+        if elsewhere:  # (the rules' pick: the phone waits a few seconds for the new session)
+            try:
+                msg, via = await self._route_elsewhere(
+                    msg, None, str(msg.get("prompt") or ""), rate=False
+                )
+            except Exception:
+                log.exception("Model Router: couldn't route a new session from elsewhere")
         msg = await self._rated(msg, wait, True)
         ref, effort = self._route(msg)
         changes: dict[str, Any] = {}
@@ -489,12 +654,22 @@ class Router:
         known = set(self.hub.tasks.tasks)
         waited = loop.time() - came
         await self.hub._handle_logged(self._onward(msg, **changes))
-        source = "chip" if not wait[0] else "rated" if msg.get("route") is not before else "rules"
+        if elsewhere:
+            source = str(msg.get("from"))
+        else:
+            source = (
+                "chip" if not wait[0] else "rated" if msg.get("route") is not before else "rules"
+            )
         skipped = "" if shadow or changes else "unknown"
+        backend = getattr(self.hub, "code_router_backend", None)
         for task_id in sorted(set(self.hub.tasks.tasks) - known):
             self._log_route(
-                task_id, msg, str(msg.get("prompt") or ""), source, skipped, waited, new=True
-            )
+                task_id, msg, str(msg.get("prompt") or ""), source, skipped, waited, new=True,
+                via=via,
+            )  # fmt: skip
+            unrouted = elsewhere and not msg.get("route") and backend is not None
+            if unrouted and backend.mode() == "live" and str(msg.get("prompt") or "").strip():
+                self._note_unrouted(self.hub.tasks.tasks[task_id], source)
 
     async def _switch(self, task_id: int, ref: str, effort: str) -> str:
         """Put the session on the routed model (and effort): "" when it's on them, else why
@@ -554,6 +729,8 @@ class Router:
             self.routes.pop(gone, None)
         for gone in [t for t in self.auto_held if t not in live]:
             self.auto_held.pop(gone, None)
+        for gone in [t for t in self.unrouted if t not in live]:
+            self.unrouted.pop(gone, None)
 
     # ── the automatic fallback ──
 
@@ -683,44 +860,36 @@ class Router:
 
     async def cmd_classify(self, msg: dict[str, Any]) -> None:
         rid = str(msg.get("rid") or "")[:40]
+        status, body = await self.classify(msg.get("model"), msg.get("body"))
+        self.hub.emit("model_router_classified", rid=rid, status=status, body=body)
 
-        def answer(status: int, body: str) -> None:
-            self.hub.emit("model_router_classified", rid=rid, status=status, body=body)
-
-        model = str(msg.get("model") or "")
-        body = msg.get("body")
+    async def classify(self, model: Any, body: Any) -> tuple[int, str]:
+        """A rating request from the router (the window's, or the backend's worker for a
+        message from elsewhere: code_router_backend) to Google with the Keychain key, under
+        the day's cap: (status, body), the key never in it."""
+        model = str(model or "")
         if not _GEMINI_MODEL.fullmatch(model) or not isinstance(body, dict):
-            answer(400, _error_body("Not a request the router makes."))
-            return
+            return 400, _error_body("Not a request the router makes.")
         request = {k: body[k] for k in _REQUEST_KEYS if k in body}
         raw = json.dumps(request)
         if "contents" not in request or len(raw) > MAX_REQUEST:
-            answer(400, _error_body("Not a request the router makes."))
-            return
+            return 400, _error_body("Not a request the router makes.")
         key = await asyncio.to_thread(self.hub.providers.key_of, "gemini")
         if not key:
-            answer(
-                401,
-                _error_body(
-                    self.tr(
-                        "There's no Google Gemini key: add one in Settings › Models to use Ask Gemini."
-                    )
-                ),
+            return 401, _error_body(
+                self.tr(
+                    "There's no Google Gemini key: add one in Settings › Models to use Ask Gemini."
+                )
             )
-            return
         try:  # counted before anything is sent
             utility_model.usage_for(self.hub).take(PURPOSE)
         except utility_model.OverBudget:
-            answer(
-                429,
-                _error_body(
-                    self.tr(
-                        "That's {n} Gemini ratings today; the router uses its own rules until tomorrow.",
-                        n=RATINGS_PER_DAY,
-                    )
-                ),
+            return 429, _error_body(
+                self.tr(
+                    "That's {n} Gemini ratings today; the router uses its own rules until tomorrow.",
+                    n=RATINGS_PER_DAY,
+                )
             )
-            return
         import httpx
 
         try:
@@ -731,9 +900,8 @@ class Router:
                     content=raw,
                 )
         except httpx.HTTPError as exc:
-            answer(502, _error_body(f"Couldn't reach Google: {type(exc).__name__}"))
-            return
-        answer(reply.status_code, reply.text[:200_000].replace(key, "…"))
+            return 502, _error_body(f"Couldn't reach Google: {type(exc).__name__}")
+        return reply.status_code, reply.text[:200_000].replace(key, "…")
 
     # ── the full page ──
 

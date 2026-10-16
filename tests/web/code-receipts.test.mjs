@@ -70,6 +70,10 @@ test('the model lines: every fallback, and Model Router’s Shadow pick with wha
   ]);
   assert.equal(modelLines({ router: { model: 'gpt-6', saveUSD: -0.25 } })[0][1], 'Model Router would pick gpt-6 (about $0.25 more)');
   assert.equal(modelLines({ router: { model: 'gpt-6', saveUSD: null } })[0][1], 'Model Router would pick gpt-6');
+  // A message from the phone Model Router couldn't route (no window, no Node.js): where it went.
+  assert.deepEqual(modelLines({ router_note: { from: 'phone', model: 'claude-opus-5-5', label: 'Opus 5.5' } }), [
+    ['rc-warn rc-unrouted', 'Model Router couldn’t pick for this message from your phone: it went to Opus 5.5'],
+  ]);
 });
 
 test('another agent’s turn says what it used: ≈ for an estimate, a cost only when it said one', () => {

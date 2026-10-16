@@ -71,6 +71,13 @@
       const money = Number.isFinite(save) && Math.abs(save) >= 0.005 ? ` (about $${Math.abs(save).toFixed(2)} ${save > 0 ? 'less' : 'more'})` : '';
       out.push(['rc-none rc-shadow', `Model Router would pick ${s.label || s.model}${money}`]);
     }
+    // A message from the phone or the local API Model Router couldn't route (no window
+    // open, no Node.js on the Mac: features/code_router_backend.py): where it went instead.
+    const u = r && r.router_note;
+    if (u && (u.label || u.model)) {
+      const where = { phone: 'from your phone', api: 'from the local API' }[u.from] || 'from outside Eden Code';
+      out.push(['rc-warn rc-unrouted', `Model Router couldn’t pick for this message ${where}: it went to ${u.label || u.model}`]);
+    }
     return out;
   }
 

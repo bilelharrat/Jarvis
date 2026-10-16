@@ -142,7 +142,7 @@ async def test_comments_go_to_the_session_as_the_panes_one_message(hub, monkeypa
         ).status_code == 400
     assert sent == [{"type": "task_send", "id": task.id, "text":
                      "Review comments:\n- a.py:5 (`line 'five'`) — Name it five\n"
-                     "- a.py (removed line 30) — Keep this line"}]  # fmt: skip
+                     "- a.py (removed line 30) — Keep this line", "from": "api"}]  # fmt: skip
 
 
 def test_a_hunk_kept_or_undone_is_on_the_event_stream(hub):
