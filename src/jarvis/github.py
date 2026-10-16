@@ -550,6 +550,35 @@ class Client:
     async def issue_comments(self, ref: RepoRef, number: int) -> list[dict[str, Any]]:
         return await self.paged(f"/repos/{ref.full}/issues/{number}/comments", repo=ref.full)
 
+    async def comment(self, ref: RepoRef, number: int, body: str) -> dict[str, Any]:
+        """A comment on a pull request's (or issue's) conversation, in the token's name."""
+        return (
+            await self.request(
+                "POST",
+                f"/repos/{ref.full}/issues/{number}/comments",
+                body={"body": body[:60_000]},
+                repo=ref.full,
+            )  # fmt: skip
+            or {}
+        )
+
+    async def deployments(self, ref: RepoRef, sha: str) -> list[dict[str, Any]]:
+        """The deployments made from a commit, newest first (Vercel, Netlify and the like
+        make one for each preview)."""
+        found = await self.request(
+            "GET", f"/repos/{ref.full}/deployments", params={"sha": sha, "per_page": 10},
+            repo=ref.full,
+        )  # fmt: skip
+        return found if isinstance(found, list) else []
+
+    async def deployment_statuses(self, ref: RepoRef, deployment: int) -> list[dict[str, Any]]:
+        """A deployment's statuses, newest first (a successful one has its environment_url)."""
+        found = await self.request(
+            "GET", f"/repos/{ref.full}/deployments/{int(deployment)}/statuses",
+            params={"per_page": 10}, repo=ref.full,
+        )  # fmt: skip
+        return found if isinstance(found, list) else []
+
     async def merge(
         self, ref: RepoRef, number: int, *, method: str, sha: str, title: str = ""
     ) -> dict[str, Any]:

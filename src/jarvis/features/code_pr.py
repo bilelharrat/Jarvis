@@ -32,6 +32,10 @@ limit waits for its reset). What happens:
 - merging when green (per pull request, off by default, a card when switched on): once
   every check on its latest commit has passed and GitHub says it can merge, it's merged
   (squash, merge or rebase, as the repository allows), only at that commit.
+- Keep it green (features/code_pr_green.py, per pull request, off until the owner turns it
+  on): fixes past FIX_ATTEMPTS within its own rounds and spending ceiling, a Stop, pushes
+  without the card if the owner chose so, review answers and the preview link posted, and
+  a log in the pane. It's asked here through fix_limit, auto_ok and its own calls.
 
 Window commands: code_pr {id}, code_prs {}, code_pr_draft {id, base?}, code_pr_open {id,
 title, body, base, draft}, code_pr_refresh {id}, code_pr_log {id, check}, code_pr_set {id,
@@ -283,6 +287,12 @@ class PullDesk:
         self._wake: asyncio.Event | None = None
         self._capped: set[str] = set()  # kinds the owner was told are capped, today
         self._held: dict[str, str] = {}  # key -> the review comments held (told once)
+        # "Keep it green" (features/code_pr_green.py, installed after this): None until then.
+        # It lifts a pull request's fixes past FIX_ATTEMPTS, stops its automatic follow-ups
+        # at its caps or the owner's Stop, counts what they spend, may push without the card
+        # and posts the preview link. Without it (or for a pull request it isn't on for)
+        # everything here goes as before.
+        self.green: Any = None
 
     # ── plumbing ──
 
@@ -338,6 +348,16 @@ class PullDesk:
 
     def spawn(self, coro: Any) -> None:
         self.hub._spawn(coro)
+
+    def fix_limit(self, rec: PullRecord) -> int:
+        """Fixes sent by themselves for this pull request, at most: FIX_ATTEMPTS, or Keep it
+        green's own rounds while it's on."""
+        return self.green.fix_limit(rec) if self.green is not None else FIX_ATTEMPTS
+
+    def auto_ok(self, rec: PullRecord, kind: str) -> bool:
+        """Whether an automatic follow-up of this kind may go to the session now (Keep it
+        green's caps, spending ceiling and Stop; always, without it)."""
+        return self.green is None or self.green.allows(rec, kind)
 
     def _task(self, msg: dict[str, Any]) -> Any:
         task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
@@ -716,6 +736,7 @@ class PullDesk:
             checks=data.get("checks", []),
             reviews=data.get("reviews", []),
             comments=data.get("comments", []),
+            green=self.green.public(rec) if self.green is not None and rec else None,
             polled=data.get("polled", 0),
             error=data.get("error", ""),
             methods=methods,
@@ -889,6 +910,8 @@ class PullDesk:
         details["checks"] = [c.public() for c in checks]
         details["polled"] = time.time()
         await self._comments(rec, ref, details)
+        if self.green is not None:
+            await self.green.polled(rec, ref, runs, statuses)
         if status == "failed":
             await self._failed(rec, ref, checks)
         elif status == "passed" and (was == "failed" or rec.told_failed):
@@ -911,11 +934,13 @@ class PullDesk:
         failing = [c for c in checks if c.state == "failed"]
         names = _names([c.name for c in failing], zh=lang.is_zh(self.hub.language))
         task = self.task_for(rec)
+        limit = self.fix_limit(rec)
         will_fix = (
             rec.autofix
             and rec.head_sha not in rec.fixed_shas
-            and rec.fix_attempts < FIX_ATTEMPTS
             and not rec.followup
+            and self.auto_ok(rec, "fix")  # (Keep it green past its rounds stops itself here)
+            and rec.fix_attempts < limit
         )
         if will_fix and (task is None or self.idle(task)) and self._take("fix"):
             logs = await self._logs(ref, failing)
@@ -926,7 +951,7 @@ class PullDesk:
             if not said:
                 if rec.told_failed != rec.head_sha:
                     rec.told_failed = rec.head_sha
-                    k, total = rec.fix_attempts, FIX_ATTEMPTS
+                    k, total = rec.fix_attempts, limit
                     self.notify(
                         f"pr-failed:{rec.key}:{rec.head_sha[:7]}",
                         f"Checks failed on pull request #{rec.number}: {names}. The session is "
@@ -938,7 +963,7 @@ class PullDesk:
         if rec.told_failed == rec.head_sha:
             return
         rec.told_failed = rec.head_sha
-        if rec.autofix and rec.fix_attempts >= FIX_ATTEMPTS:
+        if rec.autofix and rec.fix_attempts >= limit:
             self.notify(
                 f"pr-failed:{rec.key}:{rec.head_sha[:7]}",
                 f"Pull request #{rec.number} still fails after {rec.fix_attempts} fixes; it's "
@@ -1011,9 +1036,11 @@ class PullDesk:
             return "Too many messages are waiting for that session already."
         rec.followup, rec.followup_task, rec.followup_at = kind, task.id, time.time()
         rec.awaiting_push = False
+        if self.green is not None:
+            self.green.sent(rec, task, kind, text, manual=manual)
         self.save()
         said = {
-            "fix": f"Sent the failing checks' logs to the session (fix {rec.fix_attempts} of {FIX_ATTEMPTS}).",
+            "fix": f"Sent the failing checks' logs to the session (fix {rec.fix_attempts} of {self.fix_limit(rec)}).",
             "conflict": f"Asked the session to resolve the conflicts with {rec.base}.",
             "jarvis": "Sent your @jarvis comment to the session.",
         }.get(kind, "")
@@ -1054,6 +1081,8 @@ class PullDesk:
             rec = found
         if rec is None or rec.state != "open":
             return
+        if self.green is not None:
+            self.green.turn_over(rec, task, str(data.get("status") or ""))
         if data.get("status") != "done":
             rec.followup, rec.followup_task = "", 0
             self.save()
@@ -1110,14 +1139,18 @@ class PullDesk:
                 problem = await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, words)
                 if problem:
                     return problem
-            return await self._push(rec, task, plan)
+            unasked = self.green is not None and self.green.push_unasked(rec)
+            said = await self._push(rec, task, plan, unasked=unasked)
+        if self.green is not None and said == f"Pushed the work for pull request #{rec.number}.":
+            await self.green.pushed(rec, kind, plan)
+        return said
 
-    async def _push(self, rec: PullRecord, task: Any, plan: Plan) -> str:
+    async def _push(self, rec: PullRecord, task: Any, plan: Plan, unasked: bool = False) -> str:
         if await asyncio.to_thread(self._pushed, plan.top, plan.remote):
             rec.awaiting_push = False
             self.save()
             return ""
-        said = await self.hub.code_git.push(_push_msg(task))
+        said = await self.hub.code_git.push(_push_msg(task), unasked=unasked)
         if await asyncio.to_thread(self._pushed, plan.top, plan.remote):
             rec.awaiting_push = False
             self.save()
@@ -1221,6 +1254,8 @@ class PullDesk:
                     "session doesn't ask before it acts, so I don't send them by myself. "
                     "Switch the session to another mode and they go to it.",
                 )
+        elif batch and not self.auto_ok(rec, "review"):
+            pass  # (Keep it green stopped or at its caps: they wait, unseen, in the pane)
         elif batch and free and not rec.followup and self._take("review"):
             if not await self.follow_up(rec, "review", code_prs.review_message(rec, batch)):
                 handled += [c["id"] for c in batch]
@@ -1245,6 +1280,8 @@ class PullDesk:
     async def _conflicts(self, rec: PullRecord) -> None:
         marker = self._conflict_marker(rec)
         if not rec.autofix or rec.conflict_sent == marker or rec.followup:
+            return
+        if not self.auto_ok(rec, "conflict"):
             return
         task = self.task_for(rec)
         if task is not None and not self.idle(task):

@@ -556,9 +556,12 @@ class GitPanel:
     def cmd_push(self, msg: dict[str, Any]) -> None:
         self.spawn(self._reply(self.push(msg)))
 
-    async def push(self, msg: dict[str, Any], by_voice: bool = False) -> str:
+    async def push(self, msg: dict[str, Any], by_voice: bool = False, unasked: bool = False) -> str:
         """Push the branch, always after a card: where it goes, the commits, and any secrets
-        in them (then the choice says so)."""
+        in them (then the choice says so). unasked: the owner chose, on a card of its own,
+        to have a pull request's fixes pushed without asking (features/code_pr_green.py's
+        "push fixes without asking"): no card then, unless something in the commits looks
+        like a secret, which still asks."""
         where = self.folder(msg)
         if where is None:
             return ""
@@ -577,7 +580,9 @@ class GitPanel:
             lines += ["", "Possible secrets in what it would push:", secret_scan.summary(findings)]
             choices = [("push", "Push anyway"), ("deny", "Don't push")]
         question = f"Push {plan['branch']} to {plan['remote']}?"
-        if await self.ask(question, "\n".join(lines), choices, speak=by_voice) != "push":
+        if not (unasked and not findings) and (
+            await self.ask(question, "\n".join(lines), choices, speak=by_voice) != "push"
+        ):
             return "Not pushed."
         args = ["push", "-q"] + ([] if plan["upstream"] else ["-u", plan["remote"], plan["branch"]])
         async with self.lock(folder):
