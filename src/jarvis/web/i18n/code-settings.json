@@ -1,0 +1,29 @@
+{
+  "strings": {
+    "How new sessions start, what happens while one works, your projects and snippets.": "新会话如何开始、会话工作时会发生什么，以及你的项目和片段。",
+    "Models & Router": "模型与 Router",
+    "Model Router": "Model Router",
+    "Picks the model and effort for each message and falls back when one fails. Other companies’ models use your own keys.": "为每条消息挑选模型和投入程度，模型出错时自动换用备选。其他公司的模型用你自己的密钥。",
+    "Limits & Spending": "上限与花费",
+    "What sessions may spend, heads-ups before a limit, the forecast and what your time is worth.": "会话可以花多少、到达上限前的提醒、费用预测，以及你的时间值多少。",
+    "Permissions & Sandbox": "权限与沙盒",
+    "What a session may do without asking, Touch ID for risky steps, and isolated copies to work in.": "会话不问你就能做什么、有风险的步骤用触控 ID 确认，以及在独立副本里工作。",
+    "Rules & Guardrails": "规则与护栏",
+    "Your rules enforced on every step, and the guesses a session makes instead of asking.": "你的规则在每一步都会执行，以及会话没问你而自己做出的猜测。",
+    "Receipts & Checks": "收据与检查",
+    "What each turn proves: the tests it ran, that they weren’t weakened, and the checks behind every receipt.": "每一轮能证明什么：它运行的测试、测试没有被削弱，以及每张收据背后的检查。",
+    "Secrets & Security": "密钥与安全",
+    "Scanning changes with your security tools, and keeping keys and secrets out of sessions.": "用你的安全工具扫描改动，并让密钥和机密远离会话。",
+    "Talking to Eden Code: what it says while it works, and how much of each reply it reads aloud.": "和 Eden Code 对话：它工作时说什么，以及每条回复朗读多少。",
+    "iPhone": "iPhone",
+    "Start at the desk and carry on from your phone.": "在桌前开始，用手机继续。",
+    "Git & Integrations": "Git 与集成",
+    "GitHub, Linear, Slack, production alerts, other machines and control from code.": "GitHub、Linear、Slack、生产环境警报、其他机器，以及用代码控制。",
+    "Eden Code surfaces that aren’t finished, off until you switch them on. A change takes effect at the next start.": "尚未完成的 Eden Code 功能，在你打开之前一直关闭。改动在下次启动时生效。",
+    "Hand off and QR code": "交接与二维码",
+    "Pin a session to your phone’s view, and the code to open its page": "把一个会话固定到手机视图，以及打开其页面的二维码",
+    "Show…": "显示…",
+    "Eden Code on your phone": "手机上的 Eden Code",
+    "A web page on your network for following and answering sessions from the phone": "你网络中的一个网页，用手机跟进和回复会话"
+  }
+}
