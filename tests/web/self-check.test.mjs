@@ -68,7 +68,7 @@ test("the window asks the app (one window does it) and its words have Chinese", 
   assert.match(appJs, /WINDOW_DUTIES = new Set\([^)]*'sc_call'/);
   assert.match(appJs, /SPLIT_PANE_QUIET = new Set\(\[[^\]]*'sc_result'/);
   const zh = JSON.parse(fs.readFileSync(new URL('../../src/jarvis/web/i18n/code-selfcheck.json', import.meta.url), 'utf8')).strings;
-  for (const s of ['Check it yourself', 'Before saying it’s done: open it, try it, look', 'Passed', 'Found problems', 'Not finished', 'Screenshot', 'What it found', 'What it did']) {
+  for (const s of ['Check it yourself', 'Before saying it’s done: open it, try it, look', 'Passed', 'Found problems', 'Not finished', 'Screenshot', 'What it found', 'Check it yourself · What it did']) {
     assert.ok(zh[s], s);
   }
 });
