@@ -662,3 +662,15 @@ def assert_linear(run, n: int, *, slack: float = 0.05, cap: float = 5.0) -> None
     said = f"{once * 1000:.0f} ms, then {four * 1000:.0f} ms for four times as much"
     assert four < 8 * once + slack, said
     assert four < cap, said
+
+
+@pytest.fixture(autouse=True)
+def _no_real_security_tools(monkeypatch):
+    """No security scanner (Semgrep, osv-scanner, npm audit, pip-audit) runs in a test, and
+    no login shell is asked for its PATH: every tool reads as not installed. The tests of
+    security_scan fake the tools and their recorded outputs themselves."""
+    from jarvis import security_scan
+
+    monkeypatch.setattr(security_scan, "find_tool", lambda *_args: None)
+    monkeypatch.setattr(security_scan, "default_env", lambda: dict(os.environ))
+    security_scan.CACHE.clear()

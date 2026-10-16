@@ -16,6 +16,11 @@
     "Jarvis has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
     "JARVIS has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
     "J.A.R.V.I.S. has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
-    "Eden Code has the session use what it built in the browser or Simulator, then report what broke": "Eden Code 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了"
+    "Eden Code has the session use what it built in the browser or Simulator, then report what broke": "Eden Code 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
+    "Security findings": "安全问题",
+    "Security scan clean": "安全扫描未发现问题",
+    "Not security-scanned": "未做安全扫描",
+    "Security scan": "安全扫描",
+    "isn't installed": "未安装"
   }
 }

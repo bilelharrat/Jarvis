@@ -15,9 +15,14 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
   not, with its evidence (the tests named after its criteria that passed, the reviewer's
   reason, the video proof and the check's screenshot), waited for up to SPEC_WAIT (the
   spec's check runs the project's whole test suite);
-- a risk level: high when it failed, tests failed, the check found problems, or it touched
-  auth, billing, the database schema or secrets; medium when it changed many files or
-  changed code with no tests run; else low. Said in words, with why.
+- what the security scanners the owner has installed found (code_security: Semgrep on
+  the lines the turn added, osv-scanner, npm audit and pip-audit on the dependencies it
+  brought in), with the tools that ran, and the ones that would have and aren't
+  installed, with how to install them; run while the other proofs are waited for;
+- a risk level: high when it failed, tests failed, the check found problems, a security
+  scanner found a high-severity problem, or it touched auth, billing, the database schema
+  or secrets; medium when it changed many files, changed code with no tests run, or a
+  scanner found something lesser; else low. Said in words, with why.
 
 The entry's text reads well on its own (the phone, a voice summary); the window draws it
 as a card from its receipt field (web/features/code-receipts.js).
@@ -33,6 +38,8 @@ import time
 from typing import Any
 
 from .. import codesupervisor as cs
+from .code_security import receipt_words as security_words
+from .code_security import risk_of as security_risk
 
 log = logging.getLogger("jarvis")
 
@@ -128,8 +135,23 @@ def receipt_text(r: dict[str, Any]) -> str:
     if reqs:
         met = sum(1 for q in reqs if q.get("status") == "met")
         parts.append(f"requirements met {met} of {len(reqs)}")
+    scanned = security_words(r.get("security"))
+    if scanned:
+        parts.append(scanned)
     parts.append(f"risk {r['risk']}: {r['why']}")
     return "Proof · " + " · ".join(parts)
+
+
+_RISKS = ("low", "medium", "high")
+
+
+async def _quietly(coro: Any) -> Any:
+    """A proof that's extra: its failure leaves it out, never the receipt."""
+    try:
+        return await coro
+    except Exception as exc:
+        log.warning("a receipt's security scan failed: %s", exc)
+        return None
 
 
 class Receipts:
@@ -206,12 +228,17 @@ class Receipts:
         spec = getattr(self.hub, "code_spec", None)
         if spec is not None and spec.covers(task.id):
             waits["spec"] = spec.proof_future(task.id)
+        scanners = getattr(self.hub, "code_security", None)  # (code_security: the scanners)
+        if scanners is not None and scanners.enabled():
+            waits["security"] = asyncio.ensure_future(_quietly(scanners.receipt_part(task)))
         if waits:  # the check and the video, together, as long as VERIFY_WAIT at most
             await asyncio.wait(list(waits.values()), timeout=VERIFY_WAIT)
         if "spec" in waits and not waits["spec"].done():  # its suite can take longer
             await asyncio.wait([waits["spec"]], timeout=SPEC_WAIT - VERIFY_WAIT)
         self.waiting.pop(task.id, None)
         self.filming.pop(task.id, None)
+        if "security" in waits and not waits["security"].done():
+            waits["security"].cancel()  # (a tool that's still going: the receipt won't wait)
         got = {k: f.result() for k, f in waits.items() if f.done() and not f.cancelled()}
         check = got.get("check")
         video = got.get("video")
@@ -232,6 +259,12 @@ class Receipts:
             rows = spec.attach_receipt(task.id, list(got["spec"] or []), receipt)
             if rows:
                 receipt["requirements"] = rows
+        scanned = got.get("security")
+        if scanned:
+            receipt["security"] = scanned
+            said = security_risk(scanned)
+            if said and _RISKS.index(said[0]) > _RISKS.index(receipt["risk"]):
+                receipt["risk"], receipt["why"] = said
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

@@ -1,6 +1,8 @@
 // Eden Code's Review, in the Changes pane (features/code_review.py): Review and Deep review
 // run on the session's changes; the findings are listed at the top and pinned under the
 // lines they're about, each with "Fix this" (and "Fix all") to hand back to the session.
+// A finding a security scanner made (Deep review runs them: features/code_security.py)
+// carries its source, shown as a chip with its rule.
 (() => {
   const F = window.jarvisFeatures;
   const C = window.JarvisChanges;
@@ -26,6 +28,15 @@
     return box;
   }
 
+  // The scanner a finding came from (Semgrep, osv-scanner, npm audit, pip-audit), or nothing.
+  function source(finding) {
+    if (!finding.source) return [];
+    const chip = el('span', 'jcx-chip jcx-fsource', finding.source);
+    chip.dataset.noI18n = '';
+    if (finding.rule) chip.title = finding.rule;
+    return [chip];
+  }
+
   // A finding in full, as it's pinned under its line.
   function card(task, finding) {
     const box = el('div', `jcx-finding sev-${finding.severity}`);
@@ -33,7 +44,7 @@
     const head = el('div', 'jcx-fhead');
     const title = el('strong', '', finding.title);
     title.dataset.noI18n = '';
-    head.append(el('span', `jcx-sev ${finding.severity}`, finding.severity), title, actions(task, finding));
+    head.append(el('span', `jcx-sev ${finding.severity}`, finding.severity), ...source(finding), title, actions(task, finding));
     box.append(head);
     if (finding.detail) { const d = el('p', 'jcx-fdetail', finding.detail); d.dataset.noI18n = ''; box.append(d); }
     if (finding.fix) {
@@ -72,7 +83,7 @@
         title.dataset.noI18n = '';
         const where = el('code', '', f.line ? `${f.file}:${f.line}` : f.file);
         where.dataset.noI18n = '';
-        li.append(el('span', `jcx-sev ${f.severity}`, f.severity), title, where, actions(task, f));
+        li.append(el('span', `jcx-sev ${f.severity}`, f.severity), ...source(f), title, where, actions(task, f));
         li.addEventListener('click', () => {
           const pinned = document.querySelector(`.jcx-finding[data-finding="${CSS.escape(f.id)}"]`);
           if (pinned) { pinned.scrollIntoView({ block: 'center', behavior: 'smooth' }); pinned.classList.add('flash'); setTimeout(() => pinned.classList.remove('flash'), 1200); }

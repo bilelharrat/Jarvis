@@ -1,0 +1,19 @@
+{
+  "dependencies": [
+    {
+      "name": "flask",
+      "version": "0.5",
+      "vulns": [
+        {
+          "id": "PYSEC-2019-179",
+          "fix_versions": ["1.0"],
+          "aliases": ["CVE-2019-1010083", "GHSA-5wv5-4vpf-pj6m"],
+          "description": "The Pallets Project Flask before 1.0 is affected by: unexpected memory usage. The impact is: denial of service. The attack vector is: crafted encoded JSON data."
+        }
+      ]
+    },
+    {"name": "requests", "version": "2.31.0", "vulns": []},
+    {"name": "local-thing", "skip_reason": "Dependency not found on PyPI and could not be audited: local-thing (1.0)"}
+  ],
+  "fixes": []
+}
