@@ -98,8 +98,46 @@ VOICES: dict[str, tuple[str, bool]] = {
     "bm_george": ("George · British", True),
     "af_heart": ("Heart · American", False),
     "am_michael": ("Michael · American", False),
+    "bf_alice": ("Alice · British", True),
 }
 DEFAULT_VOICE = "bm_george"
+
+# Voices this Mac already has, never downloaded by this app: Eden Video's Kokoro files (the
+# owner's demo videos; kokoro-onnx's release, model-files-v1.0), whose voices-v1.0.bin holds
+# every Kokoro voice (an .npz: voice id -> its styles) and kokoro-v1.0.onnx the full model.
+# A voice without a file of its own here (Alice) is read from there, and only offered when
+# it is there; the model is read from there while this app's own isn't downloaded. The
+# lexicons are still this app's own download (Settings › Speaking).
+BORROWED = Path.home() / "Library" / "Application Support" / "Eden Video" / "kokoro"
+BORROWED_VOICES = "voices-v1.0.bin"
+BORROWED_MODEL = "kokoro-v1.0.onnx"
+OWN_FILES_ONLY = {"bm_george", "af_heart", "am_michael"}  # in OFFLINE_VOICE_FILES
+
+
+def borrowed_style(voice: str, folder: Path | None = None) -> np.ndarray | None:
+    """A voice's styles from Eden Video's voice pack, or None (no pack, no such voice)."""
+    pack = (folder or BORROWED) / BORROWED_VOICES
+    if not pack.is_file():
+        return None
+    try:
+        with np.load(pack, allow_pickle=False) as voices:
+            if voice not in voices.files:
+                return None
+            return np.asarray(voices[voice], dtype="<f4")
+    except (OSError, ValueError) as exc:
+        log.warning("Eden Video's voices couldn't be read: %s", exc)
+        return None
+
+
+def offered(voice: str, folder: Path | None = None) -> bool:
+    """Whether a voice can be picked on this Mac: one of this app's own, or a borrowed one
+    that's there."""
+    if voice in OWN_FILES_ONLY:
+        return True
+    pack = (folder or BORROWED) / BORROWED_VOICES
+    return voice in VOICES and pack.is_file()
+
+
 SPEED_MIN, SPEED_MAX = 0.5, 2.0
 
 # What the pane says while the model fails (engine.error, the reason, goes to the log).
@@ -171,6 +209,8 @@ class Engine:
         with self._lock:
             if self._session is None:
                 path = self.folder / "kokoro.onnx"
+                if not path.is_file() and (BORROWED / BORROWED_MODEL).is_file():
+                    path = BORROWED / BORROWED_MODEL  # Eden Video's, until this app's own
                 if not path.is_file():
                     raise Unavailable("the voice model isn't downloaded")
                 session = self.session_factory(path)
@@ -211,7 +251,10 @@ class Engine:
                 try:
                     data = np.fromfile(path, dtype="<f4")
                 except OSError as exc:
-                    raise Unavailable(f"the voice {voice} isn't downloaded") from exc
+                    borrowed = borrowed_style(voice)
+                    if borrowed is None:
+                        raise Unavailable(f"the voice {voice} isn't downloaded") from exc
+                    data = borrowed.ravel()
                 if data.size == 0 or data.size % STYLE_DIM:
                     raise Unavailable(f"the voice {voice} is damaged")
                 self._styles[voice] = data.reshape(-1, STYLE_DIM)
@@ -392,7 +435,7 @@ class Store:
             "size": total_size(self.files),
             "downloading": self.downloading,
             "error": self.error or (RUN_FAILED if engine is not None and engine.error else ""),
-            "voices": [{"id": k, "name": v[0]} for k, v in VOICES.items()],
+            "voices": [{"id": k, "name": v[0]} for k, v in VOICES.items() if offered(k)],
         }
 
 

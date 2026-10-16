@@ -674,3 +674,13 @@ def _no_real_security_tools(monkeypatch):
     monkeypatch.setattr(security_scan, "find_tool", lambda *_args: None)
     monkeypatch.setattr(security_scan, "default_env", lambda: dict(os.environ))
     security_scan.CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_borrowed_kokoro(monkeypatch, tmp_path_factory):
+    """The offline voice never reads the owner's own Kokoro files (Eden Video's, under
+    ~/Library/Application Support): an empty folder stands in. A test that wants a borrowed
+    voice pack puts one in its own folder (local_voice.BORROWED)."""
+    from jarvis import local_voice
+
+    monkeypatch.setattr(local_voice, "BORROWED", tmp_path_factory.mktemp("no-eden-video"))

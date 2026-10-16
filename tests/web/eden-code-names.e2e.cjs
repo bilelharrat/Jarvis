@@ -2,8 +2,7 @@
 // serves it) in a real Chromium, with no backend: what shows names Eden Code, never Jarvis,
 // Eden Secretary or "Bug Fix", in English and in Chinese, on the welcome, its Settings, a
 // session, every pane, the More menu and every card of its Setup (round 3, U3-1, U3-6). And
-// what the backend alone can't do isn't offered: no voice switch or Dictate mic while the
-// backend listens to no one (profile "code", U3-14), no Browser button for a dock that isn't
+// what the backend alone can't do isn't offered: no Browser button for a dock that isn't
 // there (U3-10), and the gear opens the sheet ⌘, opens (U3-9). Nothing leaves 127.0.0.1;
 // the profile is a temp folder of its own.
 //
@@ -113,9 +112,10 @@ async function run(port, lang) {
   const visible = (id) => js(`(() => { const n = document.getElementById(${JSON.stringify(id)}); if (!n) return false; for (let e = n; e; e = e.parentElement) if (e.hidden) return false; const r = n.getBoundingClientRect(); return getComputedStyle(n).display !== 'none' && r.width > 0; })()`);
 
   where('welcome, no project', await js(AUDIT(lang === 'zh')));
-  // The backend alone listens to no one: no voice switch, no Dictate; no Browser button.
-  check(!(await visible('cc-voice-head')), `${lang}: the voice switch shows while the backend can't listen`);
-  check(!(await visible('jc-dictate')), `${lang}: Dictate shows while the backend can't listen`);
+  // The backend alone listens to no one at launch, but Eden Code's Voice opens Eden's ears on
+  // demand (features/code_voice_live.py): its switch and Dictate show. No Browser button.
+  check(await visible('cc-voice-head'), `${lang}: Eden Code's voice switch is hidden`);
+  check(await visible('jc-dictate'), `${lang}: Dictate is hidden in Eden Code`);
   check(!(await visible('jc-browser')), `${lang}: a Browser button with no browser dock`);
   await js(`deckProjects = [{ name: 'alpha', branch: 'main' }]; selectProject('alpha'); renderProjects(deckProjects); true`);
   await sleep(200);
@@ -161,11 +161,11 @@ async function run(port, lang) {
   }
   check(seen.at(-1) === 'done', `${lang}: Setup never reached its last card (${seen})`);
   await js(`window.jarvisIntro.close(); true`);
-  // An Eden Secretary window joins: the backend listens, and the voice switch comes back.
+  // An Eden Secretary window joins: the backend listens, and the voice switch stays.
   await js(`heard({ type: 'app_windows', windows: { jarvis: 1, 'eden-code': 1 }, profile: 'full' }); true`);
   await sleep(100);
-  check(await visible('cc-voice-head'), `${lang}: the voice switch stayed hidden once the backend listens`);
-  check(await visible('jc-dictate'), `${lang}: Dictate stayed hidden once the backend listens`);
+  check(await visible('cc-voice-head'), `${lang}: the voice switch hid once the backend listens`);
+  check(await visible('jc-dictate'), `${lang}: Dictate hid once the backend listens`);
   check(!errors.length, `${lang}: page errors ${JSON.stringify(errors.slice(0, 5))}`);
   return win;  // (closed at the end: one destroyed here made the next window's load fail)
 }

@@ -176,15 +176,30 @@ function openBackendLog() {
 // a microphone that sends nothing but zeros.) At most 60 s: an unanswered prompt never
 // keeps Eden Secretary from starting.
 async function askForMicrophone() {
-  if (process.platform !== 'darwin' || DEV_URL || EDEN_CODE) return; // Eden Code never listens
-  try {
-    if (systemPreferences.getMediaAccessStatus('microphone') !== 'not-determined') return;
-    await Promise.race([
-      systemPreferences.askForMediaAccess('microphone'),
-      new Promise((resolve) => setTimeout(resolve, 60000)),
-    ]);
-  } catch (_) { /* no prompt to show: the backend's own asking still applies */ }
+  if (process.platform !== 'darwin' || DEV_URL || EDEN_CODE) return; // Eden Code asks on demand (below)
+  await askMicrophoneNow();
 }
+
+// The prompt itself: 'granted', 'denied', 'restricted' or 'not-determined' (still unanswered
+// after 60 s), and 'granted' where nothing asks (Windows, Linux).
+async function askMicrophoneNow() {
+  if (process.platform !== 'darwin') return 'granted';
+  try {
+    if (systemPreferences.getMediaAccessStatus('microphone') === 'not-determined') {
+      await Promise.race([
+        systemPreferences.askForMediaAccess('microphone'),
+        new Promise((resolve) => setTimeout(resolve, 60000)),
+      ]);
+    }
+    return systemPreferences.getMediaAccessStatus('microphone');
+  } catch (_) { return 'not-determined'; } // no prompt to show: the backend's own asking still applies
+}
+
+// Eden Code asks only when the owner turns its Voice on, holds the talk key or presses
+// Dictate (web/features/code-voice-live.js), never at launch: the prompt comes from the app
+// (Info.plist's NSMicrophoneUsageDescription, the audio-input entitlement), before the
+// backend opens a stream that would otherwise hear only silence.
+ipcMain.handle('jarvis:microphone', (event) => (fromWindow(event) ? askMicrophoneNow() : 'denied'));
 
 // What the backend printed last, for the window to say when it stops (a ModuleNotFoundError, a port in use).
 const backendTail = createTail();
