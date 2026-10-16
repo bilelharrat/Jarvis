@@ -719,6 +719,44 @@ test('In the smallest window (760 × 620), Eden Code uses the whole width and it
   }
 });
 
+// The sidebar's edge, dragged with the real mouse (features/code-side.js and .css, as the
+// backend's /features.json would load them): the sidebar and the main column move with it,
+// the handle says its width, and a double-click gives the look's width back.
+test('Dragging the sidebar’s edge widens it and moves the main column with it; a double-click resets it', async () => {
+  await js(`try { localStorage.removeItem('jc.sideWidth.secretary'); } catch (_) {}
+    (() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(fs.readFileSync(path.join(WEB, 'features', 'code-side.css'), 'utf8'))}; document.head.append(s); })(); true`);
+  await featureScript('code-side.js');
+  try {
+    await open(1);
+    await sleep(450);  // (the sidebar's and the main column's glide in)
+    const box = () => js(`(() => { const r = (n) => n.getBoundingClientRect();
+      const h = r($('jc-side-handle')), side = r($('jc-side')), main = r(document.querySelector('.jc-main'));
+      return { x: Math.round(h.left + h.width / 2), y: Math.round(h.top + h.height / 2), side: Math.round(side.width), main: Math.round(main.left), now: $('jc-side-handle').getAttribute('aria-valuenow') }; })()`);
+    const before = await box();
+    const at = (type, x, extra = {}) => cdp('Input.dispatchMouseEvent', { type, x, y: before.y, button: 'left', ...extra });
+    await at('mouseMoved', before.x, { button: 'none' });
+    await at('mousePressed', before.x, { clickCount: 1 });
+    for (let k = 1; k <= 5; k += 1) await at('mouseMoved', before.x + 20 * k);
+    const during = await box();
+    await at('mouseReleased', before.x + 100, { clickCount: 1 });
+    await frames(2);
+    const after = await box();
+    assert(Math.abs(after.side - before.side - 100) <= 1 && Math.abs(after.main - before.main - 100) <= 1 && after.now === String(after.side)
+      && during.main > before.main, JSON.stringify({ before, during, after }));
+    assert(await js(`localStorage.getItem('jc.sideWidth.secretary')`) === String(after.side), 'the width was not kept');
+    await at('mouseMoved', after.x, { button: 'none' });
+    await at('mousePressed', after.x, { clickCount: 1 });
+    await at('mouseReleased', after.x, { clickCount: 1 });
+    await at('mousePressed', after.x, { clickCount: 2 });
+    await at('mouseReleased', after.x, { clickCount: 2 });
+    await sleep(450);
+    const reset = await box();
+    assert(reset.side === before.side && reset.main === before.main, JSON.stringify({ before, reset }));
+  } finally {
+    await js(`try { localStorage.removeItem('jc.sideWidth.secretary'); } catch (_) {} true`);
+  }
+});
+
 test('Esc in a pane’s text box leaves the box, and never interrupts the session at work', async () => {
   await open(1);  // (a session at work: busy)
   await js('openPane("audit"); document.querySelector("#jc-pane-body input").focus()');

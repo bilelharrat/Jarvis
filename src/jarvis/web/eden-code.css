@@ -81,7 +81,8 @@ body:not([data-skin]) .deck.jc {
 }
 
 /* ── the floating glass sidebar (Ask Eden's #sidebar: 260px, 20px corners, 12px from the edges) ── */
-body:not([data-skin]) .jc-side { top: 12px; left: 12px; bottom: 12px; width: 260px; border-radius: var(--eden-r-lg); padding: 44px 10px 10px; }
+body:not([data-skin]) .deck.jc { --jc-side-w: 260px; --jc-main-l: calc(var(--jc-side-w) + 24px); }  /* (features/code-side.js: dragged wider or narrower) */
+body:not([data-skin]) .jc-side { top: 12px; left: 12px; bottom: 12px; width: var(--jc-side-w); border-radius: var(--eden-r-lg); padding: 44px 10px 10px; }
 body:not([data-skin]) .jc-side-head { padding: 0 4px 0 6px; }
 body:not([data-skin]) .jc-side-head h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; }
 body:not([data-skin]) .jc-field { border-radius: var(--eden-r-sm); background: rgba(120, 120, 128, 0.12); box-shadow: none; font-size: 13.5px; padding: 7px 10px; }
@@ -99,7 +100,7 @@ body:not([data-skin]) .jc-session[aria-current="true"] .jc-stitle { color: var(-
 body:not([data-skin]) .jc-side-foot { display: flex; align-items: center; gap: 8px; padding: 8px 4px 0 8px; border-top: 0.5px solid var(--eden-hairline); }
 
 /* ── the main column: a glass title bar, then the conversation ── */
-body:not([data-skin]) .jc-main { inset: 12px 12px 0 284px; }
+body:not([data-skin]) .jc-main { inset: 12px 12px 0 var(--jc-main-l); }
 body:not([data-skin]) .deck.jc.side-hidden .jc-main { left: 12px; }
 body:not([data-skin]) .jc-toolbar { margin: 0 0 10px; min-height: 52px; padding: 8px 14px; border-radius: var(--eden-r-lg); background: var(--eden-glass); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); box-shadow: inset 0 0.5px 0 var(--eden-rim), inset 0 0 0 0.5px var(--eden-hairline), var(--eden-sh1); }
 body.in-app:not([data-skin]) .jc-toolbar { padding-top: 8px; }

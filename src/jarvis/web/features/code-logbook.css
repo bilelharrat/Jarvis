@@ -13,7 +13,8 @@ html body[data-skin="obsidian"] .deck.jc {
   --lb-gut: 64px;   /* the gutter: № 01, YOU, the time, › */
   --lb-kind: 56px;  /* READ, EDIT, RUN… */
   --lb-pad: 32px;
-  --sv-l: 256px;
+  --jc-side-w: 256px;
+  --sv-l: var(--jc-side-w);
 }
 html body[data-skin="obsidian"] .deck.jc.side-hidden { --sv-l: 0px; }
 @media (max-width: 900px) { html body[data-skin="obsidian"] .deck.jc { --sv-l: 0px; } }
@@ -200,7 +201,7 @@ html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column > :is(.jc-bg, .jc-t
 /* The bar is the default mode's, to the pixel (app.css pins the dock's tokens under Obsidian). */
 
 /* ── 6. the session index: by day, a glyph and a time on each row ── */
-html body[data-skin="obsidian"] .deck.jc .jc-side { top: 0; left: 0; bottom: 0; width: 256px; box-sizing: border-box; padding: 22px 10px 18px 22px; border-radius: 0; gap: 16px; }
+html body[data-skin="obsidian"] .deck.jc .jc-side { top: 0; left: 0; bottom: 0; width: var(--jc-side-w); box-sizing: border-box; padding: 22px 10px 18px 22px; border-radius: 0; gap: 16px; }
 html body[data-skin="obsidian"] .deck.jc .jc-side.glass-panel::before { background: transparent; box-shadow: inset -1px 0 0 var(--ob-hair); -webkit-backdrop-filter: none; backdrop-filter: none; }
 body.in-app[data-skin="obsidian"] .deck.jc .jc-side { padding-top: 12px; }
 html body[data-skin="obsidian"] .deck.jc .jc-side-head h2 { font: 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
