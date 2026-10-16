@@ -122,3 +122,43 @@ class Client:
             "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }",
             {"input": {"issueId": issue_id, "body": body[:10_000]}},
         )
+
+    # ── Eden's agents (features/code_linear_agents.py) ──
+
+    async def issue_states(self, issue_id: str) -> list[dict[str, str]]:
+        """The workflow states of a ticket's team: [{id, name, type}] (type: backlog,
+        unstarted, started, completed, canceled, triage)."""
+        found = await self.query(
+            "query($id: String!) { issue(id: $id) { team { states { nodes { id name type } } } } }",
+            {"id": issue_id},
+        )
+        nodes = (((found.get("issue") or {}).get("team") or {}).get("states") or {}).get("nodes")
+        return [
+            {"id": str(n.get("id") or ""), "name": str(n.get("name") or ""), "type": str(n.get("type") or "")}
+            for n in nodes if isinstance(n, dict) and n.get("id")
+        ] if isinstance(nodes, list) else []  # fmt: skip
+
+    async def set_state(self, issue_id: str, state_id: str) -> None:
+        """A ticket moved to a workflow state."""
+        await self.query(
+            "mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }",
+            {"id": issue_id, "input": {"stateId": state_id}},
+        )
+
+    async def activity(self, session_id: str, kind: str, body: str) -> None:
+        """An activity in an agent session (Linear's agent API, with an app's own token):
+        kind thought | elicitation | response | error, its body Markdown."""
+        await self.query(
+            "mutation($input: AgentActivityCreateInput!) { agentActivityCreate(input: $input) { success } }",
+            {"input": {"agentSessionId": session_id, "content": {"type": kind, "body": body[:5000]}}},
+        )
+
+
+def pick_state(states: list[dict[str, str]], names: tuple[str, ...], kind: str = "") -> str:
+    """The id of the state a ticket goes to: the first named one there (case aside), else
+    the first of that type, else ""."""
+    by_name = {s["name"].strip().lower(): s["id"] for s in states}
+    for name in names:
+        if name.lower() in by_name:
+            return by_name[name.lower()]
+    return next((s["id"] for s in states if kind and s["type"] == kind), "")

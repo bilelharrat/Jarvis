@@ -23,6 +23,17 @@ class FakeLinear:
         self.comments: list[dict[str, Any]] = []
         self.requests: list[httpx.Request] = []
         self.keys: list[str] = []
+        # Eden's agents (code_linear_agents): app users by token, the team's states, the
+        # moves made and the agent sessions' activities.
+        self.app_users: dict[str, str] = {}  # "Bearer <token>" -> its app user's id
+        self.states = [
+            {"id": "st-todo", "name": "Todo", "type": "unstarted"},
+            {"id": "st-prog", "name": "In Progress", "type": "started"},
+            {"id": "st-rev", "name": "In Review", "type": "started"},
+            {"id": "st-done", "name": "Done", "type": "completed"},
+        ]
+        self.moves: list[tuple[str, str, str]] = []  # (issue, state, auth)
+        self.activities: list[dict[str, Any]] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -31,11 +42,22 @@ class FakeLinear:
         self.requests.append(request)
         self.keys.append(request.headers.get("authorization", ""))
         body = json.loads(request.content)
+        auth = request.headers.get("authorization", "")
         if "viewer" in body["query"]:
-            return httpx.Response(200, json={"data": {"viewer": {"id": self.viewer}}})
+            return httpx.Response(200, json={"data": {"viewer": {"id": self.app_users.get(auth, self.viewer)}}})
         if "commentCreate" in body["query"]:
-            self.comments.append(body["variables"]["input"])
+            self.comments.append({**body["variables"]["input"], "auth": auth})
             return httpx.Response(200, json={"data": {"commentCreate": {"success": True}}})
+        if "issueUpdate" in body["query"]:
+            v = body["variables"]
+            self.moves.append((v["id"], v["input"]["stateId"], auth))
+            return httpx.Response(200, json={"data": {"issueUpdate": {"success": True}}})
+        if "agentActivityCreate" in body["query"]:
+            self.activities.append({**body["variables"]["input"], "auth": auth})
+            return httpx.Response(200, json={"data": {"agentActivityCreate": {"success": True}}})
+        if "states" in body["query"]:
+            data = {"issue": {"team": {"states": {"nodes": self.states}}}}
+            return httpx.Response(200, json={"data": data})
         return httpx.Response(200, json={"errors": [{"message": "unknown query"}]})
 
 
