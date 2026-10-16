@@ -21,11 +21,11 @@ struct AskCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(card.approval.question)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.eden(size: 17, weight: .semibold))
                 .foregroundStyle(EdenTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Text(Self.why(card))
-                .font(.system(size: 14))
+                .font(.eden(size: 14))
                 .lineSpacing(3.5)
                 .foregroundStyle(EdenTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -40,7 +40,7 @@ struct AskCard: View {
                     .accessibilityLabel("Command: \(card.approval.detail)")
             }
             if let problem {
-                Text(problem).font(.system(size: 13)).foregroundStyle(EdenTheme.failInk)
+                Text(problem).font(.eden(size: 13)).foregroundStyle(EdenTheme.failInk)
             }
             if card.approval.isQuestion && !card.macOnly {
                 options
@@ -58,7 +58,7 @@ struct AskCard: View {
 
     private var command: some View {
         Text(card.approval.detail.hasPrefix("$ ") ? String(card.approval.detail.dropFirst(2)) : card.approval.detail)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.eden(size: 12, design: .monospaced))
             // SF Mono sets a touch wider than the mockup's; a hair of tracking keeps a usual
             // command on one line, as drawn.
             .tracking(-0.25)
@@ -85,7 +85,7 @@ struct AskCard: View {
         TwoButtons(ratio: 1.3, spacing: 8) {
             Button { answer(card.noChoice) } label: {
                 Text(Self.noLabel(card))
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                    .font(.eden(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .background(EdenTheme.fill, in: .capsule)
                     .contentShape(.capsule)
@@ -94,15 +94,15 @@ struct AskCard: View {
         } second: {
             if card.macOnly {
                 Label("Answer on your Mac", systemImage: "desktopcomputer")
-                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.muted)
+                    .font(.eden(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.muted)
                     .frame(maxWidth: .infinity, minHeight: 50)
             } else if let yes {
                 Button { answer(yes) } label: {
                     HStack(spacing: 7) {
-                        if card.needsFaceID(yes) { Image(systemName: "faceid").font(.system(size: 16, weight: .medium)) }
+                        if card.needsFaceID(yes) { Image(systemName: "faceid").font(.eden(size: 16, weight: .medium)) }
                         Text(yes.label).lineLimit(1).minimumScaleFactor(0.8)
                     }
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    .font(.eden(size: 16, weight: .semibold)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .background(EdenTheme.accent, in: .capsule)
                     .contentShape(.capsule)
@@ -119,7 +119,7 @@ struct AskCard: View {
             ForEach(card.yesChoices) { choice in
                 Button { answer(choice) } label: {
                     Text(choice.label)
-                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                        .font(.eden(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                         .frame(maxWidth: .infinity, minHeight: 46)
                         .background(EdenTheme.fill, in: .capsule)
                         .contentShape(.capsule)
@@ -149,7 +149,7 @@ struct AskCard: View {
                     }
                 }
             }
-            .font(.system(size: 15))
+            .font(.eden(size: 15))
             .foregroundStyle(EdenTheme.accent)
             .frame(maxWidth: .infinity)
             .disabled(working)

@@ -10,7 +10,7 @@ struct InboxView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if store.home.attention.isEmpty {
                     VStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle").font(.system(size: 30)).foregroundStyle(EdenTheme.green)
+                        Image(systemName: "checkmark.circle").font(.eden(size: 30)).foregroundStyle(EdenTheme.green)
                         Text("Nothing waits on you").font(.headline).foregroundStyle(EdenTheme.ink)
                         Text("Approvals and questions from your sessions show up here, and as notifications.")
                             .font(.subheadline).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
@@ -63,17 +63,17 @@ struct CardRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: card.approval.isQuestion ? "questionmark.bubble.fill" : card.faceID ? "exclamationmark.triangle.fill" : "hand.raised.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.eden(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 34, height: 34)
                 .background(card.approval.isQuestion ? EdenTheme.accent : EdenTheme.orange, in: .rect(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 1) {
-                Text(card.approval.question).font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(2)
+                Text(card.approval.question).font(.eden(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(2)
                 Text([session?.title, session?.project, card.macOnly ? "Answer on your Mac" : nil].compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: 13)).foregroundStyle(EdenTheme.muted).lineLimit(1)
+                    .font(.eden(size: 13)).foregroundStyle(EdenTheme.muted).lineLimit(1)
             }
             Spacer(minLength: 8)
-            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
+            Image(systemName: "chevron.right").font(.eden(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

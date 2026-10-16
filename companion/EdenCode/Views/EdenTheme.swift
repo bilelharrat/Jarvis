@@ -281,3 +281,12 @@ extension View {
         }
     }
 }
+
+extension Font {
+    /// The design's sizes (the mockups' points at the default text size), scaled with the
+    /// owner's Dynamic Type setting, as Apple's text styles scale. RootView redraws the app when
+    /// the setting changes and caps it where the glass layouts still fit.
+    static func eden(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        .system(size: UIFontMetrics.default.scaledValue(for: size), weight: weight, design: design)
+    }
+}

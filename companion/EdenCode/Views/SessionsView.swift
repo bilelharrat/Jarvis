@@ -50,7 +50,7 @@ struct SessionDrawer: View {
                     .stroke(EdenTheme.chevron, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .frame(width: 16, height: 16)
                 TextField("", text: $store.search, prompt: Text("Search").foregroundStyle(EdenTheme.muted))
-                    .font(.system(size: 16))
+                    .font(.eden(size: 16))
                     .foregroundStyle(EdenTheme.ink)
                     .submitLabel(.search)
                     .accessibilityLabel("Search sessions")
@@ -64,7 +64,7 @@ struct SessionDrawer: View {
                     PencilGlyph()
                         .stroke(EdenTheme.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                         .frame(width: 20, height: 20)
-                    Text("New session").font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                    Text("New session").font(.eden(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -85,12 +85,10 @@ struct SessionDrawer: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                if let problem = store.problem {
-                    ProblemBanner(text: problem).padding(.horizontal, 2).padding(.bottom, 6)
-                }
+                StoreProblemBanner().padding(.horizontal, 2).padding(.bottom, 6)
                 ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
                     Text(group.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.eden(size: 13, weight: .semibold))
                         .foregroundStyle(EdenTheme.chevron)
                         .padding(EdgeInsets(top: index == 0 ? 10 : 14, leading: 12, bottom: 4, trailing: 12))
                         .accessibilityAddTraits(.isHeader)
@@ -103,7 +101,7 @@ struct SessionDrawer: View {
                 }
                 if store.loaded && groups.isEmpty {
                     Text(store.search.trimmed.isEmpty ? "No sessions yet. Start one with New session." : "No session matches “\(store.search.trimmed)”.")
-                        .font(.system(size: 14)).foregroundStyle(EdenTheme.muted)
+                        .font(.eden(size: 14)).foregroundStyle(EdenTheme.muted)
                         .padding(12)
                 }
                 if !store.home.exterminator.isEmpty && store.search.trimmed.isEmpty { exterminator }
@@ -119,14 +117,14 @@ struct SessionDrawer: View {
     private var exterminator: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Exterminator Mode")
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
+                .font(.eden(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.chevron)
                 .padding(EdgeInsets(top: 14, leading: 12, bottom: 4, trailing: 12))
                 .accessibilityAddTraits(.isHeader)
             ForEach(store.home.exterminator) { run in
                 Button { if let id = run.taskID { store.open(session: id) } } label: {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(run.project).font(.system(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
-                        Text(run.line).font(.system(size: 13)).foregroundStyle(EdenTheme.muted).lineLimit(1)
+                        Text(run.project).font(.eden(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
+                        Text(run.line).font(.eden(size: 13)).foregroundStyle(EdenTheme.muted).lineLimit(1)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -151,12 +149,12 @@ struct SessionDrawer: View {
     private func shortcut(_ title: String, symbol: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(EdenTheme.muted).frame(width: 20)
-                Text(title).font(.system(size: 15)).foregroundStyle(EdenTheme.ink)
+                Image(systemName: symbol).font(.eden(size: 14, weight: .medium)).foregroundStyle(EdenTheme.muted).frame(width: 20)
+                Text(title).font(.eden(size: 15)).foregroundStyle(EdenTheme.ink)
                 Spacer()
                 if count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.eden(size: 12, weight: .semibold))
                         .foregroundStyle(tint == EdenTheme.chevron ? EdenTheme.muted : .white)
                         .padding(.horizontal, 7).frame(minWidth: 20, minHeight: 20)
                         .background(tint == EdenTheme.chevron ? EdenTheme.fill : tint, in: .capsule)
@@ -190,8 +188,8 @@ struct SessionDrawer: View {
                 HStack(spacing: 10) {
                     EdenMarkTile(size: 32, mark: 16, radius: 16, line: 1.2)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(store.current?.macLabel ?? "Your Mac").font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(1)
-                        Text(connection.text).font(.system(size: 12)).foregroundStyle(connection.ink)
+                        Text(store.current?.macLabel ?? "Your Mac").font(.eden(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(1)
+                        Text(connection.text).font(.eden(size: 12)).foregroundStyle(connection.ink)
                     }
                     Spacer(minLength: 0)
                 }
@@ -262,9 +260,9 @@ struct DrawerRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(session.title).font(.system(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
+                    Text(session.title).font(.eden(size: 16)).foregroundStyle(EdenTheme.ink).lineLimit(1)
                     if showsStatus {
-                        Text(word).font(.system(size: 13)).foregroundStyle(GStatus.ink(status)).lineLimit(1)
+                        Text(word).font(.eden(size: 13)).foregroundStyle(GStatus.ink(status)).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -313,8 +311,8 @@ struct UsageGlance: View {
 
     private func tile(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 12)).foregroundStyle(EdenTheme.muted)
-            Text(value).font(.system(size: 22, weight: .bold)).foregroundStyle(EdenTheme.ink).minimumScaleFactor(0.6).lineLimit(1)
+            Text(label).font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
+            Text(value).font(.eden(size: 22, weight: .bold)).foregroundStyle(EdenTheme.ink).minimumScaleFactor(0.6).lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
@@ -328,10 +326,42 @@ struct ProblemBanner: View {
     var text: String
     var body: some View {
         Label(text, systemImage: "exclamationmark.triangle.fill")
-            .font(.system(size: 13))
+            .font(.eden(size: 13))
             .foregroundStyle(EdenTheme.ink)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(EdenTheme.orange.opacity(0.14), in: .rect(cornerRadius: 14))
+    }
+}
+
+/// The connection's problem (EdenCodeProblem): what happened, what to do, and its button
+/// (Try again, or Pair again when the Mac forgot this iPhone). Nothing when all is well.
+struct StoreProblemBanner: View {
+    @Environment(EdenCodeStore.self) private var store
+
+    var body: some View {
+        if let issue = store.issue {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(issue.title).font(.eden(size: 14, weight: .semibold))
+                        Text(issue.message).font(.eden(size: 13))
+                    }
+                } icon: {
+                    Image(systemName: issue.kind == .offline ? "wifi.slash" : "exclamationmark.triangle.fill")
+                }
+                .foregroundStyle(EdenTheme.ink)
+                .accessibilityElement(children: .combine)
+                Button(issue.actionLabel) { store.recover() }
+                    .font(.eden(size: 14, weight: .semibold))
+                    .buttonStyle(.glass)
+                    .accessibilityHint(issue.action == .pairAgain ? "Opens pairing" : "Asks your Mac again")
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(EdenTheme.orange.opacity(0.14), in: .rect(cornerRadius: 14))
+        } else if let problem = store.problem {
+            ProblemBanner(text: problem)
+        }
     }
 }

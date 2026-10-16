@@ -28,7 +28,7 @@ struct ChangesScreen: View {
             VStack(alignment: .leading, spacing: 12) {
                 header
                 if let problem { ProblemBanner(text: problem) }
-                if let said { Text(said).font(.system(size: 13)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 4) }
+                if let said { Text(said).font(.eden(size: 13)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 4) }
                 if let receipt { ReceiptCard(receipt: receipt) }
                 if let changes {
                     if changes.files.isEmpty {
@@ -71,13 +71,13 @@ struct ChangesScreen: View {
     private var header: some View {
         HStack(spacing: 10) {
             Button { dismiss() } label: {
-                Image(systemName: "chevron.left").font(.system(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                Image(systemName: "chevron.left").font(.eden(size: 16, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                     .frame(width: 36, height: 36)
                     .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back to session")
-            Text("Changes").font(.system(size: 22, weight: .bold)).foregroundStyle(EdenTheme.ink).frame(maxWidth: .infinity, alignment: .leading)
+            Text("Changes").font(.eden(size: 22, weight: .bold)).foregroundStyle(EdenTheme.ink).frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
             Picker("Which changes", selection: $view) {
                 Text("Turn").tag("turn")
@@ -92,7 +92,7 @@ struct ChangesScreen: View {
     private var footer: some View {
         TwoButtons(ratio: 1.4) {
             Button { confirmUndoAll = true } label: {
-                Text("Undo all").font(.system(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                Text("Undo all").font(.eden(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
@@ -100,7 +100,7 @@ struct ChangesScreen: View {
             .disabled(busy || (changes?.unkeptHunks.isEmpty ?? true))
         } second: {
             Button { openPR() } label: {
-                Text("Open pull request").font(.system(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.onInk)
+                Text("Open pull request").font(.eden(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.onInk)
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .background(EdenTheme.ink, in: .capsule)
             }
@@ -120,7 +120,7 @@ struct ChangesScreen: View {
             receipt = await receipts?.receipts.last
             problem = nil
         } catch {
-            problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+            problem = EdenCodeProblem.describe(error)
         }
     }
 
@@ -135,7 +135,7 @@ struct ChangesScreen: View {
                 said = result.said.isEmpty ? nil : result.said
                 UIAccessibility.post(notification: .announcement, argument: action == "undo" ? (result.said.isEmpty ? "Undone" : result.said) : action == "keep" ? "Kept" : "Not kept")
             } catch {
-                problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+                problem = EdenCodeProblem.describe(error)
             }
         }
     }
@@ -148,7 +148,7 @@ struct ChangesScreen: View {
             _ = try await backend.comment(id: id, comments: [comment])
             said = "Sent your comment to the session."
         } catch {
-            problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+            problem = EdenCodeProblem.describe(error)
         }
     }
 
@@ -163,7 +163,7 @@ struct ChangesScreen: View {
                 said = result.said
             } catch {
                 said = nil
-                problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+                problem = EdenCodeProblem.describe(error)
             }
         }
     }
@@ -176,10 +176,10 @@ struct ReceiptCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Receipt").font(.system(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                Text("Receipt").font(.eden(size: 15, weight: .semibold)).foregroundStyle(EdenTheme.ink)
                 Spacer()
                 Text(receipt.riskLabel)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.eden(size: 12, weight: .semibold))
                     .foregroundStyle(riskInk)
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(riskInk.opacity(0.16), in: .capsule)
@@ -191,11 +191,11 @@ struct ReceiptCard: View {
                             .foregroundStyle(row.mark == .good ? EdenTheme.checkGreen : row.mark == .bad ? EdenTheme.red : EdenTheme.needsInk)
                         Text(row.text).foregroundStyle(EdenTheme.ink).lineLimit(2)
                     }
-                    .font(.system(size: 13))
+                    .font(.eden(size: 13))
                 }
             }
             if !receipt.why.isEmpty && receipt.risk != "low" {
-                Text("Why: \(receipt.why)").font(.system(size: 12)).foregroundStyle(EdenTheme.muted)
+                Text("Why: \(receipt.why)").font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
             }
         }
         .padding(14)
@@ -225,11 +225,11 @@ struct FileCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text(file.path).font(.system(size: 12, design: .monospaced)).foregroundStyle(EdenTheme.ink).lineLimit(1).truncationMode(.head)
+                Text(file.path).font(.eden(size: 12, design: .monospaced)).foregroundStyle(EdenTheme.ink).lineLimit(1).truncationMode(.head)
                 Spacer()
-                Text("+\(file.added) −\(file.removed)").font(.system(size: 12)).foregroundStyle(EdenTheme.muted)
+                Text("+\(file.added) −\(file.removed)").font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
                 Button(action: onRead) {
-                    Image(systemName: speaking ? "stop.fill" : "speaker.wave.2").font(.system(size: 12)).foregroundStyle(EdenTheme.muted)
+                    Image(systemName: speaking ? "stop.fill" : "speaker.wave.2").font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(speaking ? "Stop reading" : "Read this change aloud")
@@ -253,7 +253,7 @@ struct FileCard: View {
                     if hunk.cut > 0 { note("\(hunk.cut) more lines on your Mac.") }
                     if hunk.kept {
                         Label("Kept", systemImage: "checkmark")
-                            .font(.system(size: 13)).foregroundStyle(EdenTheme.checkGreen)
+                            .font(.eden(size: 13)).foregroundStyle(EdenTheme.checkGreen)
                             .padding(.horizontal, 12).padding(.vertical, 10)
                             .onTapGesture { onKeep(hunk) }
                             .accessibilityAddTraits(.isButton)
@@ -261,15 +261,15 @@ struct FileCard: View {
                     } else {
                         HStack(spacing: 8) {
                             Button { onKeep(hunk) } label: {
-                                Text("Keep").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                                Text("Keep").font(.eden(size: 15, weight: .semibold)).foregroundStyle(.white)
                                     .frame(maxWidth: .infinity, minHeight: 40).background(EdenTheme.accent, in: .capsule)
                             }
                             Button { onUndo(hunk) } label: {
-                                Text("Undo").font(.system(size: 15)).foregroundStyle(EdenTheme.ink)
+                                Text("Undo").font(.eden(size: 15)).foregroundStyle(EdenTheme.ink)
                                     .frame(maxWidth: .infinity, minHeight: 40).background(EdenTheme.fill, in: .capsule)
                             }
                             Button { if let line = hunk.lines.first(where: { $0.kind != .context }) ?? hunk.lines.first { onComment(line) } } label: {
-                                Image(systemName: "text.bubble").font(.system(size: 15)).foregroundStyle(EdenTheme.ink)
+                                Image(systemName: "text.bubble").font(.eden(size: 15)).foregroundStyle(EdenTheme.ink)
                                     .frame(width: 40, height: 40).background(EdenTheme.fill, in: .circle)
                             }
                             .accessibilityLabel("Comment on this change")
@@ -289,7 +289,7 @@ struct FileCard: View {
     }
 
     private func note(_ text: String) -> some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 14).padding(.vertical, 8)
+        Text(text).font(.eden(size: 12)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 14).padding(.vertical, 8)
     }
 }
 
@@ -298,7 +298,7 @@ struct DiffLine: View {
 
     var body: some View {
         Text("\(prefix) \(line.text)")
-            .font(.system(size: 11.5, design: .monospaced))
+            .font(.eden(size: 11.5, design: .monospaced))
             .lineSpacing(4)
             .foregroundStyle(ink)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -342,7 +342,7 @@ struct CommentSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("\((target.path as NSString).lastPathComponent):\(target.line.number)").font(.system(size: 13, design: .monospaced)).foregroundStyle(EdenTheme.muted)
+            Text("\((target.path as NSString).lastPathComponent):\(target.line.number)").font(.eden(size: 13, design: .monospaced)).foregroundStyle(EdenTheme.muted)
             DiffLine(line: target.line).clipShape(.rect(cornerRadius: 8))
             TextField("What should change here?", text: $text, axis: .vertical)
                 .lineLimit(2...4)

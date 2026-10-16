@@ -40,8 +40,10 @@ struct NewSessionScreen: View {
         .safeAreaBar(edge: .top, spacing: 0) {
             VStack(spacing: 10) {
                 header
-                if let problem = problem ?? store.problem {
+                if let problem {
                     ProblemBanner(text: problem).padding(.horizontal, 16)
+                } else {
+                    StoreProblemBanner().padding(.horizontal, 16)
                 }
             }
             .padding(.top, 5)
@@ -99,11 +101,11 @@ struct NewSessionScreen: View {
         } label: {
             HStack(spacing: 6) {
                 Text(project.isEmpty ? "Choose a project" : project)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.eden(size: 15, weight: .semibold))
                     .foregroundStyle(EdenTheme.ink)
                     .lineLimit(1)
                 if isolated {
-                    Image(systemName: "arrow.triangle.branch").font(.system(size: 12, weight: .semibold)).foregroundStyle(EdenTheme.accent)
+                    Image(systemName: "arrow.triangle.branch").font(.eden(size: 12, weight: .semibold)).foregroundStyle(EdenTheme.accent)
                 }
                 ChevronDown()
                     .stroke(EdenTheme.ink, style: StrokeStyle(lineWidth: 1.6))
@@ -123,12 +125,12 @@ struct NewSessionScreen: View {
         VStack(spacing: 12) {
             EdenMarkTile(size: 56, mark: 30, radius: 16, line: 1.9)
             Text("What should we build?")
-                .font(.system(size: 26, weight: .bold))
+                .font(.eden(size: 26, weight: .bold))
                 .tracking(-0.52)
                 .foregroundStyle(EdenTheme.ink)
                 .accessibilityAddTraits(.isHeader)
             Text(whereLine)
-                .font(.system(size: 15))
+                .font(.eden(size: 15))
                 .foregroundStyle(EdenTheme.chevron)
         }
         .multilineTextAlignment(.center)
@@ -138,7 +140,7 @@ struct NewSessionScreen: View {
 
     private var heroTitle: some View {
         Text("What should we build?")
-            .font(.system(size: 22, weight: .bold))
+            .font(.eden(size: 22, weight: .bold))
             .foregroundStyle(EdenTheme.ink)
             .accessibilityAddTraits(.isHeader)
     }
@@ -154,14 +156,14 @@ struct NewSessionScreen: View {
         VStack(spacing: 18) {
             if text.trimmed.isEmpty { starters }
             if let problem = dictation.problem {
-                Text(problem).font(.system(size: 12)).foregroundStyle(EdenTheme.failInk)
+                Text(problem).font(.eden(size: 12)).foregroundStyle(EdenTheme.failInk)
             }
             if !pictures.isEmpty {
                 HStack {
                     Label("\(pictures.count) picture\(pictures.count == 1 ? "" : "s")", systemImage: "photo")
                     Button { pictures = [] } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Remove pictures")
                 }
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(EdenTheme.ink2)
+                .font(.eden(size: 12, weight: .medium)).foregroundStyle(EdenTheme.ink2)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .gGlass(Capsule())
             }
@@ -198,8 +200,8 @@ struct NewSessionScreen: View {
                 ForEach(Self.starters, id: \.title) { starter in
                     Button { text = starter.prompt } label: {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(starter.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.ink)
-                            Text(starter.subtitle).font(.system(size: 14)).foregroundStyle(EdenTheme.chevron)
+                            Text(starter.title).font(.eden(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                            Text(starter.subtitle).font(.eden(size: 14)).foregroundStyle(EdenTheme.chevron)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
@@ -239,7 +241,7 @@ struct NewSessionScreen: View {
                 await store.refreshHome()
                 if let id = ok.id { store.open(session: id) }
             } catch {
-                problem = (error as? JarvisError)?.message ?? error.localizedDescription
+                problem = EdenCodeProblem.describe(error)
             }
         }
     }

@@ -37,7 +37,7 @@ struct PairScanner: View {
             .safeAreaInset(edge: .bottom) {
                 if access == .granted {
                     Text(problem ?? "Point at the QR code in Eden Code › On your phone on your Mac.")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.eden(size: 15, weight: .medium))
                         .foregroundStyle(problem == nil ? EdenTheme.ink : EdenTheme.needsInk)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 18).padding(.vertical, 14)
@@ -73,7 +73,7 @@ struct PairScanner: View {
 
     private func unavailable(_ title: String, _ message: String, settings: Bool) -> some View {
         VStack(spacing: 14) {
-            Image(systemName: "qrcode.viewfinder").font(.system(size: 44, weight: .light)).foregroundStyle(.white.opacity(0.7))
+            Image(systemName: "qrcode.viewfinder").font(.eden(size: 44, weight: .light)).foregroundStyle(.white.opacity(0.7))
             Text(title).font(.headline).foregroundStyle(.white)
             Text(message).font(.subheadline).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center)
             if settings {

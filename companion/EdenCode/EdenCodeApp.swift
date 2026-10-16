@@ -16,11 +16,9 @@ struct EdenCodeApp: App {
                 .environment(store)
                 .onOpenURL { store.open(url: $0) }
                 .onAppear {
-                    #if DEBUG
-                    if !EdenDebug.fixtures { PushRegistrar.shared.start(store: store) }
-                    EdenDebugOpen.apply(store)
-                    #else
                     PushRegistrar.shared.start(store: store)
+                    #if DEBUG
+                    EdenDebugOpen.apply(store)
                     #endif
                 }
                 .onChange(of: phase) { _, phase in

@@ -72,12 +72,12 @@ final class SessionModel {
                 return
             } catch let error as JarvisError {
                 if case .gone = error { gone = true; problem = "This session isn’t on your Mac any more."; return }
-                problem = error.errorDescription
+                problem = EdenCodeProblem.describe(error)
                 try? await Task.sleep(for: .seconds(backoff))
                 backoff = min(30, backoff * 2)
             } catch {
                 if Task.isCancelled { return }
-                problem = error.localizedDescription
+                problem = EdenCodeProblem.describe(error)
                 try? await Task.sleep(for: .seconds(backoff))
                 backoff = min(30, backoff * 2)
             }
@@ -112,7 +112,7 @@ final class SessionModel {
             if !ok.ok { problem = "Your Mac didn’t take that. Too many messages may be waiting." }
             return ok.ok
         } catch {
-            problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+            problem = EdenCodeProblem.describe(error)
             return false
         }
     }
@@ -127,7 +127,7 @@ final class SessionModel {
             said = ok.said.isEmpty ? nil : ok.said
             if ok.ok { view.mode = mode; view.modeLabel = CodeModes.name(mode) }
         } catch {
-            problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+            problem = EdenCodeProblem.describe(error)
         }
     }
 
@@ -137,7 +137,7 @@ final class SessionModel {
             said = ok.said.isEmpty ? nil : ok.said
             if ok.ok { view.model = model.ref; view.modelLabel = model.name; view.router = model.router }
         } catch {
-            problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+            problem = EdenCodeProblem.describe(error)
         }
     }
 
@@ -148,7 +148,7 @@ final class SessionModel {
         do {
             said = try await run().said
         } catch {
-            problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+            problem = EdenCodeProblem.describe(error)
         }
     }
 

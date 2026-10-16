@@ -4,9 +4,13 @@ import UIKit
 import UserNotifications
 import WidgetKit
 
-/// Push notifications: asks once, registers with APNs, and hands the token to every paired
-/// Mac (the companion's /api/push/register, the same path the companion app uses; the Mac
-/// sends needs-you, done, failed and the handoff with its own key, or through the account).
+/// Push notifications: registers with APNs and hands the token to every paired Mac (the
+/// companion's /api/push/register, the same path the companion app uses; the Mac sends
+/// needs-you, done, failed and the handoff with its own key, or through the account).
+///
+/// The permission is asked in context (App Review 4.5.4, and it's kinder): only once a real
+/// Mac is paired, never at first launch on the pairing screen and never in the demo. The app
+/// works the same without it; Settings shows whether it's on and opens iOS Settings if not.
 @MainActor
 final class PushRegistrar: NSObject, UNUserNotificationCenterDelegate {
     static let shared = PushRegistrar()
@@ -15,11 +19,30 @@ final class PushRegistrar: NSObject, UNUserNotificationCenterDelegate {
 
     func start(store: EdenCodeStore) {
         self.store = store
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
+        UNUserNotificationCenter.current().delegate = self
+        // Already paired (an update, a relaunch): register again, asking only if never asked.
+        if !store.macs.isEmpty && !store.demo { requestPermissionIfNeeded() }
+    }
+
+    /// Asks the first time (once a Mac is paired); registers whenever it's allowed.
+    func requestPermissionIfNeeded() {
         Task {
-            let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            if granted { UIApplication.shared.registerForRemoteNotifications() }
+            let center = UNUserNotificationCenter.current()
+            let status = await center.notificationSettings().authorizationStatus
+            var allowed = status == .authorized || status == .provisional || status == .ephemeral
+            if status == .notDetermined {
+                allowed = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+            }
+            if allowed { UIApplication.shared.registerForRemoteNotifications() }
+        }
+    }
+
+    /// Whether notifications are on, for Settings.
+    static func allowed() async -> Bool? {
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: true
+        case .denied: false
+        default: nil
         }
     }
 
