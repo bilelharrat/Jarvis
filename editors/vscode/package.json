@@ -1,0 +1,93 @@
+{
+  "name": "eden-code-review",
+  "displayName": "Eden Code Review",
+  "description": "Review what your Eden Code sessions changed, in the file itself: Keep or Undo each hunk, comment on lines, read each turn's receipt, and message a session.",
+  "version": "0.1.0",
+  "publisher": "eden",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["SCM Providers", "Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "edenCode", "title": "Eden Code", "icon": "media/eden.svg" }
+      ]
+    },
+    "views": {
+      "edenCode": [
+        { "id": "edenCode.sessions", "name": "Sessions" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "edenCode.sessions",
+        "contents": "No Eden Code sessions here yet.\nEden Code must be open, with Settings › Control from code › Programs on this Mac turned on.\n[Set the API token](command:edenCode.setToken)\n[Refresh](command:edenCode.refresh)"
+      }
+    ],
+    "commands": [
+      { "command": "edenCode.refresh", "title": "Refresh", "category": "Eden Code", "icon": "$(refresh)" },
+      { "command": "edenCode.setToken", "title": "Set the API token", "category": "Eden Code", "icon": "$(key)" },
+      { "command": "edenCode.openChanges", "title": "Review this file's changes", "category": "Eden Code" },
+      { "command": "edenCode.openDiff", "title": "Open as a diff", "category": "Eden Code", "icon": "$(diff)" },
+      { "command": "edenCode.keep", "title": "Keep this change", "category": "Eden Code" },
+      { "command": "edenCode.unkeep", "title": "Un-keep this change", "category": "Eden Code" },
+      { "command": "edenCode.undo", "title": "Undo this change", "category": "Eden Code" },
+      { "command": "edenCode.showReceipts", "title": "Show receipts", "category": "Eden Code", "icon": "$(checklist)" },
+      { "command": "edenCode.sendMessage", "title": "Send a message", "category": "Eden Code", "icon": "$(comment)" },
+      { "command": "edenCode.stop", "title": "Stop the step under way", "category": "Eden Code", "icon": "$(debug-stop)" },
+      { "command": "edenCode.addComment", "title": "Add comment", "category": "Eden Code" },
+      { "command": "edenCode.sendComments", "title": "Send comments to the session", "category": "Eden Code", "icon": "$(send)" },
+      { "command": "edenCode.clearComments", "title": "Clear comments not sent", "category": "Eden Code" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "edenCode.refresh", "when": "view == edenCode.sessions", "group": "navigation" },
+        { "command": "edenCode.setToken", "when": "view == edenCode.sessions" }
+      ],
+      "view/item/context": [
+        { "command": "edenCode.sendMessage", "when": "view == edenCode.sessions && viewItem == edenSession", "group": "inline" },
+        { "command": "edenCode.showReceipts", "when": "view == edenCode.sessions && viewItem == edenSession", "group": "inline" },
+        { "command": "edenCode.sendComments", "when": "view == edenCode.sessions && viewItem == edenSession" },
+        { "command": "edenCode.stop", "when": "view == edenCode.sessions && viewItem == edenSession" },
+        { "command": "edenCode.openDiff", "when": "view == edenCode.sessions && viewItem == edenFile", "group": "inline" }
+      ],
+      "comments/commentThread/context": [
+        { "command": "edenCode.addComment", "group": "inline", "when": "commentController == edenCode.review" }
+      ],
+      "comments/commentThread/title": [
+        { "command": "edenCode.sendComments", "group": "navigation", "when": "commentController == edenCode.review && commentThread == edenThread" }
+      ],
+      "commandPalette": [
+        { "command": "edenCode.openChanges", "when": "false" },
+        { "command": "edenCode.keep", "when": "false" },
+        { "command": "edenCode.unkeep", "when": "false" },
+        { "command": "edenCode.undo", "when": "false" },
+        { "command": "edenCode.addComment", "when": "false" },
+        { "command": "edenCode.openDiff", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "Eden Code",
+      "properties": {
+        "edenCode.url": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where Eden Code's local API is, e.g. `http://127.0.0.1:8767`. Empty: the address Eden Code wrote (its `code_api.json`), else port 8767. Only this Mac's own address is used."
+        },
+        "edenCode.view": {
+          "type": "string",
+          "enum": ["session", "turn", "branch"],
+          "enumDescriptions": ["Everything the session changed", "Its latest turn only", "Everything on the branch that isn't on the one it goes into"],
+          "default": "session",
+          "description": "Which changes to review, as the Changes pane's views."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test ../../tests/web/vscode-extension.test.mjs"
+  }
+}
