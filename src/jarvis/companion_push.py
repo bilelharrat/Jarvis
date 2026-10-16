@@ -211,6 +211,9 @@ class Notifier:
 
     def task_event(self, kind: str, data: dict[str, Any]) -> None:
         if kind == "task_finished":
+            held = getattr(self.hub, "code_delegate", None)  # (a meeting or Focus: the digest says it)
+            if held is not None and held.holds_push(data):
+                return
             note = self.code_note(data)
             if note is not None:
                 self._spawn(self.deliver(note))
