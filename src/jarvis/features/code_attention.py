@@ -26,7 +26,10 @@ feature has let go of:
 - conflict: a pairing folder with files both sides changed (features/code_pairing.py);
 - assumption: a high-risk guess a session made instead of asking (Eden's auto-answer or the
   session's own note), waiting to be kept or undone (features/code_assumptions.py; with
-  code_assume_high "block" it's an approval card instead).
+  code_assume_high "block" it's an approval card instead);
+- rollout: a merged pull request that looks like it broke something in the watch after its
+  merge, until the owner opens a fix session, prepares a revert or puts it away
+  (features/code_rollouts.py).
 
 Each item says what it is, what it's about, and how to get to it (the session, and the pane
 that has its buttons). The count is on the sidebar's inbox button and in the Dock's badge
@@ -63,7 +66,7 @@ TEXT_MAX = 200
 SEEN_KEPT = 500  # sessions remembered as unseen, at most
 
 # The order the inbox lists them in: what blocks a session first.
-ORDER = ("approval", "conflict", "assumption", "failed", "exterminator", "run", "queue", "pr", "handoff", "reply")  # fmt: skip
+ORDER = ("approval", "rollout", "conflict", "assumption", "failed", "exterminator", "run", "queue", "pr", "handoff", "reply")  # fmt: skip
 
 # A run without the owner that ended on its own: these ways of ending want a look.
 RUN_TROUBLE = {"spend", "time", "copy", "failed"}
@@ -90,6 +93,7 @@ ZH = {
     "its isolated copy couldn't be made": "没能建立它的独立副本",
     "it failed": "它失败了",
     "the app quit": "应用退出了",
+    "Pull request #{n} may have broken {project}": "拉取请求 #{n} 可能弄坏了 {project}",
 }
 lang.add_texts(ZH)
 
@@ -146,7 +150,8 @@ class Attention:
         that fails is left out (logged), never the whole list."""
         items: list[dict[str, Any]] = []
         for source in (self._approvals, self._sessions, self._bugfix, self._runs, self._queue,
-                       self._prs, self._handoffs, self._pairs, self._assumptions):  # fmt: skip
+                       self._prs, self._handoffs, self._pairs, self._assumptions,
+                       self._rollouts):  # fmt: skip
             try:
                 items.extend(source())
             except Exception:
@@ -359,6 +364,20 @@ class Attention:
             out[-1]["project"] = e["project"]
         return out
 
+    def _rollouts(self) -> list[dict[str, Any]]:
+        watcher = getattr(self.hub, "code_rollouts", None)
+        if watcher is None:
+            return []
+        out = []
+        for w in watcher.waiting():
+            said = self.tr("Pull request #{n} may have broken {project}", n=w["number"],
+                           project=w["project"])  # fmt: skip
+            text = _line(w["reasons"][0]["text"]) if w.get("reasons") else said
+            out.append(self._item(f"rollout:{w['id']}", "rollout", None, _line(w["title"]), text,
+                                  said, pane="rollouts", at=w["merged_at"], rollout=w["id"]))  # fmt: skip
+            out[-1]["project"] = w["project"]
+        return out
+
     # ── said ──
 
     def summary(self, items: list[dict[str, Any]] | None = None) -> str:
@@ -450,6 +469,7 @@ def install(hub: Any) -> None:
     hub.add_task_sink(attention.on_task)
     hub.add_event_sink(
         ("approval", "approval_resolved", "code_bugfix", "code_runs", "todo_state",
-         "code_handoffs", "code_pair", "code_pr", "code_prs", "code_assumptions"),
+         "code_handoffs", "code_pair", "code_pr", "code_prs", "code_assumptions",
+         "code_rollouts"),
         attention.soon,
     )  # fmt: skip

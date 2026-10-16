@@ -40,7 +40,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -342,6 +342,16 @@ class Sentry(_Http):
         found = await self.call("GET", f"/organizations/{org}/issues/{issue_id}/events/latest/")
         return found if isinstance(found, dict) else {}
 
+    async def issues(
+        self, org: str, project: str, query: str, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """A project's issues that match a search (Sentry's own syntax: is:unresolved
+        firstSeen:>2026-10-16T10:00:00), newest first; for the watch after a merge
+        (features/code_rollouts.py)."""
+        params = urlencode({"query": query, "sort": "date", "limit": max(1, min(100, limit))})
+        found = await self.call("GET", f"/projects/{org}/{project}/issues/?{params}")
+        return [i for i in found if isinstance(i, dict)] if isinstance(found, list) else []
+
     async def comment(self, issue_id: str, text: str) -> None:
         """A comment on the issue (its activity), in the integration's name."""
         await self.call("POST", f"/issues/{issue_id}/comments/", {"text": text[:5000]})
@@ -378,6 +388,15 @@ class Datadog(_Http):
         found = await self.call("GET", f"/events/{event_id}")
         event = found.get("event") if isinstance(found, dict) else None
         return event if isinstance(event, dict) else {}
+
+    async def events(self, start: float, end: float, tags: str) -> list[dict[str, Any]]:
+        """The events between two times (epoch seconds) with these tags (service:checkout),
+        newest first; for the watch after a merge (features/code_rollouts.py)."""
+        params = urlencode({"start": int(start), "end": int(end), "tags": tags,
+                            "unaggregated": "true"})  # fmt: skip
+        found = await self.call("GET", f"/events?{params}")
+        rows = found.get("events") if isinstance(found, dict) else None
+        return [e for e in rows if isinstance(e, dict)] if isinstance(rows, list) else []
 
     async def comment(self, event_id: str, aggregation: str, title: str, text: str) -> None:
         """An event under the alert's own (its related_event_id, and its aggregation key, so

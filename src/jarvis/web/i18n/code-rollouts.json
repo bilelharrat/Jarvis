@@ -1,0 +1,79 @@
+{
+ "strings": {
+  "Rollouts": "上线观察",
+  "Watching after a merge": "合并后观察",
+  "Watch after a merge": "合并后观察",
+  "When a pull request Eden opened is merged, Eden watches the deploy, its checks and new errors for a while, and tells you if it looks like it broke something. It never reverts or deploys by itself.": "Eden 开的拉取请求合并后，Eden 会观察一段时间的部署、检查和新错误，看起来弄坏了什么就告诉你。它从不自己撤销或部署。",
+  "Watch window (minutes)": "观察时长（分钟）",
+  "From the merge. New errors come from Production alerts’ Sentry and Datadog links.": "从合并时算起。新错误来自“生产环境警报”里关联的 Sentry 和 Datadog。",
+  "Its own window (minutes)": "它自己的观察时长（分钟）",
+  "Empty: the window above.": "留空：用上面的时长。",
+  "Health checks": "健康检查",
+  "Addresses that answer when it’s up: https, or http on this Mac. Up to 5.": "服务正常时会应答的地址：https，或本机上的 http。最多 5 个。",
+  "Page to load": "要加载的页面",
+  "Loaded in a background tab of the built-in browser before and after the deploy; its new console errors and failed requests count. It clicks and types nothing.": "部署前后各在内置浏览器的后台标签页里加载一次；新出现的控制台错误和失败的请求会算进去。它不点击也不输入任何东西。",
+  "Looked healthy": "看起来正常",
+  "Looks broken": "看起来坏了",
+  "No deployment seen": "没看到部署",
+  "Deployed": "已部署",
+  "The deployment failed": "部署失败",
+  "Deploying": "正在部署",
+  "Waiting to deploy": "等待部署",
+  "Replaced by a later deployment": "已被后来的部署替换",
+  "A fix session is open": "修复会话已打开",
+  "A revert is being prepared": "正在准备撤销",
+  "Put away": "已收起",
+  "Deploy": "部署",
+  "Checks on the merge": "合并后的检查",
+  "Errors": "错误",
+  "None new": "没有新的",
+  "Health check": "健康检查",
+  "No new errors": "没有新错误",
+  "Checked before the deploy": "部署前已检查",
+  "Not loaded yet": "还没加载",
+  "Needs the built-in browser (the Eden Code window)": "需要内置浏览器（Eden Code 窗口）",
+  "(a suspicion)": "（只是怀疑）",
+  "(seen earlier, gone since)": "（之前出现过，现在没了）",
+  "Regressed": "复发",
+  "event": "次事件",
+  "events": "次事件",
+  "Open a fix session": "打开修复会话",
+  "Prepare a revert PR": "准备撤销 PR",
+  "Each opens a session in an isolated copy that you drive. Nothing is pushed, reverted or deployed without you.": "每个都会在独立副本里打开一个由你操作的会话。没有你，什么都不会被推送、撤销或部署。",
+  "Show it": "显示",
+  "Look now": "现在看看",
+  "Merged, not watched": "已合并，未观察",
+  "Watch it": "观察它",
+  "Watching after a merge is off: turn it on in Eden Code settings.": "合并后观察已关闭：在 Eden Code 设置里打开。",
+  "Nothing watched yet: a watch starts when a pull request Eden opened is merged.": "还没有观察：Eden 开的拉取请求合并后就会开始观察。",
+  "After a merge": "合并之后",
+  "Stop watching": "不再关注",
+  "First seen since the merge": "合并后首次出现"
+ },
+ "patterns": [
+  [
+   "^In a changed line:$",
+   "在改动过的行里："
+  ],
+  [
+   "^In a changed function:$",
+   "在改动过的函数里："
+  ],
+  [
+   "^In a changed file:$",
+   "在改动过的文件里："
+  ],
+  [
+   "^(\\d+) min left$",
+   "还剩 $1 分钟"
+  ],
+  [
+   "^Ending now$",
+   "即将结束"
+  ],
+  [
+   "^(\\d+) new errors$",
+   "$1 个新错误"
+  ]
+ ]
+}
