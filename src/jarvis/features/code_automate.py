@@ -81,6 +81,7 @@ VAULT = "code-api"
 FILE = "code_automate.json"
 RUNS_FILE = "code_automate_runs.json"
 POLL = 5.0
+IDLE_POLL = 30.0  # while the watches are off or there are none
 COOLDOWN = 600.0
 WATCH_RUNS_A_DAY = 6
 HOOK_RUNS_A_DAY = 10
@@ -574,7 +575,8 @@ class Automate:
 
     async def watch_loop(self) -> None:
         while True:
-            await asyncio.sleep(POLL)
+            self.load()
+            await asyncio.sleep(POLL if self.on and self.watches else IDLE_POLL)
             self.load()
             if not self.on or self.runs is None:
                 self.snaps.clear()

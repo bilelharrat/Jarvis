@@ -663,4 +663,6 @@ class Sync:
                 # end every wait below at once, and the loop would spin and starve the app.
                 self._poked.clear()
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._poked.wait(), LOOK_SECONDS)
+                await asyncio.wait_for(
+                    self._poked.wait(), LOOK_SECONDS if self.account.linked else 60
+                )  # (not linked: nothing to look at; a link is seen within a minute)
