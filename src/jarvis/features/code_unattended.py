@@ -552,6 +552,14 @@ class Runs:
         ]
         return question, "\n".join(lines)
 
+    @staticmethod
+    def touchid_for(scope: Scope, name: str = "code_run") -> str:
+        """The Touch ID card name for a run's scope: a run that may run commands (tests,
+        builds: the project's own scripts, which the run can edit) runs code on this Mac
+        without anyone there, so only a tap on the Mac says yes to it (never the phone, a
+        chat or a voice "yes"); a run with only the read-only commands needs no proof."""
+        return name if scope.commands else ""
+
     async def ask(
         self, question: str, detail: str, yes: str, speak: bool, *, touchid: str = ""
     ) -> bool:
@@ -604,7 +612,7 @@ class Runs:
         if schedule and schedule.get("kind") not in (None, "", "now"):
             return await self.schedule(scope, name, schedule, speak=speak)
         question, detail = self.card(scope, name)
-        if not await self.ask(question, detail, "Start it", speak):
+        if not await self.ask(question, detail, "Start it", speak, touchid=self.touchid_for(scope)):
             return "Not started."
         run = self.start(scope)
         if isinstance(run, str):
@@ -628,7 +636,9 @@ class Runs:
             return str(exc)
         when = _when(kind, clock, days, date, lang.is_zh(self.hub.language))
         question, detail = self.card(scope, name, when)
-        if not await self.ask(question, detail, "Schedule it", speak):
+        if not await self.ask(
+            question, detail, "Schedule it", speak, touchid=self.touchid_for(scope, "code_run_schedule")
+        ):
             return "Not scheduled."
         title = scope.title or scope.prompt[:60]
         try:

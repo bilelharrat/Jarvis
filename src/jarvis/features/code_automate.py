@@ -424,7 +424,10 @@ class Automate:
         scope, name = found
         when = self.tr("whenever files matching {glob} change", glob=pattern)
         question, detail = self.runs.card(scope, name, when)
-        if not await self.runs.ask(question, detail, "Start watching", False):
+        if not await self.runs.ask(
+            question, detail, "Start watching", False,
+            touchid=self.runs.touchid_for(scope, "code_watch_add"),
+        ):
             return "Not set up.", None
         watch = {
             "id": secrets.token_hex(4), "project": scope.project, "glob": pattern,
@@ -464,7 +467,9 @@ class Automate:
         )
         detail += "\n" + ("Its text is data: the run is locked down, its commands in the sandbox."
                           if sandbox else "Its text is data: the run is locked down.")  # fmt: skip
-        if not await self.runs.ask(question, detail, "Make it", False):
+        if not await self.runs.ask(
+            question, detail, "Make it", False, touchid=self.runs.touchid_for(scope, "code_hook_add")
+        ):
             return "Not set up.", None, ""
         hook = {
             "id": secrets.token_hex(6), "name": name, "project": scope.project,
