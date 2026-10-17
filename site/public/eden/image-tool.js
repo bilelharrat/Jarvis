@@ -92,6 +92,7 @@ export async function makeImage(c, node, t) {
   RUNNING.add(t);
   t.state = 'running';
   delete t.error;
+  delete t.failed;
   delete t.note;
   ui.updateMessage(c, node);
   try {
@@ -111,8 +112,10 @@ export async function makeImage(c, node, t) {
     if (typeof r.costUSD === 'number') t.usd = r.costUSD;
     prune(c); // the picture a "Make another" replaced
   } catch (e) {
-    t.state = 'error';
-    t.error = String((e && e.message) || e).replace(/\s*—\s*is the Eden server running.*$/, '');
+    const why = String((e && e.message) || e).replace(/\s*—\s*is the Eden server running.*$/, '');
+    // a "Make another" that failed keeps the picture it had, with why under it
+    if (t.image && c.images && c.images[t.image]) { t.state = 'done'; t.failed = why; }
+    else { t.state = 'error'; t.error = why; }
     if (e && e.status === 422) t.refused = true; else delete t.refused; // the safety check said no: trying again won't help
   } finally {
     RUNNING.delete(t);
@@ -174,6 +177,7 @@ export function imageCard(c, node, t) {
         el('img', { src: pic.data, alt: prompt, width: pic.w || undefined, height: pic.h || undefined, style: { aspectRatio: ASPECT[size] }, decoding: 'async' })),
       caption);
     if (t.note) root.append(el('div', 'tc-notice', t.note));
+    if (t.failed) root.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', t.failed)));
     btn('Download', '', () => save(pic, prompt), 'down');
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) btn('Copy', '', () => copy(pic), 'copy');
     btn('Make another', '', again, 'retry');
@@ -199,11 +203,12 @@ export function imageCard(c, node, t) {
 
 /* ---------- styles (kept with the cards that use them) ---------- */
 const CSS = `.toolcard.imgcard{max-width:min(460px,100%);margin:10px 0 0}
-.imgcard .imgcard-pic{display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in;border-radius:calc(var(--r-md,12px) - 4px);overflow:hidden}
+.imgcard .imgcard-pic{display:block;width:100%;padding:0;border:0;background:rgba(127,127,127,.12);cursor:zoom-in;border-radius:calc(var(--r-md,12px) - 4px);overflow:hidden}
 .imgcard .imgcard-pic img{display:block;width:100%;height:auto;object-fit:cover}
 .imgcard .imgcard-pic:focus-visible{outline:2px solid var(--accent,#0a84ff);outline-offset:2px}
 .imgcard .imgcard-frame{width:100%;border-radius:calc(var(--r-md,12px) - 4px);display:flex;align-items:center;justify-content:center;background:linear-gradient(100deg,rgba(127,127,127,.10) 30%,rgba(127,127,127,.20) 50%,rgba(127,127,127,.10) 70%);background-size:300% 100%;animation:imgcard-shine 1.6s linear infinite}
 .imgcard .imgcard-busy{display:flex;align-items:center;gap:7px;color:var(--text2,#666);font-size:12.5px}
+.imgcard .errbox{margin:0 0 8px}
 .imgcard .imgcard-cap{margin:8px 0 8px;color:var(--text2,#666);font-size:12.5px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 @keyframes imgcard-shine{from{background-position:100% 0}to{background-position:0 0}}
 @media (prefers-reduced-motion:reduce){.imgcard .imgcard-frame{animation:none}}

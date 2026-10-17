@@ -26,6 +26,7 @@ import { notebookView, clipMenu, syncNotes } from './notebook.js';
 import { maybeTour, startTour } from './edu-tour.js';
 import { openCompanion, closeCompanion, companionOpen, companionCourse, studyIntent, studyFromChat, openSet } from './study.js';
 import { announce } from './edu-a11y.js';
+import { initPageUpdate } from './page-update.js'; // AW3-4: an /edu tab or the EdenEdu app's web view picks up a deploy too
 
 const KEY = 'edu:chats:v1';
 const MAX_CHATS = 200;
@@ -33,7 +34,17 @@ const $ = (id) => document.getElementById(id);
 const view = $('eduView');
 let live = null; // { chat, ctrl } while a reply streams
 let courses = []; // the sidebar's list (GET /api/chat/courses)
+let unreadable = []; // courses the server couldn't read just now (placeholders, unavailable: true): shown, never opened (AW3-6)
 let here = { view: 'home' };
+
+/** For the update check (page-update.js): what a reload now would lose. Exported for the tests. */
+export function eduBusy() {
+  return {
+    streaming: !!live,
+    draft: [...document.querySelectorAll('textarea, [contenteditable="true"]')].some((t) => String(t.value !== undefined ? t.value : t.textContent || '').trim()) || !!document.querySelector('dialog[open]'),
+    talking: !!document.querySelector('.tut') || document.documentElement.classList.contains('talking'),
+  };
+}
 
 /* ---------- appearance: Eden's setting, or this app's own choice ---------- */
 
@@ -149,7 +160,10 @@ const hueOf = (id) => HUES[[...String(id)].reduce((n, ch) => (n * 31 + ch.charCo
 const initials = (name) => { const w = String(name).match(/[\p{L}\p{N}]+/gu) || ['?']; return /^\p{L}{2,4}$/u.test(w[0]) ? w[0].toUpperCase().slice(0, 3) : w.slice(0, 2).map((x) => x[0].toUpperCase()).join(''); };
 
 async function loadCourses() {
-  try { courses = (await getJSON('/api/chat/courses')).courses; } catch { courses = []; }
+  let list = [];
+  try { list = (await getJSON('/api/chat/courses')).courses; } catch { list = []; }
+  courses = list.filter((c) => !c.unavailable); // every picker, sync and look-up uses the real ones only
+  unreadable = list.filter((c) => c.unavailable);
   try { localStorage.setItem('edu:courses', JSON.stringify(courses)); } catch { /* this visit only */ }
   side();
   syncChats();
@@ -268,8 +282,9 @@ function side() {
       nbItem,
       item(here.view === 'create', '#/create', ico('plus'), 'Create a course'),
     ]),
-    sec('My courses', courses.length
-      ? courses.map((c) => item(courseOn(c.id), `#/course/${c.id}`, tile(c), c.name, c.role === 'owner' ? t('You teach this') : c.term || t('Student'), true))
+    sec('My courses', courses.length || unreadable.length
+      ? [...courses.map((c) => item(courseOn(c.id), `#/course/${c.id}`, tile(c), c.name, c.role === 'owner' ? t('You teach this') : c.term || t('Student'), true)),
+        ...unreadable.map(() => el('div', { class: 'sitem unavailable', 'aria-disabled': 'true' }, el('span', { class: 'edu-mini', 'aria-hidden': 'true' }, ico('info', 12)), el('span', 'lbl', 'Couldn’t load this course', el('span', 'sub', 'Try again in a moment'))))]
       : [el('div', 'side-empty', 'Join a class or create a course to see it here.')]),
     sec('Study chats', chats.length
       ? chats.map((c) => item(here.view === 'chat' && here.id === c.id, `#/chat/${c.id}`, ico('chat'), c.title, `${c.course.name} · ${when(c.updated)}`, true))
@@ -558,5 +573,8 @@ async function studySet(chat, text, want, ui) {
 
 route();
 loadCourses().then(() => maybeTour('home'));
+// a deploy since this page loaded: reload by itself when nothing would be lost (no reply streaming, nothing typed in
+// a composer or note, no dialog or tutor open), else offer "Eden was updated · Reload" (AW3-4)
+initPageUpdate({ busy: eduBusy });
 addEventListener('eden:courses-where', (e) => { if (e.detail && e.detail.view === 'course') setTimeout(() => maybeTour('course'), 600); });
 $('eduTour').addEventListener('click', () => { closeSide(); if (here.view !== 'home') location.hash = '#/'; setTimeout(() => startTour('home'), here.view === 'home' ? 0 : 500); }); // the sidebar's "Take the tour"

@@ -22,12 +22,13 @@ import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifac
 import { essayStays, essayFollows, initEssayChat } from './essay-chat.js';
 import { sheetCommands, sheetReturnPending, resumeSheet } from './sheet-entry.js'; // Q15: the spreadsheet canvas, loaded on first use
 import { initPageUpdate } from './page-update.js'; // a page left open picks up a deploy; the app's text follows the system size
+import { initDesk, setLayout, layout } from './desk.js'; // the Desktop layout (Settings › Appearance › Layout)
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify } from './panels.js';
 import { initAccount } from './account-lazy.js'; // account.js loads where there are accounts (askeden.com), after meta
 import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
-import { jarvisPollDelay } from './resilience.js';
+import { jarvisPollDelay, JARVIS_CONNECTED_LOOK_MS, jarvisLookOnFocus } from './resilience.js';
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
 import { initMemory } from './memory.js';
 import { importLabel } from './import-label.js'; // the sidebar's "Imported from …" (the readers load with the Import dialog)
@@ -1039,6 +1040,10 @@ async function drawSettings() {
     body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
       el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
         el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')),
+      el('div', 'set-sec', el('h3', '', 'Layout'),
+        el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'Layout' }, ...[['classic', 'Classic', 'Sidebar and chat'], ['desk', 'Desktop', 'Eden as the whole screen']].map(([v, label, sub]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(layout() === v), class: `theme-tile${layout() === v ? ' on' : ''}`, onclick: () => { setLayout(v); closeSettings(); } },
+          el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub))))),
+        el('p', 'sp-note', 'Desktop shows Eden full screen, with apps, your PC and chats in one sidebar. It needs a window at least 760 px wide.')),
       el('div', 'set-sec', el('h3', '', 'Language'), langSeg,
         el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), voiceSettings());
     setSeg(langSeg, Math.max(0, LANGS.findIndex(([v]) => v === langPref)));
@@ -1450,6 +1455,7 @@ async function init() {
   initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
   initPublish({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });
+  initDesk({ switchTo, newChat, titleOf, openSpace, openBrief, openCalendar, openFiles, openEssayWriter, openTasks, openWorkflows, projectPicker });
   initCalendar({ addContext: (b) => addContext(b), openSettings });
   initMemory({ addContext: (b) => addContext(b) });
   initBrief({ addContext: (b) => addContext(b) });
@@ -1623,19 +1629,22 @@ async function init() {
   // Never two looks at once (checkJarvis shares the one in flight, 8 s at most), and none while the page is hidden (B1, C3).
   // While it doesn't answer, the looks back off (8, 16, 32 s, then every minute: AI7, most phones have no Mac); none while
   // the page is hidden, and from 8 s again on coming back to it.
-  let jarvisMisses = 0, jarvisTimer = null;
+  // AJ3-14: connected, it looks again every 3 minutes and on a focus (at most once a minute), so a Mac
+  // asleep or an Eden app quit shows; Ask Eden for Mac says when it has just linked this Mac.
+  let jarvisMisses = 0, jarvisTimer = null, jarvisLookedAt = 0;
+  const lookJarvis = () => { jarvisLookedAt = Date.now(); return recheckJarvis().catch(() => {}); };
   const pollJarvis = () => {
     clearTimeout(jarvisTimer);
     jarvisTimer = document.hidden ? null : setTimeout(() => {
       jarvisTimer = null;
       if (document.hidden) return;
-      if (state.jarvis.available) { jarvisMisses = 0; pollJarvis(); return; }
-      recheckJarvis().catch(() => {}).finally(() => { jarvisMisses += 1; pollJarvis(); });
-    }, jarvisPollDelay(jarvisMisses));
+      lookJarvis().finally(() => { jarvisMisses = state.jarvis.available ? 0 : jarvisMisses + 1; pollJarvis(); });
+    }, state.jarvis.available ? JARVIS_CONNECTED_LOOK_MS : jarvisPollDelay(jarvisMisses));
   };
-  const lookAgain = () => { jarvisMisses = 0; if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}).finally(pollJarvis); else pollJarvis(); };
+  const lookAgain = () => { jarvisMisses = 0; if (!document.hidden && jarvisLookOnFocus(state.jarvis.available, jarvisLookedAt, Date.now())) lookJarvis().finally(pollJarvis); else pollJarvis(); };
   pollJarvis();
   addEventListener('focus', lookAgain);
+  addEventListener('eden:mac-linked', () => { jarvisLookedAt = 0; lookAgain(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(jarvisTimer); jarvisTimer = null; } else lookAgain(); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {

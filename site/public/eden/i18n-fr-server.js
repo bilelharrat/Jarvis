@@ -429,6 +429,14 @@ const exact = {
   'no query or fragment in a local server address': 'pas de requête ni de fragment dans l’adresse d’un serveur local',
 
   /* --- askeden.com: chat --- */
+  // who paid for a turn (site eden/chat.js PAID_BY, COMPARE_NOTE; AW14, AW3-5)
+  'on askeden.com: your free study allowance': 'sur askeden.com : votre allocation d’étude gratuite',
+  'on askeden.com: your professor’s course budget': 'sur askeden.com : le budget de cours de votre professeur',
+  'on askeden.com: your Eden account’s included AI': 'sur askeden.com : l’IA incluse dans votre compte Eden',
+  'on askeden.com: your own API key (not counted on your included AI)': 'sur askeden.com : votre propre clé API (non décomptée de votre IA incluse)',
+  'on askeden.com: each lane on its provider, counted on your Eden account’s included AI (your own keys aren’t)': 'sur askeden.com : chaque voie chez son fournisseur, décomptée de l’IA incluse dans votre compte Eden (vos propres clés ne le sont pas)',
+  // Edu: the course list when a course couldn't be read (site edu/course.js; AW3-5)
+  'Couldn’t check your courses just now. Try again in a moment.': 'Impossible de vérifier vos cours pour l’instant. Réessayez dans un instant.',
   'This browser is signed out of Eden. Reload the page to sign in.': 'Ce navigateur est déconnecté d’Eden. Rechargez la page pour vous connecter.',
   'This browser is signed out of Eden.': 'Ce navigateur est déconnecté d’Eden.',
   'Eden accounts are not set up here yet.': 'Les comptes Eden ne sont pas encore configurés ici.',
@@ -517,8 +525,12 @@ const exact = {
   'auto top-up is off here': 'la recharge automatique est désactivée ici',
   'no card on file': 'aucune carte enregistrée',
   'Stripe didn’t answer.': 'Stripe n’a pas répondu.',
+  // account deleted, Stripe's cancel pending or refused (site eden/session.js; AW3-5)
+  'Your Eden account is deleted. Stripe didn’t answer when we cancelled your Eden Plus subscription, so Eden will keep trying to cancel it for the next two weeks. If you see another charge, contact Eden support.': 'Votre compte Eden est supprimé. Stripe n’a pas répondu quand nous avons résilié votre abonnement Eden Plus : Eden continuera d’essayer de le résilier pendant les deux prochaines semaines. Si vous voyez un autre prélèvement, contactez l’assistance Eden.',
+  'Your Eden account is deleted, but Stripe wouldn’t let Eden cancel your Eden Plus subscription. Contact Eden support and we’ll cancel it; until then, Stripe may still charge you.': 'Votre compte Eden est supprimé, mais Stripe n’a pas laissé Eden résilier votre abonnement Eden Plus. Contactez l’assistance Eden et nous le résilierons ; d’ici là, Stripe peut encore vous prélever.',
 
   /* --- askeden.com: sign-in, session, passkeys --- */
+  'Passkeys work on askeden.com (without “www”). Open askeden.com and try again.': 'Les clés d’accès fonctionnent sur askeden.com (sans « www »). Ouvrez askeden.com et réessayez.', // AW3-5
   'That sign-in code is gone. Get a new one.': 'Ce code de connexion n’existe plus. Demandez-en un nouveau.',
   'The sign-in came back unreadable. Try again.': 'La connexion est revenue illisible. Réessayez.',
   'Type DELETE to delete your Eden account.': 'Saisissez DELETE pour supprimer votre compte Eden.',
@@ -621,6 +633,7 @@ const exact = {
   'Needs your Mac: this part runs through Eden on your Mac, which askeden.com can’t reach yet.': 'Nécessite votre Mac : cette partie passe par Eden sur votre Mac, que askeden.com ne peut pas encore joindre.',
 
   /* --- askeden.com: API keys --- */
+  'Eden couldn’t read your saved API keys just now, so nothing was sent (it won’t use your included AI instead). Try again in a moment.': 'Eden n’a pas pu lire vos clés API enregistrées pour l’instant : rien n’a été envoyé (il n’utilisera pas votre IA incluse à la place). Réessayez dans un instant.', // AW3-5
   'Key works': 'La clé fonctionne',
   'API keys stay with the account’s owner.': 'Les clés API restent au titulaire du compte.',
   'Too many key changes; wait a while.': 'Trop de changements de clé ; patientez un moment.',
@@ -832,6 +845,8 @@ const pl = (n, one, many) => `${n} ${Number(n) === 1 ? one : many}`;
 const cheaperFr = (s) => String(s).replace(/^([\d.]+)× cheaper$/, (_m, r) => `${num(r)}× moins cher`).replace(/^(\d+)% cheaper$/, `$1${NB}% moins cher`);
 
 const P = [
+  // site accounts/user-keys.js keysUnreadError (AW3-5): the provider names stay as written
+  [/^Eden couldn’t open your saved (.+?) key, so nothing was sent\. Save it again in Settings › API keys \(or remove it to use your included AI\)\.$/, 'Eden n’a pas pu ouvrir votre clé $1 enregistrée : rien n’a été envoyé. Enregistrez-la à nouveau dans Réglages › Clés API (ou supprimez-la pour utiliser votre IA incluse).'],
   /* --- local server --- */
   [/^(.+) must be a Gmail id\.$/, '$1 doit être un identifiant Gmail.'],
   [/^Gmail is rate-limiting Eden; try again in (\d+) s\.$/, 'Gmail limite le débit d’Eden ; réessayez dans $1 s.'],

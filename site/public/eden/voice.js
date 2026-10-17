@@ -514,7 +514,8 @@ function paintTalk() {
   // stopped (failures in a row, AJ2-7): the button listens again; else it sends what was heard
   $('talkSend').textContent = talk.stopped ? 'Listen again' : 'Send now';
   $('talkSend').disabled = talk.stopped ? false : talk.transcribing || !(said || (talk.byRec && talk.spoke));
-  $('talkOrb').setAttribute('aria-label', talk.mini ? `Talk, ${$('talkState').textContent} (tap to open, drag to move)` : s === 'replying' ? 'Interrupt' : 'Level');
+  // AJ3-15: what the orb does, with Talk's state (it was "Level" while listening)
+  $('talkOrb').setAttribute('aria-label', talk.mini ? `Talk, ${$('talkState').textContent} (tap to open, drag to move)` : s === 'replying' ? 'Interrupt' : `Talk, ${$('talkState').textContent} (tap to listen again)`);
 }
 
 async function openTalk() {

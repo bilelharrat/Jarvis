@@ -148,6 +148,15 @@ export function jarvisPollDelay(misses) {
   return n < 3 ? 8000 * 2 ** n : Math.min(300_000, 60_000 * 2 ** (n - 3));
 }
 
+/** Connected, the status is looked at again this often (AJ3-14: it said "connected" after the Mac slept or Eden quit, until a call failed). */
+export const JARVIS_CONNECTED_LOOK_MS = 180_000;
+/** Connected, a focus looks again only when the last look is this old. */
+export const JARVIS_FOCUS_LOOK_MS = 60_000;
+/** Should a focus (or coming back to the page) look at the Mac's status now? Not connected: always. */
+export function jarvisLookOnFocus(available, lastLookAt, now) {
+  return !available || !(now - lastLookAt < JARVIS_FOCUS_LOOK_MS);
+}
+
 /* ---------- the unsent draft, per chat ---------- */
 
 export const DRAFT_KEY = 'eden:drafts';

@@ -58,6 +58,9 @@ export default {
     'Recording… press the mic again when you’re done.': 'Enregistrement… appuyez de nouveau sur le micro quand vous avez fini.',
     'Nothing was heard. Try again a little closer to the microphone.': 'Rien n’a été entendu. Réessayez un peu plus près du micro.',
     'Can’t reach Eden to transcribe that.': 'Impossible de joindre Eden pour transcrire cela.',
+    // src/chat/transcribe.ts (a local server: Eden on this Mac transcribes), AJ3-15
+    'Dictation in this browser needs the Eden app running on this Mac (its speech-to-text hears the recording here). Open the Eden app and try again, or dictate in Chrome, Edge or Safari, which hear it themselves.': `La dictée dans ce navigateur a besoin de l’app Eden ouverte sur ce Mac (sa reconnaissance vocale transcrit l’enregistrement ici). Ouvrez l’app Eden et réessayez, ou dictez dans Chrome, Edge ou Safari, qui transcrivent eux-mêmes.`,
+    'This version of the Eden app can’t transcribe for Eden yet: restart it on this Mac to get its speech-to-text, or dictate in Chrome, Edge or Safari.': `Cette version de l’app Eden ne peut pas encore transcrire pour Eden${NB}: redémarrez-la sur ce Mac pour obtenir sa reconnaissance vocale, ou dictez dans Chrome, Edge ou Safari.`,
     'Talk with Eden': 'Parler avec Eden',
     'Talk': 'Parler',
     'Eden voice · your account’s daily allowance': 'Voix d’Eden · quota quotidien de votre compte',
@@ -415,6 +418,7 @@ export default {
     [/^The voice said (\d+)\.$/, 'La voix a répondu $1.'],
     [/^Dictation said (\d+)\.$/, 'La dictée a répondu $1.'],
     [/^Talk, (.+) \(tap to open, drag to move\)$/, (_, s) => `Parler, ${TALK_STATES[s] || s} (touchez pour ouvrir, faites glisser pour déplacer)`],
+    [/^Talk, (.+) \(tap to listen again\)$/, (_, s) => `Parler, ${TALK_STATES[s] || s} (touchez pour écouter à nouveau)`],
     [/^I heard “(.+)”\. Say a letter, true or false, or the answer’s words\.$/, `J’ai entendu «${NB}$1${NB}». Dites une lettre, vrai ou faux, ou les mots de la réponse.`],
     [/^I heard “(.+)”\. Say a letter, A to ([A-F]), or the answer’s words\.$/, `J’ai entendu «${NB}$1${NB}». Dites une lettre, de A à $2, ou les mots de la réponse.`],
 

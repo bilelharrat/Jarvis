@@ -265,6 +265,9 @@ const exact = {
   'Type DELETE to confirm': 'Tapez DELETE pour confirmer',
   'Delete my account': 'Supprimer mon compte',
   'Deleting…': 'Suppression…',
+  // after the delete, when Stripe didn't confirm the cancel (the notice itself: i18n-fr-server.js; AW3-5)
+  'Account deleted': 'Compte supprimé',
+  'Your account is deleted': 'Votre compte est supprimé',
   'Delete account': 'Supprimer le compte',
   'Deletes your Eden account for good (you’ll be asked to sign in again if you signed in more than 10 minutes ago): every device and browser is signed out, and your account’s data, ways to sign in, passkeys and published pages are deleted. Plus bought on askeden.com is cancelled; Plus from the App Store is cancelled in your iPhone’s Settings. This can’t be undone.': 'Supprime définitivement votre compte Eden (il vous sera demandé de vous reconnecter si votre connexion date de plus de 10 minutes) : tous les appareils et navigateurs sont déconnectés, et les données de votre compte, vos moyens de connexion, vos clés d’accès et vos pages publiées sont supprimés. Plus acheté sur askeden.com est résilié ; Plus acheté sur l’App Store se résilie dans les Réglages de votre iPhone. Cette action est irréversible.',
 

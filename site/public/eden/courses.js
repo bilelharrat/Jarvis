@@ -128,6 +128,16 @@ async function home(root) {
 }
 
 function courseCard(root, c) {
+  // a course the server couldn't read just now (its list sends a placeholder, unavailable: true): not a course to open (AW3-6)
+  if (c.unavailable) {
+    return el('div', { class: 'crs-card unavailable', role: 'group', 'aria-label': 'A course that couldn’t load' },
+      el('span', 'crs-card-band'),
+      el('span', 'crs-card-body',
+        el('span', 'crs-card-top', el('span', { class: 'crs-tile', 'aria-hidden': 'true' }, ico('info', 14))),
+        el('b', 'crs-card-name', 'Couldn’t load this course'),
+        el('span', 'muted', 'Eden couldn’t read it just now. Your files and chats are safe.'),
+        el('button', { type: 'button', class: 'btn crs-retry', onclick: () => home(root) }, 'Try again')));
+  }
   const owner = c.role === 'owner';
   return el('button', { type: 'button', class: 'crs-card', style: { '--h': hueOf(c.id) }, onclick: () => go(root, { view: 'course', id: c.id, tab: owner ? 'materials' : 'study' }) },
     el('span', 'crs-card-band'),
@@ -189,6 +199,19 @@ function createView(root) {
 
 /* ---------- a course ---------- */
 
+let refocusTab = false; // a tab was opened from the tab strip: focus the new open tab once the view is redrawn
+/** ←/→/Home/End in a tab strip (AW3-10): focus moves (roving tabindex); Enter or Space opens the focused tab. */
+export function tabKeys(e, bar) {
+  const all = [...bar.querySelectorAll('[role="tab"]')];
+  const at = all.indexOf(document.activeElement);
+  if (at < 0) return;
+  const to = e.key === 'ArrowRight' ? (at + 1) % all.length : e.key === 'ArrowLeft' ? (at - 1 + all.length) % all.length : e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : -1;
+  if (to < 0) return;
+  e.preventDefault();
+  all.forEach((b, i) => b.setAttribute('tabindex', i === to ? '0' : '-1'));
+  all[to].focus();
+}
+
 async function courseView(root, id, tab) {
   root.replaceChildren(loading());
   let c;
@@ -211,14 +234,21 @@ async function courseView(root, id, tab) {
       el('b', { 'data-no-i18n': '' }, c.code),
       el('button', { type: 'button', class: 'btn', onclick: () => navigator.clipboard.writeText(c.code).then(() => toast('Code copied. Share it with your class.')) }, ico('copy', 12), 'Copy')) : null);
 
-  const bar = el('div', { class: 'crs-tabs', role: 'tablist', 'aria-label': c.name },
-    ...tabs.map(([k, t]) => el('button', { type: 'button', role: 'tab', class: `crs-tab${k === tab ? ' on' : ''}`, 'aria-selected': String(k === tab), onclick: () => go(root, { view: 'course', id, tab: k }) }, t)));
-  const pane = el('div', { class: 'crs-pane', role: 'tabpanel' });
+  // the tabs pattern (AW3-10): one tab in the Tab order (the open one), ←/→/Home/End move between them, Enter or Space
+  // opens one (the pane loads, so not on every arrow), and the panel is named by its tab
+  const tabId = (k) => `crs-tab-${id}-${k}`, paneId = `crs-pane-${id}`;
+  const bar = el('div', { class: 'crs-tabs', role: 'tablist', 'aria-label': c.name, onkeydown: (e) => tabKeys(e, bar) },
+    ...tabs.map(([k, t]) => el('button', {
+      type: 'button', role: 'tab', id: tabId(k), class: `crs-tab${k === tab ? ' on' : ''}`, 'aria-selected': String(k === tab), 'aria-controls': paneId, tabindex: k === tab ? '0' : '-1',
+      onclick: () => { refocusTab = bar.contains(document.activeElement); go(root, { view: 'course', id, tab: k }); },
+    }, t)));
+  const pane = el('div', { class: 'crs-pane', role: 'tabpanel', id: paneId, 'aria-labelledby': tabId(tab), tabindex: '0' });
   const paused = c.paused ? el('div', 'crs-paused', ico('lock', 13), `Eden is paused for ${c.paused.label} until ${new Date(c.paused.until).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`) : '';
   root.replaceChildren(back(root, { view: 'home' }, 'All courses'), head, paused, bar, pane);
   // on a phone the strip scrolls sideways and is redrawn on every tab change: keep the open tab in view
   requestAnimationFrame(() => { const on = bar.querySelector('.crs-tab.on'); if (on && bar.isConnected && bar.scrollWidth > bar.clientWidth) on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
 
+  if (refocusTab) { refocusTab = false; const on = bar.querySelector('.crs-tab.on'); if (on) on.focus({ preventScroll: true }); } // opened from the keyboard: stay on the tab
   if (tab === 'study') studyTab(root, pane, c);
   else if (tab === 'materials') materialsTab(root, pane, c);
   else if (tab === 'rules') rulesTab(pane, c);

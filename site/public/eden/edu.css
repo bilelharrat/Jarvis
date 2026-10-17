@@ -116,3 +116,5 @@ button.sitem{width:100%;text-align:left}
 /* a skip link for keyboard and screen-reader users (Q9): hidden until focused */
 .edu-skip{position:fixed;z-index:200;left:12px;top:-60px;padding:8px 14px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;text-decoration:none;transition:top .15s}
 .edu-skip:focus{top:max(10px,env(safe-area-inset-top))}
+/* a course the server couldn't read just now (AW3-6): not a link */
+.sitem.unavailable{cursor:default;opacity:.7;font-style:italic}

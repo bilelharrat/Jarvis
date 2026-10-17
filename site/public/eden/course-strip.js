@@ -10,13 +10,17 @@ import { hintNote } from './assignments.js'; // Q10: "Hint mode: graded assignme
 export const SHIELD = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>';
 const svg = (html, cls = '') => { const s = el('span', cls); s.innerHTML = html; return s; }; // constant markup only
 
-/** Under a reply in a course chat: Verified / Partly verified / General, and the checked quotes. */
+/** Under a reply in a course chat: Verified / Partly verified / Not verified / General, and the checked quotes. */
 export function groundingStrip(g, courseId = null) {
   if (!g) return null;
   const where = g.scope === 'files' ? 'your files' : 'your course';
   const label = g.scope === 'web'
     ? (g.status === 'web' ? 'High-stakes question: checked against the web sources above' : 'High-stakes question: not checked against sources. Confirm with a professional.')
-    : { verified: `Verified from ${where}`, partial: 'Partly verified', general: `Not from ${where === 'your files' ? 'your files' : 'your course materials'}` }[g.status] || '';
+    : {
+      verified: `Verified from ${where}`, partial: 'Partly verified',
+      unverified: where === 'your files' ? 'Not verified: no quote was found in your files' : 'Not verified: no quote was found in your course materials', // AW3-1: cited, nothing checked out
+      general: `Not from ${where === 'your files' ? 'your files' : 'your course materials'}`,
+    }[g.status] || '';
   if (g.scope === 'web') return el('div', { class: `crs-ground ${g.status === 'web' ? 'partial' : 'general'}` }, el('div', 'crs-ground-h', ico('info', 12), label));
   const box = el('div', { class: `crs-ground ${g.status}` }, el('div', 'crs-ground-h', g.status === 'verified' ? svg(SHIELD) : ico('info', 12), label));
   if (g.hint) box.append(hintNote(g.hint)); // Q10: "Hint mode: graded assignment"

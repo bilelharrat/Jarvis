@@ -100,7 +100,10 @@ export function reloadPage() {
   else location.replace(location.href.split('#')[0]);
 }
 
+// What counts as "something would be lost": the chat page's own look below, or the page's (initPageUpdate({ busy }): Edu, AW3-4).
+let busyOf = null;
 function busy() {
+  if (busyOf) return busyOf();
   const inp = document.getElementById('deck-input');
   const chips = document.getElementById('jc-attach');
   return {
@@ -172,7 +175,12 @@ function followTextSize() {
   root.classList.toggle('eden-big-text', scale > 1.15);
 }
 
-export function initPageUpdate() {
+/**
+ * Starts the look (app.js; edu-app.js, AW3-4). `busy`, for a page that isn't the chat page: () => ({ streaming, draft,
+ * talking }), when true the page offers the reload instead of reloading by itself.
+ */
+export function initPageUpdate({ busy: pageBusy = null } = {}) {
+  if (typeof pageBusy === 'function') busyOf = pageBusy;
   // the app adds .eden-app after the first scripts run (app.js lockZoom): look once it's there too
   followTextSize();
   if (!document.documentElement.classList.contains('eden-app')) {
