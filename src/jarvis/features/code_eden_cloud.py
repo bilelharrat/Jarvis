@@ -246,6 +246,52 @@ def _run_from(raw: Any) -> CloudRun | None:
     return run
 
 
+# Folders an editor runs code from when the project is opened (VS Code's tasks with "runOn":
+# "folderOpen", a dev container's postCreateCommand, JetBrains' run configurations): checked
+# here on top of code_handoff's list, as Eden Cloud's machine is never watched.
+EDITOR_DIRS = {".vscode", ".devcontainer", ".idea"}
+
+
+def _landing_risks(checkout: Path, base: str, ref: str) -> list[str]:
+    """What came back that code_handoff's risky_paths (an exact, case-sensitive match) would
+    let through, though it can make code run on this Mac:
+    - a risky name in other letters (.Claude/settings.json, claude.md, .MCP.json): a Mac's
+      disk ignores case, so Claude Code opening .claude/settings.json reads the file that came
+      back as .Claude/settings.json;
+    - a symbolic link (mode 120000): it can point anywhere on this Mac (~/.ssh, ~/.aws), and
+      whatever reads the copy next (Claude Code, a test, a tool) reads that instead;
+    - a submodule (mode 160000): what it fetches is the other machine's choice;
+    - an editor's own folder (EDITOR_DIRS).
+    Every path when the list can't be read (it parks rather than guessing)."""
+    from .code_handoff import RISKY_DIRS, RISKY_NAMES, RISKY_PREFIXES
+
+    listed = git(checkout, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", f"{base}..{ref}")
+    if not listed.ok:
+        return ["(couldn't list what it changed)"]
+    dirs = {d.casefold() for d in RISKY_DIRS | EDITOR_DIRS}
+    names = {n.casefold() for n in RISKY_NAMES}
+    prefixes = tuple(p.casefold() for p in RISKY_PREFIXES)
+    risky: list[str] = []
+    fields = listed.out.split("\0")
+    # -z --raw: ":<old mode> <new mode> <old sha> <new sha> <status>" then the path, each
+    # ended by a NUL.
+    for meta, path in zip(fields[0::2], fields[1::2], strict=False):
+        if not meta.startswith(":") or not path:
+            continue
+        modes = meta[1:].split()
+        new_mode = modes[1] if len(modes) > 1 else ""
+        parts = [p.casefold() for p in Path(path).parts]
+        name = parts[-1] if parts else ""
+        if (
+            new_mode in ("120000", "160000")
+            or any(part in dirs for part in parts[:-1])
+            or name in names
+            or name.startswith(prefixes)
+        ):
+            risky.append(path)
+    return risky
+
+
 class EdenCloud:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
@@ -997,6 +1043,7 @@ class EdenCloud:
         listed = git(checkout, "log", "--format=%h %s", "--max-count=50", f"{run.base}..{ref}")
         commits = [line[:120] for line in listed.out.splitlines() if line.strip()]
         risky = Desk._risky_changes(checkout, run.base, ref)
+        risky += [p for p in _landing_risks(checkout, run.base, ref) if p not in risky]
         if risky:
             shown = ", ".join(risky[:8]) + (f" and {len(risky) - 8} more" if len(risky) > 8 else "")
             return lang.tr(
