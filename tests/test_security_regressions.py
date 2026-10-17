@@ -97,6 +97,7 @@ async def test_every_browser_tool_but_the_looking_ones_is_gated_new_ones_include
         "browser_read",
         "browser_screenshot",
         "browser_snapshot",
+        "browser_find",
         "browser_wait",
         "browser_console",
         "browser_network",
