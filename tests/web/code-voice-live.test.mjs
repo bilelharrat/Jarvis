@@ -116,3 +116,27 @@ test('Eden Code’s app asks for the microphone on demand and declares why', () 
   assert.match(plist, /NSMicrophoneUsageDescription/);
   assert.match(ents, /com\.apple\.security\.device\.audio-input/);
 });
+
+test('a hello the window already had (replayed as the file loads) draws without an error', async () => {
+  // (The replayed hello reached drawSettings before Settings › Voice's rows existed: a
+  // ReferenceError in the console on every start.)
+  const { elFor, load, makeDocument } = await import('./fixtures/stand-dom.mjs');
+  const document = makeDocument();
+  const pill = document.createElement('button');
+  pill.id = 'cc-voice-head';
+  const group = document.createElement('div');
+  group.id = 'ecs-voice';
+  document.body.append(pill, group);
+  const errors = [];
+  const last = { hello: { type: 'hello', state: 'idle', prefs: { features: { code_voice_wake: true } } } };
+  const F = {
+    el: elFor(document), t: (x) => x, $: (id) => document.getElementById(id), send: () => true,
+    on(type, fn, { replay = false } = {}) {
+      if (replay && last[type]) { try { fn(last[type]); } catch (err) { errors.push(err); } }
+    },
+  };
+  load(readFileSync(new URL('../../src/jarvis/web/features/code-voice-live.js', import.meta.url), 'utf8'),
+    { window: { jarvisFeatures: F, document, addEventListener() {} }, document, inEdenCode: true, navigator: {} });
+  assert.deepEqual(errors.map(String), []);
+  assert.equal(document.getElementById('ecv-wake').getAttribute('aria-checked'), 'true');
+});

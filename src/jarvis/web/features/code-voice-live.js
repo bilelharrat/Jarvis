@@ -112,6 +112,9 @@
   let hubState = 'idle';
   let focus = null; // voicecode focus
   let micAsked = false;
+  // Settings › Voice is built further down; the replayed hello/prefs above it arrive while this
+  // file is still running, before its rows exist (a ReferenceError on every start, once).
+  let settingsReady = false;
 
   async function microphone() {
     const app = root.jarvisApp;
@@ -255,7 +258,7 @@
   }
 
   function drawSettings() {
-    if (!place()) return;
+    if (!settingsReady || !place()) return;
     const set = (id, on) => { const n = doc.getElementById(id); if (n) n.setAttribute('aria-checked', String(Boolean(on))); };
     set('ecv-on', live && live.active);
     set('ecv-hands-free', features.code_voice_hands_free !== false);
@@ -279,6 +282,7 @@
     new MutationObserver(() => { if (!sheet.hidden) { place(); F.send({ type: 'voice_status' }); drawSettings(); } })
       .observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
   }
+  settingsReady = true;
   place();
   render();
 })(typeof window === 'object' ? window : globalThis);
