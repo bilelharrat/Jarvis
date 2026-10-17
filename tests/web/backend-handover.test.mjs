@@ -301,3 +301,25 @@ test('main.js opens on the owner, asks on another version, offers the fix on 75,
   assert.match(eden, /share\.release\(port, token, 'ask-eden'\)/);
   assert.match(eden, /ws\?token=\$\{token\}&app=ask-eden/);
 });
+
+test('healthy means an Eden backend answered, not just any server with a 200 (a reused pid and port)', async () => {
+  const serve = (status, body) => new Promise((resolve) => {
+    const server = http.createServer((_req, res) => { res.statusCode = status; res.end(body); });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const cases = [
+    [200, '{"ok": true, "busy": false, "protocol": 1}', true],
+    [200, '<html>a dev server\'s page</html>', false],
+    [200, '{"ok": false}', false],
+    [200, 'ok', false],
+    [503, '{"ok": true}', false],
+  ];
+  for (const [status, body, want] of cases) {
+    const server = await serve(status, body);
+    try {
+      assert.equal(await share.healthy(server.address().port, 1500), want, `${status} ${body}`);
+    } finally {
+      server.close();
+    }
+  }
+});

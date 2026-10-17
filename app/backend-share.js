@@ -42,11 +42,21 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
 }
 
+// Whether an Eden backend answers there: a 200 with {"ok": true} (server.health). A bare 200 is
+// not enough: a record outliving a crashed backend (its pid reused) names a port another local
+// server may hold now, and any dev server answers 200 to /health; the app would then open its
+// window, with its bridge, on that server's page.
 function healthy(port, timeoutMs = 1500, get = http.get) {
   return new Promise((resolve) => {
     const req = get({ host: '127.0.0.1', port, path: '/health', timeout: timeoutMs }, (res) => {
-      res.resume();
-      resolve(res.statusCode === 200);
+      if (res.statusCode !== 200) { res.resume(); resolve(false); return; }
+      let text = '';
+      if (res.setEncoding) res.setEncoding('utf8');
+      res.on('data', (chunk) => { text += chunk; if (text.length > 4096) { resolve(false); req.destroy(); } });
+      res.on('end', () => {
+        try { resolve(JSON.parse(text).ok === true); } catch { resolve(false); }
+      });
+      res.on('error', () => resolve(false));
     });
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
