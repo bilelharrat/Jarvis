@@ -2071,3 +2071,17 @@ def test_on_a_pc_the_key_helper_is_a_script_file_that_prints_the_pass(tmp_path, 
     monkeypatch.setattr(sys, "argv", ["helper", "eden-run-abc"])
     exec(compile(code, "<apiKeyHelper>", "exec"), {})
     assert capsys.readouterr().out == "eden-run-abc"
+
+
+def test_moonshot_reaches_its_anthropic_api_and_lists_models_at_its_bare_address():
+    """Kimi in Eden Code: Moonshot answers /v1/messages only under /anthropic (its bare
+    address 404'd every request), and lists its models only at the bare address. A provider
+    saved with the bare address keeps it (its key is sealed with it): the session's address
+    gets the path instead."""
+    assert providers.anthropic_endpoint("https://api.moonshot.ai") == "https://api.moonshot.ai/anthropic"
+    assert providers.anthropic_endpoint("https://api.moonshot.cn") == "https://api.moonshot.cn/anthropic"
+    assert providers.anthropic_endpoint("https://api.moonshot.ai/anthropic") == "https://api.moonshot.ai/anthropic"
+    assert providers.anthropic_endpoint("https://llm.example.com") == "https://llm.example.com"
+    assert providers.models_endpoint("https://api.moonshot.ai/anthropic") == "https://api.moonshot.ai"
+    assert providers.models_endpoint("https://llm.example.com/v2") == "https://llm.example.com/v2"
+    assert providers.base_url_for("custom", "https://api.moonshot.ai/") == "https://api.moonshot.ai"  # (loading)

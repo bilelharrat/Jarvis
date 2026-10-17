@@ -356,7 +356,10 @@ def build_app(grants: Grants, client_factory: Callable[[], Any] | None = None):
             headers["x-api-key"] = key
         if (request.headers.get("authorization") or "").lower().startswith("bearer "):
             headers["authorization"] = f"Bearer {key}"
-        url = base.rstrip("/") + "/" + path
+        # (a Moonshot address sealed bare goes on to its /anthropic: same host, the API's path)
+        from .providers import anthropic_endpoint
+
+        url = anthropic_endpoint(base).rstrip("/") + "/" + path
         if request.url.query:
             url += "?" + request.url.query
         http = client()

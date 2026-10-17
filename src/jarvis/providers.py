@@ -709,6 +709,32 @@ def base_url_for(kind: str, value: Any) -> str:
     return KINDS[kind].base_url
 
 
+# Servers whose Anthropic-compatible API sits under a path of their own: given their bare
+# address (as people paste it), Claude Code's requests go there (key_proxy). Moonshot (Kimi)
+# answers /v1/messages only under /anthropic; at its bare address every request was a 404.
+ANTHROPIC_PATHS = {"api.moonshot.ai": "/anthropic", "api.moonshot.cn": "/anthropic"}
+
+
+def anthropic_endpoint(base_url: str) -> str:
+    """A custom endpoint's address with its Anthropic API path, when it's a server known to
+    keep it under one and the address has no path of its own. The host never changes."""
+    parts = urlsplit(base_url)
+    extra = ANTHROPIC_PATHS.get((parts.hostname or "").lower())
+    if extra and parts.path in ("", "/"):
+        return f"{parts.scheme}://{parts.netloc}{extra}"
+    return base_url
+
+
+def models_endpoint(base_url: str) -> str:
+    """Where a custom endpoint lists its models: Moonshot lists them at its bare address
+    (/v1/models), not under /anthropic, so that path comes off for it."""
+    parts = urlsplit(base_url)
+    extra = ANTHROPIC_PATHS.get((parts.hostname or "").lower())
+    if extra and parts.path.rstrip("/") == extra:
+        return f"{parts.scheme}://{parts.netloc}"
+    return base_url
+
+
 def _ipv6(host: str) -> None:
     try:
         ipaddress.IPv6Address(host)
@@ -1174,6 +1200,10 @@ class ProviderStore:
         key = clean_key(api_key)
         _check_key_kind(spec, key)
         url = base_url_for(spec.id, base_url)
+        if spec.id == "custom":
+            # A new one saved at its Anthropic API's own path (Moonshot's /anthropic). Never
+            # on loading: a saved address is sealed with its key and must stay as it was.
+            url = anthropic_endpoint(url)
         name = self._new_name(spec, name, url)
         way = _clean_auth(spec, auth)
         if len(self.providers) >= MAX_PROVIDERS:
@@ -2021,7 +2051,7 @@ async def _ask(provider: Provider, key: str, client: httpx.AsyncClient) -> dict[
     try:
         if provider.kind == "openrouter":
             note = _credit(await _get_json(client, OPENROUTER_KEY_URL, headers, provider, key))
-        url = f"{provider.base_url}/v1/models?limit=1000"
+        url = f"{models_endpoint(provider.base_url)}/v1/models?limit=1000"
         payload = await _get_json(client, url, headers, provider, key)
     except _Failed as exc:
         return _checked(False, error=str(exc))

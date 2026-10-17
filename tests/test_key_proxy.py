@@ -251,3 +251,21 @@ def test_a_live_runs_pass_is_the_last_to_go_past_the_most_kept(monkeypatch):
         grants.hold(t)
     grants.mint(DIRECT, lambda: target)
     assert len(grants._grants) == 3
+
+
+def test_kimi_on_moonshot_goes_to_its_anthropic_api(tmp_path):
+    """Moonshot (Kimi) answers the Messages API only under /anthropic. A provider added with
+    its bare address is saved with the path; one saved bare before that still reaches it,
+    on the same host, with its own key."""
+    kimi_key = "sk-" + "kimiKey0123456789" * 3
+    store, pid = store_with(tmp_path, "custom", kimi_key, "https://api.moonshot.ai")
+    assert store.providers[pid].base_url == "https://api.moonshot.ai/anthropic"
+    grants = Grants()
+    seen, factory = upstream_seen()
+    client = TestClient(build_app(grants, factory), client=("127.0.0.1", 5000))
+    for target in (lambda: store.grant_target(pid), lambda: ("https://api.moonshot.ai", kimi_key)):
+        token = grants.mint(DIRECT, target)
+        done = client.post("/v1/messages", content=b'{"model":"kimi-k3"}', headers={"authorization": f"Bearer {token}"})
+        assert done.status_code == 200
+        assert str(seen[-1].url) == "https://api.moonshot.ai/anthropic/v1/messages"
+        assert seen[-1].headers["authorization"] == f"Bearer {kimi_key}"
