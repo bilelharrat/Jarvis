@@ -2118,3 +2118,22 @@ def test_the_windows_helper_reads_the_saved_key_like_the_macs(monkeypatch, capsy
     monkeypatch.setattr(sys, "argv", ["helper", "svc", "acct"])
     exec(compile(HELPER_CODE_WINDOWS, "<apiKeyHelper>", "exec"), {})
     assert capsys.readouterr().out == "sk-ant-test-123"
+
+
+def test_moonshot_reaches_its_anthropic_api_and_lists_models_at_its_bare_address():
+    """Kimi in Eden Code: Moonshot answers /v1/messages only under /anthropic (its bare
+    address 404'd every request), and lists its models only at the bare address. A provider
+    saved with the bare address keeps it (its key is sealed with it): the session's address
+    gets the path instead."""
+    assert providers.anthropic_endpoint("https://api.moonshot.ai") == "https://api.moonshot.ai/anthropic"
+    assert providers.anthropic_endpoint("https://api.moonshot.cn") == "https://api.moonshot.cn/anthropic"
+    assert providers.anthropic_endpoint("https://api.moonshot.ai/anthropic") == "https://api.moonshot.ai/anthropic"
+    assert providers.anthropic_endpoint("https://llm.example.com") == "https://llm.example.com"
+    assert providers.models_endpoint("https://api.moonshot.ai/anthropic") == "https://api.moonshot.ai"
+    assert providers.models_endpoint("https://llm.example.com/v2") == "https://llm.example.com/v2"
+    kimi = providers.Provider("k1", "custom", "Kimi", "https://api.moonshot.ai", "bearer")
+    pins = providers.session_pins(kimi, "kimi-k3", {})
+    assert pins["ANTHROPIC_BASE_URL"] == "https://api.moonshot.ai/anthropic"
+    assert pins["ANTHROPIC_MODEL"] == "kimi-k3"
+    assert kimi.base_url == "https://api.moonshot.ai"  # the saved address, untouched
+    assert providers.base_url_for("custom", "https://api.moonshot.ai/") == "https://api.moonshot.ai"  # (loading)
