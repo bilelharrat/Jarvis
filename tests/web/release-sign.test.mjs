@@ -150,8 +150,14 @@ test('the Developer ID build names what it needs before doing anything; --adhoc 
   assert.throws(() => dist.credentials({ JARVIS_SIGN_IDENTITY: 'Developer ID Application: X (8CV4X23Y2T)' }, { adhoc: false }), (err) => /JARVIS_NOTARY_PROFILE/.test(err.message) && !/JARVIS_SIGN_IDENTITY:/.test(err.message));
   assert.deepEqual(dist.credentials({ JARVIS_SIGN_IDENTITY: ' ABC ', JARVIS_NOTARY_PROFILE: 'jarvis' }, { adhoc: false }), { identity: 'ABC', profile: 'jarvis' });
   assert.deepEqual(dist.credentials({}, { adhoc: true }), { identity: '-', profile: '' });
-  assert.deepEqual(dist.parseArgs(['--adhoc']), { adhoc: true, edenCode: false, withEdenCode: true });
-  assert.deepEqual(dist.parseArgs(['--eden-code']), { adhoc: false, edenCode: true, withEdenCode: true });
-  assert.deepEqual(dist.parseArgs(['--no-eden-code']), { adhoc: false, edenCode: false, withEdenCode: false });
+  assert.deepEqual(dist.parseArgs(['--adhoc']), { adhoc: true, signOnly: false, edenCode: false, withEdenCode: true });
+  assert.deepEqual(dist.parseArgs(['--eden-code']), { adhoc: false, signOnly: false, edenCode: true, withEdenCode: true });
+  assert.deepEqual(dist.parseArgs(['--no-eden-code']), { adhoc: false, signOnly: false, edenCode: false, withEdenCode: false });
+  // --sign-only: Developer ID signature, nothing sent to Apple, so no notary profile is needed
+  assert.deepEqual(dist.parseArgs(['--sign-only', '--eden-code']), { adhoc: false, signOnly: true, edenCode: true, withEdenCode: true });
+  assert.deepEqual(dist.credentials({ JARVIS_SIGN_IDENTITY: 'ABC' }, { adhoc: false, signOnly: true }), { identity: 'ABC', profile: '' });
+  assert.throws(() => dist.credentials({}, { adhoc: false, signOnly: true }), /JARVIS_SIGN_IDENTITY/);
+  assert.throws(() => dist.credentials({ JARVIS_SIGN_IDENTITY: 'ABC' }, { adhoc: true, signOnly: true }), /pick one/);
+  assert.equal(dist.dmgName('1.0.0', false, 'Eden Code', true), 'Eden Code-1.0.0-unnotarized.dmg');
   assert.throws(() => dist.parseArgs(['--deep']), /unknown option --deep/);
 });

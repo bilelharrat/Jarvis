@@ -83,7 +83,7 @@ function newerRelease(release, running) {
 }
 
 // release.json for the dist build: the zip's address is the feed's own folder plus its name.
-function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() }) {
+function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date(), name = 'Eden Secretary' }) {
   if (!parseVersion(version)) throw new Error(`package.json's version ${version} isn't x.y.z`);
   const base = cleanFeedUrl(feedUrl);
   if (!base) throw new Error(`the update feed's address must be https (JARVIS_UPDATE_URL is ${JSON.stringify(String(feedUrl || ''))})`);
@@ -92,7 +92,7 @@ function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() 
     currentRelease: version,
     releases: [{
       version,
-      updateTo: { version, name: `Eden Secretary ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
+      updateTo: { version, name: `${name} ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
     }],
   };
 }
