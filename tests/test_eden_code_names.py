@@ -28,6 +28,7 @@ SHOWN = [
     "features/code_pr.py",
     "features/code_design.py",
     "features/code_video.py",
+    "features/code_artifacts.py",
     "features/code_handoff.py",
 ]
 # Not the owner's to read: a fence around the other machine's output, for the model.

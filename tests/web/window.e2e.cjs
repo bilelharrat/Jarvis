@@ -8080,6 +8080,39 @@ test('Browser AI shows a notice on a page whose text talks to an AI, as data, un
   assert(await js('!!document.querySelector("#bai-strip .bai-flag")'), 'the other page has no notice');
 });
 
+// ── Eden Code's artifacts (code-artifacts.js) ──
+
+test('An artifact card opens the Artifact pane: a sandboxed preview, Code, versions; text stays text', async () => {
+  await featureScript('code-artifacts.js');
+  await open(1);
+  const aid = 'ab'.repeat(12);
+  await deliver({ type: 'task_log', id: 1, entry: { n: 7, role: 'artifact', text: 'Artifact: x (version 2)', aid, version: 2, title: '<img src=x onerror="window.__pwned=1">Shop', kind: 'html' } });
+  await frames(2);
+  let r = await js(`(() => { const li = document.querySelector('#deck-timeline .ca-card'); return { text: li.textContent, imgs: li.querySelectorAll('img').length }; })()`);
+  assert(r.text.includes('<img src=x') && r.text.includes('version 2') && r.imgs === 0, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  await js(`document.querySelector('#deck-timeline .ca-open').click(); true`);
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'art_get', aid, version: 2 }]), JSON.stringify(await js('__sent')));
+  await deliver({ type: 'artifact_content', aid, version: 2, versions: 3, title: 'Shop', format: 'html', content: '<h1>Hi</h1><script>parent.__pwned=1</script>' });
+  await frames(2);
+  r = await js(`(() => { const p = document.getElementById('jc-pane'); const f = p.querySelector('iframe.ca-frame');
+    return { kind: p.dataset.kind, hidden: p.hidden, title: document.getElementById('jc-pane-title').textContent, sandbox: f && f.getAttribute('sandbox'), src: f && f.getAttribute('src'),
+      nav: p.querySelector('.ca-nav small').textContent, prev: p.querySelector('.ca-nav button').disabled }; })()`);
+  assert(r.kind === 'artifact' && !r.hidden && r.title === 'Artifact' && r.src === `/f/code-artifacts/${aid}/2`, JSON.stringify(r));
+  assert(r.sandbox && !r.sandbox.includes('allow-same-origin') && r.nav === '2 / 3' && !r.prev, JSON.stringify(r));
+  assert(await clickText('#jc-pane', 'Code'), 'no Code');
+  r = await js(`(() => { const pre = document.querySelector('#jc-pane .ca-code'); return { text: pre && pre.textContent, h1: document.querySelectorAll('#jc-pane h1').length, pwned: !!window.__pwned }; })()`);
+  assert(r.text === '<h1>Hi</h1><script>parent.__pwned=1</script>' && r.h1 === 0 && !r.pwned, JSON.stringify(r));
+  await js('__sent.length = 0; true');
+  assert(await clickText('#jc-pane', 'Open in browser'), 'no Open in browser');
+  const s = await js('__sent');
+  assert(s.length === 1 && s[0].type === 'art_open' && s[0].aid === aid && s[0].version === 2, JSON.stringify(s));
+  // Made again in the session on show: the pane follows it.
+  await js('__sent.length = 0; true');
+  await deliver({ type: 'artifact', id: 1, aid, version: 3, title: 'Shop' });
+  assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'art_get', aid, version: 3 }]), JSON.stringify(await js('__sent')));
+});
+
 // ── Eden Code's design match, masked secrets and video proof (code-design.js, code-secrets.js, code-video.js) ──
 
 test('A secret card takes the value in a masked field, sends it once, keeps it nowhere', async () => {

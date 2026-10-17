@@ -1,0 +1,33 @@
+/* Eden Code's artifacts (code-artifacts.js): a card for each version in the transcript, and the
+   Artifact pane, wide like the Browser pane, the preview filling it. */
+
+@media (min-width: 761px) {
+  body.eden-code .deck.jc .jc-pane[data-kind="artifact"] { width: 50%; max-width: none; }
+  body.eden-code:not([data-skin]) .deck.jc:has(#jc-pane[data-kind="artifact"]:not([hidden])) .jc-main { right: calc(50% + 16px); }
+}
+.jc-pane[data-kind="artifact"] .jc-pane-body { display: flex; flex-direction: column; gap: 8px; overflow: hidden; padding: 0 10px 10px; }
+
+.ca-card { list-style: none; max-width: 420px; }
+.ca-open { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; cursor: pointer; font: inherit; color: inherit; background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card); padding: 10px 12px; }
+.ca-open:hover { box-shadow: var(--shadow-card), 0 0 0 1px rgb(var(--c-accent) / 0.35); }
+.ca-open:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }
+.ca-icon { flex: none; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font: 600 12px var(--mono); color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
+.ca-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.ca-txt strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-txt small { color: rgb(var(--c-muted)); font-size: 11.5px; }
+.ca-cta { flex: none; font-size: 12px; color: rgb(var(--c-accent-ink)); }
+
+.ca-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ca-head { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ca-head strong { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-head small, .ca-nav small { color: rgb(var(--c-muted)); font-size: 11.5px; }
+.ca-seg { display: flex; padding: 2px; border-radius: 999px; background: rgb(var(--c-fill-3)); }
+.ca-seg-btn { border: 0; border-radius: 999px; padding: 3px 11px; font-size: 12px; cursor: pointer; background: transparent; color: rgb(var(--c-ink-2)); }
+.ca-seg-btn.on { background: rgb(var(--c-surface)); color: rgb(var(--c-ink)); box-shadow: var(--shadow-control); }
+.ca-nav { display: flex; align-items: center; gap: 6px; }
+.ca-nav .jc-mini:disabled { opacity: 0.4; cursor: default; }
+.ca-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.ca-frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 0 0 0.5px rgb(var(--c-ink) / 0.14); }
+.ca-code { flex: 1; min-height: 0; margin: 0; overflow: auto; padding: 12px; border-radius: 10px; font: 12px/1.5 var(--mono); white-space: pre; background: rgb(var(--c-fill-3)); }
+.ca-doc { flex: 1; min-height: 0; overflow: auto; padding: 4px 6px; }

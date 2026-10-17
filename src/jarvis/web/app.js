@@ -284,6 +284,7 @@ window.jarvisFeatures = {
   answerApproval: (a, choice, feedback) => answerApproval(a, choice, feedback, true),  // as its card's button: checks first
   registerEntryDecorator(fn) { featureDecorators.push(fn); },
   registerRichText(render) { featureRichText = render; },
+  richText: (text) => richText(text),  // Markdown as the transcript draws it (code-artifacts.js)
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
