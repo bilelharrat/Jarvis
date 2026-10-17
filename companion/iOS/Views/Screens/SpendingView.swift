@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What Jarvis has spent for you lately, against the limits set on the Mac.
+/// What Eden Secretary has spent for you lately, against the limits set on the Mac.
 struct SpendingView: View {
     @Environment(AppModel.self) private var model
     @State private var state: Loadable<Spending> = .loading
@@ -36,7 +36,7 @@ struct SpendingView: View {
             } header: {
                 ListHeader("Limits")
             } footer: {
-                ListFooter("Jarvis asks you before every purchase or transfer, and never goes past these. Change them in Jarvis Settings on your Mac.")
+                ListFooter("Eden Secretary asks you before every purchase or transfer, and never goes past these. Change them in Eden Secretary Settings on your Mac.")
             }
             .glassRow()
 

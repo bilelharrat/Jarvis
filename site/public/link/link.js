@@ -1,5 +1,5 @@
 // askeden.com/link: linking a Mac to this Eden account from the owner's browser (docs/web-auth.md
-// "Linking a Mac from the browser"). J.A.R.V.I.S. on the Mac shows a code (and may open this page
+// "Linking a Mac from the browser"). Eden Secretary on the Mac shows a code (and may open this page
 // with it after #); the owner types or sees it, sees the Mac's name, and approves. Only a browser
 // that signed in within the last 10 minutes may (askeden.com checks it again): otherwise "Sign in
 // again", which comes back here with the code kept for this tab.
@@ -94,7 +94,7 @@ async function answer(approve) {
     kept(null);
     if (approve) {
       show('done');
-      status('Linked. J.A.R.V.I.S. on your Mac finishes by itself in a moment.', 'ok');
+      status('Linked. Eden Secretary on your Mac finishes by itself in a moment.', 'ok');
     } else {
       show('enter');
       $('code').value = '';

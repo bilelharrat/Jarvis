@@ -89,7 +89,7 @@ async function clientSecret(env, now = Math.floor(Date.now() / 1000), clientId =
 
 export const canRevoke = (env) => Boolean(env.SIWA_KEY && env.SIWA_KEY_ID);
 
-/** The client ids a grant may be kept for (and later revoked with): the J.A.R.V.I.S. app's, and the Eden apps'. */
+/** The client ids a grant may be kept for (and later revoked with): the Eden Secretary app's, and the Eden apps'. */
 export const GRANT_CLIENTS = [BUNDLE_ID, ...EDEN_APP_IDS];
 
 // Apple's token and revoke endpoints, each call at most this long (R2C-11, R2C-13): a stalled Apple never

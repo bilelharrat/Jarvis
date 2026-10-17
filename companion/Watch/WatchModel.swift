@@ -123,7 +123,7 @@ final class WatchModel {
         bridge.requestPairing()
         Task {
             try? await Task.sleep(for: .seconds(4))
-            if pairing == nil { notice = "Open J.A.R.V.I.S. on your iPhone, then try again." }
+            if pairing == nil { notice = "Open Eden Secretary on your iPhone, then try again." }
         }
     }
 

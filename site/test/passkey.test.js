@@ -254,6 +254,8 @@ test('sign up with a passkey (Turnstile off): a new account, signed in; then sig
   const again = await signIn(key);
   assert.equal(again.response.status, 200, JSON.stringify(again.body));
   assert.equal((await accountOf(again.session)).account_id, first.account_id);
+  // Both remember in this browser that a passkey opened this account (session.js LAST_COOKIE: /signin points it out).
+  for (const r of [up.response, again.response]) assert.equal(cookieValue(r, '__Host-eden-last'), `passkey.${first.account_code.replace('-', '')}`);
   // The passkey's options: our RP, attestation none, UV required, ES256 and RS256.
   const o = await options('signup');
   assert.equal(o.body.publicKey.rp.id, 'askeden.com');

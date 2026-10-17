@@ -22,14 +22,14 @@
     dream: 'From the Dream diary, and you said yes',
     import: 'Imported',
     synced: 'Synced from your iPhone',
-    before: 'From before Jarvis kept track',
+    before: 'From before Eden Secretary kept track',
   };
   // Where the owner's own words are the origin (shown as a quote); an import names its file.
   const QUOTED = new Set(['said', 'noticed', 'proposed', 'dream']);
   const FORGET_SOURCES = [
     ['conversations', 'Conversations'], ['settings', 'Settings'], ['suggestions', 'Suggestions you approved'],
     ['dream diary', 'The Dream diary'], ['chatgpt', 'The ChatGPT import'], ['eden code', 'The Eden Code import'], ['jarvis code', 'The Eden Code import'],
-    ['pasted', 'A pasted list'], ['synced', 'Synced from your iPhone'], ['before', 'From before Jarvis kept track'],
+    ['pasted', 'A pasted list'], ['synced', 'Synced from your iPhone'], ['before', 'From before Eden Secretary kept track'],
   ];
   const TABS = [['facts', 'Facts'], ['suggested', 'Suggested'], ['about', 'About you'], ['intents', 'When… then…'], ['people', 'People'], ['promises', 'Promises'], ['journal', 'Journal'], ['import', 'Import']];
   const WATCH = [['mail', 'Email'], ['message', 'Texts'], ['alert', 'Heads-ups'], ['request', 'What I say']];
@@ -157,7 +157,7 @@
     $('memory-list').hidden = true;
     if ($('memory-form')) $('memory-form').hidden = true;
     const lead = g.querySelector('.small-status');
-    if (lead) lead.textContent = 'What Jarvis knows about you, where it learned it, and what it noticed. Say “Jarvis, remember…” or open a row.';
+    if (lead) lead.textContent = 'What Eden Secretary knows about you, where it learned it, and what it noticed. Say “Eden, remember…” or open a row.';
     const rows = el('div', 'mem-rows');
     rows.id = 'mem-rows';
     for (const [tab, title] of TABS) {
@@ -337,7 +337,7 @@
     const counts = {};
     for (const f of S.facts) counts[f.category] = (counts[f.category] || 0) + 1;
     const bar = el('div', 'mem-filter');
-    const search = input(S.query, 'Search what Jarvis knows', 'Search what Jarvis knows');
+    const search = input(S.query, 'Search what Eden Secretary knows', 'Search what Eden Secretary knows');
     search.dataset.key = 'fact-search';
     search.addEventListener('input', () => { S.query = search.value; render('facts'); });
     const chips = el('div', 'mem-chips');
@@ -353,7 +353,7 @@
     const words = S.query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const shown = S.facts.filter((f) => (S.filter === 'all' || f.category === S.filter) && words.every((w) => f.text.toLowerCase().includes(w)));
     const list = el('ul', 'mem-list');
-    if (!shown.length) list.append(el('li', 'mem-empty', S.facts.length ? 'Nothing matches.' : 'Nothing yet. Say “Jarvis, remember…” or add something below.'));
+    if (!shown.length) list.append(el('li', 'mem-empty', S.facts.length ? 'Nothing matches.' : 'Nothing yet. Say “Eden, remember…” or add something below.'));
     for (const f of shown) list.append(factItem(f));
     nodes.push(list);
     nodes.push(addForm());
@@ -411,7 +411,7 @@
     text.maxLength = 300;
     text.rows = 2;
     text.dataset.key = `edit-${f.id}`;
-    text.setAttribute('aria-label', 'What Jarvis knows');
+    text.setAttribute('aria-label', 'What Eden Secretary knows');
     mine(text);
     const cat = select(CATEGORIES, f.category, 'Category');
     const sure = select(CONFIDENCE, f.confidence, 'How sure');
@@ -476,7 +476,7 @@
     box.append(row);
     if (S.preview) {
       const p = S.preview;
-      if (!p.count) box.append(hint('Nothing Jarvis knows came from there.'));
+      if (!p.count) box.append(hint('Nothing Eden Secretary knows came from there.'));
       else {
         const confirm = el('div', 'mem-confirm');
         confirm.append(el('p', '', countLine(p.count, 'This forgets 1 thing:', 'This forgets {n} things:')));
@@ -559,7 +559,7 @@
         ul.append(li);
       }
       nodes.push(ul);
-    } else if (!dreams.length) nodes.push(hint('Each night Jarvis goes over the last few daily notes for what’s worth remembering. What it finds waits here, and on a card in the morning.'));
+    } else if (!dreams.length) nodes.push(hint('Each night Eden Secretary goes over the last few daily notes for what’s worth remembering. What it finds waits here, and on a card in the morning.'));
     nodes.push(switchRow('Dream over my daily notes', 'Once a night, at most two small model calls a day. Needs daily notes on.', feature('memory_dreams', true), (on) => { setFeature('memory_dreams', on); render('suggested'); }, 'sw-memory-dreams'));
     return nodes;
   }
@@ -590,7 +590,7 @@
       return wrap;
     };
     nodes.push(field('about', 'About me', 'Who you are, what you do, the people and things that matter.', 'e.g. I run a small venture fund in Berkeley. Two kids, Maya and Leo.', 'draftAbout'));
-    nodes.push(field('behave', 'How Jarvis should behave', 'Tone, length, habits. It never loosens what Jarvis asks you first.', 'e.g. Keep answers short. Call me Rob. No small talk before 9.', 'draftBehave'));
+    nodes.push(field('behave', 'How Eden Secretary should behave', 'Tone, length, habits. It never loosens what Eden Secretary asks you first.', 'e.g. Keep answers short. Call me Rob. No small talk before 9.', 'draftBehave'));
     const actions = el('div', 'mem-actions mem-left');
     actions.append(button('Save', 'btn primary', () => {
       const msg = { type: 'memory_about' };
@@ -608,7 +608,7 @@
 
   function drawIntents() {
     const items = (S.state && S.state.intents) || [];
-    const nodes = [hint('Standing intents: when something comes up, Jarvis reminds you or offers to do what you asked. Say “Jarvis, when Ann emails about the deck, remind me to send the numbers.” Needs Heads-ups on.')];
+    const nodes = [hint('Standing intents: when something comes up, Eden Secretary reminds you or offers to do what you asked. Say “Eden, when Ann emails about the deck, remind me to send the numbers.” Needs Heads-ups on.')];
     const ul = el('ul', 'mem-list');
     if (!items.length) ul.append(el('li', 'mem-empty', 'None yet.'));
     for (const i of items) {
@@ -725,7 +725,7 @@
         chips.append(b);
       }
       nodes.push(chips);
-    } else nodes.push(hint('People you tell Jarvis about show up here, with those you’ve made promises to or set intents about.'));
+    } else nodes.push(hint('People you tell Eden Secretary about show up here, with those you’ve made promises to or set intents about.'));
     if (S.person) nodes.push(personCard(S.person));
     return nodes;
   }
@@ -748,7 +748,7 @@
       rows.forEach((r) => ul.append(r));
       box.append(ul);
     };
-    part('What Jarvis knows', (card.facts || []).map((t) => mine(el('li', '', t))));
+    part('What Eden Secretary knows', (card.facts || []).map((t) => mine(el('li', '', t))));
     part('Promises to them', (card.promises || []).map((p) => {
       const li = el('li');
       li.append(mine(el('span', '', p.text)));
@@ -852,7 +852,7 @@
   function drawJournal() {
     const j = (S.state && S.state.journal) || { notes: [], folder: '', time: '21:00' };
     const on = feature('memory_journal', true);
-    const nodes = [switchRow('Write a daily note', 'What you asked, what Jarvis did, your meetings and routines, with a short summary (one small model call a day). Never in incognito. A note you change is never written over.', on, (v) => { setFeature('memory_journal', v); render('journal'); }, 'sw-memory-journal')];
+    const nodes = [switchRow('Write a daily note', 'What you asked, what Eden Secretary did, your meetings and routines, with a short summary (one small model call a day). Never in incognito. A note you change is never written over.', on, (v) => { setFeature('memory_journal', v); render('journal'); }, 'sw-memory-journal')];
     const timeRow = el('label', 'row');
     const span = el('span');
     span.append(el('strong', '', 'Time'), el('small', '', 'Or at first use the next day'));
@@ -863,7 +863,7 @@
     time.addEventListener('change', () => { if (/^\d{2}:\d{2}$/.test(time.value)) setFeature('memory_journal_time', time.value); });
     timeRow.append(span, time);
     nodes.push(timeRow);
-    nodes.push(switchRow('Search them in the second brain', 'Jarvis finds them when you ask what happened on a day.', feature('brain_journal', true), (v) => { S.features = { ...S.features, brain_journal: v }; send({ type: 'brain_source', source: 'journal', on: v }); render('journal'); }, 'sw-brain-journal'));
+    nodes.push(switchRow('Search them in the second brain', 'Eden Secretary finds them when you ask what happened on a day.', feature('brain_journal', true), (v) => { S.features = { ...S.features, brain_journal: v }; send({ type: 'brain_source', source: 'journal', on: v }); render('journal'); }, 'sw-brain-journal'));
     const where = el('p', 'mem-hint');
     where.append(el('span', '', `${T('Kept in')} `), mine(el('code', 'mem-path', j.folder || '~/Documents/Jarvis/Journal')));
     nodes.push(where);
@@ -909,7 +909,7 @@
       const path = window.jarvisApp && window.jarvisApp.pathFor ? window.jarvisApp.pathFor(chosen) : '';
       if (path) send({ type: 'memory_import', kind: 'chatgpt', path });
       else if (/\.(txt|md)$/i.test(chosen.name) && chosen.size < 1024 * 1024) chosen.text().then((text) => send({ type: 'memory_import', kind: 'paste', text }));
-      else { S.reviewError = T('Choose the file in the Jarvis app.'); render('import'); }
+      else { S.reviewError = T('Choose the file in the Eden Secretary app.'); render('import'); }
       file.value = '';
     });
     gpt.append(file, button('Choose the export…', 'btn mem-small', () => file.click()));
@@ -968,7 +968,7 @@
       nodes.push(lab, mine(el('pre', 'mem-pre', r[key])));
     };
     extra('about', 'reviewAbout', 'Use this as About me');
-    extra('behave', 'reviewBehave', 'Use this as How Jarvis should behave');
+    extra('behave', 'reviewBehave', 'Use this as How Eden Secretary should behave');
     const actions = el('div', 'mem-actions mem-left');
     actions.append(
       button(countLine(picked, 'Save 1', 'Save {n}'), 'btn primary', () => {

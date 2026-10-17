@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'none'; font-src https://fonts.gstatic.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* blob: data:; worker-src 'self' blob:; media-src 'self' blob: mediastream:; img-src 'self' data:">
-<title>Jarvis</title>
+<title>Eden Secretary</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;family=Geist:wght@300;400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
 <link rel="stylesheet" href="/static/app.css">
@@ -18,7 +18,7 @@
 
 <header class="top">
   <div class="brand">
-    <span class="wordmark" id="wordmark">Jarvis</span>
+    <span class="wordmark" id="wordmark">Eden Secretary</span>
     <span class="online-pill"><i></i><span id="online-text">Online</span></span>
   </div>
   <div class="console-clock" id="console-clock"></div>
@@ -61,11 +61,11 @@
 </aside>
 
 <main class="stage">
-  <div class="console-title console-only">J.A.R.V.I.S</div>
+  <div class="console-title console-only">Eden Secretary</div>
   <h1 id="greeting">Hello.</h1>
   <p id="next-event" class="subline" hidden></p>
 
-  <button id="orb" class="orb" type="button" aria-label="Talk to Jarvis">
+  <button id="orb" class="orb" type="button" aria-label="Talk to Eden Secretary">
     <svg class="bezel" viewBox="0 0 400 400" aria-hidden="true">
       <defs><linearGradient id="bz-comet" gradientUnits="userSpaceOnUse" x1="200" y1="6" x2="337" y2="63"><stop offset="0" stop-color="#8fdbff" stop-opacity="0"/><stop offset="0.75" stop-color="#8fdbff" stop-opacity="0.9"/><stop offset="1" stop-color="#d6f3ff"/></linearGradient></defs>
       <circle cx="200" cy="200" r="194" class="bz-rim"/>
@@ -108,10 +108,10 @@
 
 <aside class="side right" aria-label="Conversation and log">
   <section class="panel console-only grow" id="p-conversation">
-    <h2>Conversation <span class="panel-btns"><button type="button" class="panel-btn" id="export-history" title="Save the conversation as a note in Documents › Jarvis › Conversations">Extract</button><button type="button" class="panel-btn" id="clear-history">Clear</button></span></h2>
+    <h2>Conversation <span class="panel-btns"><button type="button" class="panel-btn" id="export-history" title="Save the conversation as a note in Documents › Eden Secretary › Conversations">Extract</button><button type="button" class="panel-btn" id="clear-history">Clear</button></span></h2>
     <ol id="history" data-no-i18n class="history"></ol>
     <form id="chat-form" class="chat-form" autocomplete="off">
-      <label for="chat-input" class="sr-only">Message Jarvis</label>
+      <label for="chat-input" class="sr-only">Message Eden Secretary</label>
       <div class="ask-pics" data-pics hidden aria-label="Pictures to send"></div>
       <input id="chat-input" placeholder="Type a message…">
       <button type="submit" class="send-btn" aria-label="Send"><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><path d="M2 9l14-6-5 14-2-6z"/></svg></button>
@@ -125,7 +125,7 @@
 <div id="meeting-pill" class="meeting-pill" role="status" hidden><i aria-hidden="true"></i><span id="meeting-text">Taking notes</span><button type="button" id="meeting-stop">Stop &amp; write up</button></div>
 
 <footer class="bottom">
-  <div class="pills dock" role="toolbar" aria-label="Jarvis apps">
+  <div class="pills dock" role="toolbar" aria-label="Eden Secretary apps">
     <button id="activity-btn" class="pill dock-app" data-app="activity" type="button" aria-expanded="false" aria-controls="activity" aria-label="Activity">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-6 5 12 2.5-6H21"/></svg>
       <span class="app-name" id="activity-label">Activity</span>
@@ -135,7 +135,7 @@
       <span class="app-badge" id="brain-badge"></span>
       <span class="app-name" id="brain-label">Second brain</span>
     </button>
-    <button id="screen-pill" class="pill dock-app screen-pill" data-app="screen" type="button" hidden title="Jarvis can see your screen (pictures stay in memory for two minutes). Click to stop." aria-label="Screen awareness is on: stop">
+    <button id="screen-pill" class="pill dock-app screen-pill" data-app="screen" type="button" hidden title="Eden Secretary can see your screen (pictures stay in memory for two minutes). Click to stop." aria-label="Screen awareness is on: stop">
       <span class="screen-eye" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></span>
       <span class="app-name">Seeing screen</span>
     </button>
@@ -191,7 +191,7 @@
       <button type="button" role="radio" data-lang="en" aria-checked="true" data-no-i18n>English</button>
       <button type="button" role="radio" data-lang="zh" aria-checked="false" data-no-i18n>中文</button>
     </div>
-    <p class="group-note">Jarvis shows, speaks and listens in the language you pick.</p>
+    <p class="group-note">Eden Secretary shows, speaks and listens in the language you pick.</p>
   </section>
 
   <section class="group" data-settings-pane="general" data-keywords="theme appearance dark mode light mode skin style colors weather location boot startup sound">
@@ -216,14 +216,14 @@
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>
   </section>
 
-  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey jarvis listening gestures">
+  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey eden jarvis listening gestures">
     <h3>Voice</h3>
     <div class="row"><span><strong>Spoken replies</strong></span><button type="button" class="switch" role="switch" id="sw-voice" aria-checked="true" aria-label="Spoken replies"></button></div>
     <div class="row"><span><strong>AI voice effect</strong><small>A faint doubled, in-the-room sheen</small></span><button type="button" class="switch" role="switch" id="sw-effect" aria-checked="true" aria-label="AI voice effect"></button></div>
     <label class="row" for="mic-select"><span><strong>Microphone</strong><small>The Mac’s own mic keeps AirPods in full-quality audio</small></span>
       <select id="mic-select"><option value="builtin">Mac’s built-in</option><option value="default">System default</option></select></label>
     <div class="row"><span><strong>Control my Mac without asking</strong><small>Click, type, browse, open and quit apps and run Shortcuts without asking first. Paying still waits for your OK, and I never type passwords.</small></span><button type="button" class="switch" role="switch" id="sw-control" aria-checked="true" aria-label="Control my Mac without asking"></button></div>
-    <div class="row"><span><strong>Hands-free</strong><small>Say “Jarvis” to talk, and “Jarvis, stop” to interrupt me. Keeps the mic on.</small></span><button type="button" class="switch" role="switch" id="sw-handsfree" aria-checked="false" aria-label="Hands-free"></button></div>
+    <div class="row"><span><strong>Hands-free</strong><small>Say “Eden” to talk, and “Eden, stop” to interrupt me. Keeps the mic on.</small></span><button type="button" class="switch" role="switch" id="sw-handsfree" aria-checked="false" aria-label="Hands-free"></button></div>
     <div class="row"><span><strong>Clap twice for hand control</strong><small>Two claps turn hand control on while hands-free is listening. Off unless you turn it on: keys and clicks can sound like claps.</small></span><button type="button" class="switch" role="switch" id="sw-clap" aria-checked="false" aria-label="Clap twice for hand control"></button></div>
     <div class="row"><span><strong>Control the whole Mac with my hands</strong><small>When hand control is on, your hand moves the Mac’s pointer in every app: pinch to click, two fingers to scroll, hold a fist to pause. Needs the Accessibility permission.</small></span><button type="button" class="switch" role="switch" id="sw-desktop-hands" aria-checked="false" aria-label="Control the whole Mac with my hands"></button></div>
     <div class="row"><span><strong>Learn my words</strong><small>Names and words you use, and your corrections (“no, I said Okin”), so I hear them right. Only from what you say or type to me.</small></span><button type="button" class="switch" role="switch" id="sw-learn-speech" aria-checked="true" aria-label="Learn my words"></button></div>
@@ -237,7 +237,7 @@
     <label class="row" for="fallback-select"><span><strong>Fallback model</strong><small>Takes over when Claude can’t answer (its usage limit, an outage), with every tool</small></span>
       <select id="fallback-select"><option value="">Automatic</option></select></label>
     <div class="row"><span><strong>Eden Code too</strong><small>A session Claude can’t answer moves to it and carries on where Claude stopped, then goes back to Claude once its limit resets</small></span><button type="button" class="switch" role="switch" id="sw-fallback-code" aria-checked="true" aria-label="Fallback in Eden Code too"></button></div>
-    <div class="row"><span><strong>Always use it</strong><small>Run Jarvis on it all the time, not only when Claude is down (Gemini Flash answers quickly)</small></span><button type="button" class="switch" role="switch" id="sw-fallback-always" aria-checked="false" aria-label="Always use the fallback model"></button></div>
+    <div class="row"><span><strong>Always use it</strong><small>Run Eden Secretary on it all the time, not only when Claude is down (Gemini Flash answers quickly)</small></span><button type="button" class="switch" role="switch" id="sw-fallback-always" aria-checked="false" aria-label="Always use the fallback model"></button></div>
     <button type="button" class="btn" id="fallback-add">Add a Gemini key…</button>
   </section>
 
@@ -248,7 +248,7 @@
       <input type="range" id="humor" min="0" max="100" step="5" value="60"></label>
     <label class="row stack" for="address"><span><strong>How I address you</strong><small>Optional, e.g. your name or “sir”</small></span>
       <input type="text" id="address" maxlength="40" placeholder="Nothing"></label>
-    <label class="row stack" for="owner-name"><span><strong>Your name</strong><small>For conversations I hold for you: “I’m Robert’s assistant, Jarvis.”</small></span>
+    <label class="row stack" for="owner-name"><span><strong>Your name</strong><small>For conversations I hold for you: “I’m Robert’s assistant, Eden Secretary.”</small></span>
       <input type="text" id="owner-name" maxlength="40" placeholder="Your first name"></label>
   </section>
 
@@ -256,17 +256,17 @@
     <h3>Markets</h3>
     <label class="row stack" for="watchlist"><span><strong>Watchlist</strong><small>Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas</small></span>
       <input type="text" id="watchlist" placeholder="AAPL NVDA MSFT"></label>
-    <label class="row stack" for="research-url"><span><strong>Research Center</strong><small>Optional: a research web app for Markets to open. It opens here, driven only by Jarvis; you sign in once and stay signed in. Empty: Markets shows only the markets.</small></span>
+    <label class="row stack" for="research-url"><span><strong>Research Center</strong><small>Optional: a research web app for Markets to open. It opens here, driven only by Eden Secretary; you sign in once and stay signed in. Empty: Markets shows only the markets.</small></span>
       <input type="url" id="research-url" placeholder="https://research.example.com" spellcheck="false"></label>
-    <label class="row stack" for="invoice-from"><span><strong>Invoices: your business</strong><small>Printed at the top of invoices Jarvis makes: name on the first line, then address and email</small></span>
+    <label class="row stack" for="invoice-from"><span><strong>Invoices: your business</strong><small>Printed at the top of invoices Eden Secretary makes: name on the first line, then address and email</small></span>
       <textarea id="invoice-from" rows="3" placeholder="Your Company&#10;1 Main Street, Springfield&#10;billing@example.com"></textarea></label>
-    <label class="row stack" for="invoice-payment"><span><strong>Invoices: how to pay</strong><small>Printed under the total (bank or payment link); type it yourself, Jarvis never fills this in</small></span>
+    <label class="row stack" for="invoice-payment"><span><strong>Invoices: how to pay</strong><small>Printed under the total (bank or payment link); type it yourself, Eden Secretary never fills this in</small></span>
       <textarea id="invoice-payment" rows="2" placeholder="Pay by bank transfer or at pay.example.com"></textarea></label>
   </section>
 
   <section class="group" data-settings-pane="code">
     <h3>Voice coding</h3>
-    <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Eden Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
+    <p class="small-status">Say “Eden, let’s code in jarvis” and talk to Eden Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
     <div class="row"><span><strong>Narrate progress</strong><small>Short notes like “Editing hub dot py” while it works</small></span><button type="button" class="switch" role="switch" id="sw-code-narrate" aria-checked="true" aria-label="Narrate progress"></button></div>
     <label class="row" for="code-sentences"><span><strong>Reply length</strong><small>Sentences read aloud; the rest stays on screen</small></span>
       <select id="code-sentences"><option value="2">Short (2)</option><option value="3">Normal (3)</option><option value="5">Long (5)</option><option value="8">Everything (8)</option></select></label>
@@ -274,13 +274,13 @@
 
   <section class="group" data-settings-pane="automation" data-keywords="automation schedule">
     <h3>Routines</h3>
-    <p class="small-status">Things I do on my own schedule. Say “Jarvis, every weekday at 7, brief me” or “tonight at 1, research…”.</p>
+    <p class="small-status">Things I do on my own schedule. Say “Eden, every weekday at 7, brief me” or “tonight at 1, research…”.</p>
     <ul id="routine-list" class="folders routine-list"></ul>
   </section>
 
   <section class="group" data-settings-pane="automation" data-keywords="homekit lights smart home shortcuts">
     <h3>Home &amp; Shortcuts</h3>
-    <p class="small-status">Your Shortcuts reach HomeKit: lights, locks, scenes. Instant ones run the moment you say their name (“Jarvis, movie mode”), without asking.</p>
+    <p class="small-status">Your Shortcuts reach HomeKit: lights, locks, scenes. Instant ones run the moment you say their name (“Eden, movie mode”), without asking.</p>
     <ul id="shortcut-list" class="folders shortcut-list"><li class="muted">Loading your shortcuts…</li></ul>
   </section>
 
@@ -294,7 +294,7 @@
       <ul id="remote-devices" class="folders"></ul>
       <details class="watch-help">
         <summary>Apple Watch</summary>
-        <p>In the Shortcuts app on your iPhone, make a shortcut named “Ask Jarvis”: <em>Dictate Text</em> → <em>Get Contents of URL</em> (the address above + <code>/api/ask</code>, method POST, header <code>Authorization: Bearer</code> + your phone’s token, JSON body <code>text</code> = Dictated Text) → <em>Get Dictionary Value</em> “reply” → <em>Speak Text</em>. Turn on “Show on Apple Watch”, then say “Hey Siri, Ask Jarvis”.</p>
+        <p>In the Shortcuts app on your iPhone, make a shortcut named “Ask Eden Secretary”: <em>Dictate Text</em> → <em>Get Contents of URL</em> (the address above + <code>/api/ask</code>, method POST, header <code>Authorization: Bearer</code> + your phone’s token, JSON body <code>text</code> = Dictated Text) → <em>Get Dictionary Value</em> “reply” → <em>Speak Text</em>. Turn on “Show on Apple Watch”, then say “Hey Siri, Ask Eden Secretary”.</p>
       </details>
     </div>
     <p id="remote-error" class="small-status" hidden></p>
@@ -302,7 +302,7 @@
 
   <section class="group" data-settings-pane="memory">
     <h3>Memory</h3>
-    <p class="small-status">What you've asked me to remember. Say “Jarvis, remember…” or add it here.</p>
+    <p class="small-status">What you've asked me to remember. Say “Eden, remember…” or add it here.</p>
     <ul id="memory-list" class="folders memory-list"></ul>
     <form id="memory-form" class="folder-form">
       <label for="memory-input" class="sr-only">Something to remember</label>
@@ -313,15 +313,15 @@
 
   <section class="group" data-settings-pane="memory">
     <h3>Documents</h3>
-    <p class="small-status">Memos, letters and reports Jarvis writes for you. Say “Jarvis, draft a cover letter in Word.”</p>
-    <label class="row stack" for="documents-folder"><span><strong>Save documents in</strong><small>A folder in your home folder. Empty: Documents › JARVIS. Nothing is ever written over.</small></span>
+    <p class="small-status">Memos, letters and reports Eden Secretary writes for you. Say “Eden, draft a cover letter in Word.”</p>
+    <label class="row stack" for="documents-folder"><span><strong>Save documents in</strong><small>A folder in your home folder. Empty: Documents › Eden Secretary. Nothing is ever written over.</small></span>
       <input type="text" id="documents-folder" maxlength="500" placeholder="~/Documents/JARVIS"></label>
     <ul id="document-list" class="folders memory-list"></ul>
   </section>
 
   <section class="group" data-settings-pane="memory">
     <h3>Goals</h3>
-    <p class="small-status">What you’re working toward, and the rules you keep. Jarvis plans around them and points out conflicts. Say “Jarvis, my goal this quarter is…” or add them here.</p>
+    <p class="small-status">What you’re working toward, and the rules you keep. Eden Secretary plans around them and points out conflicts. Say “Eden, my goal this quarter is…” or add them here.</p>
     <p id="goals-unreadable" class="small-status warn-line" hidden>Your goals file can’t be read right now; nothing will be saved over it.</p>
     <ul id="goal-list" class="itemlist"></ul>
     <form id="goal-form" class="folder-form">
@@ -346,17 +346,17 @@
 
   <section class="group" data-settings-pane="notifications">
     <h3>Conversations for you</h3>
-    <p class="small-status">Jarvis can text or email someone for you to settle something, like a time to meet, within limits you give it. Every message asks you first unless you said it could go ahead. Say “Jarvis, work out a time with Ann for next week.”</p>
+    <p class="small-status">Eden Secretary can text or email someone for you to settle something, like a time to meet, within limits you give it. Every message asks you first unless you said it could go ahead. Say “Eden, work out a time with Ann for next week.”</p>
     <ul id="delegation-list" class="itemlist"></ul>
   </section>
 
   <section class="group" data-settings-pane="notifications" data-keywords="notifications alerts interruptions do not disturb queue">
     <h3>Speaking up</h3>
-    <div class="row"><span><strong>Queue messages</strong><small>While Jarvis is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.</small></span><button type="button" class="switch" role="switch" id="sw-queue" aria-checked="true" aria-label="Queue messages"></button></div>
+    <div class="row"><span><strong>Queue messages</strong><small>While Eden Secretary is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.</small></span><button type="button" class="switch" role="switch" id="sw-queue" aria-checked="true" aria-label="Queue messages"></button></div>
     <div class="row"><span><strong>Queue Eden Code follow-ups</strong><small>Messages to a working session wait until its current step ends. Off: they steer it right away.</small></span><button type="button" class="switch" role="switch" id="sw-code-queue" aria-checked="true" aria-label="Queue Eden Code follow-ups"></button></div>
-    <div class="row"><span><strong>Screen awareness</strong><small>Jarvis keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.</small></span><button type="button" class="switch" role="switch" id="sw-screen" aria-checked="false" aria-label="Screen awareness"></button></div>
+    <div class="row"><span><strong>Screen awareness</strong><small>Eden Secretary keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.</small></span><button type="button" class="switch" role="switch" id="sw-screen" aria-checked="false" aria-label="Screen awareness"></button></div>
     <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Eden Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
-    <div class="row"><span><strong>Interrupt me for texts and email</strong><small>Urgent only: a VIP, or someone saying it’s urgent. Needs Full Disk Access. “Jarvis, what did I miss?” lists the rest.</small></span></div>
+    <div class="row"><span><strong>Interrupt me for texts and email</strong><small>Urgent only: a VIP, or someone saying it’s urgent. Needs Full Disk Access. “Eden, what did I miss?” lists the rest.</small></span></div>
     <div class="segmented" id="interrupt-group" role="radiogroup" aria-label="Interrupt me for texts and email">
       <button type="button" role="radio" data-mode="urgent" aria-checked="true">Urgent only</button>
       <button type="button" role="radio" data-mode="all" aria-checked="false">Everything</button>
@@ -374,7 +374,7 @@
   <section class="group" data-settings-pane="money" data-keywords="payments money spending limits shopping buy">
     <h3>Purchases</h3>
     <div class="row"><span><strong>Buy, book and pay for me</strong><small>In the built-in browser, with one confirmation: say “confirm purchase” or tap Confirm. Saved payment methods only; I never type card numbers or passwords.</small></span><button type="button" class="switch" role="switch" id="sw-pay" aria-checked="true" aria-label="Buy, book and pay for me"></button></div>
-    <div class="row"><span><strong>Enter one-time codes for me</strong><small>When a site sends a verification code to your email, Jarvis reads it from Mail and types it in. Card numbers, passwords and bank sign-ins stay yours.</small></span><button type="button" class="switch" role="switch" id="sw-type-codes" aria-checked="true" aria-label="Enter one-time codes for me"></button></div>
+    <div class="row"><span><strong>Enter one-time codes for me</strong><small>When a site sends a verification code to your email, Eden Secretary reads it from Mail and types it in. Card numbers, passwords and bank sign-ins stay yours.</small></span><button type="button" class="switch" role="switch" id="sw-type-codes" aria-checked="true" aria-label="Enter one-time codes for me"></button></div>
     <div class="limits" id="pay-limits">
       <label>Per purchase<input type="number" id="pay-purchase" min="0" max="100000" step="1" inputmode="decimal"></label>
       <label>Per transfer<input type="number" id="pay-transfer" min="0" max="100000" step="1" inputmode="decimal"></label>
@@ -388,38 +388,38 @@
 
   <section class="group" data-settings-pane="briefing" data-keywords="brief morning news schedule">
     <h3>Morning briefing</h3>
-    <div class="row"><span><strong>Brief me each morning</strong><small>When Jarvis is running at that time</small></span><button type="button" class="switch" role="switch" id="sw-briefing" aria-checked="true" aria-label="Morning briefing"></button></div>
+    <div class="row"><span><strong>Brief me each morning</strong><small>When Eden Secretary is running at that time</small></span><button type="button" class="switch" role="switch" id="sw-briefing" aria-checked="true" aria-label="Morning briefing"></button></div>
     <label class="row" for="briefing-time"><span><strong>Time</strong></span><input type="time" id="briefing-time" value="08:00"></label>
     <button type="button" class="btn" id="brief-now">Brief me now</button>
   </section>
 
   <section class="group" data-settings-pane="calls" data-keywords="twilio calls calling caller">
     <h3>Phone</h3>
-    <p class="small-status">Jarvis calls you, and people you ask it to call, through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can only call numbers verified in Twilio). Your Account SID and Auth Token go into the Mac’s Keychain.</p>
+    <p class="small-status">Eden Secretary calls you, and people you ask it to call, through your own Twilio account (twilio.com: a number is about $1.15 a month and calls about 1.4¢ a minute; a free trial can only call numbers verified in Twilio). Your Account SID and Auth Token go into the Mac’s Keychain.</p>
     <label class="row stack" for="phone-sid"><span><strong>Twilio Account SID</strong><small id="phone-signed">Not set up yet</small></span>
       <input type="text" id="phone-sid" placeholder="AC…" autocomplete="off" spellcheck="false"></label>
     <label class="row stack" for="phone-token"><span><strong>Twilio Auth Token</strong><small>Goes straight into your Keychain and is never shown again</small></span>
       <input type="password" id="phone-token" placeholder="Paste your Auth Token" autocomplete="off" spellcheck="false"></label>
     <div class="folder-form"><button type="button" class="btn" id="phone-save">Save to Keychain</button><button type="button" class="btn danger" id="phone-forget" hidden>Forget sign-in</button></div>
-    <label class="row stack" for="phone-from"><span><strong>Your Twilio number</strong><small>The number Jarvis calls from</small></span>
+    <label class="row stack" for="phone-from"><span><strong>Your Twilio number</strong><small>The number Eden Secretary calls from</small></span>
       <input type="text" id="phone-from" placeholder="+1 415 555 0100" autocomplete="off"></label>
-    <label class="row stack" for="phone-me"><span><strong>Your phone number</strong><small>The only number Jarvis calls on its own</small></span>
+    <label class="row stack" for="phone-me"><span><strong>Your phone number</strong><small>The only number Eden Secretary calls on its own</small></span>
       <input type="text" id="phone-me" placeholder="+1 415 555 0199" autocomplete="off"></label>
-    <div class="row"><span><strong>Wake-up call</strong><small>Jarvis rings you with the morning brief (while it’s running on this Mac)</small></span><button type="button" class="switch" role="switch" id="sw-wake-call" aria-checked="false" aria-label="Wake-up call"></button></div>
+    <div class="row"><span><strong>Wake-up call</strong><small>Eden Secretary rings you with the morning brief (while it’s running on this Mac)</small></span><button type="button" class="switch" role="switch" id="sw-wake-call" aria-checked="false" aria-label="Wake-up call"></button></div>
     <label class="row" for="wake-call-time"><span><strong>Call at</strong></span><input type="time" id="wake-call-time" value="07:00"></label>
-    <label class="row stack" for="phone-caller-name"><span><strong>Caller ID name</strong><small>The name shown when Jarvis calls. Your iPhone shows it straight away (a Contacts card); other people’s phones once Twilio approves it, which needs a business profile in Twilio’s Trust Hub. US numbers only, and some mobile carriers show just the number.</small></span>
-      <input type="text" id="phone-caller-name" value="J.A.R.V.I.S." maxlength="15" autocomplete="off" spellcheck="false"></label>
+    <label class="row stack" for="phone-caller-name"><span><strong>Caller ID name</strong><small>The name shown when Eden Secretary calls. Your iPhone shows it straight away (a Contacts card); other people’s phones once Twilio approves it, which needs a business profile in Twilio’s Trust Hub. US numbers only, and some mobile carriers show just the number.</small></span>
+      <input type="text" id="phone-caller-name" value="Eden Secretary" maxlength="15" autocomplete="off" spellcheck="false"></label>
     <div class="folder-form"><button type="button" class="btn" id="phone-test">Call me now</button><button type="button" class="btn" id="phone-caller-save">Show calls as this name</button></div>
     <p class="small-status" id="phone-note" aria-live="polite"></p>
-    <div class="row"><span><strong>Answer calls to my Twilio number</strong><small>People who call it hear Jarvis and can leave you a message or book a time with you. It’s answered on your Twilio account, so it works while this Mac is off; messages and bookings reach you here, transcribed on this Mac.</small></span><button type="button" class="switch" role="switch" id="sw-line" aria-checked="false" aria-label="Answer calls to my Twilio number"></button></div>
+    <div class="row"><span><strong>Answer calls to my Twilio number</strong><small>People who call it hear Eden Secretary and can leave you a message or book a time with you. It’s answered on your Twilio account, so it works while this Mac is off; messages and bookings reach you here, transcribed on this Mac.</small></span><button type="button" class="switch" role="switch" id="sw-line" aria-checked="false" aria-label="Answer calls to my Twilio number"></button></div>
     <div id="line-options">
-      <div class="row"><span><strong>Talk with callers</strong><small>Callers have a real conversation with Jarvis instead of pressing keys: it chats, answers questions, takes a message, books a time or notes something for your calendar (you confirm). Needs a Claude API key under Anthropic in Settings › Models.</small></span><button type="button" class="switch" role="switch" id="sw-line-talk" aria-checked="true" aria-label="Talk with callers"></button></div>
-      <label class="row stack" for="line-about"><span><strong>What Jarvis may tell callers about you</strong><small>Optional. Anything else about you stays private.</small></span>
+      <div class="row"><span><strong>Talk with callers</strong><small>Callers have a real conversation with Eden Secretary instead of pressing keys: it chats, answers questions, takes a message, books a time or notes something for your calendar (you confirm). Needs a Claude API key under Anthropic in Settings › Models.</small></span><button type="button" class="switch" role="switch" id="sw-line-talk" aria-checked="true" aria-label="Talk with callers"></button></div>
+      <label class="row stack" for="line-about"><span><strong>What Eden Secretary may tell callers about you</strong><small>Optional. Anything else about you stays private.</small></span>
         <textarea id="line-about" rows="2" maxlength="500" placeholder="Alex runs a small design studio and is usually free in the afternoons."></textarea></label>
-      <div class="row"><span><strong>Let callers book a time</strong><small>Jarvis offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day</small></span><button type="button" class="switch" role="switch" id="sw-line-booking" aria-checked="true" aria-label="Let callers book a time"></button></div>
+      <div class="row"><span><strong>Let callers book a time</strong><small>Eden Secretary offers open times from your calendar: weekdays from tomorrow, a morning and an afternoon time a day</small></span><button type="button" class="switch" role="switch" id="sw-line-booking" aria-checked="true" aria-label="Let callers book a time"></button></div>
       <label class="row" for="line-minutes"><span><strong>Meeting length</strong></span><select id="line-minutes"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option></select></label>
       <div class="row"><span><strong>Offer times between</strong></span><span class="time-range"><input type="time" id="line-start" aria-label="Offer times from" value="09:00"><input type="time" id="line-end" aria-label="Offer times until" value="17:00"></span></div>
-      <div class="row"><span><strong>Book without asking me</strong><small>A time a caller picks goes straight into your calendar, and they hear they’re booked. Off: you say yes first, then Jarvis calls them back to confirm.</small></span><button type="button" class="switch" role="switch" id="sw-line-autobook" aria-checked="false" aria-label="Book without asking me"></button></div>
+      <div class="row"><span><strong>Book without asking me</strong><small>A time a caller picks goes straight into your calendar, and they hear they’re booked. Off: you say yes first, then Eden Secretary calls them back to confirm.</small></span><button type="button" class="switch" role="switch" id="sw-line-autobook" aria-checked="false" aria-label="Book without asking me"></button></div>
     </div>
     <p class="small-status" id="line-note" aria-live="polite"></p>
     <ul id="line-calls" class="folders routine-list line-calls"></ul>
@@ -462,7 +462,7 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
     </button>
   </div>
-  <p class="sheet-intro">Connect your accounts through each service’s official connector. Jarvis reads freely and asks before it changes anything, unless you tell it otherwise. Sign-ins and tokens stay in your Mac’s Keychain.</p>
+  <p class="sheet-intro">Connect your accounts through each service’s official connector. Eden Secretary reads freely and asks before it changes anything, unless you tell it otherwise. Sign-ins and tokens stay in your Mac’s Keychain.</p>
   <p id="accounts-error" class="form-error" hidden></p>
 
   <section class="group">
@@ -500,9 +500,9 @@
       <button type="button" class="bd-icon" id="br-forward" aria-label="Forward"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></button>
       <button type="button" class="bd-icon" id="br-reload" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 11-1.5-3.6M13 2.5v3h-3"/></svg></button>
       <div class="bd-url">
-        <button type="button" id="br-lock" class="bd-lock" hidden aria-pressed="false" title="Your mouse and keyboard work here, and J.A.R.V.I.S. can drive it too. Click to make it J.A.R.V.I.S. only.">
+        <button type="button" id="br-lock" class="bd-lock" hidden aria-pressed="false" title="Your mouse and keyboard work here, and Eden Secretary can drive it too. Click to make it Eden Secretary only.">
           <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" fill="currentColor"/><path id="br-lock-shackle" d="M4 5.5V4a2 2 0 014 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
-          <span id="br-lock-text">You and J.A.R.V.I.S.</span>
+          <span id="br-lock-text">You and Eden Secretary</span>
         </button>
         <label for="br-url" class="sr-only">Address</label>
         <input id="br-url" placeholder="Search or enter an address" spellcheck="false" list="br-suggest" autocomplete="off">
@@ -510,7 +510,7 @@
         <button type="button" class="bd-shield" id="br-shield" hidden aria-pressed="true" aria-label="Ad blocking"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6l5.4 2v4.1c0 3.3-2.3 5.7-5.4 6.7-3.1-1-5.4-3.4-5.4-6.7V3.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span id="br-blocked" data-no-i18n></span></button>
         <button type="button" class="bd-star" id="br-star" aria-pressed="false" aria-label="Bookmark this page" title="Bookmark this page (⌘D)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
       </div>
-      <span id="br-jarvis" class="br-jarvis" hidden>Jarvis is browsing</span>
+      <span id="br-jarvis" class="br-jarvis" hidden>Eden Secretary is browsing</span>
       <span id="br-zoom" class="bd-zoom" hidden></span>
       <button type="button" class="bd-icon" id="br-library" aria-pressed="false" aria-label="Bookmarks" title="Bookmarks"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2.5h7.5a2 2 0 012 2v9H5a2 2 0 01-2-2z"/><path d="M3 11.5a2 2 0 012-2h7.5"/></svg></button>
       <button type="button" class="bd-icon" id="br-history" aria-pressed="false" aria-label="History" title="History (⌘Y)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.7 8.6A5.4 5.4 0 104.2 4.2"/><path d="M2.3 2.4v2.8h2.8"/><path d="M8 5.2V8l2 1.3"/></svg></button>
@@ -641,7 +641,7 @@
               <p class="jc-label">Resume a session</p>
               <ul id="cc-past" data-no-i18n class="jc-past-list"></ul>
             </div>
-            <p class="jc-hint">Say <em>“Jarvis, let’s code in <span class="cc-project-name">this project</span>”</em> · <kbd>/</kbd> commands · <kbd>@</kbd> files · <kbd>⇧</kbd><kbd>Tab</kbd> modes · <kbd>Esc</kbd> interrupt</p>
+            <p class="jc-hint">Say <em>“Eden, let’s code in <span class="cc-project-name">this project</span>”</em> · <kbd>/</kbd> commands · <kbd>@</kbd> files · <kbd>⇧</kbd><kbd>Tab</kbd> modes · <kbd>Esc</kbd> interrupt</p>
           </div>
           <ol id="deck-timeline" class="jc-log" aria-live="polite"></ol>
           <div id="cc-working" class="jc-working" hidden><span class="jc-spark" aria-hidden="true"></span><span id="cc-working-text" class="jc-sheen">Working…</span><span class="jc-dim"><span id="cc-working-time">0s</span> · esc to interrupt</span></div>
@@ -785,7 +785,7 @@
     <p class="hand-help" id="hand-help"></p>
   </div>
 <div id="hand-cursor" class="hand-cursor" hidden></div>
-<div id="offline" class="offline" hidden>Reconnecting to Jarvis…</div>
+<div id="offline" class="offline" hidden>Reconnecting to Eden Secretary…</div>
 <!-- The weather card's pop-out: the same glass, with the hours, the week and the details. -->
 <div id="wx-layer" class="wx-layer" hidden>
   <div class="wx-scrim" id="wx-scrim"></div>
@@ -830,7 +830,7 @@
       </button>
     </header>
     <div class="usage-body" id="usage-body"></div>
-    <p class="usage-foot">Jarvis runs on your Claude subscription, so nothing is billed per token. Costs are Claude Code’s API-price estimate of the same work. Connected accounts: <b id="v-accounts">0</b></p>
+    <p class="usage-foot">Eden Secretary runs on your Claude subscription, so nothing is billed per token. Costs are Claude Code’s API-price estimate of the same work. Connected accounts: <b id="v-accounts">0</b></p>
   </section>
 </div>
 

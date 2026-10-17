@@ -3,7 +3,7 @@
   "productName": "J.A.R.V.I.S.",
   "version": "0.1.8",
   "private": true,
-  "description": "The Jarvis desktop app: an ambient voice assistant for the Mac, and Eden Code, its coding app (flavor.js).",
+  "description": "The Eden Secretary desktop app: an ambient voice assistant for the Mac, and Eden Code, its coding app (flavor.js).",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

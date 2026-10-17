@@ -1,13 +1,13 @@
-// Memory: what the Jarvis app on the owner's Mac remembers about them, as a page of its own —
+// Memory: what the Eden Secretary app on the owner's Mac remembers about them, as a page of its own —
 // search, grouped by topic, where each fact came from (how, when, the words or note it was
 // learned from), inline edit, delete with undo, a switch per fact, and "Eden learned this
 // from…" (the second brain searched for its source). Through POST /api/chat/jarvis:
 // memory_list (free), memory_update / memory_delete / memory_toggle (each confirmed by the
-// owner on a card on their Mac before anything changes). An older Jarvis without those tools
+// owner on a card on their Mac before anything changes). An older Eden Secretary without those tools
 // gets the plain recall list, read-only. Everything shown is data, set as text only.
 // Memory hygiene (N11, memory-model.js): each fact shows how long ago it was learned; one that
 // may have gone stale says "May be out of date" with a "Still true?" that opens the same inline
-// edit (it changes nothing by itself); a fact Jarvis inferred is marked "inferred"; and a
+// edit (it changes nothing by itself); a fact Eden Secretary inferred is marked "inferred"; and a
 // "Needs review" filter lists the stale ones.
 
 import { el, ico, toast, debounce, isMobile } from './util.js';
@@ -17,7 +17,7 @@ import { checkJarvis } from './panels.js';
 import { assess, summarize, WORDS } from './memory-model.js';
 import { locale } from './i18n.js';
 
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 const TOPICS = [
   ['people', 'People'], ['preferences', 'Preferences'], ['work', 'Work'], ['health', 'Health'], ['places', 'Places'], ['other', 'Other'],
@@ -75,7 +75,7 @@ async function load() {
     S.phase = 'ready';
   } catch (e) {
     if (seq !== S.seq) return;
-    // An older Jarvis (before the memory tools): what recall gives, read-only.
+    // An older Eden Secretary (before the memory tools): what recall gives, read-only.
     if (/no tool called|unknown tool|tool must be one of/i.test(e.message)) {
       try {
         const r = await jarvis('recall', { query: '' });

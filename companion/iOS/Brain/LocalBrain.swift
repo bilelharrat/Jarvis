@@ -1,6 +1,6 @@
 import Foundation
 
-/// What Jarvis on the iPhone keeps about the owner, in the App Group container, read into
+/// What Eden Secretary on the iPhone keeps about the owner, in the App Group container, read into
 /// every conversation: facts sorted by what they're about (preferences, people, goals, and
 /// corrections it must never need twice), and which person a short name means ("Ann" is Ann
 /// Lee), learned the first time the owner says which.
@@ -242,15 +242,15 @@ enum BrainSettings {
 
     static var hasAnyKey: Bool { BrainProvider.keyed.contains { key(for: $0) != nil } }
 
-    /// The AI included with a Jarvis account answers when the owner has no Claude key of
-    /// their own: Claude through askeden.com, on Jarvis Plus or the trial.
+    /// The AI included with a Eden Secretary account answers when the owner has no Claude key of
+    /// their own: Claude through askeden.com, on Eden Plus or the trial.
     static var includedAIToken: String? {
         key(for: .claude) == nil ? AccountKeychain.token : nil
     }
 
     static var hasIncludedAI: Bool { includedAIToken != nil }
 
-    /// Jarvis on the iPhone can answer: with a key, the account's included AI, or Apple's
+    /// Eden Secretary on the iPhone can answer: with a key, the account's included AI, or Apple's
     /// own model.
     static var canAnswer: Bool { hasAnyKey || hasIncludedAI || AppleClient.isAvailable }
 
@@ -274,7 +274,7 @@ enum BrainSettings {
     static var prefersPhone: Bool { mode != .mac && (hasAnyKey || (hasIncludedAI && AccountStore.cachedPlus)) }
 
     /// Who answers, in order: the preferred service, then the other, each only with a key;
-    /// then, without a Claude key, Claude on the owner's Jarvis account; then Apple's model,
+    /// then, without a Claude key, Claude on the owner's Eden Secretary account; then Apple's model,
     /// which runs the phone's tools itself (apple: how), when this iPhone has it.
     static func clients(apple: AppleClient.Runner? = nil) -> [any BrainClient] {
         let order = [provider] + BrainProvider.keyed.filter { $0 != provider }
@@ -294,7 +294,7 @@ enum BrainSettings {
     }
 }
 
-/// Which Jarvis answers.
+/// Which Eden Secretary answers.
 enum BrainMode: String, CaseIterable, Identifiable {
     /// The iPhone first, on the owner's own API key: it answers whatever it can and hands
     /// what needs the Mac to the Mac (ask_mac). The Mac answers without a key, or when the
@@ -329,7 +329,7 @@ enum BrainMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// Jarvis running on the iPhone: a conversation with Claude, the phone's own tools, and the
+/// Eden Secretary running on the iPhone: a conversation with Claude, the phone's own tools, and the
 /// facts it remembers. Used when there's no Mac, the Mac can't be reached, or the owner
 /// chose it.
 @MainActor
@@ -347,7 +347,7 @@ final class LocalBrain {
         var pictures: [Data] = []
         /// The names of documents sent with it.
         var files: [String] = []
-        /// A problem the owner fixes by upgrading their Jarvis account (the included AI ran out).
+        /// A problem the owner fixes by upgrading their Eden Secretary account (the included AI ran out).
         var offersUpgrade = false
         /// Who answered when it wasn't the first service asked, and why the others didn't.
         var note: String?
@@ -374,7 +374,7 @@ final class LocalBrain {
     private(set) var chatID = UUID()
     /// A temporary chat: never kept, and nothing in it is remembered.
     private(set) var temporary = false
-    /// Study mode: Jarvis tutors (step by step, checks understanding, quizzes) instead of only answering.
+    /// Study mode: Eden Secretary tutors (step by step, checks understanding, quizzes) instead of only answering.
     private(set) var study = false
 
     /// The phone project this chat is in (its instructions and files go with every request).
@@ -499,11 +499,11 @@ final class LocalBrain {
         self.spoken = spoken
         self.macName = macName
         let clients = BrainSettings.clients(apple: { [weak self] name, input in
-            await self?.runForApple(name, input) ?? "Jarvis stopped."
+            await self?.runForApple(name, input) ?? "Eden Secretary stopped."
         })
         guard !clients.isEmpty else {
             turns.append(Turn(role: .user, text: text, pictures: pictures, files: files))
-            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone, sign in under Settings › Account, or turn on Apple Intelligence, so Jarvis can answer here."))
+            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Eden Secretary on iPhone, sign in under Settings › Account, or turn on Apple Intelligence, so Eden Secretary can answer here."))
             lastFailed = true
             return nil
         }
@@ -734,7 +734,7 @@ final class LocalBrain {
         let honorific = address.map { " Address the owner as \"\($0)\" now and then, not in every reply." }
             ?? " Don't address the owner as sir, madam or any title unless they ask you to."
         let mac = hasMac
-            ? "\nThe owner's Mac (\(macName ?? "their Mac")) runs the full Jarvis, with their files, mail, iMessage, browser, notes and Eden Code. Answer everything you can here; use ask_mac only for what needs the Mac (it opens Jarvis there if it was quit). If it can't be reached, say so plainly and offer what you can do here."
+            ? "\nThe owner's Mac (\(macName ?? "their Mac")) runs the full Eden Secretary, with their files, mail, iMessage, browser, notes and Eden Code. Answer everything you can here; use ask_mac only for what needs the Mac (it opens Eden Secretary there if it was quit). If it can't be reached, say so plainly and offer what you can do here."
             : "\nThere's no Mac paired, so you work from the iPhone alone. If something needs a computer, say so."
         return """
         You are J.A.R.V.I.S., the owner's personal assistant, running on their iPhone.\(honorific)

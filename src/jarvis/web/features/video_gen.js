@@ -30,7 +30,7 @@
   function showVideo(ev) {
     const card = el('div', 'card plain vid-card');
     const saved = el('div', 'card-text vid-saved');
-    saved.append(document.createTextNode(F.t('Saved in Documents › Jarvis › Videos as') + ' '), mine(el('span', '', ev.name || '')));
+    saved.append(document.createTextNode(F.t('Saved in Documents › Eden Secretary › Videos as') + ' '), mine(el('span', '', ev.name || '')));
     const price = el('div', 'card-text vid-saved');  // the backend's words, in the owner's language
     price.append(document.createTextNode(F.t('Estimated, billed to your Gemini key:') + ' '), mine(el('span', '', ev.cost || '')));
     card.append(el('div', 'card-kicker', 'Video'), mine(el('div', 'card-title vid-prompt', ev.prompt || '')), saved, price);
@@ -59,7 +59,7 @@
     const row = el('label', 'row stack');
     row.htmlFor = 'video-model';
     const words = el('span');
-    words.append(el('strong', '', 'Video model'), el('small', '', 'A Google Veo model. Google charges by the second of video; Jarvis shows the estimate and asks before each one.'));
+    words.append(el('strong', '', 'Video model'), el('small', '', 'A Google Veo model. Google charges by the second of video; Eden Secretary shows the estimate and asks before each one.'));
     const input = el('input');
     input.id = 'video-model';
     input.type = 'text';
@@ -81,7 +81,7 @@
     const status = F.$('videos-status');
     if (videos.key) {
       status.replaceChildren(
-        document.createTextNode(F.t('Ask for a short video and Jarvis makes it with Google Veo on your Gemini key, after you OK the estimated price:') + ' '),
+        document.createTextNode(F.t('Ask for a short video and Eden Secretary makes it with Google Veo on your Gemini key, after you OK the estimated price:') + ' '),
         mine(el('span', '', videos.cost || '')),
       );
     } else {

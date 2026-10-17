@@ -41,13 +41,13 @@ final class ShareModel {
     func load() async {
         do {
             guard let loaded = try await Self.read(providers) else {
-                phase = .failed("J.A.R.V.I.S. can take links, text, photos and files.")
+                phase = .failed("Eden Secretary can take links, text, photos and files.")
                 return
             }
             item = loaded.item
             title = loaded.title
             preview = loaded.preview
-            phase = pairingMissing ? .failed("Open J.A.R.V.I.S. and pair it with your Mac first.") : .ready
+            phase = pairingMissing ? .failed("Open Eden Secretary and pair it with your Mac first.") : .ready
         } catch let error as ShareProblem {
             phase = .failed(error.message)
         } catch {
@@ -114,14 +114,14 @@ final class ShareModel {
         guard var item, phase == .ready || isFailedSend else { return }
         item.note = note.trimmed.isEmpty ? nil : note.trimmed
         guard let pairing = PairingStore.load(), pairing.isPinned else {
-            phase = .failed("Open J.A.R.V.I.S. and pair it with your Mac first.")
+            phase = .failed("Open Eden Secretary and pair it with your Mac first.")
             return
         }
         phase = .sending
         do {
             let result = try await pairing.api.share(item)
             if result.asked {
-                phase = .sent("Jarvis is on it. The answer will be in J.A.R.V.I.S.")
+                phase = .sent("Eden Secretary is on it. The answer will be in Eden Secretary.")
             } else if let saved = result.savedAs {
                 phase = .sent("Saved on your Mac as \(saved).")
             } else {

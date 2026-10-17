@@ -116,3 +116,12 @@ button.sitem{width:100%;text-align:left}
 /* a skip link for keyboard and screen-reader users (Q9): hidden until focused */
 .edu-skip{position:fixed;z-index:200;left:12px;top:-60px;padding:8px 14px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;text-decoration:none;transition:top .15s}
 .edu-skip:focus{top:max(10px,env(safe-area-inset-top))}
+
+/* the floating notebook (edu-app.js nbDraggable): dragged by its header, resized by its corner */
+#notebookPane .stu-head{cursor:grab;touch-action:none}
+#notebookPane .nb-grip{display:none}
+#notebookPane.nb-float{position:fixed;z-index:58;margin:0;transform:none;flex:none;max-width:none;transition:opacity .25s ease;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+body:not(.notebook-open) #notebookPane.nb-float{opacity:0;pointer-events:none}
+#notebookPane.nb-float .nb-grip{display:block;position:absolute;right:3px;bottom:3px;width:22px;height:22px;cursor:nwse-resize;touch-action:none;
+  background:linear-gradient(135deg,transparent 52%,var(--text3) 52% 58%,transparent 58% 70%,var(--text3) 70% 76%,transparent 76%);opacity:.6;border-radius:0 0 var(--r-lg) 0}
+@media (max-width:760px){#notebookPane .stu-head{cursor:auto}#notebookPane.nb-float{height:auto!important;left:8px!important;top:max(8px,env(safe-area-inset-top))!important}#notebookPane.nb-float .nb-grip{display:none}}

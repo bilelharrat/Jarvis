@@ -7,7 +7,8 @@
 //     (POST /api/web/link/poll) and the device's token becomes the session cookie.
 //   - Sign in with Apple (a Services ID, WEB_APPLE_SERVICES_ID) and Sign in with Google
 //     (GOOGLE_CLIENT_ID + the secret GOOGLE_CLIENT_SECRET; eden/google.js): the identity opens
-//     its account (accounts/index.js accountForIdentity), a new one for a first-time sign-in.
+//     its account (accounts/index.js accountForIdentity), a new one for a first-time sign-in (asked
+//     first, in a browser that was signed in to an account before: LAST_COOKIE, newAccountChoice).
 //     `?link=1` from a signed-in browser adds the identity to that browser's account instead.
 //   - A passkey (WebAuthn; accounts/webauthn.js): POST /api/web/passkey/options, then
 //     /api/web/passkey/verify. Sign in with one, make an account with one (sign-up), or add one to
@@ -29,15 +30,18 @@ import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.
 import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
 import { cleanCode, newCode } from '../accounts/link.js';
-import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, safeDecode, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
+import { ApiError, accountCode, accountIdFor, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, safeDecode, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
 import { SIGN_IN_SCOPES, buildAuthUrl, exchangeCode, googleReady, pkcePair, verifyIdToken } from './google.js';
 import { qrRows } from './qr.js';
+import { androidOrigins } from './android.js';
 import { edenSyncApi } from '../accounts/eden-sync.js';
 import { chatMergeApi, chatSyncApi, mintMergeToken } from '../accounts/chat-sync.js';
+import { essaySyncApi } from '../accounts/essay-sync.js';
 import { actingSession, actingView, delegatesApi, endActing } from '../accounts/delegates.js';
 import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
 import { safeReturn } from '../../public/signin/return.js';
+import { where } from '../stats/stats.js';
 import {
   APPLE_COOKIE,
   LINK_COOKIE,
@@ -61,6 +65,19 @@ export const GOOGLE_CALLBACK = '/api/web/google/callback';
 // Google comes back with a top-level GET from its own site: SameSite=Lax is enough (and the
 // least this cookie can be). Apple's form_post needs None (web.js APPLE_COOKIE).
 export const GOOGLE_COOKIE = '__Host-eden-google';
+// This browser's last way in, kept after signing out (docs/web-auth.md "Which account this browser was in"):
+// `<apple|google|passkey|code>.<account code>` (util.js accountCode, no dash), set at every sign-in in a browser
+// (never the apps' handoff). Nothing secret, and never trusted to open anything: /signin says "You last signed in
+// here with Apple", and a first-time Apple or Google sign-in asks before it makes a second account.
+export const LAST_COOKIE = '__Host-eden-last';
+const LAST_SECONDS = 400 * 86400; // the longest a browser keeps a cookie
+// What the cookie changes in sign-in (/signin's "You last signed in here with…" and the question before a second
+// account) is held until EDEN_SIGNIN_CHOICE = "on" (wrangler.toml): it changes sign-in, so it waits for Eden for
+// iPhone to pass App Review. Off, sign-in is as before; the cookie is still set, so browsers have it when it's on.
+const signinChoiceOn = (env) => String(env.EDEN_SIGNIN_CHOICE || '').trim().toLowerCase() === 'on';
+// A first-time sign-in waiting on that choice: the key of `newacct:<key>` (LINKS, ten minutes, taken once).
+export const NEW_COOKIE = '__Host-eden-new';
+export const NEW_ACCOUNT = '/api/web/signin/create';
 
 // ── who's signed in ──
 
@@ -125,7 +142,11 @@ export async function web(request, env, ctx, path) {
   const method = request.method;
   try {
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
-    if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env) });
+    if (path === '/api/web/config' && method === 'GET') {
+      const last = signinChoiceOn(env) ? lastSignIn(request) : null; // `last`: this browser's last way in, for /signin to point it out
+      return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env), ...(last ? { last } : {}) });
+    }
+    if (path === NEW_ACCOUNT && method === 'POST') return await newAccountChosen(request, env);
     if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
     if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
     // The Eden iOS app's own passkey sheet (no web view): the same ceremony, ending in a handoff code.
@@ -160,7 +181,7 @@ export async function web(request, env, ctx, path) {
     // Back from Stripe (another site, so no Strict cookie yet): a page that moves on (billing.js).
     if (path === '/api/web/billing/return' && method === 'GET') return billingReturn(request);
     // Eden sync (H1), delegates (H14), team spaces (G8): the browser's own session, never a delegate's.
-    const extra = /^\/api\/web\/(esync|csync|merge|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
+    const extra = /^\/api\/web\/(esync|csync|essays|merge|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
     if (extra) return await accountExtras(request, env, extra[1], extra[2] || '');
     throw new ApiError(404, 'not_found', 'No such thing here.');
   } catch (error) {
@@ -235,7 +256,7 @@ async function linkPoll(request, env) {
     await call(env, token.account, 'device-delete', { id: 'me' }, token).catch(() => {});
     return withCookies(problem(403, "Eden on the web isn't open to this account yet.", 'not_allowed'), clearCookie(LINK_COOKIE));
   }
-  return withCookies(json({ status: 'signed_in' }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }), clearCookie(LINK_COOKIE));
+  return withCookies(json({ status: 'signed_in' }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }), clearCookie(LINK_COOKIE), await lastCookie('code', token.account));
 }
 
 // ── the signed-in browser's own account ──
@@ -259,6 +280,7 @@ async function session(request, env) {
   return json({
     signed_in: true,
     account_id: who.account,
+    account_code: await accountCode(who.account), // the same on every device of this account (util.js)
     device: { id: who.device.id, name: who.device.name, expires: who.device.expires || null },
     plan: grant ? grant.plan : account.plan,
     usage: grant ? grant.usage : account.usage,
@@ -274,6 +296,7 @@ async function accountView(request, env) {
   const as = await actingSession(request, env, who);
   return json({
     account_id: who.account,
+    account_code: await accountCode(who.account), // the same on every device of this account (util.js), to compare them at a glance
     acting: as && !as.ended ? actingView(as) : null,
     acting_ended: Boolean(as && as.ended),
     plan: account.plan,
@@ -308,7 +331,7 @@ async function deleteWebAccount(request, env) {
   await limited(env, 'AUTH_RATE', `delete:${who.account}`);
   await eraseAccount(env, who.account, who.token, { confirm: body.confirm });
   forgetSessions(who.account);
-  return withCookies(noContent(), clearCookie(SESSION_COOKIE));
+  return withCookies(noContent(), clearCookie(SESSION_COOKIE), clearCookie(LAST_COOKIE, 'Lax')); // "last signed in here" named an account that's gone
 }
 
 async function signOut(request, env) {
@@ -320,13 +343,39 @@ async function signOut(request, env) {
   return withCookies(noContent(), clearCookie(SESSION_COOKIE), await endActing(request, env)); // and any delegate's session it held
 }
 
-// /api/web/esync, /api/web/deleg, /api/web/space (accounts/eden-sync.js, delegates.js,
-// space.js): a fresh check of this browser's own session; the acting one only to report it.
+export const OTHER_ACCOUNT = 'This browser is now signed in to another Eden account. Reload the page.';
+
+// /api/web/csync, /esync: the sync ops check the device in the account themselves (account.authenticate, with the
+// cookie's token), so the isolate's checked session (30 s) is enough before them: one call to the account per request
+// instead of two (a first upload is thousands, every device lists every 30 s). A sign-out shows as the op's 401,
+// which clears the cookie as signedIn's would.
+async function syncRoute(request, env, area, op) {
+  const { session: cached } = await currentSession(request, env);
+  const who = cached || (await signedIn(request, env));
+  // The account the page syncs for (X-Eden-Account, Eden's cloud-sync.js and sync.js). A browser has one cookie, so a
+  // tab left open on account A, after another tab signed in as B, sent A's chats into B (its put found no row, and
+  // the conflict put it back up). That page stops and is told to reload; a page that doesn't say (older) goes on.
+  const expected = request.headers.get('x-eden-account');
+  if (expected && expected !== who.account) throw new ApiError(409, 'other_account', OTHER_ACCOUNT);
+  try {
+    if (area === 'esync') return await edenSyncApi(request, env, who, op);
+    if (area === 'essays') return await essaySyncApi(request, env, who, op); // the essay writer's essays, sealed as chats are (essay-sync.js)
+    return await chatSyncApi(request, env, who, op);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      recent.delete(`${who.token.account}.${who.token.device}.${who.token.secret}`);
+      throw new ApiError(401, 'signed_out', 'This browser is signed out of Eden.', { 'set-cookie': clearCookie(SESSION_COOKIE) });
+    }
+    throw error;
+  }
+}
+
+// /api/web/deleg, /api/web/space (accounts/delegates.js, space.js), /api/web/merge: a fresh check of this
+// browser's own session; the acting one only to report it.
 async function accountExtras(request, env, area, op) {
+  if (area === 'csync' || area === 'esync' || area === 'essays') return syncRoute(request, env, area, op);
   const who = await signedIn(request, env);
   const origin = new URL(request.url).origin;
-  if (area === 'esync') return edenSyncApi(request, env, who, op);
-  if (area === 'csync') return chatSyncApi(request, env, who, op);
   if (area === 'merge') return chatMergeApi(request, env, who, op);
   const found = await actingSession(request, env, who);
   const acting = found && !found.ended ? found : null;
@@ -389,7 +438,7 @@ async function linkMac(request, env, rawCode, action) {
   const left = WEB_LINK_MAC_MS - (Date.now() - (who.device.created || 0));
   if (!action) return json({ code, name: link.name, kind: 'mac', expires_in: link.expires_in, fresh: left > 0 });
   if (left <= 0) throw new ApiError(403, 'sign_in_again', WEB_LINK_MAC_STALE);
-  const made = await call(env, who.account, 'add-device', { name: link.name, kind: 'mac', app_version: link.app_version }, who.token);
+  const made = await call(env, who.account, 'add-device', { name: link.name, kind: 'mac', app_version: link.app_version, edition: link.edition }, who.token);
   try {
     await callLink(env, code, 'approve', { result: { token: made.token, account_id: made.account_id, device_id: made.device_id, sealed_key: null, sender_key: null } });
   } catch (error) {
@@ -501,7 +550,37 @@ async function providerAttempt(request, env, form = null) {
     await callLink(env, `oauth:${state}`, 'stash', { value: { account: who.account, device: who.device.id }, seconds: STATE_SECONDS });
   }
   if (human) await callLink(env, `human:${state}`, 'stash', { value: { ok: true }, seconds: HUMAN_SECONDS });
+  // This browser's last way in, read here (a request from this site, so its cookie comes along; Apple's callback is a
+  // cross-site POST, which never brings it) and kept for this attempt (`prior:<state>`): should the callback be about
+  // to make a new account, it asks first (finish). Not in link mode, nor for the apps' own flows (`?app=1`), nor while held.
+  const prior = signinChoiceOn(env) && !link && !(request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1') ? lastSignIn(request) : null;
+  if (prior) await callLink(env, `prior:${state}`, 'stash', { value: prior, seconds: STATE_SECONDS });
   return { state, nonce, link, back: link ? '/' : form ? safeReturn(form.get('return')) : returnOf(request) };
+}
+
+/** The last way in this attempt's browser had when it started (providerAttempt), or null. */
+async function priorFor(env, state) {
+  try {
+    return (await callLink(env, `prior:${state}`, 'take')).body.value || null;
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return null;
+  }
+}
+
+// ── which account this browser was in (LAST_COOKIE) ──
+
+const LAST_VALUE = /^(apple|google|passkey|code)\.([0-9A-HJKMNP-TV-Z]{6})$/;
+
+/** This browser's last sign-in, from its cookie: { method, code } (code as K7Q-M4Z), or null. */
+export function lastSignIn(request) {
+  const m = LAST_VALUE.exec(String(cookies(request)[LAST_COOKIE] || ''));
+  return m ? { method: m[1], code: `${m[2].slice(0, 3)}-${m[2].slice(3)}` } : null;
+}
+
+/** The cookie a sign-in in a browser sets: how (`method`) and which account. Lax: a link from elsewhere to /signin still brings it. */
+async function lastCookie(method, accountId) {
+  return cookie(LAST_COOKIE, `${method}.${(await accountCode(accountId)).replace('-', '')}`, { maxAge: LAST_SECONDS, sameSite: 'Lax' });
 }
 
 /** Before a provider sign-in makes a new account: this attempt passed Turnstile at its start (when it's on). */
@@ -549,22 +628,112 @@ async function finish(request, env, { provider, sub, email, state, link, back = 
     }
     return ending({ link: true });
   }
-  const made = await signInBrowser(request, env, { provider, sub, email, beforeCreate: () => humanFor(env, state) });
-  return withCookies(ending({ back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }));
+  // About to make a new account in a browser that was in another one before (the attempt's `prior`): the person
+  // check first, as ever, then a page that asks which they meant, rather than a second, empty account made silently.
+  // A browser that never signed in here (App Review's, a new person's) goes straight on, as before; so does every
+  // browser while the question is held (signinChoiceOn).
+  let made;
+  try {
+    made = await signInBrowser(request, env, { provider, sub, email, beforeCreate: async () => {
+      await humanFor(env, state);
+      const prior = signinChoiceOn(env) ? await priorFor(env, state) : null;
+      if (prior) throw new AskFirst(prior);
+    } });
+  } catch (error) {
+    if (error instanceof AskFirst) return newAccountChoice(env, { provider, sub, email, back, prior: error.prior });
+    throw error;
+  }
+  return withCookies(ending({ back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }), await lastCookie(provider, made.account_id));
 }
 
 const PROVIDER_NAME = { apple: 'Apple', google: 'Google', passkey: 'passkey' };
 
-/** A browser device on the account this identity opens (made now if it's the first time). */
-async function signInBrowser(request, env, { provider, sub, email, label = PROVIDER_NAME[provider], cred = null, beforeCreate = null }) {
-  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip: clientIp(request), cred, beforeCreate });
+/** A browser device on the account this identity opens (made now if it's the first time). `subHash` + `derived`: one kept by its hash (newAccountChosen). */
+async function signInBrowser(request, env, { provider, sub = null, subHash = null, derived, email, label = PROVIDER_NAME[provider], cred = null, beforeCreate = null }) {
+  const { account_id } = await accountForIdentity(env, { provider, sub, subHash, derived, email, ip: clientIp(request), cred, beforeCreate, geo: where(request) });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
   return call(env, account_id, 'web-signin', {
     account_id,
     create: true,
-    identity: { provider, sub_hash: await subHashOf(provider, sub), email },
+    identity: { provider, sub_hash: subHash || (await subHashOf(provider, sub)), email },
     device: { name: browserName(request), app_version: `askeden.com (${label})` },
   });
+}
+
+// ── a first-time Apple or Google sign-in in a browser that was in another account ──
+//
+// Each way in is its own account until it's added to one (accounts/index.js), so a returning person who picks
+// Google where they used Apple would land in a new, empty account and think their chats were lost. finish() stops
+// there (AskFirst, before any account is made) and shows this page: sign in the way they did before, or make the
+// new account. The verified sign-in waits server-side (`newacct:<key>`, ten minutes, taken once) by its hash, never
+// its raw id; the browser holds only the key, in an HttpOnly cookie. Nothing from the page or its form is trusted
+// for which account: "Create" finishes exactly the sign-in that was verified.
+
+/** Thrown by a sign-in's beforeCreate to stop before a new account is made, and ask (`prior`: the browser's last way in). */
+class AskFirst {
+  constructor(prior) {
+    this.prior = prior;
+  }
+}
+
+// The choice page posts its one form here: SIGNIN_CSP, with form-action 'self'.
+const CHOICE_CSP = SIGNIN_CSP.replace("form-action 'none'", "form-action 'self'");
+const METHOD_WORDS = { apple: 'Apple', google: 'Google', passkey: 'a passkey', code: 'a code from the Eden app' };
+const IDENTITY_WORDS = { apple: 'Apple ID', google: 'Google account' };
+
+async function newAccountChoice(env, { provider, sub, email, back, prior }) {
+  const key = b64url(randomBytes(32));
+  const derived = provider === 'apple' ? await accountIdFor(sub) : null;
+  await callLink(env, `newacct:${key}`, 'stash', { value: { provider, sub_hash: await subHashOf(provider, sub), derived, email, back }, seconds: STATE_SECONDS });
+  return withCookies(choicePage({ provider, prior, back }), cookie(NEW_COOKIE, key, { maxAge: STATE_SECONDS }));
+}
+
+function choicePage({ provider, prior, back }) {
+  const name = PROVIDER_NAME[provider];
+  const ret = back && back !== '/' ? `?return=${encodeURIComponent(back)}` : '';
+  const same = prior.method === provider;
+  const before = same ? `another ${IDENTITY_WORDS[provider]}` : METHOD_WORDS[prior.method];
+  // The way they used before: Apple and Google start at once (an existing account needs no person check); a passkey
+  // or a code is on /signin.
+  const instead = PROVIDERS.has(prior.method)
+    ? { href: `/api/web/${prior.method}${ret}`, words: same ? `Use another ${IDENTITY_WORDS[provider]}` : `Sign in with ${PROVIDER_NAME[prior.method]} instead` }
+    : { href: `/signin${ret}`, words: prior.method === 'passkey' ? 'Sign in with a passkey instead' : 'Sign in with a code instead' };
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark"><meta name="robots" content="noindex, nofollow"><title>Sign in to Eden</title>
+<link rel="stylesheet" href="/signin/signin.css"><script src="/lang/site-i18n.js" data-page="signin"></script></head>
+<body><main class="card choice" aria-labelledby="title"><div class="orb" aria-hidden="true"></div>
+<h1 id="title">This ${escapeHtml(IDENTITY_WORDS[provider])} isn’t connected to an Eden account</h1>
+<p class="lead">You last signed in here with ${escapeHtml(before)} (account ${escapeHtml(prior.code)}).</p>
+<p class="lead">Continuing with ${escapeHtml(name)} makes a new Eden account, separate from that one: it starts empty, without its chats or plan.</p>
+<p><a class="button" id="instead" href="${escapeHtml(instead.href)}">${escapeHtml(instead.words)}</a></p>
+<form method="post" action="${NEW_ACCOUNT}"><button type="submit" class="button ghost" id="create">Create a new Eden account</button></form>
+<p class="fine">Each way of signing in opens its own Eden account until you add it to one, in Account › Ways to sign in. To use ${escapeHtml(name)} with the account you have, sign in the way you did before, then add ${escapeHtml(name)} there.</p>
+</main></body></html>`;
+  return page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), CHOICE_CSP);
+}
+
+/** "Create a new Eden account" on that page: the sign-in it kept, finished as it would have been without the question. */
+async function newAccountChosen(request, env) {
+  ownPage(request);
+  const clear = clearCookie(NEW_COOKIE);
+  let kept = null;
+  try {
+    await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
+    const key = String(cookies(request)[NEW_COOKIE] || '');
+    if (!/^[A-Za-z0-9_-]{43}$/.test(key)) throw new ApiError(400, 'expired', 'That took too long. Sign in again.');
+    try {
+      kept = (await callLink(env, `newacct:${key}`, 'take')).body.value;
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      throw new ApiError(400, 'expired', 'That took too long. Sign in again.');
+    }
+    // The person check passed before the question (finish); the rest is any first sign-in's: sign-ups open, the rate.
+    // Made since (another tab added this sign-in to an account): that account opens, and nothing new is made.
+    const made = await signInBrowser(request, env, { provider: kept.provider, subHash: kept.sub_hash, derived: kept.derived, email: kept.email });
+    return withCookies(ending({ back: kept.back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }), await lastCookie(kept.provider, made.account_id), clear);
+  } catch (error) {
+    return withCookies(failed(error, { provider: kept ? kept.provider : '', back: kept ? kept.back : '/' }), clear);
+  }
 }
 
 const redirect = (location) => new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store' } });
@@ -575,7 +744,11 @@ const linkMode = (request) => new URL(request.url).searchParams.get('link') === 
 async function appleStart(request, env) {
   const form = await startForm(request);
   const mode = { provider: 'apple', link: linkMode(request), back: form ? safeReturn(form.get('return')) : returnOf(request) };
-  if (!appleReady(env)) return ending({ ...mode, error: 'not_set_up' });
+  // The Eden Android app (`?app=1`, a GET from its Custom Tab): Android has no native Sign in with
+  // Apple, so it opens Apple's web sign-in; the callback ends on the app's own scheme with a one-time
+  // handoff code (as Google's `?app=1` does for both apps).
+  const app = !mode.link && request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1';
+  if (!appleReady(env)) return app ? toApp({ error: 'not_set_up' }) : ending({ ...mode, error: 'not_set_up' });
   let attempt;
   try {
     attempt = await providerAttempt(request, env, form);
@@ -594,27 +767,30 @@ async function appleStart(request, env) {
   }).toString();
   // Apple posts back from its own site: this one cookie has to come along (SameSite=None),
   // and it holds nothing but this attempt's state, nonce, mode and where to go back to.
-  return withCookies(redirect(to.toString()), cookie(APPLE_COOKIE, withReturn(`${state}.${nonce}.${link ? 'l' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'None' }));
+  return withCookies(redirect(to.toString()), cookie(APPLE_COOKIE, withReturn(`${state}.${nonce}.${link ? 'l' : app ? 'a' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'None' }));
 }
 
 async function appleCallback(request, env) {
   const clear = clearCookie(APPLE_COOKIE, 'None');
   const [state = '', nonce = '', flag = 's', packed = ''] = String(cookies(request)[APPLE_COOKIE] || '').split('.');
   const mode = { provider: 'apple', link: flag === 'l', back: flag === 'l' ? '/' : unpackReturn(packed) };
-  if (!appleReady(env)) return withCookies(ending({ ...mode, error: 'not_set_up' }), clear);
+  const app = flag === 'a'; // the Android app's Custom Tab (appleStart ?app=1): ends on its scheme
+  if (!appleReady(env)) return withCookies(app ? toApp({ error: 'not_set_up' }) : ending({ ...mode, error: 'not_set_up' }), clear);
   let form;
   try {
     form = new URLSearchParams(await request.text());
   } catch {
     form = new URLSearchParams();
   }
-  if (form.get('error')) return withCookies(ending({ ...mode, error: 'cancelled' }), clear); // user_cancelled_authorize
-  if (!state || !nonce || !sameText(form.get('state') || '', state)) return withCookies(ending({ ...mode, error: 'state' }), clear);
+  if (form.get('error')) return withCookies(app ? toApp({ error: 'cancelled' }) : ending({ ...mode, error: 'cancelled' }), clear); // user_cancelled_authorize
+  if (!state || !nonce || !sameText(form.get('state') || '', state)) return withCookies(app ? toApp({ error: 'state' }) : ending({ ...mode, error: 'state' }), clear);
   try {
     await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
     const claims = await verifyIdentityToken(form.get('id_token'), nonce, { audience: env.WEB_APPLE_SERVICES_ID, now: Date.now() / 1000 });
+    if (app) return withCookies(await appHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null }), clear);
     return withCookies(await finish(request, env, { provider: 'apple', sub: claims.sub, email: null, state, link: mode.link, back: mode.back }), clear);
   } catch (error) {
+    if (app) return withCookies(toApp({ error: errorCode(error) }), clear);
     return withCookies(failed(error, mode), clear);
   }
 }
@@ -773,7 +949,8 @@ async function passkeyVerify(request, env, { native = false } = {}) {
   const url = new URL(request.url);
   if (issued.rpId !== url.hostname || issued.origin !== url.origin) throw new ApiError(400, 'passkey', 'That passkey request was for another site.');
   if (Boolean(issued.native) !== native) throw new ApiError(400, 'expired', 'That passkey request was started elsewhere. Try again.');
-  const where = { challenge, origin: url.origin, rpId: url.hostname };
+  // The app's own sheet: on Android its origin is the app's signing key (eden/android.js), not the site's.
+  const where = { challenge, origin: native ? [url.origin, ...androidOrigins(env)] : url.origin, rpId: url.hostname };
   const back = safeReturn(body.return);
 
   if (issued.mode === 'signin') {
@@ -791,7 +968,7 @@ async function passkeyVerify(request, env, { native = false } = {}) {
       identity: { provider: 'passkey', sub_hash: subHash, email: null },
       device: { name: browserName(request), app_version: 'askeden.com (passkey)' },
     });
-    return withCookies(json({ signed_in: true, to: back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }));
+    return withCookies(json({ signed_in: true, to: back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }), await lastCookie('passkey', found.account_id));
   }
 
   const made = await verifyRegistration({ credential, ...where });
@@ -808,7 +985,7 @@ async function passkeyVerify(request, env, { native = false } = {}) {
   if ((await callIdentity(env, 'passkey', subHash, 'get')).state !== 'none') throw new ApiError(409, 'identity_taken', 'This passkey is already used by an Eden account. Sign in with it instead.');
   if (native) return json({ handoff: await stashHandoff(request, env, { provider: 'passkey', sub: made.id, email: null, cred }), created: true, expires_in: HANDOFF_SECONDS });
   const opened = await signInBrowser(request, env, { provider: 'passkey', sub: made.id, email: null, cred });
-  return withCookies(json({ signed_in: true, created: true, to: back }), cookie(SESSION_COOKIE, opened.token, { maxAge: SESSION_SECONDS }));
+  return withCookies(json({ signed_in: true, created: true, to: back }), cookie(SESSION_COOKIE, opened.token, { maxAge: SESSION_SECONDS }), await lastCookie('passkey', opened.account_id));
 }
 
 // ── the Eden iOS app: native Sign in with Apple, handed to its web view ──
@@ -849,7 +1026,7 @@ function noSiwaKeyOnce() {
  */
 async function stashHandoff(request, env, { provider, sub, email, cred = null, appleGrant = null }) {
   const ip = clientIp(request);
-  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, cred, beforeCreate: () => nativeNewAccount(env, ip) });
+  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, cred, beforeCreate: () => nativeNewAccount(env, ip), geo: where(request) });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
   const grant = appleGrant ? await appleGrant() : null;
   return stashCode(env, { account_id, provider, sub_hash: await subHashOf(provider, sub), email, ...(grant ? { apple_grant: grant } : {}) });

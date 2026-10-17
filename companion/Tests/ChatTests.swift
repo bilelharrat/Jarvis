@@ -1,7 +1,7 @@
 import XCTest
 @testable import JarvisCompanion
 
-/// Chats with Jarvis on the iPhone: kept, found, renamed, pinned, picked up, temporary; and
+/// Chats with Eden Secretary on the iPhone: kept, found, renamed, pinned, picked up, temporary; and
 /// replies laid out from Markdown; and documents read for the brain.
 @MainActor
 final class ChatTests: XCTestCase {

@@ -1,4 +1,4 @@
-// "Do this on a website" (ROADMAP H6): Jarvis's browser agent, driven from Eden. browser_task
+// "Do this on a website" (ROADMAP H6): Eden Secretary's browser agent, driven from Eden. browser_task
 // asks the owner on their Mac first (a card), then works in its own tab of the built-in browser;
 // this panel shows each step as it happens, the page it's on (a small picture only if the owner
 // chose that on the card), and the cards waiting on the Mac: purchases, sign-ins, sends and

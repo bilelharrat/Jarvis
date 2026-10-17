@@ -67,7 +67,7 @@ DATA = {
 
 
 class Server:
-    """Oura's token endpoint and API, as far as JARVIS uses them."""
+    """Oura's token endpoint and API, as far as Jarvis uses them."""
 
     def __init__(self):
         self.tokens_given = []

@@ -5,8 +5,8 @@
 // search, the address bar's list (open tabs, bookmarks, history), the library's bookmarks in
 // folders, the page's ⋯ menu (a private tab, split view, save as PDF, open in the default
 // browser), split view's right pane, and Settings › Browser (the search engine, reopening
-// tabs, importing from another browser, clearing site data, JARVIS browsing signed out, each
-// site's permissions). Only in the J.A.R.V.I.S. app, where the built-in browser is.
+// tabs, importing from another browser, clearing site data, Eden Secretary browsing signed out, each
+// site's permissions). Only in the Eden Secretary app, where the built-in browser is.
 (() => {
   // ── pure helpers (tests/web/browser-window.test.mjs requires this file for them) ──
 
@@ -67,7 +67,7 @@
   function importError(ev) {
     const name = ev && ev.name;
     switch (ev && ev.error) {
-      case 'full_disk_access': return 'Safari keeps its bookmarks and history private. Allow J.A.R.V.I.S. in System Settings › Privacy & Security › Full Disk Access, then import again.';
+      case 'full_disk_access': return 'Safari keeps its bookmarks and history private. Allow Eden Secretary in System Settings › Privacy & Security › Full Disk Access, then import again.';
       case 'not_found': if (name) return `${name} has nothing to import on this Mac.`; break;
       case 'unreadable': if (name) return `${name}’s bookmarks and history couldn’t be read.`; break;
       default: break;
@@ -310,7 +310,7 @@
   function decorateTab(tab, t) {
     tab.classList.toggle('pinned', Boolean(t.pinned));
     if (t.pinned) tab.prepend(tabIcon(t));
-    // A private tab, and JARVIS's own signed-out profile, each look their part.
+    // A private tab, and Eden Secretary's own signed-out profile, each look their part.
     if (t.split) tab.classList.add(`bp-split-${t.split}`);
     if (t.popout) {
       // In a window of its own: a click brings that window forward.
@@ -326,8 +326,8 @@
       tab.classList.add(`bp-${kind}`);
       const mark = F.el('span', 'bp-tab-mark');
       mark.append(svg(ICONS[kind], 13));
-      mark.title = t.private ? 'Private: nothing it visits or keeps stays after it closes' : 'JARVIS’s own profile, signed out of your sites';
-      mark.setAttribute('aria-label', t.private ? 'Private' : 'JARVIS’s own profile');
+      mark.title = t.private ? 'Private: nothing it visits or keeps stays after it closes' : 'Eden Secretary’s own profile, signed out of your sites';
+      mark.setAttribute('aria-label', t.private ? 'Private' : 'Eden Secretary’s own profile');
       tab.insertBefore(mark, tab.querySelector('.bd-tab-title'));
     }
     if (t.audible || t.muted) {
@@ -829,13 +829,13 @@
   function agentRow() {
     const row = F.el('div', 'row');
     const words = F.el('span');
-    words.append(F.el('strong', '', 'JARVIS browses signed out'), F.el('small', '', 'The tabs JARVIS opens for itself use a profile of their own, with none of your sign-ins or cookies'));
+    words.append(F.el('strong', '', 'Eden Secretary browses signed out'), F.el('small', '', 'The tabs Eden Secretary opens for itself use a profile of their own, with none of your sign-ins or cookies'));
     const sw = F.el('button', 'switch');
     sw.id = 'sw-bp-agent';
     sw.type = 'button';
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-checked', 'false');
-    sw.setAttribute('aria-label', 'JARVIS browses signed out');
+    sw.setAttribute('aria-label', 'Eden Secretary browses signed out');
     sw.addEventListener('click', async () => {
       const on = sw.getAttribute('aria-checked') !== 'true';
       sw.setAttribute('aria-checked', String(on));

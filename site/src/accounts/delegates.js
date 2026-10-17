@@ -341,7 +341,7 @@ async function grantSession(account, { type, id, account: who, label, features: 
     throw bad('type must be "delegate" or "space".');
   }
   await dropDevices(account, (g) => g.type === grant.type && g.id === grant.id && g.account === who);
-  const made = await account.makeDevice((await account.storage.get('account')).id, { name: `${type === 'space' ? 'Space' : 'Delegate'}: ${grant.label}`, kind: 'web', app_version: 'askeden.com (grant)' });
+  const made = await account.makeDevice((await account.storage.get('account')).id, { name: `${type === 'space' ? 'Space' : 'Delegate'}: ${grant.label}`, kind: 'web', app_version: 'askeden.com (grant)' }, { grant: true });
   made.device.grant = grant;
   made.device.expires = expires;
   await account.storage.put(`dev:${made.device.id}`, made.device);

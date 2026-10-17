@@ -200,7 +200,7 @@ function repeatTextFr(spec, start, locale) {
 
 /* ---------- which occurrences an edit touches ---------- */
 
-/** The scopes offered for changing a repeating event: Google: this / following / all; the Mac (Jarvis): this / following. */
+/** The scopes offered for changing a repeating event: Google: this / following / all; the Mac (Eden Secretary): this / following. */
 export function scopeChoices(e, kind = 'edit') {
   const rec = e && e.recurrence && e.recurrence.recurring;
   if (!rec) return [];

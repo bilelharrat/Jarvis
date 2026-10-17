@@ -57,7 +57,7 @@ def words(text: str) -> list[str]:
 # anyone says ("Friday", 星期五), so it wakes only as a call: first, then a pause and the
 # request ("Friday, what's on today?"), or after a greeting ("Hey Friday"). Said on its
 # own ("Friday.") it's an answer to someone, and mid-sentence it's just a word. The voice
-# feature sets where the names come from (configure); without it, it's only "Jarvis".
+# feature sets where the names come from (configure); without it, it's only "Eden".
 _names_source: Callable[[], Iterable[str]] | None = None
 _names_cache: tuple[tuple[str, ...], tuple[bool, tuple[str, ...], tuple[str, ...]]] | None = None
 _extra_sources: dict[str, Callable[[], Iterable[str]]] = {}
@@ -80,7 +80,7 @@ def add_names(key: str, source: Callable[[], Iterable[str]] | None) -> None:
 
 def configure(source: Callable[[], Iterable[str]] | None) -> None:
     """Where the wake words come from (called for each check, so a change in Settings or
-    of persona applies at once); None: just "Jarvis"."""
+    of persona applies at once); None: just "Eden"."""
     global _names_source, _names_cache
     _names_source, _names_cache = source, None
 
@@ -93,7 +93,7 @@ def wake_names() -> tuple[str, ...]:
             names = tuple(str(n) for n in _names_source() if str(n).strip())
         except Exception:  # a settings file that can't be read: the name it always had
             names = ()
-    names = names or ("Jarvis",)
+    names = names or ("Eden",)
     for source in list(_extra_sources.values()):
         try:
             more = tuple(str(n) for n in source() if str(n).strip())

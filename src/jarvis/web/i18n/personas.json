@@ -1,6 +1,9 @@
 {
   "strings": {
-    "JARVIS (on this Mac)": "贾维斯（这台 Mac 上）",
+    "Eden Secretary (on this Mac)": "Eden Secretary（这台 Mac 上）",
+    "Jarvis (on this Mac)": "Eden Secretary（这台 Mac 上）",
+    "JARVIS (on this Mac)": "Eden Secretary（这台 Mac 上）",
+    "J.A.R.V.I.S. (on this Mac)": "Eden Secretary（这台 Mac 上）",
     "Your personas": "你的角色",
     "New persona…": "新建角色…",
     "A persona of your own": "你自己的角色",

@@ -1,6 +1,6 @@
 """Watch mode and the owner's say per site: on a sensitive site the browser acts only while
 its tab is on show for the owner, a site can be set to always, ask or never (only from
-Settings), and what JARVIS reads on a sensitive site counts as the owner's private data."""
+Settings), and what Jarvis reads on a sensitive site counts as the owner's private data."""
 
 from test_hub import make_hub
 

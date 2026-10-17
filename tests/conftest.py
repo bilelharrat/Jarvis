@@ -264,7 +264,7 @@ def _no_real_mac_commands(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_real_claude_records(monkeypatch):
-    """JARVIS's past conversations (Claude Code's own session records) are never the
+    """Jarvis's past conversations (Claude Code's own session records) are never the
     owner's ~/.claude in a test: a hub finds none, unless a test gives it fakes."""
     from jarvis import conversation_past
 
@@ -365,7 +365,7 @@ def _no_real_claude_for_jarvis_code(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_real_claude_for_jarvis_itself(monkeypatch):
-    """JARVIS's own background calls (utility_model: a skill's triage and draft) never
+    """Jarvis's own background calls (utility_model: a skill's triage and draft) never
     reach Claude in a test: one a test didn't fake fails loudly instead."""
     from jarvis import utility_model
 
@@ -519,3 +519,28 @@ def pytest_collection_modifyitems(config, items):
             why = PC_SKIPS[short]
         if why:
             item.add_marker(pytest.mark.skip(reason=f"not on Windows: {why}"))
+
+
+@pytest.fixture(autouse=True)
+def _legacy_jarvis_wake_word(request, monkeypatch):
+    """The shipped default wake word is "Eden" (see test_wake_eden.py). The long-standing
+    wake tests exercise the same rules with "Jarvis", which stays a supported name, so
+    they run with it as the default; tests marked `eden_default` get the real one."""
+    if request.node.get_closest_marker("eden_default"):
+        return
+    from jarvis import wake, wakewords
+
+    real = wakewords.defaults
+
+    def legacy(persona, language="en"):
+        return ["Jarvis", *real(persona, language)[1:]]
+
+    monkeypatch.setattr(wakewords, "defaults", legacy)
+    monkeypatch.setattr(wakewords, "effective", lambda p, l, pref, _e=wakewords.effective: _e(p, l, pref) or ["Jarvis"])
+    original = wake.wake_names
+
+    def names():
+        got = original()
+        return ("Jarvis",) if got == ("Eden",) else got
+
+    monkeypatch.setattr(wake, "wake_names", names)

@@ -1,6 +1,6 @@
-// Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
-// The same file is Eden Code, the coding app split out of Jarvis (flavor.js): Eden Code alone
-// in its own window, sharing the backend Jarvis runs or starting one without a microphone.
+// Eden Secretary desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
+// The same file is Eden Code, the coding app split out of Eden Secretary (flavor.js): Eden Code alone
+// in its own window, sharing the backend Eden Secretary runs or starting one without a microphone.
 
 const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell, systemPreferences } = require('electron');
 const { spawn } = require('child_process');
@@ -15,7 +15,7 @@ const { createAgent } = require('./browser-agent');
 const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
 const { isCertError } = require('./browser-lib');
-const { resolveFlavor } = require('./flavor'); // J.A.R.V.I.S. or Eden Code
+const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
 const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
@@ -27,9 +27,9 @@ app.setName(FLAVOR.name);
 // Start menu shortcut the installer makes from its appId (scripts/release/windows.js).
 if (process.platform === 'win32') app.setAppUserModelId(FLAVOR.appUserModelId);
 // Eden Code keeps its own profile (window place, single-instance lock, browser data), so it
-// runs beside J.A.R.V.I.S.; the backend's data folder (DATA_DIR) is the one they share.
+// runs beside Eden Secretary; the backend's data folder (DATA_DIR) is the one they share.
 if (EDEN_CODE) app.setPath('userData', path.join(app.getPath('appData'), 'Eden Code'));
-// J.A.R.V.I.S. Daredevil is the same program as J.A.R.V.I.S. (flavor.js): one profile, so one lock, and never two at once.
+// Eden Daredevil is the same program as Eden Secretary (flavor.js): one profile, so one lock, and never two at once.
 if (FLAVOR.userDataName) app.setPath('userData', path.join(app.getPath('appData'), FLAVOR.userDataName));
 
 // This app's backend's token, or the one it shares (backend-share.js: another app started it).
@@ -64,7 +64,7 @@ let quietRestart = false; // the backend is being restarted on purpose (app/feat
 let sharedFrom = ''; // the app whose backend this window is on, when it isn't this one's
 let stopWatching = null; // stops watching that backend (backend-share.js watch)
 
-// One Jarvis at a time: a second launch (npm start twice, a dev build beside the installed
+// One Eden Secretary at a time: a second launch (npm start twice, a dev build beside the installed
 // app) brings the running one forward instead of starting a second backend on the same
 // files. Asked after the dev profile is set above, so the test window, with a profile of
 // its own, never collides with the installed app.
@@ -157,7 +157,7 @@ function openBackendLog() {
 // fresh install the backend would otherwise trigger the prompt with a stream already open,
 // and a stream opened before access was granted hears only silence. (listen.py also reopens
 // a microphone that sends nothing but zeros.) At most 60 s: an unanswered prompt never
-// keeps JARVIS from starting.
+// keeps Eden Secretary from starting.
 async function askForMicrophone() {
   if (process.platform !== 'darwin' || DEV_URL || EDEN_CODE) return; // Eden Code never listens
   try {
@@ -194,7 +194,7 @@ function startBackend() {
   // helper processes for the app. A helper quits while the app runs, and the backend went
   // with it mid-session, taking the chats, the session list and the steer button.
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
-  how.env.JARVIS_PROFILE = FLAVOR.profile; // Eden Code's: no microphone until Jarvis joins (hub.window_joined)
+  how.env.JARVIS_PROFILE = FLAVOR.profile; // Eden Code's: no microphone until Eden Secretary joins (hub.window_joined)
   how.env.JARVIS_EDITION = FLAVOR.edition || ''; // 'daredevil': screen-reader mode is the default (accessibility.py)
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''} for ${FLAVOR.name}\n`);
   backendFromRepo = !how.bundled;
@@ -205,7 +205,7 @@ function startBackend() {
   trace.write(`engine process ${backend.pid || 'not started'}`);
   backend.stdout.on('data', (chunk) => backendTail.add(chunk));
   backend.stderr.on('data', (chunk) => backendTail.add(chunk));
-  // Where it is, for the other app (Jarvis or Eden Code) to open its window on it too.
+  // Where it is, for the other app (Eden Secretary or Eden Code) to open its window on it too.
   if (!DEV_URL && backend.pid) share.advertise(DATA_DIR, { port, token: TOKEN, pid: backend.pid, app: FLAVOR.id, launcher: process.pid });
   // Both into the one log, which ends once both have (the backend gone, its pipes closed).
   backend.stdout.pipe(log, { end: false });
@@ -285,7 +285,7 @@ function reopenHidden() {
 }
 
 // A backend that stops on its own is started again (a few times, a little later each
-// time), so a crash never leaves Jarvis dead; the log keeps what happened. One ended by a
+// time), so a crash never leaves Eden Secretary dead; the log keeps what happened. One ended by a
 // signal (macOS's memory pressure, Force Quit, a crash) has no exit code: the signal is named.
 let restarts = [];
 function restartBackend(code, signal) {
@@ -297,12 +297,12 @@ function restartBackend(code, signal) {
   const how = signal ? `was stopped (${signal})` : `stopped (exit ${code})`;
   if (restarts.length >= 3) {
     showProblem(taken
-      ? 'Another JARVIS backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Jarvis again.'
+      ? 'Another Eden Secretary backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Eden Secretary again.'
       : `The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, taken ? '' : backendTail.last());
     return;
   }
   restarts.push(now);
-  showProblem(taken ? 'Another JARVIS backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
+  showProblem(taken ? 'Another Eden Secretary backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
     // The other app's backend has the data folder (both started at once): share it instead.
@@ -345,7 +345,7 @@ function appUrl() {
   return `http://127.0.0.1:${port}/`;
 }
 
-// The window on the backend: Jarvis's page, or Eden Code's (?app=code: server.eden_code_page), or Daredevil's.
+// The window on the backend: Eden Secretary's page, or Eden Code's (?app=code: server.eden_code_page), or Daredevil's.
 function loadApp() {
   trace.write('opening the app in the window');
   if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}${FLAVOR.query ? `&${FLAVOR.query}` : ''}`);
@@ -366,7 +366,7 @@ async function startOwnBackend() {
   }
 }
 
-// The window on the backend the other app (Jarvis or Eden Code) is running, when there is one;
+// The window on the backend the other app (Eden Secretary or Eden Code) is running, when there is one;
 // else this app's own. Shared, it's watched: once it goes (that app quit), this app starts its
 // own and the window reloads on it, sessions and all (they're in the shared data folder).
 async function openOnBackend() {
@@ -387,7 +387,7 @@ async function shareBackend() {
     sharedFrom = '';
     if (quitting) return;
     TOKEN = crypto.randomBytes(24).toString('hex');
-    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'J.A.R.V.I.S.'} quit, so ${FLAVOR.name} is starting its own backend…`);
+    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'Eden Secretary'} quit, so ${FLAVOR.name} is starting its own backend…`);
     startOwnBackend();
   });
   return true;
@@ -447,7 +447,7 @@ function createWindow() {
   win.on('responsive', () => trace.write('the window responds again'));
   win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
 
-  // The window only ever shows Jarvis; any other link opens in the browser.
+  // The window only ever shows Eden Secretary; any other link opens in the browser.
   const external = (url) => {
     if (/^https?:\/\//.test(url) && !url.startsWith(appUrl())) shell.openExternal(url);
   };
@@ -462,7 +462,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Closing the window hides it; Jarvis keeps running for ⌥Space. ⌘Q quits.
+  // Closing the window hides it; Eden Secretary keeps running for ⌥Space. ⌘Q quits.
   win.on('close', (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -496,11 +496,11 @@ ipcMain.handle('jarvis:pick-folder', async () => {
 });
 
 // ── The built-in browser ──
-// A sandboxed page in its own storage partition, docked beside Jarvis. No Node, no access
-// to the app: page-preload.js runs in an isolated world as Jarvis's hand in the page (the
+// A sandboxed page in its own storage partition, docked beside Eden Secretary. No Node, no access
+// to the app: page-preload.js runs in an isolated world as Eden Secretary's hand in the page (the
 // cursor, lighting up what it aims at, clicking, scrolling, reading). On the BSH Research
-// Center's own pages the user's mouse and keyboard work as on any page, and Jarvis drives
-// it too, by voice and by hand. The lock badge in the address bar switches it to Jarvis
+// Center's own pages the user's mouse and keyboard work as on any page, and Eden Secretary drives
+// it too, by voice and by hand. The lock badge in the address bar switches it to Eden Secretary
 // only (researchLock in browser.json): then the mouse and keyboard don't reach the page,
 // except on its sign-in pages, so the user signs in themselves.
 
@@ -511,13 +511,13 @@ const closedTabs = []; // ⌘⇧T reopens these
 let lastBounds = null;
 let browserShown = false;
 let browserLocked = false;
-let browserSynthetic = false; // true only while Jarvis itself sends input
+let browserSynthetic = false; // true only while Eden Secretary itself sends input
 let agentInput = false; // true while the browser agent's own keys and clicks go in (browser-agent.js)
 let browserZoom = 1; // the zoom last set (each site keeps its own: browser-parity.js)
 let researchBase = '';
 let browserAsked = false; // a page was asked for: showing the view must not load the start page over it
-// The window the dock is in: Jarvis's own, or the Ask Eden window's browser panel while it's
-// open there (features/eden-window.js, through featureContext.browserDock). Jarvis's window
+// The window the dock is in: Eden Secretary's own, or the Ask Eden window's browser panel while it's
+// open there (features/eden-window.js, through featureContext.browserDock). Eden Secretary's window
 // gets it back when that panel closes, as it was (mainWants, mainBounds).
 let dockWin = null;
 let mainWants = false;
@@ -596,7 +596,7 @@ function tellLockable(wc) {
   if (wc && !wc.isDestroyed()) wc.send('jarvis:lockable', mayLock(wc.getURL()));
 }
 
-// The lock badge: Jarvis only on the Research Center, or the user's mouse and keyboard too.
+// The lock badge: Eden Secretary only on the Research Center, or the user's mouse and keyboard too.
 function setResearchLock(on) {
   const store = browserStore();
   store.researchLock = Boolean(on);
@@ -642,7 +642,7 @@ function newTab(url, opts) {
 
 // The last tab never closes: the dock does (the window's close button).
 // owner: the owner's own close (⌘W, a tab's ×, its menu). A page holding unsaved work asks
-// first (browser-parity.js's leave question), and Stay keeps the tab; JARVIS's and the
+// first (browser-parity.js's leave question), and Stay keeps the tab; Eden Secretary's and the
 // agent's closes never wait on a page.
 function closeTab(view, { owner = false } = {}) {
   if (tabs.indexOf(view) < 0 || tabs.length < 2) return false;
@@ -669,7 +669,7 @@ function dropTab(view, url, close = false) {
 }
 
 // ── Chrome's everyday features: shortcuts, history, bookmarks, find, the page's menu,
-// downloads (always asked first: Jarvis can click in this browser too) ──
+// downloads (always asked first: Eden Secretary can click in this browser too) ──
 
 // A tab's icon, as data (the window only shows local and data: images). Only an icon's worth
 // is ever read: one bigger than FAVICON_MAX, by its Content-Length or as it arrives, is
@@ -809,7 +809,7 @@ function browserStore() {
     history: Array.isArray(raw.history) ? raw.history.filter((h) => h && typeof h.url === 'string').slice(-2000) : [],
     bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks.filter((b) => b && typeof b.url === 'string') : [],
     adblock: raw.adblock !== false,
-    researchLock: raw.researchLock === true, // Jarvis only on the Research Center (off unless asked)
+    researchLock: raw.researchLock === true, // Eden Secretary only on the Research Center (off unless asked)
     allow: Array.isArray(raw.allow) ? raw.allow.filter((h) => typeof h === 'string').slice(0, 500) : [],
   };
   return browserData;
@@ -918,7 +918,7 @@ let downloadsReady = false;
 const stagingDir = () => path.join(app.getPath('userData'), 'download-staging');
 
 // Which downloads are staged at all. One the user asked for (a click or key in the page a
-// moment ago, JARVIS's own, the page menu's Save Image As…) goes ahead. As in Chrome, a page
+// moment ago, Eden Secretary's own, the page menu's Save Image As…) goes ahead. As in Chrome, a page
 // may start one more by itself, and the rest are refused until the user next acts in it or
 // goes to another page (Chrome asks about "multiple files" there; a page's own a.click() in a
 // loop would otherwise fill the disk with files nobody wanted). However they start, no more
@@ -1002,7 +1002,7 @@ function readyDownloads() {
     });
     sendDownload(id);
   };
-  // Every profile's (the owner's, private tabs', JARVIS's own): each download waits for Save.
+  // Every profile's (the owner's, private tabs', Eden Secretary's own): each download waits for Save.
   for (const partition of parity.partitions()) session.fromPartition(partition).on('will-download', staging);
 }
 
@@ -1118,7 +1118,7 @@ function tabById(id) { return tabs.find((view) => view.webContents.id === Number
 function createTab(opts = {}) {
   const view = new WebContentsView({
     webPreferences: {
-      partition: opts.partition || 'persist:jarvis-browser', // or a private tab's, or JARVIS's signed-out one (browser-parity.js)
+      partition: opts.partition || 'persist:jarvis-browser', // or a private tab's, or Eden Secretary's signed-out one (browser-parity.js)
       disableBlinkFeatures: 'WebBluetooth', // a page asking for a device would have macOS ask about Bluetooth
       plugins: true, // Chromium's PDF viewer
       preload: path.join(__dirname, 'page-preload.js'),
@@ -1137,7 +1137,7 @@ function createTab(opts = {}) {
     if (popup) return popup;
     const { url } = details;
     if (!/^https?:\/\//.test(url)) return { action: 'deny' };
-    // a link that wants a new window, clicked a moment ago (by the user, or JARVIS) on a page
+    // a link that wants a new window, clicked a moment ago (by the user, or Eden Secretary) on a page
     // on show (the tab on show, one beside it or in a window of its own, a private tab): a new
     // tab in front, in the page's profile, one per click. Anything else (a tab behind's link, a
     // page opening windows by itself as it loads) is a tab behind, and none past
@@ -1149,7 +1149,7 @@ function createTab(opts = {}) {
     return { action: 'deny' };
   });
   parity.wireTab(view); // per-site permission prompts (browser-parity.js)
-  // On the Research Center, direct input never reaches the page (Jarvis's own does).
+  // On the Research Center, direct input never reaches the page (Eden Secretary's own does).
   wc.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && win && !agentInput) win.webContents.send('browser:escape');
     // Chrome's shortcuts work with the page focused too (they're the browser's, not the page's).
@@ -1311,7 +1311,7 @@ ipcMain.on('page:click', (event, p) => {
   if (fromPage(event) && p) clickAt(Number(p.x) || 0, Number(p.y) || 0);
 });
 
-// JARVIS's and Eden Code's hands over the DevTools protocol: snapshots with element refs,
+// Eden Secretary's and Eden Code's hands over the DevTools protocol: snapshots with element refs,
 // actions by ref, waits (browser-agent.js). It works on any tab, the one on show or not.
 const browserAgent = createAgent({
   tabs: () => tabs,
@@ -1319,7 +1319,7 @@ const browserAgent = createAgent({
   isShown: (view) => Boolean(view && view === browserView && browserShown),
   setSynthetic: (on) => { agentInput = on; },
   addTab: ({ select, owner, profile }) => {
-    // a popup's: its opener's profile; else JARVIS's own, when it browses signed out
+    // a popup's: its opener's profile; else Eden Secretary's own, when it browses signed out
     const view = createTab(profile || parity.agentTab(owner));
     view.agentOwner = owner || ''; // who opened it: 'jarvis', 'code:<session>'
     tabs.push(view);
@@ -1377,7 +1377,7 @@ const parity = createParity({
   keep: (url) => !(onResearch(url) && RESEARCH_AUTH.test(researchPath(url))),
   browserData: () => browserStore(), // history and bookmarks: the address bar's suggestions, folders, imports
   saveBrowserData: () => saveBrowserStore(),
-  isResearch: (view) => onResearch(view.webContents.getURL()), // it stays in the dock (only JARVIS drives it)
+  isResearch: (view) => onResearch(view.webContents.getURL()), // it stays in the dock (only Eden Secretary drives it)
 });
 
 async function runBrowserCommand({ action, args = {} }) {
@@ -1506,7 +1506,7 @@ ipcMain.handle('browser:show', (event, bounds) => {
   if (!fromWindow(event)) return;
   mainWants = true;
   mainBounds = bounds;
-  if (dockWin) undock(dockWin, { back: false }); // Jarvis's window takes it back
+  if (dockWin) undock(dockWin, { back: false }); // Eden Secretary's window takes it back
   const view = ensureBrowser();
   if (!browserShown) {
     win.contentView.addChildView(view);
@@ -1659,7 +1659,7 @@ ipcMain.on('jarvis:attention', () => {
 });
 
 // ── the dock in another window: the Ask Eden window's browser panel (features/eden-window.js) ──
-// The same tabs, adblock and gates as in Jarvis's window: only where the tab on show is drawn
+// The same tabs, adblock and gates as in Eden Secretary's window: only where the tab on show is drawn
 // changes. That window's page draws the address bar and buttons around it.
 function dockIn(host, bounds) {
   if (!host || host.isDestroyed()) return;
@@ -1675,7 +1675,7 @@ function dockIn(host, bounds) {
   if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL(homeUrl());
   sendBrowserState();
 }
-// Out of that window; back in Jarvis's when its own dock was open there (back: true).
+// Out of that window; back in Eden Secretary's when its own dock was open there (back: true).
 function undock(host, { back = true } = {}) {
   if (!dockWin || dockWin !== host) return;
   if (browserView && browserShown && !host.isDestroyed()) host.contentView.removeChildView(browserView);
@@ -1733,7 +1733,7 @@ const featureContext = {
   send: (channel, ...args) => { if (win && !win.isDestroyed()) win.webContents.send(channel, ...args); },
   fromWindow: (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents),
   dev: Boolean(DEV_URL),
-  flavor: FLAVOR, // which app this is (flavor.js): J.A.R.V.I.S. or Eden Code
+  flavor: FLAVOR, // which app this is (flavor.js): Eden Secretary or Eden Code
   sharedFrom: () => sharedFrom, // the app whose backend the window is on, when not this one's
   logDir: LOG_DIR,
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
@@ -1750,7 +1750,7 @@ const featureContext = {
   // tabs, the one on show while the dock is open, and the page's own menu.
   browser: {
     partition: 'persist:jarvis-browser',
-    partitions: () => parity.partitions(), // every profile a tab can be in: the owner's, private, JARVIS's own
+    partitions: () => parity.partitions(), // every profile a tab can be in: the owner's, private, Eden Secretary's own
     tabs: () => tabs.slice(),
     shown: () => (browserShown && browserView ? browserView : null),
     byId: (id) => tabById(id) || null,
@@ -1775,7 +1775,7 @@ function loadAppFeatures() {
 }
 
 app.whenReady().then(async () => {
-  if (!gotLock) return; // quitting: the Jarvis already running has been brought forward
+  if (!gotLock) return; // quitting: the Eden Secretary already running has been brought forward
   trace.write('ready: opening the window');
   createWindow();
   loadAppFeatures();
@@ -1790,12 +1790,12 @@ app.whenReady().then(async () => {
     if (fs.existsSync(icon)) app.dock.setIcon(icon); // run from J.A.R.V.I.S.'s bundle (eden-code.js), still Eden's icon
   }
   await openOnBackend();
-  if (EDEN_CODE) return; // Eden Code takes no global shortcuts: ⌥Space is Jarvis's
+  if (EDEN_CODE) return; // Eden Code takes no global shortcuts: ⌥Space is Eden Secretary's
   if (featureContext.ownsShortcuts) return; // app/features/shell.js registered the ones chosen in Settings
   if (!globalShortcut.register(SHORTCUT, summon)) {
     console.warn(`${SHORTCUT} is taken by another app; use the Dock icon instead.`);
   }
-  // Deliberately doesn't bring the window forward: Jarvis needs to see what you're
+  // Deliberately doesn't bring the window forward: Eden Secretary needs to see what you're
   // looking at, and answers out loud.
   if (!globalShortcut.register(WHATS_THIS, () => win && win.webContents.send('jarvis:whats-this'))) {
     console.warn(`${WHATS_THIS} is taken by another app.`);

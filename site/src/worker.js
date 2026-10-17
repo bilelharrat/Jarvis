@@ -1,5 +1,5 @@
-// askeden.com: Eden (the routed chat), Eden's site (J.A.R.V.I.S. and Eden Messenger) and the
-// J.A.R.V.I.S. download, on Cloudflare (the whole domain; the old Eden site on Vercel is no
+// askeden.com: Eden (the routed chat), Eden's site (Eden Secretary and Eden Messenger) and the
+// Eden Secretary download, on Cloudflare (the whole domain; the old Eden site on Vercel is no
 // longer shown there).
 //
 //   /                        Eden for a signed-in browser, else the landing page below, with
@@ -11,26 +11,26 @@
 //   POST /api/help/ask       Ask Help, grounded in the FAQ (eden/help.js)
 //   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)
 //   /p/<id>                  a published Eden page (accounts/published.js, via eden/pages.js)
-//   /download, /jarvis       the Eden Code and J.A.R.V.I.S. landing page (./public/jarvis/index.html; Messenger hidden for now)
+//   /download, /jarvis       the Eden Code and Eden Secretary landing page (./public/jarvis/index.html; Messenger hidden for now)
 //   /jarvis/…               its images
 //   /download/mac            Ask Eden for Mac (beta): a redirect to the GitHub release ask-eden-v<version> (ASK_EDEN_TAG)
 //   /download/windows, /eden-code/windows, /jarvis/windows, /daredevil/windows, /jarvis/daredevil
-//                            the Windows installers (beta, unsigned): redirects to GitHub pre-releases in the Jarvis repo (WINDOWS, below)
+//                            the Windows installers (beta, unsigned): redirects to GitHub pre-releases in the Eden Secretary repo (WINDOWS, below)
 //   /windows/latest.json     their versions and sizes, for the page
-//   /daredevil               J.A.R.V.I.S. Daredevil's page: what it is, the download, the quick-start guide (./public/daredevil/index.html)
+//   /daredevil               Eden Daredevil's page: what it is, the download, the quick-start guide (./public/daredevil/index.html)
 //   /downloads/ask-eden/release.json   its update feed (Squirrel.Mac JSON), read from the same release
 //   /jarvis/download         the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
 //   /eden-code/download, /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
 //   /messenger, /messenger/…   Eden Messenger itself, at messenger.askeden.com (MESSENGER)
-//   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
+//   POST /api/voice         the Eden Secretary voice for copies without a Fish Audio key of their own
 //   POST /api/chat/voice    the same for Eden's Read aloud and talk mode, on the signed-in browser's account
 //   /api/web/…              signing a browser in to Eden (eden/session.js)
 //   /api/chat/browser       the browser panel's cloud browser, a WebSocket (browser/api.js, browser/session.js)
 //   /api/chat/…, /api/route hosted Eden (eden/chat.js)
 //   /eden/connect, /api/eden/…   @Eden for Eden Messenger: connect, then ask (eden/ask.js)
 //   POST /api/stripe/webhook   Stripe's events for Plus bought on the web (eden/billing.js); nothing else under /api/stripe
-//   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
+//   /api/…                  Eden Secretary accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to /
 //
 // Every /api request that changes something, and the relay's WebSocket upgrade, is refused
@@ -47,15 +47,22 @@ import { connectPage, edenApi } from './eden/ask.js';
 import { stripeApi } from './eden/billing.js';
 import { promoAdmin } from './accounts/promo.js';
 import { ltiAdmin, ltiRoute } from './edu/lti.js';
+import { routerAdmin, routerApi } from './router-api/api.js';
 import { edenPage } from './eden/pages.js';
 import { helpApi } from './eden/help.js';
+import { newsApi, newsOn, newsPage } from './news/api.js';
 import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
-import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
+import { assetLinks } from './eden/android.js';
+import { LANDING_CSP, SESSION_COOKIE, baseline, cookies, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
+import { clientError, observe } from './stats/stats.js';
+import { adminPage, adminStats } from './stats/admin.js';
 
 export { Account, Identity, Link, Space } from './accounts/index.js';
 export { Promo } from './accounts/promo.js';
 export { BrowserSession } from './browser/session.js';
 export { Course } from './edu/course.js';
+export { NewsDesk } from './news/store.js';
+export { RouterApi } from './router-api/store.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
@@ -79,14 +86,145 @@ export default {
     // callback (redirect_uri_mismatch) and post forms unencrypted. 308 keeps a POST a POST.
     const insecure = toHttps(request);
     if (insecure) return insecure;
-    return baseline(await route(request, env, ctx));
+    // Every answer is counted for the owner's dashboard (stats/stats.js): a visit, a download, an action, an error.
+    const path = new URL(request.url).pathname.replace(/\/+$/, '') || '/';
+    let response;
+    try {
+      response = await route(request, env, ctx);
+    } catch (error) {
+      observe(env, ctx, request, null, { path, error });
+      throw error;
+    }
+    try {
+      observe(env, ctx, request, response, { path, download: downloadName(path) });
+    } catch (error) {
+      console.error('stats: observe failed', error && error.message);
+    }
+    return baseline(response);
   },
 };
 
+// www's sign-in page for a passkey made there (route, above): the page itself only with ?on=www; its own files, the
+// page's French, and the passkey, code and config calls it makes (sent to askeden.com, they'd fail as cross-origin).
+const WWW_SIGNIN = /^\/(signin\/[\w.-]+\.(js|css)|lang\/[\w.-]+\.js|api\/web\/(config|link|link\/poll|passkey\/options|passkey\/verify))$/;
+const wwwSignIn = (url) => ((url.pathname === '/signin' || url.pathname === '/signin/') && url.searchParams.get('on') === 'www') || WWW_SIGNIN.test(url.pathname);
+
 async function route(request, env, ctx) {
   const url = new URL(request.url);
-  // edu.askeden.com: Eden for Education's own address, a doorway to askeden.com/edu (one sign-in, one cookie)
-  if (url.hostname === 'edu.askeden.com') return Response.redirect('https://askeden.com/edu', 301);
+  // www.askeden.com is askeden.com, path and query kept: a page served on www was a second Eden with its own
+  // cookie, its own chat history in the browser and its own passkey site, signed out and empty. 301 for a page,
+  // 308 otherwise (a POST stays a POST). Except /.well-known/: Apple and Android read the app association files
+  // on www itself (the Eden iPhone and Android apps open www links) and don't follow a redirect for them. And two
+  // ways back in for a passkey made on www, which works only there (its RP ID is www.askeden.com), so an account
+  // whose one way in it is would be locked out: a browser signed in on www goes on there as before (its session
+  // cookie), and so does www's sign-in page opened with ?on=www (askeden.com's points to it when a passkey there
+  // didn't open), with the files and calls it makes (WWW_SIGNIN). Apple and Google from that page go to askeden.com.
+  // Never cached: the answer depends on the cookie, and a browser that kept the 301 would send someone who has just
+  // signed in on www back to askeden.com signed out, without asking (Chromium keeps a 301 it may cache).
+  if (url.hostname === 'www.askeden.com' && !url.pathname.startsWith('/.well-known/') && !cookies(request)[SESSION_COOKIE] && !wwwSignIn(url)) {
+    const status = request.method === 'GET' || request.method === 'HEAD' ? 301 : 308;
+    return new Response(null, { status, headers: { location: `https://askeden.com${url.pathname}${url.search}`, 'cache-control': 'no-store' } });
+  }
+  // Eden for Education's own address. With EDU_HOST set (askedenedu.com) Edu lives there, as its own
+  // origin (its own cookie and sign-in; everything here builds addresses from the request's origin):
+  // its front page is the Edu page, and askeden.com/edu and edu.askeden.com forward to it. Unset,
+  // the other names are doorways to askeden.com/edu (one sign-in, one cookie).
+  const eduHost = String(env.EDU_HOST || '').toLowerCase();
+  if (eduHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${eduHost}` || url.hostname === 'edu.askeden.com') return Response.redirect(`https://${eduHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== eduHost && (bare === '/edu' || bare.startsWith('/edu/')) && (request.method === 'GET' || request.method === 'HEAD')) {
+      return Response.redirect(`https://${eduHost}${bare === '/edu' ? '/' : bare}${url.search}`, 301);
+    }
+    if (url.hostname === eduHost && (request.method === 'GET' || request.method === 'HEAD') && bare === '/') {
+      return route(new Request(new URL(`/edu${url.search}`, url), request), env, ctx); // the same page, served at the front
+    }
+  } else if (/^(edu\.askeden\.com|(www\.)?askedenedu\.com)$/.test(url.hostname)) return Response.redirect('https://askeden.com/edu', 301);
+  // Eden Code's own address, the same way. With CODE_HOST set (askedencode.com) its site lives there at the front, and
+  // askeden.com/eden-code (the page only; /eden-code/download and /eden-code/windows stay put) and www forward to it. Unset,
+  // askedencode.com is a doorway to askeden.com/eden-code.
+  const codeHost = String(env.CODE_HOST || '').toLowerCase();
+  if (codeHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${codeHost}`) return Response.redirect(`https://${codeHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== codeHost && bare === '/eden-code' && (request.method === 'GET' || request.method === 'HEAD')) return Response.redirect(`https://${codeHost}/${url.search}`, 301);
+    if (url.hostname === codeHost && (request.method === 'GET' || request.method === 'HEAD') && bare === '/') {
+      return route(new Request(new URL(`/eden-code${url.search}`, url), request), env, ctx); // the same page, served at the front
+    }
+  } else if (/^(www\.)?askedencode\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/eden-code', 301);
+  // Eden News' own address, the same way. With NEWS_HOST set (askedennews.com) and News on (EDEN_NEWS), News lives there at
+  // the front (its own origin and cookie, like Edu), and askeden.com/news and www forward to it. Unset, askedennews.com is a
+  // doorway to askeden.com/news.
+  const newsHost = String(env.NEWS_HOST || '').toLowerCase();
+  if (newsHost && newsOn(env)) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${newsHost}`) return Response.redirect(`https://${newsHost}${url.pathname}${url.search}`, 301);
+    if (url.hostname !== newsHost && bare === '/news' && (request.method === 'GET' || request.method === 'HEAD')) return Response.redirect(`https://${newsHost}/${url.search}`, 301);
+    if (url.hostname === newsHost && (request.method === 'GET' || request.method === 'HEAD') && bare === '/') {
+      return route(new Request(new URL(`/news${url.search}`, url), request), env, ctx); // the same page, served at the front
+    }
+  } else if (/^(www\.)?askedennews\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/news', 301);
+  // Eden Secretary's own address (edensecretary.com), the same way: with SECRETARY_HOST set its site lives there at the front, and
+  // askedensecretary.com (every path), www and askeden.com/eden-secretary (the page only; /jarvis/download, /jarvis/windows and the
+  // other download routes stay put) forward to it. Unset, those names are doorways to askeden.com/eden-secretary.
+  const secHost = String(env.SECRETARY_HOST || '').toLowerCase();
+  const secDoor = /^(www\.)?askedensecretary\.com$/;
+  const getLike = request.method === 'GET' || request.method === 'HEAD';
+  if (secHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${secHost}` || secDoor.test(url.hostname)) return Response.redirect(`https://${secHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== secHost && bare === '/eden-secretary' && getLike) return Response.redirect(`https://${secHost}/${url.search}`, 301);
+    if (url.hostname === secHost && getLike && bare === '/') return route(new Request(new URL(`/eden-secretary${url.search}`, url), request), env, ctx);
+  } else if (secDoor.test(url.hostname) || /^(www\.)?edensecretary\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/eden-secretary', 301);
+  // Eden Daredevil's own address (edendaredevil.com): the page at its front; askeden.com/daredevil (the page only; /daredevil/windows
+  // and /jarvis/daredevil stay put) and www forward to it. Unset, the names are doorways to askeden.com/daredevil.
+  const dareHost = String(env.DAREDEVIL_HOST || '').toLowerCase();
+  if (dareHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${dareHost}`) return Response.redirect(`https://${dareHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== dareHost && bare === '/daredevil' && getLike) return Response.redirect(`https://${dareHost}/${url.search}`, 301);
+    if (url.hostname === dareHost && getLike && bare === '/') return route(new Request(new URL(`/daredevil${url.search}`, url), request), env, ctx);
+  } else if (/^(www\.)?edendaredevil\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/daredevil', 301);
+  // Eden Router's own address (edenrouter.com): with ROUTER_HOST set its site (public/router/) lives there at the front, and
+  // askedenrouter.com and www forward to it. Unset (the page is held for the owner's OK), the names are doorways to askeden.com.
+  const routerHost = String(env.ROUTER_HOST || '').toLowerCase();
+  const routerDoor = /^(www\.)?(askedenrouter|edenrouter)\.com$/;
+  if (routerHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${routerHost}` || (routerDoor.test(url.hostname) && url.hostname !== routerHost)) return Response.redirect(`https://${routerHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    // the Eden Router API, private beta (router-api/api.js): server to server, OpenAI-compatible
+    if (url.hostname === routerHost && bare.startsWith('/v1/')) return routerApi(request, env, ctx, bare);
+    if (url.hostname === routerHost && getLike && bare === '/') return route(new Request(new URL(`/router${url.search}`, url), request), env, ctx);
+  } else if (routerDoor.test(url.hostname)) return Response.redirect('https://askeden.com/', 301);
+  // Eden Mail's own address (askedenmail.com): with MAIL_HOST set its page (public/mail-home/) lives there at the front; the
+  // app itself stays at askeden.com/mail (one sign-in, and Gmail's sign-in comes back there), so every other path forwards to
+  // askeden.com. Unset, the names are doorways to askeden.com/mail.
+  const mailHost = String(env.MAIL_HOST || '').toLowerCase();
+  if (mailHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${mailHost}`) return Response.redirect(`https://${mailHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname === mailHost) {
+      if (getLike && bare === '/') return route(new Request(new URL(`/mail${url.search}`, url), request), env, ctx);
+      // its page (also at /mail, which the front is served as), the page's files and its film; the rest is askeden.com's
+      if (!(getLike && (bare === '/mail' || bare.startsWith('/mail-home/') || /^\/jarvis\/walk-4\.(mp4|jpg)$/.test(bare)))) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
+    }
+  } else if (/^(www\.)?askedenmail\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/mail', 301);
+  // The other names bought to protect the brand are doorways: askeden.net/.org to askeden.com (path and query
+  // kept), the Eden Code names to Eden Code's page, evesverification.com to the accuracy page.
+  if (/^(www\.)?(askeden\.(net|org))$/.test(url.hostname)) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
+  if (/^(www\.)?(edencode\.(app|dev)|codewitheden\.com)$/.test(url.hostname)) return Response.redirect(codeHost ? `https://${codeHost}/${url.search}` : `https://askeden.com/eden-code${url.search}`, 301);
+  // EVES's own address (evesverification.com): with EVES_HOST set its site (public/eves-home/) lives there at the front, and www,
+  // edenverification.com and askeden.com/eves forward to it. Unset, those names are doorways to the accuracy page.
+  const evesHost = String(env.EVES_HOST || '').toLowerCase();
+  const evesDoor = /^(www\.)?(evesverification|edenverification)\.com$/;
+  if (evesHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (evesDoor.test(url.hostname) && url.hostname !== evesHost) return Response.redirect(`https://${evesHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== evesHost && bare === '/eves' && getLike) return Response.redirect(`https://${evesHost}/${url.search}`, 301);
+    if (url.hostname === evesHost && getLike && bare === '/') return route(new Request(new URL(`/eves${url.search}`, url), request), env, ctx);
+  } else if (evesDoor.test(url.hostname)) return Response.redirect(`https://askeden.com/accuracy${url.search}`, 301);
+  // askeden.ai: the same site under its other name, path and query kept
+  if (/^(www\.)?askeden\.ai$/.test(url.hostname)) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path.startsWith('/r/')) return receiptPixel(request, env, ctx, path); // Eden Mail's read receipts (accounts/receipts.js)
   // LTI 1.3 (Canvas, Moodle, Blackboard): the platform posts here cross-site, so before the Origin and GET-only rules (edu/lti.js)
@@ -100,6 +238,8 @@ async function route(request, env, ctx) {
     if (path === '/api/admin/promo') return promoAdmin(request, env);
     // LTI registrations: the owner's server call, guarded by LTI_ADMIN_TOKEN (edu/lti.js)
     if (path === '/api/admin/lti') return ltiAdmin(request, env);
+    // Eden Router API clients and their keys: the owner's server call, guarded by ROUTER_ADMIN_TOKEN (router-api/api.js)
+    if (path === '/api/admin/router') return routerAdmin(request, env);
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
     if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
@@ -108,12 +248,19 @@ async function route(request, env, ctx) {
     if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
+    if (path === '/api/admin/stats') return adminStats(request, env); // the owner's dashboard (stats/admin.js)
+    if (path === '/api/stats/error' && request.method === 'POST') return clientError(request, env, ctx); // a browser's error report (stats/stats.js)
+    if (path === '/api/news' || path.startsWith('/api/news/')) { // Eden News (news/api.js); null while EDEN_NEWS is off
+      const news = await newsApi(request, env, ctx, path);
+      if (news) return news;
+    }
     return api(request, env, ctx);
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
   }
-  if (path === '/.well-known/apple-app-site-association') return appSiteAssociation(env);
+  if (path === '/.well-known/apple-app-site-association') return appSiteAssociation(env, url.hostname);
+  if (path === '/.well-known/assetlinks.json') return assetLinks(env, url.hostname); // Eden for Android (eden/android.js)
   if (path === '/jarvis/download') return download(request, env);
   if (path === '/download/mac' || path === '/downloads/ask-eden/release.json') return askEdenMac(request, env, path);
   if (Object.hasOwn(WINDOWS_PATHS, path)) return Response.redirect(windowsInstaller(WINDOWS_PATHS[path], env).url, 302);
@@ -124,6 +271,10 @@ async function route(request, env, ctx) {
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
   if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
   if (path === '/eden/connect') return connectPage(request, env, url); // "Connect Eden Messenger?" (eden/ask.js)
+  const news = await newsPage(request, env, path); // null while EDEN_NEWS is off
+  if (news) return news;
+  const admin = await adminPage(request, env, path); // the owner's dashboard, /admin (stats/admin.js)
+  if (admin) return admin;
   const eden = await edenPage(request, env, path);
   if (eden) return eden;
   if (path.startsWith('/jarvis/')) {
@@ -134,7 +285,7 @@ async function route(request, env, ctx) {
   return Response.redirect(new URL('/', url).toString(), 302);
 }
 
-// The landing page (J.A.R.V.I.S. and Eden Messenger), at /download and /jarvis, without a redirect.
+// The landing page (Eden Secretary and Eden Messenger), at /download and /jarvis, without a redirect.
 async function landing(request, env, url) {
   const asset = await env.ASSETS.fetch(new Request(new URL('/jarvis/', url), request));
   return page(asset, LANDING_CSP, { cache: asset.headers.get('cache-control') || 'public, max-age=0, must-revalidate' });
@@ -144,6 +295,14 @@ async function landing(request, env, url) {
 // read, or a WebSocket upgrade, with a foreign Origin is refused. (Apple's sign-in posts back
 // from appleid.apple.com, to that one address, where its state cookie and nonce guard it; a
 // browser may send that Origin as "null".)
+// The download buttons, by what they give (stats/stats.js counts them; productOf names the product).
+function downloadName(path) {
+  if (path === '/jarvis/download' || path === '/download/mac' || path === '/eden-code/download' || path === '/eden-code/mac' || path === '/messenger/download' || path === '/messenger/mac') return 'mac';
+  if (Object.hasOwn(WINDOWS_PATHS, path)) return 'windows';
+  if (path === '/jarvis/iphone' || path === '/messenger/iphone') return 'iphone';
+  return null;
+}
+
 function fromElsewhere(request, path) {
   const upgrade = (request.headers.get('upgrade') || '').toLowerCase() === 'websocket';
   if ((request.method === 'GET' || request.method === 'HEAD') && !upgrade) return null;
@@ -165,7 +324,7 @@ function toMessenger(url) {
 // The page's other buttons: each goes wherever its variable in wrangler.toml says (a TestFlight
 // invite, the Messenger's disk image), and until that is set, to a page saying it's on its way.
 const SOON = {
-  '/jarvis/iphone': { variable: 'JARVIS_IPHONE_URL', app: 'J.A.R.V.I.S. for iPhone' },
+  '/jarvis/iphone': { variable: 'JARVIS_IPHONE_URL', app: 'Eden Secretary for iPhone' },
   '/eden-code/download': { variable: 'EDEN_CODE_MAC_URL', app: 'Eden Code for Mac' },
   '/eden-code/mac': { variable: 'EDEN_CODE_MAC_URL', app: 'Eden Code for Mac' },
   '/messenger/download': { variable: 'MESSENGER_MAC_URL', app: 'Eden Messenger for Mac' },
@@ -220,7 +379,7 @@ async function latestInfo(env) {
   return json({ version, size, file, published }, 200, { 'cache-control': 'public, max-age=60' });
 }
 
-// Ask Eden for Mac: its zip and update feed are assets of one GitHub release in the Jarvis
+// Ask Eden for Mac: its zip and update feed are assets of one GitHub release in the Eden Secretary
 // repo (no R2 needed). The tag decides the version; a new release is a new tag (ASK_EDEN_TAG).
 const ASK_EDEN_REPO = 'bilelharrat/Jarvis';
 const ASK_EDEN_TAG = 'ask-eden-v0.1.0';
@@ -244,17 +403,17 @@ async function askEdenMac(request, env, path) {
   }
 }
 
-// The Windows installers (beta, unsigned): each is the one file of a GitHub pre-release in the Jarvis repo,
+// The Windows installers (beta, unsigned): each is the one file of a GitHub pre-release in the Eden Secretary repo,
 // like Ask Eden for Mac (no R2 needed; a pre-release never becomes the repo's "latest", which the Mac feed
 // above reads). A new build is a new tag: change its entry here (tag, file, version, size) and deploy, or set
-// WINDOWS_<APP>_TAG and WINDOWS_<APP>_FILE in wrangler.toml (APP: ASK_EDEN, EDEN_CODE, JARVIS).
-// J.A.R.V.I.S. Daredevil is J.A.R.V.I.S. as an app of its own for people who are blind or have low vision: its own
+// WINDOWS_<APP>_TAG and WINDOWS_<APP>_FILE in wrangler.toml (APP: ASK_EDEN, EDEN_CODE, Eden Secretary).
+// Eden Daredevil is Eden Secretary as an app of its own for people who are blind or have low vision: its own
 // installer, which opens in screen-reader mode (one replaces the other on a PC).
 export const WINDOWS = {
   'ask-eden': { variable: 'ASK_EDEN', name: 'Ask Eden', tag: 'ask-eden-windows-v0.1.0', file: 'Ask-Eden-Setup-0.1.0-x64.exe', version: '0.1.0', size: 110809211 },
   'eden-code': { variable: 'EDEN_CODE', name: 'Eden Code', tag: 'eden-code-windows-v0.1.8', file: 'Eden-Code-Setup-0.1.8-x64.exe', version: '0.1.8', size: 300218062 },
-  jarvis: { variable: 'JARVIS', name: 'J.A.R.V.I.S.', tag: 'jarvis-windows-v0.1.18', file: 'J-A-R-V-I-S--Setup-0.1.18-x64.exe', version: '0.1.18', size: 328564464 },
-  daredevil: { variable: 'DAREDEVIL', name: 'J.A.R.V.I.S. Daredevil', tag: 'daredevil-windows-v0.1.18', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.18-x64.exe', version: '0.1.18', size: 328464570 },
+  jarvis: { variable: 'JARVIS', name: 'Eden Secretary', tag: 'jarvis-windows-v0.1.18', file: 'J-A-R-V-I-S--Setup-0.1.18-x64.exe', version: '0.1.18', size: 328564464 },
+  daredevil: { variable: 'DAREDEVIL', name: 'Eden Daredevil', tag: 'daredevil-windows-v0.1.18', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.18-x64.exe', version: '0.1.18', size: 328464570 },
 };
 const WINDOWS_PATHS = {
   '/download/windows': 'ask-eden',
@@ -284,7 +443,7 @@ function windowsInfo(env) {
   return json(out, 200, { 'cache-control': 'public, max-age=300' });
 }
 
-// J.A.R.V.I.S. Daredevil's page: what it is, the download, and the quick-start guide.
+// Eden Daredevil's page: what it is, the download, and the quick-start guide.
 async function daredevil(request, env, url) {
   const asset = await env.ASSETS.fetch(new Request(new URL('/daredevil/', url), request));
   return page(asset, LANDING_CSP, { cache: asset.headers.get('cache-control') || 'public, max-age=0, must-revalidate' });
@@ -335,8 +494,12 @@ export function parseRange(header) {
 // Universal links: askeden.com links tapped elsewhere (a task's push, Mail, Messages) open the
 // Eden iOS app when it's installed. The API and the sign-in pages stay in the browser (Apple's and
 // Google's callbacks must land where their cookies are). Apple fetches this file itself.
-export function appSiteAssociation(env) {
+export function appSiteAssociation(env, host = '') {
   const team = String(env.APPLE_TEAM_ID || '8CV4X23Y2T');
+  // Edu's own address (EDU_HOST) belongs wholly to Eden for Education's app
+  if (env.EDU_HOST && host === String(env.EDU_HOST).toLowerCase()) {
+    return json({ applinks: { details: [{ appIDs: [`${team}.com.askeden.edu`], components: [{ '/': '/api/*', exclude: true }, { '/': '/signin*', exclude: true }, { '/': '/lti/*', exclude: true }, { '/': '/*' }] }] }, webcredentials: { apps: [`${team}.com.askeden.edu`] } }, 200, { 'cache-control': 'public, max-age=3600' });
+  }
   const body = {
     applinks: {
       details: [{
@@ -368,11 +531,11 @@ function json(body, status, extra = {}) {
 }
 
 
-// ── the JARVIS voice, for copies of the app without a Fish Audio key of their own ──
+// ── the Eden Secretary voice, for copies of the app without a Fish Audio key of their own ──
 //
 // The app (speech.CloudVoice "hosted") posts {text, format: "wav" | "pcm", speed?} with its
 // install id in X-Jarvis-Install. The text goes to Fish Audio with the owner's key (the
-// Worker secret FISH_API_KEY: never in the app or the repo) and the public JARVIS voice, and
+// Worker secret FISH_API_KEY: never in the app or the repo) and the public Eden Secretary voice, and
 // the audio streams back. Each install, each network and everyone together have a daily
 // allowance in characters (VoiceQuota), so the owner's bill has a ceiling; past it the app
 // hears 429 and speaks with the Mac's voice.
@@ -396,7 +559,7 @@ async function voice(request, env, path = '/api/voice') {
   if (request.method !== 'POST') return json({ error: 'POST only.' }, 405, { allow: 'POST' });
   const eden = path === '/api/chat/voice';
   if (eden && (request.headers.get('x-jarvis-chat') !== '1' || !sameOrigin(request))) return json({ error: 'Only askeden.com’s own page may do that.' }, 403);
-  if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The JARVIS voice is not set up here yet.' }, 503);
+  if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The Eden Secretary voice is not set up here yet.' }, 503);
   const install = eden ? '' : String(request.headers.get('x-jarvis-install') || '');
   let account = eden ? null : tokenFrom(request);
   if (eden) {
@@ -421,9 +584,9 @@ async function voice(request, env, path = '/api/voice') {
     const { success } = await env.VOICE_RATE.limit({ key: network });
     if (!success) return json({ error: 'Too many requests; slow down.' }, 429, { 'retry-after': '60' });
   }
-  // Signed in: the account's own daily allowance (more with Jarvis Plus). The everyone-
+  // Signed in: the account's own daily allowance (more with Eden Plus). The everyone-
   // together ceiling still counts, so the owner's bill keeps its limit.
-  // A student's J.A.R.V.I.S. tutor in a course (`course`): the free study voice, or more while the course is funded (edu/budget.js)
+  // A student's Eden Secretary tutor in a course (`course`): the free study voice, or more while the course is funded (edu/budget.js)
   const studyVoice = eden && account && env.ACCOUNTS && typeof body.course === 'string' ? await courseVoice(env, account, body.course, text.length, { own: body.eduOwn === true }).catch(() => null) : null;
   if (studyVoice && !studyVoice.ok) return json({ error: studyVoice.why, allowance: 'study' }, 429, { 'retry-after': '3600' });
   if (account && env.ACCOUNTS && !studyVoice) {
@@ -487,8 +650,8 @@ export class VoiceQuota {
     for (const [which, key] of Object.entries(keys)) {
       if ((used.get(key) || 0) + chars > cap[which]) {
         const why = which === 'everyone'
-          ? "Today's JARVIS voice allowance is used up for everyone; it resets at midnight UTC."
-          : "This Mac's JARVIS voice allowance for today is used up; it resets at midnight UTC. Add your own Fish Audio key in Settings › Speaking for unlimited use.";
+          ? "Today's Eden Secretary voice allowance is used up for everyone; it resets at midnight UTC."
+          : "This Mac's Eden Secretary voice allowance for today is used up; it resets at midnight UTC. Add your own Fish Audio key in Settings › Speaking for unlimited use.";
         return Response.json({ ok: false, which, why, retryAfter: nextMidnight });
       }
     }

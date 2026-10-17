@@ -16,8 +16,14 @@ import { textHash, stampOf, stampChanged, updateAction, UPDATE_CHECK_MS } from '
 // Files loaded after startup (lazy modules, their stylesheets: util.js noteAsset) join the list once
 // loaded, each stamped as it loads: efficiency pass 2 (pass 1 left share.css and import-chatgpt.css out).
 const extra = new Map(); // pathname -> URL
+// The modules chat history lives in, looked at too (they're imported, not named in index.html): a deploy that
+// changed only them was never noticed, so the iPhone and Mac apps kept running the old sync code for days.
+export const SYNC_FILES = ['cloud-sync.js', 'sync-model.js', 'state.js', 'convstore.js', 'sync.js', 'account.js', 'app.js', 'chat.js'];
 function FILES() {
   const out = { page: location.href.split('#')[0] };
+  for (const f of SYNC_FILES) {
+    try { const u = new URL(f, import.meta.url); if (u.origin === location.origin) out[u.pathname] = u.href; } catch { /* not a URL */ }
+  }
   for (const [k, u] of extra) out[k] = u;
   for (const tag of document.querySelectorAll('script[src], link[rel="stylesheet"][href]')) {
     try {

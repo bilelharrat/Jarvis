@@ -1,6 +1,6 @@
 // The built-in browser agent's pure parts, kept apart from Electron so they can be tested
 // with plain Node (tests/web/browseragent.test.mjs): how an accessibility tree becomes the
-// compact snapshot JARVIS reads, how element refs are handed out and go stale, what changed
+// compact snapshot Eden Secretary reads, how element refs are handed out and go stale, what changed
 // since the last snapshot, where screenshot marks go, key names, URL globs.
 'use strict';
 

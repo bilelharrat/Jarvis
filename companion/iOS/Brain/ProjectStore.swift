@@ -1,7 +1,7 @@
 import Foundation
 import PDFKit
 
-/// Projects for Jarvis on the iPhone, as the Claude, ChatGPT and Gemini apps have them: chats
+/// Projects for Eden Secretary on the iPhone, as the Claude, ChatGPT and Gemini apps have them: chats
 /// kept together, with instructions and files that go with every request in them. Kept on the
 /// iPhone (the App Group container). The Mac's own projects are managed from Chats › Your Mac.
 struct PhoneProject: Codable, Identifiable, Equatable {

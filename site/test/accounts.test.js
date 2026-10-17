@@ -292,6 +292,29 @@ test('a Mac links: code, the iPhone approves, the Mac polls its token once', asy
   assert.equal((await api('/link/poll', { method: 'POST', body: { code, poll } })).status, 404, 'gone after it was taken');
 });
 
+test('Daredevil is free: a Mac linked as Daredevil gives the account a month of AI through the apps\' proxy, and nothing else does', async () => {
+  const phone = await signIn('apple-daredevil-1');
+  const ask = (token) => api('/anthropic/v1/messages', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01' }, body: { model: 'claude-opus-5-5', max_tokens: 50, messages: [{ role: 'user', content: 'hi' }] } });
+  // Spend the one-time trial first, so only the Daredevil allowance can answer.
+  anthropicAnswer = messageStream('claude-opus-5-5', 20000, 30000); // $0.68 a time
+  for (let n = 0; n < 3; n++) { await (await ask(phone.token)).text().catch(() => {}); await Promise.all(waits.splice(0)); }
+  assert.equal((await ask(phone.token)).status, 402, 'a plain account has its trial only');
+  // An ordinary Mac link changes nothing.
+  const plain = await startLink();
+  await api(`/link/${plain.code}/approve`, { method: 'POST', token: phone.token, body: { sealed_key: 'c2VhbGVk', sender_key: macKey } });
+  const plainMac = await (await api('/link/poll', { method: 'POST', body: plain })).json();
+  assert.equal((await ask(plainMac.token)).status, 402);
+  // A Daredevil link does: the proxy answers from the Daredevil allowance (counted as the month's allowance).
+  const response = await api('/link/start', { method: 'POST', body: { name: 'A Windows PC', kind: 'mac', public_key: macKey, app_version: '0.2.0', edition: 'daredevil' } });
+  const dare = await response.json();
+  await api(`/link/${dare.code}/approve`, { method: 'POST', token: phone.token, body: { sealed_key: 'c2VhbGVk', sender_key: macKey } });
+  const dareMac = await (await api('/link/poll', { method: 'POST', body: dare })).json();
+  const ok = await ask(dareMac.token);
+  assert.equal(ok.status, 200);
+  await ok.text().catch(() => {});
+  await Promise.all(waits.splice(0));
+});
+
 test('a link can be turned down, runs out, and only an iPhone approves', async () => {
   const phone = await signIn();
   const first = await startLink();

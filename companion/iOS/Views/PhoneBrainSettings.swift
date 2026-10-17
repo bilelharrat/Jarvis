@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings › Jarvis on iPhone: the Claude and Gemini API keys, which one goes first, the
-/// models, who answers, and what Jarvis calls you.
+/// Settings › Eden Secretary on iPhone: the Claude and Gemini API keys, which one goes first, the
+/// models, who answers, and what Eden Secretary calls you.
 struct PhoneBrainSettings: View {
     @Environment(AppModel.self) private var model
     @AppStorage(BrainSettings.providerKey) private var preferred = BrainProvider.claude.rawValue
@@ -90,7 +90,7 @@ struct PhoneBrainSettings: View {
             }
             HStack(spacing: Space.s) {
                 IconTile(symbol: "person.fill", tint: .orange)
-                TextField("What Jarvis calls you (optional)", text: $address)
+                TextField("What Eden Secretary calls you (optional)", text: $address)
                     .submitLabel(.done)
             }
             Toggle(isOn: $headsUpNotify) {
@@ -116,20 +116,20 @@ struct PhoneBrainSettings: View {
                 }
             }
         } header: {
-            Text("Jarvis on iPhone")
+            Text("Eden Secretary on iPhone")
         } footer: {
             Text(footer)
         }
     }
 
     /// What answers on this iPhone right now: the owner's own key, the AI included with
-    /// their Jarvis account, or Apple's model.
+    /// their Eden Secretary account, or Apple's model.
     private var source: (text: String, ready: Bool) {
         if model.hasPhoneKey { return ("Your key", true) }
         let store = AccountStore.shared
         if store.isSignedIn {
-            guard let account = store.account else { return ("Jarvis account", true) }
-            if account.plan.isPlus { return account.usage.leftUSD > 0 ? ("Jarvis Plus", true) : ("Jarvis Plus · used up this month", false) }
+            guard let account = store.account else { return ("Eden Secretary account", true) }
+            if account.plan.isPlus { return account.usage.leftUSD > 0 ? ("Eden Plus", true) : ("Eden Plus · used up this month", false) }
             if account.usage.trialLeftUSD > 0 { return ("Trial: \(account.usage.trialLeftUSD.dollars) left", true) }
             if model.hasAppleBrain { return ("Apple Intelligence (trial used)", true) }
             return ("Trial used · upgrade in Account", false)
@@ -151,10 +151,10 @@ struct PhoneBrainSettings: View {
     }
 
     private var footer: String {
-        let keys = "Jarvis answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. Without a key, a Jarvis account (Settings › Account) brings AI included: a trial, then Jarvis Plus (Claude always needs your own key). With none of these, or when they all fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
-        let more = " Heads-ups: Jarvis looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Jarvis” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Jarvis knows it’s you)."
+        let keys = "Eden Secretary answers on this iPhone with your own API key: Claude (console.anthropic.com) or Gemini (aistudio.google.com). With both, the one you choose answers and the other steps in when it can’t. Without a key, an Eden Secretary account (Settings › Account) brings AI included: a trial, then Eden Plus (Claude always needs your own key). With none of these, or when they all fail, Apple Intelligence answers: Apple’s Private Cloud Compute when there’s internet, the model on this iPhone when there isn’t (it can’t see pictures and knows less). It uses your calendar, reminders, contacts, location, music, Home and Health, and the web. Keys stay in this iPhone’s Keychain and go only to Anthropic or Google."
+        let more = " Heads-ups: Eden Secretary looks ahead at your calendar and reminders and tells you on Today; it only interrupts you (a notification) for what can't wait. Only Answer When Unlocked: Siri, Vocal Shortcuts and “Hey Eden” answer only once Face ID or your passcode has unlocked this iPhone (iOS doesn’t let apps recognise a voice, so this is how Eden Secretary knows it’s you)."
         guard model.pairing != nil else { return keys + more }
-        return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Eden Code) to the Mac, opening JARVIS there if it was quit. Without a key, or when both services fail, your Mac answers. Whatever you choose, when your Mac can’t be reached (you’re away, it’s asleep or off), this iPhone answers instead of waiting for it. Use My Mac’s Keys copies the keys saved in JARVIS on your Mac, over your paired connection."
+        return keys + more + " Automatic: this iPhone answers everything it can and hands what needs your Mac (files, mail, iMessage, Eden Code) to the Mac, opening Eden Secretary there if it was quit. Without a key, or when both services fail, your Mac answers. Whatever you choose, when your Mac can’t be reached (you’re away, it’s asleep or off), this iPhone answers instead of waiting for it. Use My Mac’s Keys copies the keys saved in Eden Secretary on your Mac, over your paired connection."
     }
 }
 
@@ -233,7 +233,7 @@ private struct KeyRow: View {
     }
 }
 
-/// How to reach Jarvis without touching the screen: "Hey Jarvis" in the app, Vocal
+/// How to reach Eden Secretary without touching the screen: "Hey Eden" in the app, Vocal
 /// Shortcuts for anywhere (Lock Screen included), Siri via the side button, the Action
 /// Button, Control Center and Back Tap.
 struct HeyJarvisView: View {
@@ -246,12 +246,12 @@ struct HeyJarvisView: View {
         GlassList {
             Section {
                 step(1, "Open **Settings › Accessibility › Vocal Shortcuts** and tap **Set Up Vocal Shortcuts** (or **+**).")
-                step(2, "Choose **Shortcut**, then **Jarvis** (J.A.R.V.I.S.).")
-                step(3, "Say **“Jarvis”** three times when asked.")
+                step(2, "Choose **Shortcut**, then **Eden Secretary** (Eden Secretary).")
+                step(3, "Say **“Eden Secretary”** three times when asked.")
             } header: {
-                Text("Say “Jarvis” Anytime")
+                Text("Say “Eden Secretary” Anytime")
             } footer: {
-                Text("Then just say “Jarvis”, wait for “Yes?”, and ask. iOS itself listens for the word, all the time: locked, in your pocket, with J.A.R.V.I.S. closed, even after a restart, with no extra battery. Jarvis answers out loud in its own voice without unlocking, through your Mac, or on this iPhone when the Mac can’t be reached. (Siri’s “Hey Siri, Jarvis” does the same.)")
+                Text("Then just say “Eden Secretary”, wait for “Yes?”, and ask. iOS itself listens for the word, all the time: locked, in your pocket, with Eden Secretary closed, even after a restart, with no extra battery. Eden Secretary answers out loud in its own voice without unlocking, through your Mac, or on this iPhone when the Mac can’t be reached. (Siri’s “Hey Siri, Eden Secretary” does the same.)")
             }
 
             Section {
@@ -259,8 +259,8 @@ struct HeyJarvisView: View {
                     HStack(spacing: Space.s) {
                         IconTile(symbol: "waveform", tint: .purple)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("Listen for “Hey Jarvis”")
-                            Text(model.wake.isListening ? "Listening now" : "While J.A.R.V.I.S. is open")
+                            Text("Listen for “Hey Eden”")
+                            Text(model.wake.isListening ? "Listening now" : "While Eden Secretary is open")
                                 .font(.footnote)
                                 .foregroundStyle(model.wake.isListening ? Color.green : Palette.muted)
                         }
@@ -284,22 +284,22 @@ struct HeyJarvisView: View {
                 Text("While the App Is Open")
             } footer: {
                 Text(WakeWordListener.supported
-                    ? "Say “Jarvis”, or “Jarvis, what’s next?” in one go, and the conversation carries on here on screen. Recognition happens on this iPhone; nothing is recorded or sent until Jarvis hears its name. In the background it keeps going (with the orange microphone dot) until a call, Siri or another app takes the microphone, and it uses more battery."
-                    : "This iPhone can’t recognise speech on-device, so “Hey Jarvis” in the app isn’t available. Use Vocal Shortcuts below instead.")
+                    ? "Say “Eden Secretary”, or “Eden Secretary, what’s next?” in one go, and the conversation carries on here on screen. Recognition happens on this iPhone; nothing is recorded or sent until Eden Secretary hears its name. In the background it keeps going (with the orange microphone dot) until a call, Siri or another app takes the microphone, and it uses more battery."
+                    : "This iPhone can’t recognise speech on-device, so “Hey Eden” in the app isn’t available. Use Vocal Shortcuts below instead.")
             }
 
             Section {
-                row("button.vertical.right.press.fill", .blue, "Side Button", "Hold it and say “Jarvis” (or “Ask Jarvis what’s next”). Siri hands it straight to Jarvis.")
-                row("button.horizontal.top.press.fill", .orange, "Action Button", "Settings › Action Button › Controls › Talk to Jarvis. One press and Jarvis is listening.")
-                row("switch.2", .gray, "Control Center & Lock Screen", "Add the Talk to Jarvis control from the controls gallery.")
-                row("hand.tap.fill", .green, "Back Tap", "Settings › Accessibility › Touch › Back Tap › Double Tap › Talk to Jarvis.")
+                row("button.vertical.right.press.fill", .blue, "Side Button", "Hold it and say “Eden Secretary” (or “Ask Eden Secretary what’s next”). Siri hands it straight to Eden Secretary.")
+                row("button.horizontal.top.press.fill", .orange, "Action Button", "Settings › Action Button › Controls › Talk to Eden Secretary. One press and Eden Secretary is listening.")
+                row("switch.2", .gray, "Control Center & Lock Screen", "Add the Talk to Eden Secretary control from the controls gallery.")
+                row("hand.tap.fill", .green, "Back Tap", "Settings › Accessibility › Touch › Back Tap › Double Tap › Talk to Eden Secretary.")
             } header: {
                 Text("Buttons")
             } footer: {
-                Text("Apple keeps the side button for Siri in most countries, so holding it and saying “Jarvis” is the closest to a Jarvis button there; the Action Button can open Jarvis directly.")
+                Text("Apple keeps the side button for Siri in most countries, so holding it and saying “Eden Secretary” is the closest to a Eden Secretary button there; the Action Button can open Eden Secretary directly.")
             }
         }
-        .navigationTitle("“Jarvis”")
+        .navigationTitle("“Eden Secretary”")
         .navigationBarTitleDisplayMode(.inline)
     }
 

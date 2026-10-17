@@ -190,7 +190,7 @@ test('Unlabeled buttons, links and fields get a name from the best source, marke
   for (const [id, name] of Object.entries(want)) {
     eq(await attr(id, 'aria-label'), name, id);
     assert(/^guessed:/.test(await attr(id, 'data-jarvis-a11y-label')), `${id} not marked as guessed`);
-    eq(await attr(id, 'aria-description'), 'Label guessed by Jarvis', `${id} description`);
+    eq(await attr(id, 'aria-description'), 'Label guessed by Eden Secretary', `${id} description`);
   }
   // The cart link gets its name from its picture (whose alt came from the file name).
   eq(await attr('a-cart', 'aria-label'), null, 'a-cart needs no label of its own');
@@ -284,7 +284,7 @@ test('A newsletter overlay is closed with its close button, never subscribed, an
 });
 
 // In a page that draws (an offscreen window), so the press is a real one, as the owner's
-// or JARVIS's hand makes it.
+// or Eden Secretary's hand makes it.
 test('An overlay the owner opened a moment ago is left alone', async () => {
   const paper = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { offscreen: true, partition: PARTITION,
     preload: path.join(ROOT, 'page-preload.js'), sandbox: true, contextIsolation: true, backgroundThrottling: false } });

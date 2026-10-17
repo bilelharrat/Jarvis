@@ -392,7 +392,7 @@ def test_the_spoken_summary_names_only_what_needs_looking_at():
 @pytest.mark.parametrize(
     ("line", "masked"),
     [
-        ("JARVIS listening on http://127.0.0.1:5/?token=Zx9yabcDEF1234567890", "?token=[hidden]"),
+        ("Jarvis listening on http://127.0.0.1:5/?token=Zx9yabcDEF1234567890", "?token=[hidden]"),
         ("Authorization: Bearer sk-ant-api03-AAAABBBBCCCC", "Authorization: [hidden]"),
         ("password=hunter2 user=ann", "password=[hidden] user=ann"),
         ("mail ann.lee+work@example.co.uk now", "mail [email] now"),

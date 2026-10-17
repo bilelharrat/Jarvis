@@ -11,6 +11,9 @@ const GLYPHS = {
   google: { mark: 'G', from: '#7aa2f7', to: '#4a6fd6' },
   kimi: { mark: 'K', from: '#a58bd6', to: '#7a5fb8' },
   moonshot: { mark: 'K', from: '#a58bd6', to: '#7a5fb8' },
+  meta: { mark: 'M', from: '#4f8cff', to: '#1d5fe0' },
+  mistral: { mark: 'M', from: '#ff9a4d', to: '#e8601c' },
+  deepseek: { mark: 'D', from: '#5b8def', to: '#3058c9' },
 };
 /** { mark, from, to } for a provider id (an unknown one: its first letter on grey). */
 export function providerGlyph(id, name) {

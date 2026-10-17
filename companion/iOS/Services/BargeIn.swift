@@ -1,9 +1,9 @@
 import AVFoundation
 import Speech
 
-/// Voice mode's ear while Jarvis speaks: the owner talking over the reply stops it, as in the
+/// Voice mode's ear while Eden Secretary speaks: the owner talking over the reply stops it, as in the
 /// ChatGPT, Gemini and Claude apps' voice modes. The microphone runs with the session's echo
-/// cancellation (voice processing), and on-device recognition listens; Jarvis's own words
+/// cancellation (voice processing), and on-device recognition listens; Eden Secretary's own words
 /// leaking back in don't count: it's the owner only when what's heard isn't the reply.
 @MainActor
 final class BargeIn {
@@ -14,7 +14,7 @@ final class BargeIn {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
-    /// What Jarvis is saying (so its echo isn't taken for the owner).
+    /// What Eden Secretary is saying (so its echo isn't taken for the owner).
     private var reply = ""
 
     var isListening: Bool { engine != nil }
@@ -72,7 +72,7 @@ final class BargeIn {
         onSpeech?()
     }
 
-    /// Whether what the microphone heard is the owner rather than Jarvis's own voice coming
+    /// Whether what the microphone heard is the owner rather than Eden Secretary's own voice coming
     /// back: at least two words, most of which the reply doesn't say.
     nonisolated static func isOwner(heard: String, reply: String) -> Bool {
         let words = Self.words(heard)

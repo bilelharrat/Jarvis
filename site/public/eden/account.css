@@ -15,6 +15,8 @@
 .acct-row-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
 .acct-k{font-size:13px;font-weight:500}
 .acct-v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+/* the account's code (the same on every device of the account): easy to read out and compare */
+.acct-idcode{font-family:ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.06em;user-select:all}
 
 /* the glass meter: a frosted track, a lit fill */
 .acct-meter{position:relative;height:12px;border-radius:999px;overflow:hidden;

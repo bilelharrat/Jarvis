@@ -1,5 +1,5 @@
 """Ask Eden from anywhere (features/eden_hotkey.py): its two settings, off by default, with
-keys checked as JARVIS's other global shortcuts are."""
+keys checked as Jarvis's other global shortcuts are."""
 
 from jarvis.features import eden_hotkey
 from jarvis.prefs import Prefs, clean_feature_values

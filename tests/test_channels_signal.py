@@ -38,7 +38,7 @@ for line in sys.stdin:
 
 
 class Daemon:
-    """signal-cli's daemon, pretend: what JARVIS asked of it."""
+    """signal-cli's daemon, pretend: what Jarvis asked of it."""
 
     def __init__(self, on_notice):
         self.on_notice = on_notice

@@ -1,4 +1,4 @@
-"""Skills for JARVIS itself (jarvis.skills): SKILL.md frontmatter read the way skills write it,
+"""Skills for Jarvis itself (jarvis.skills): SKILL.md frontmatter read the way skills write it,
 what a skill needs to be used on this Mac, the folder and its switches, installing (a copy,
 never a link, never bigger than a skill should be), the brain's tools, and cloning only over
 https."""

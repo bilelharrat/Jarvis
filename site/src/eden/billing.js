@@ -1,5 +1,5 @@
 // Plus on the web, with Stripe (ROADMAP F15; docs/web-auth.md "Billing on the web (Stripe)"),
-// beside the App Store purchase in the J.A.R.V.I.S. iPhone app, never instead of it:
+// beside the App Store purchase in the Eden Secretary iPhone app, never instead of it:
 //
 //   POST /api/web/billing/checkout   the signed-in browser's own account (not while acting for
 //                                    someone) → { url }: a Stripe Checkout Session for a
@@ -31,6 +31,7 @@ import { AUTO, PACKS } from '../accounts/credits.js';
 import { redeemPromo } from '../accounts/promo.js';
 import { legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from '../accounts/storekit.js';
+import { playPurchase } from '../accounts/google-play.js';
 import { ApiError, EDEN_BUNDLE_ID, hex, isPlusPurchase, json, readJson, sameText, validAccountId } from '../accounts/util.js';
 import { SIGNIN_CSP, page } from './web.js';
 
@@ -212,15 +213,16 @@ async function appleTransaction(request, env, who) {
 }
 
 export async function billingApi(request, env, who, op, { acting = null, origin = '' } = {}) {
-  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup', 'promo', 'apple'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup', 'promo', 'apple', 'google'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
   if (op === 'apple') return json(await appleTransaction(request, env, who)); // the Eden iPhone app's App Store Plus: no Stripe needed
+  if (op === 'google') return json(await playPurchase(request, env, who)); // Eden for Android's Google Play Plus (accounts/google-play.js)
   if (op === 'promo') { // a promo code: free Plus, no Stripe needed
     if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
     await limited(env, 'AUTH_RATE', `promo:${who.account}`);
     const { code } = await request.json().catch(() => ({}));
     return json(await redeemPromo(env, who, code, call));
   }
-  if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the J.A.R.V.I.S. iPhone app.');
+  if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the Eden Secretary iPhone app.');
   if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
   await limited(env, 'EDEN_RATE', `billing:${who.account}`);
   const body = await request.json().catch(() => ({}));

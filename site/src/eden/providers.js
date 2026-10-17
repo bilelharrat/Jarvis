@@ -32,9 +32,18 @@ import { PROVIDER_NAMES, buildStreamRequest, computedWhere, createStreamParser, 
 
 export { PROVIDER_NAMES, computedWhere, hasVision };
 
-export const PROVIDER_IDS = ['anthropic', 'openai', 'gemini', 'kimi'];
-export const KEY_VARS = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', kimi: 'MOONSHOT_API_KEY' };
-export const SWITCH_VARS = { anthropic: 'EDEN_ANTHROPIC', openai: 'EDEN_OPENAI', gemini: 'EDEN_GEMINI', kimi: 'EDEN_KIMI' };
+export const PROVIDER_IDS = ['anthropic', 'openai', 'gemini', 'kimi', 'meta', 'mistral', 'deepseek'];
+export const KEY_VARS = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', kimi: 'MOONSHOT_API_KEY', meta: 'META_API_KEY', mistral: 'MISTRAL_API_KEY', deepseek: 'DEEPSEEK_API_KEY' };
+export const SWITCH_VARS = { anthropic: 'EDEN_ANTHROPIC', openai: 'EDEN_OPENAI', gemini: 'EDEN_GEMINI', kimi: 'EDEN_KIMI', meta: 'EDEN_META', mistral: 'EDEN_MISTRAL', deepseek: 'EDEN_DEEPSEEK' };
+/**
+ * Providers used only when the person picks one of their models by name: never by automatic routing, the checks, a
+ * compare summary or the default model. DeepSeek processes and stores data in China (its privacy policy, 2026-02-10).
+ */
+export const OPT_IN_PROVIDERS = ['deepseek'];
+/** Added 2026-10-14, switched on after the iPhone app's App Review: shown and keyed only when on the site's model list. */
+export const LATER_PROVIDERS = ['meta', 'mistral', 'deepseek'];
+/** The models Eden may choose by itself (routing, checks, summaries, the default): everything but the opt-in providers'. */
+export const autoModels = (models) => models.filter((m) => !OPT_IN_PROVIDERS.includes(m.provider));
 
 export const CLAUDE_SEARCH_USD = 0.01;
 export const OPENAI_SEARCH_USD = 0.01; // OpenAI web_search tool call (published price: $10 per 1,000 calls; the pages it reads are billed as input tokens)
@@ -90,7 +99,7 @@ export async function hostedFor(env, who, cfg, request = null) {
 
 /** The model a new account starts on: DEFAULT_MODEL when the asker has it, else the cheapest non-Claude one; null: none. */
 export function defaultModel(cfg) {
-  const pool = cfg.models.filter((m) => !BYOK_ONLY.includes(m.provider));
+  const pool = autoModels(cfg.models).filter((m) => !BYOK_ONLY.includes(m.provider));
   if (pool.some((m) => m.id === DEFAULT_MODEL)) return DEFAULT_MODEL;
   const out = (m) => ratesOf(m)[1];
   return pool.length ? [...pool].sort((a, b) => out(a) - out(b))[0].id : null;
@@ -132,11 +141,13 @@ export function narrowFor(cfg, { settings = {}, mode = 'chat', messages = [], ov
 
 /** The providers as /api/chat/meta lists them. */
 export function providerStates(keys, cfg) {
-  return PROVIDER_IDS.map((id) => {
+  // Meta, Mistral and DeepSeek appear only once one of their models is on this site's list (EDEN_MODELS): until then
+  // the page never names them (the iPhone app's privacy wording lists four providers; 2026-10-14).
+  return PROVIDER_IDS.filter((id) => !LATER_PROVIDERS.includes(id) || cfg.models.some((m) => m.provider === id)).map((id) => {
     const name = PROVIDER_NAMES[id];
     const k = keys[id];
     const some = cfg.models.some((m) => m.provider === id);
-    if (k && some) return { id, name, available: true, via: k.source === 'user' ? 'your API key' : 'your Jarvis account', reason: null };
+    if (k && some) return { id, name, available: true, via: k.source === 'user' ? 'your API key' : 'your Eden Secretary account', reason: null };
     if (!k && BYOK_ONLY.includes(id)) return { id, name, available: false, via: null, reason: CLAUDE_NEEDS_KEY, needsKey: true, link: KEYS_SETTINGS };
     return { id, name, available: false, via: null, reason: k ? `No ${name} models are set up on askeden.com` : `No ${name.split(' ').pop()} API key on askeden.com` };
   });
@@ -238,7 +249,7 @@ export function searchTool(modelId, uses) {
 
 // ── dev and tests: fake providers on loopback ──
 
-const PROVIDER_HOSTS = /^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com|api\.moonshot\.ai)\//;
+const PROVIDER_HOSTS = /^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com|api\.moonshot\.ai|api\.meta\.ai|api\.mistral\.ai|api\.deepseek\.com)\//;
 const local = (h) => h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
 
 /**

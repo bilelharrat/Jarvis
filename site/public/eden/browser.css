@@ -1,4 +1,4 @@
-/* The browser panel (browser-pane.js): J.A.R.V.I.S.'s browser (its tab pills, 30px bar buttons,
+/* The browser panel (browser-pane.js): Eden Secretary's browser (its tab pills, 30px bar buttons,
    filled address field, 2px loading sweep: src/jarvis/web/app.css .bd-*) in Eden's tokens.
    Docked beside the conversation like the canvas on a wide screen, over it from the right on a
    narrower one, full screen on a phone. */
@@ -157,7 +157,7 @@ body.browser-open #browserPane{display:flex}
 .bd-dl{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:12.5px;color:var(--text)}
 .bd-dl-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* in the J.A.R.V.I.S. app: its own view goes in the slot */
+/* in the Eden Secretary app: its own view goes in the slot */
 .br-slot{flex:1;min-width:0;height:100%;background:var(--content);display:flex;align-items:center;justify-content:center}
 .br-slot-note{font-size:12px;color:var(--text3);padding:16px;text-align:center;pointer-events:none}
 

@@ -9,7 +9,7 @@
 //                                                             in Anthropic's shape (JSON, or SSE when
 //                                                             payload.stream); null: no key at all
 //
-// The stand-in: Gemini 3.8 Flash on GEMINI_API_KEY, else GPT-6 Luna on OPENAI_API_KEY (either
+// The stand-in: Gemini 3.8 Flash on GEMINI_API_KEY, else GPT-6.1 Sol on OPENAI_API_KEY (either
 // switched off by EDEN_GEMINI / EDEN_OPENAI = "off"). The Anthropic request is translated (system,
 // text, images and PDFs, tools and tool results, tool_choice, a JSON schema answer), asked once
 // without streaming, and the answer translated back; a streamed request gets it as one burst of
@@ -22,7 +22,7 @@ const OPENAI = 'https://api.openai.com/v1/chat/completions';
 
 export const FALLBACKS = [
   { provider: 'gemini', model: 'gemini-3.8-flash', keyVar: 'GEMINI_API_KEY', switchVar: 'EDEN_GEMINI' },
-  { provider: 'openai', model: 'gpt-6-luna', keyVar: 'OPENAI_API_KEY', switchVar: 'EDEN_OPENAI' },
+  { provider: 'openai', model: 'gpt-6.1-sol', keyVar: 'OPENAI_API_KEY', switchVar: 'EDEN_OPENAI' }, // was gpt-6-luna, then gpt-6-sol (both retired)
 ];
 // Gemini 3 wants a function call's thought signature back; a translated history has none.
 export const SKIP_SIGNATURE = 'skip_thought_signature_validator';

@@ -128,7 +128,7 @@ final class ContractFixtureTests: XCTestCase {
         XCTAssertEqual(done.reply, doneJSON["reply"] as? String)
         XCTAssertFalse(done.reply.isEmpty)
 
-        // /api/ask's cards come as the hub keeps them (no "source"): JARVIS's own.
+        // /api/ask's cards come as the hub keeps them (no "source"): Eden Secretary's own.
         let (waiting, waitingJSON) = try decode(AskResult.self, "ask_needs_ok")
         XCTAssertFalse(waiting.done)
         let card = try XCTUnwrap(waiting.approvals.first)
@@ -309,7 +309,7 @@ final class ContractFixtureTests: XCTestCase {
         XCTAssertEqual(try error("error_pair_fingerprint", pairing: true), .fingerprintRefused)
         let code = try Self.fixture("error_pair_code").object["error"] as? String
         XCTAssertEqual(try error("error_pair_code", pairing: true), .wrongCode(code ?? ""))
-        XCTAssertEqual(try error("error_busy"), .busy("Jarvis is busy. Try again in a moment."))
+        XCTAssertEqual(try error("error_busy"), .busy("Eden Secretary is busy. Try again in a moment."))
         XCTAssertEqual(try error("error_too_big"), .tooBig)
         XCTAssertEqual(try error("error_share_refused"), .rejected("not a picture"))
         // An endpoint this Mac doesn't have yet.

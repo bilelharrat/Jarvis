@@ -1,4 +1,4 @@
-"""JARVIS's own conversation around round 2's fixes, the sides the repro tests leave out
+"""Jarvis's own conversation around round 2's fixes, the sides the repro tests leave out
 (tests/test_stress_r2_conversation.py has those): the owner's own words tried again stay
 theirs while a forwarded message or a request from before a restart doesn't become theirs,
 Stop before Claude has a request keeps the notes it was to carry and lets a queued request

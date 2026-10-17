@@ -2,12 +2,12 @@
 // beside the conversation, as the canvas is; full screen with a close button on a phone. Open or
 // closed is remembered per viewer (browser-model.js has the logic, its tests the rules).
 //
-// In the J.A.R.V.I.S. app's Ask Eden window it IS Jarvis's built-in browser: the app draws the
+// In the Eden Secretary app's Ask Eden window it IS Eden Secretary's built-in browser: the app draws the
 // tab on show in the panel's slot (its tabs, adblock and gates), and this page draws the tabs,
 // the address bar and the buttons from the state the app sends.
 //
 // Anywhere else it's Eden's cloud browser: a real Chrome on Cloudflare, one per account (the
-// server's browser/session.js), as J.A.R.V.I.S.'s browser looks and works: tabs, the address bar
+// server's browser/session.js), as Eden Secretary's browser looks and works: tabs, the address bar
 // with suggestions from history and bookmarks, back, forward, reload and stop, the loading bar,
 // ad and tracker blocking with its count, bookmarks and history, find in page, zoom, downloads
 // (offered as a link), Ask Eden about the page, and open in your own browser. The page is a live
@@ -63,7 +63,7 @@ export function toggleBrowser(force, { quiet = false } = {}) {
 export function closeBrowser() { if (!browserOpen()) return false; toggleBrowser(false); const b = $('btnBrowser'); if (b) b.focus(); return true; }
 
 
-/* ---------- the panel's frame (J.A.R.V.I.S.'s browser: tabs, then the bar) ---------- */
+/* ---------- the panel's frame (Eden Secretary's browser: tabs, then the bar) ---------- */
 
 const P = {};
 function build() {
@@ -331,7 +331,7 @@ function openOutside(url) {
   if (w) w.opener = null;
 }
 
-/* ---------- in the J.A.R.V.I.S. app: Jarvis's own browser in the slot ---------- */
+/* ---------- in the Eden Secretary app: Eden Secretary's own browser in the slot ---------- */
 
 function startApp() {
   const slot = el('div', { class: 'br-slot', 'aria-label': 'Page' }, el('span', 'br-slot-note', 'The page shows here when nothing of Eden’s is over it.'));

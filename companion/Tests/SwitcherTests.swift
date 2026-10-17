@@ -1,7 +1,7 @@
 import XCTest
 @testable import JarvisCompanion
 
-/// More than one Jarvis on this iPhone (a Mac, the cloud one): which is the same Jarvis, and
+/// More than one Eden Secretary on this iPhone (a Mac, the cloud one): which is the same Eden Secretary, and
 /// which addresses are on the local network.
 final class SwitcherTests: XCTestCase {
     private func pairing(_ url: String, fp: String?) -> Pairing {
@@ -31,7 +31,7 @@ final class SwitcherTests: XCTestCase {
         cloud.macName = "MacBook Air"
         cloud.baseURL = URL(string: "https://192.168.1.5:8765")!
         XCTAssertEqual(JarvisSwitcher.symbol(for: cloud), "desktopcomputer")
-        cloud.macName = "Jarvis Cloud"
+        cloud.macName = "Eden Secretary Cloud"
         XCTAssertEqual(JarvisSwitcher.symbol(for: cloud), "cloud.fill")
     }
 }

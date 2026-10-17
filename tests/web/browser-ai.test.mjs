@@ -178,5 +178,5 @@ test('the Passwords app is offered at a password or a sign-in, never elsewhere',
   const B = helpers();
   assert.deepEqual(['password', 'login', 'captcha', 'card', 'code', ''].map(B.wantsPasswords), [true, true, false, false, false, false]);
   const strings = { ...zh.strings, ...fragment.strings };
-  for (const s of ['Open Passwords', 'Opens the Passwords app. Jarvis never sees your passwords.']) assert.ok(s in strings, s);
+  for (const s of ['Open Passwords', 'Opens the Passwords app. Eden Secretary never sees your passwords.']) assert.ok(s in strings, s);
 });

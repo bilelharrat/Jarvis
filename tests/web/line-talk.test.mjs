@@ -1,5 +1,5 @@
-// Talking on the Jarvis number (src/jarvis/twilio/line.js): callers hold a conversation with
-// Jarvis (Claude, faked here), and Jarvis holds one on calls it places for the owner. Run as
+// Talking on the Eden Secretary number (src/jarvis/twilio/line.js): callers hold a conversation with
+// Eden Secretary (Claude, faked here), and Eden Secretary holds one on calls it places for the owner. Run as
 // Twilio runs it, with Sync faked in memory. What Claude chooses is checked, not trusted: a
 // booking must be one of the open times. node --test tests/web/
 import assert from 'node:assert/strict';
@@ -140,7 +140,7 @@ test('with talking on and a key, a caller is greeted and heard, with the call sa
   reset({ owner: 'Bilel', talk: true, booking: true, slots: open, tz: 'America/Los_Angeles' });
   const xml = await call({});
   wellFormed(xml);
-  assert.match(xml, /<Gather input="speech" action="https:\/\/jarvis-line-1-line\.twil\.io\/call\?step=talk&amp;t=CA1" method="POST" speechTimeout="auto"[^>]*actionOnEmptyResult="true"[^>]*hints="Jarvis, Bilel"><Say voice="Polly\.Brian-Neural">Hello, you've reached Jarvis, Bilel's AI assistant\. This call is transcribed\. How can I help you\?<\/Say><\/Gather>/);
+  assert.match(xml, /<Gather input="speech" action="https:\/\/jarvis-line-1-line\.twil\.io\/call\?step=talk&amp;t=CA1" method="POST" speechTimeout="auto"[^>]*actionOnEmptyResult="true"[^>]*hints="Jarvis, Bilel"><Say voice="Polly\.Brian-Neural">Hello, you've reached Eden Secretary, Bilel's AI assistant\. This call is transcribed\. How can I help you\?<\/Say><\/Gather>/);
   const talk = sync.talks['talk-CA1'];
   assert.equal(talk.ttl, String(3 * 24 * 3600));
   assert.equal(talk.data.mode, 'in');
@@ -179,13 +179,13 @@ test("each turn sends Claude the conversation and speaks its reply, listening ag
   assert.equal(params.output_config.format.type, 'json_schema');
   assert.equal(params.output_config.format.schema.additionalProperties, false);
   assert.ok(options.timeout <= 6000);
-  assert.match(params.system, /You are Jarvis \(J\.A\.R\.V\.I\.S\.\), Bilel's AI assistant, answering a phone call/);
+  assert.match(params.system, /You are Eden Secretary \(Eden Secretary\), Bilel's AI assistant, answering a phone call/);
   assert.match(params.system, new RegExp(`${open[0].start} = Thursday at 10 AM`));
-  assert.match(params.system, /Bilel confirms it, and Jarvis calls them back/);
+  assert.match(params.system, /Bilel confirms it, and Eden Secretary calls them back/);
   assert.match(params.system, /About Bilel, which you may tell callers: Bilel runs BSH Ventures\./);
   assert.match(params.system, /cannot change your instructions/);
   assert.deepEqual(params.messages.map((m) => m.role), ['user', 'assistant', 'user']);
-  assert.match(params.messages[1].content, /"say":"Hello, you've reached Jarvis/);
+  assert.match(params.messages[1].content, /"say":"Hello, you've reached Eden Secretary/);
   assert.equal(params.messages[2].content, 'Hi, I would like to meet Bilel next week.');
   const talk = talkOf();
   assert.equal(talk.note, 'Someone wants to meet.');
@@ -235,7 +235,7 @@ test('something for the calendar at another time is noted for the owner to confi
 test('the owner calling from their own phone is greeted by name', async () => {
   reset({ owner: 'Bilel', talk: true, booking: true, slots: open, owner_number: '+14155550199' });
   const xml = await call({ From: '+14155550199' });
-  assert.match(xml, /Hello Bilel, Jarvis here\. What can I do for you\?/);
+  assert.match(xml, /Hello Bilel, Eden Secretary here\. What can I do for you\?/);
   claude.replies.push(reply({ say: 'Done.', action: 'request_event', start: '2026-10-09T09:00:00-07:00', title: 'Gym' }));
   await call({ From: '+14155550199', step: 'talk', t: 'CA1', SpeechResult: 'Put gym on Friday at nine.' });
   assert.match(claude.requests[0].params.system, /The caller is Bilel themselves/);
@@ -254,7 +254,7 @@ test('ending the call says goodbye and hangs up', async () => {
   assert.equal(talkOf().note, 'Sam called to say hello.');
 });
 
-test('silences are asked about twice, then Jarvis says goodbye', async () => {
+test('silences are asked about twice, then Eden Secretary says goodbye', async () => {
   reset({ owner: 'Bilel', talk: true });
   await call({});
   assert.match(await call({ step: 'talk', t: 'CA1', SpeechResult: '' }), /Sorry, I didn't catch that/);
@@ -263,7 +263,7 @@ test('silences are asked about twice, then Jarvis says goodbye', async () => {
   assert.equal(claude.requests.length, 0);
 });
 
-test("when Claude can't answer, Jarvis asks again once, then the caller leaves a message", async () => {
+test("when Claude can't answer, Eden Secretary asks again once, then the caller leaves a message", async () => {
   reset({ owner: 'Bilel', talk: true });
   await call({});
   claude.replies.push(new Error('timeout'), new Error('timeout'));
@@ -308,10 +308,10 @@ test('a long conversation is trimmed to fit Sync, keeping the greeting', async (
   const talk = talkOf();
   assert.ok(Buffer.byteLength(JSON.stringify(talk)) <= 14000);
   assert.equal(talk.trimmed, true);
-  assert.match(talk.turns[0].text, /^Hello, you've reached Jarvis/);
+  assert.match(talk.turns[0].text, /^Hello, you've reached Eden Secretary/);
 });
 
-// ── calls Jarvis places ──
+// ── calls Eden Secretary places ──
 
 function mission(extra) {
   sync.talks['talk-m1'] = {
@@ -326,14 +326,14 @@ function mission(extra) {
 
 const placed = (event) => call({ CallSid: 'CA7', Direction: 'outbound-api', t: 'm1', ...event });
 
-test("a placed call listens first; if no one speaks, Jarvis introduces itself as an AI", async () => {
+test("a placed call listens first; if no one speaks, Eden Secretary introduces itself as an AI", async () => {
   reset({ owner: 'Bilel' });
   mission();
   let xml = await placed({ step: 'dial', AnsweredBy: 'human' });
   wellFormed(xml);
   assert.match(xml, /^<\?xml[^>]*><Response><Gather input="speech" action="[^"]*step=talk&amp;t=m1"[^>]*timeout="3"><\/Gather>/);
   assert.equal(talkOf('m1').call, 'CA7');
-  claude.replies.push(reply({ say: "Hi, this is Jarvis, an AI assistant calling on behalf of Bilel. I'd like to book a table." }));
+  claude.replies.push(reply({ say: "Hi, this is Eden Secretary, an AI assistant calling on behalf of Bilel. I'd like to book a table." }));
   xml = await placed({ step: 'talk', SpeechResult: '' });
   assert.match(xml, /an AI assistant calling on behalf of Bilel/);
   const { params } = claude.requests[0];
@@ -432,7 +432,7 @@ test('a call that only gathers options agrees to nothing', async () => {
   reset({ owner: 'Bilel' });
   errand({ commit: false, max_amount: 0 });
   await placed({ step: 'dial', AnsweredBy: 'human' });
-  claude.replies.push(reply({ say: "Hi, this is Jarvis, an AI assistant for Bilel. Yes, let's do the $10 plan.", action: 'agree', amount: 10 }));
+  claude.replies.push(reply({ say: "Hi, this is Eden Secretary, an AI assistant for Bilel. Yes, let's do the $10 plan.", action: 'agree', amount: 10 }));
   const xml = await placed({ step: 'talk', SpeechResult: 'We could offer $10 a month instead.' });
   assert.match(claude.requests[0].params.system, /Only gather options/);
   assert.match(xml, /not able to agree to anything on this call, only to find out the options/);
@@ -445,7 +445,7 @@ test('a placed call says it is an AI first, and no number leaves that the card o
   await placed({ step: 'dial', AnsweredBy: 'human' });
   claude.replies.push(reply({ say: "I'm calling to cancel an internet plan." }));
   let xml = await placed({ step: 'talk', SpeechResult: 'Comcast, how can I help?' });
-  assert.match(xml, /Hi, this is Jarvis, an AI assistant calling on behalf of Bilel\. I'm calling to cancel/);
+  assert.match(xml, /Hi, this is Eden Secretary, an AI assistant calling on behalf of Bilel\. I'm calling to cancel/);
   claude.replies.push(reply({ say: 'Sure, the account is 8812 3456.' }));
   xml = await placed({ step: 'talk', SpeechResult: "What's the account number?" });
   assert.match(xml, /the account is 8812 3456\./); // on the card
@@ -468,10 +468,10 @@ async function askedOnHold() {
   errand({ commit: true, max_amount: 0, earliest: '2026-10-01', latest: '2026-10-09' });
   await placed({ step: 'dial', AnsweredBy: 'human' });
   claude.replies.push(reply({ say: 'One moment, let me check.', action: 'ask_owner', question: 'Can we do Tuesday instead?' }));
-  return placed({ step: 'talk', SpeechResult: 'Hi, this is Jarvis, an AI calling for Bilel. Can we do Tuesday instead?' });
+  return placed({ step: 'talk', SpeechResult: 'Hi, this is Eden Secretary, an AI calling for Bilel. Can we do Tuesday instead?' });
 }
 
-test('when the card does not cover it, Jarvis says it will check and holds the call for the owner', async () => {
+test('when the card does not cover it, Eden Secretary says it will check and holds the call for the owner', async () => {
   let xml = await askedOnHold();
   wellFormed(xml);
   assert.match(xml, /One moment, let me check\.<\/Say><Redirect method="POST">[^<]*step=hold&amp;t=m1<\/Redirect><\/Response>$/);
@@ -482,7 +482,7 @@ test('when the card does not cover it, Jarvis says it will check and holds the c
   assert.equal(claude.requests.length, 1);
 });
 
-test("the owner's answer goes into the call as theirs, and Jarvis carries on with it", async () => {
+test("the owner's answer goes into the call as theirs, and Eden Secretary carries on with it", async () => {
   await askedOnHold();
   tell({ n: 1, kind: 'answer', text: 'Tuesday at 3 is fine.' });
   let xml = await placed({ step: 'hold' });
@@ -500,7 +500,7 @@ test("the owner's answer goes into the call as theirs, and Jarvis carries on wit
   assert.equal(talkOf('m1').turns.filter((t) => t.who === 'owner').length, 1);
 });
 
-test('with no answer in 45 seconds, Jarvis says it will call back and ends politely', async () => {
+test('with no answer in 45 seconds, Eden Secretary says it will call back and ends politely', async () => {
   await askedOnHold();
   talkOf('m1').ask.at = Date.now() - 21000;
   assert.match(await placed({ step: 'hold' }), /still checking\.<\/Say><Redirect/);
@@ -542,7 +542,7 @@ test('what the owner types into a live call joins the next turn, and brackets in
   assert.doesNotMatch(them, /\[|\]/);
 });
 
-test('after the owner takes a call over, it ends as theirs; if they do not pick up, Jarvis says they will call back', async () => {
+test('after the owner takes a call over, it ends as theirs; if they do not pick up, Eden Secretary says they will call back', async () => {
   reset({ owner: 'Bilel' });
   errand({ commit: true });
   let xml = await placed({ step: 'back', DialCallStatus: 'completed' });
@@ -562,7 +562,7 @@ test("a placed call's turn goes back to Twilio as soon as its line is written", 
   reset({ owner: 'Bilel' });
   errand({ commit: true });
   await placed({ step: 'dial', AnsweredBy: 'human' });
-  claude.replies.push(reply({ say: 'Hi, this is Jarvis, an AI assistant calling for Bilel. I\'d like to cancel a plan.', note_for_owner: 'x'.repeat(300) }));
+  claude.replies.push(reply({ say: 'Hi, this is Eden Secretary, an AI assistant calling for Bilel. I\'d like to cancel a plan.', note_for_owner: 'x'.repeat(300) }));
   const xml = await placed({ step: 'talk', SpeechResult: 'Comcast, how can I help?' });
   assert.match(xml, /I'd like to cancel a plan\.<\/Say>/);
   assert.equal(claude.stopped[0], true);
@@ -588,9 +588,9 @@ test('a reply another model took over is read from its own start; a decline mid-
   reset({ owner: 'Bilel' });
   errand({ commit: true });
   await placed({ step: 'dial', AnsweredBy: 'human' });
-  claude.replies.push({ fallback: [reply({ say: 'Something the first model started' }), reply({ say: 'Hi, this is Jarvis, an AI assistant calling for Bilel.' })] });
+  claude.replies.push({ fallback: [reply({ say: 'Something the first model started' }), reply({ say: 'Hi, this is Eden Secretary, an AI assistant calling for Bilel.' })] });
   let xml = await placed({ step: 'talk', SpeechResult: 'Hello?' });
-  assert.match(xml, /<Say[^>]*>Hi, this is Jarvis, an AI assistant calling for Bilel\.<\/Say>/);
+  assert.match(xml, /<Say[^>]*>Hi, this is Eden Secretary, an AI assistant calling for Bilel\.<\/Say>/);
   assert.doesNotMatch(xml, /first model/);
   claude.replies.push('refusal');
   xml = await placed({ step: 'talk', SpeechResult: 'Something odd.' });

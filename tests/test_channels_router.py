@@ -1,4 +1,4 @@
-"""Talking to JARVIS from a chat: the owner's messages become silent turns whose replies go
+"""Talking to Jarvis from a chat: the owner's messages become silent turns whose replies go
 back to that chat; anyone else gets one polite line a day; pairing binds the account that
 sends the code; commands work without a model; approval cards come to the chat and are
 answered there through hub.resolve; heads-ups follow the per-chat setting and quiet hours;

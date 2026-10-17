@@ -1,5 +1,5 @@
-// J.A.R.V.I.S., the tutor (Eden for Education): a live spoken conversation about a course, full
-// screen over the app (edu-app.js opens it). You talk; when you pause, J.A.R.V.I.S. answers out loud
+// Eden Secretary, the tutor (Eden for Education): a live spoken conversation about a course, full
+// screen over the app (edu-app.js opens it). You talk; when you pause, Eden Secretary answers out loud
 // in its own voice from the course's materials (courseTask 'tutor': short spoken turns, one question
 // at a time, the same quote check), then listens again. Speak over it and it stops, like a person.
 //
@@ -7,12 +7,12 @@
 //             and POST /api/chat/transcribe turns each pause into words (the account's allowance)
 //   speaking  POST /api/chat/voice, a sentence at a time while the answer streams (the account's daily
 //             voice allowance); if the voice isn't available, the browser's own voice reads instead
-//   barge-in  while J.A.R.V.I.S. speaks, recognition listens for words that aren't his (barge-in.js),
+//   barge-in  while Eden Secretary speaks, recognition listens for words that aren't his (barge-in.js),
 //             or the mic's level well above the room and his echo; Space or a tap on the orb too
 //   hello     he introduces himself once a browser session (sessionStorage), not each time he opens
 //
 // The conversation is kept as a study chat (marked tutor) so it's in the history afterwards.
-// Collapsed, J.A.R.V.I.S. is just the orb: a sphere that floats over the app (drag it anywhere; it
+// Collapsed, Eden Secretary is just the orb: a sphere that floats over the app (drag it anywhere; it
 // stays put as you move around), still listening and speaking; tap it to open the conversation again.
 
 import { el, ico, toast, isTouch } from './util.js';
@@ -182,7 +182,7 @@ async function mic() {
     T.level = m;
     const show = T.state === 'speaking' ? o * 6 : T.state === 'listening' && !T.muted ? m * 8 : 0;
     T.root.style.setProperty('--lvl', Math.min(1, show).toFixed(3));
-    // barge-in by level: your voice over J.A.R.V.I.S.'s, well above the room and his echo, for ~150 ms
+    // barge-in by level: your voice over Eden Secretary's, well above the room and his echo, for ~150 ms
     if (T.state === 'speaking' && !T.muted && m > Math.max(0.03, T.floor * 4, T.echo * 2.5)) { if (++loud > 9) { loud = 0; interrupt(); } } else loud = 0;
     if (T.recording) vad(m);
     T.raf = requestAnimationFrame(tick);
@@ -351,7 +351,7 @@ async function turn(text) {
   if (!T.queue.length && !T.playing) { T.state = 'done'; afterSpeaking(); }
 }
 
-/* ---------- the voice: J.A.R.V.I.S.'s, a sentence at a time; the browser's if it isn't there ---------- */
+/* ---------- the voice: Eden Secretary's, a sentence at a time; the browser's if it isn't there ---------- */
 
 T.queue = [];
 // Each phrase is fetched as soon as it's ready (the next ones while one plays) as raw PCM (16-bit,
@@ -440,7 +440,7 @@ async function pump() {
     return;
   }
   // this phrase is all scheduled: the next one (already streaming, or still to come) goes on right
-  // after its last sample; J.A.R.V.I.S. listens again only once nothing is left to say
+  // after its last sample; Eden Secretary listens again only once nothing is left to say
   if (T.queue[0] === job) T.queue.shift();
   T.playing = false;
   if (T.queue.length) { pump(); return; }

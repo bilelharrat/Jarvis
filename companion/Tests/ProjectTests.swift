@@ -1,7 +1,7 @@
 import XCTest
 @testable import JarvisCompanion
 
-/// Projects for Jarvis on the iPhone: kept, their files and instructions going with each
+/// Projects for Eden Secretary on the iPhone: kept, their files and instructions going with each
 /// request, chats filed in them; and the Mac's projects read from its listing.
 @MainActor
 final class ProjectTests: XCTestCase {

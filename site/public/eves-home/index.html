@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fbf7ee">
+<title>EVES: fewer made-up answers</title>
+<meta name="description" content="EVES is Eden's verification and evaluation system. On 432 factual questions it made something up 9.7% of the time, against 18.3% to 24.5% for three leading AI models answering from memory. Here is how it works and what the numbers can and can't tell you.">
+<meta property="og:title" content="EVES: fewer made-up answers.">
+<meta property="og:description" content="Eden's verification and evaluation system: it searches the web when a question looks risky, checks assumptions, and checks answers afterwards.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<link rel="icon" type="image/svg+xml" href="/eves-home/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/eves-home/eves-home.css">
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#try">Skip to try it</a>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/" aria-label="EVES"><img src="/eves-home/eden-logo.svg" alt="" width="36" height="36">EVES</a>
+    <nav aria-label="Site"><a href="#results">Results</a><a href="#how">How it works</a><a href="#limits">Limits</a><a class="pill" href="#try">Try it in Eden</a></nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <p class="eyebrow">EVES · Eden’s verification and evaluation system</p>
+        <h1>Fewer made-up answers<u aria-hidden="true"></u></h1>
+        <p class="lede">EVES searches the web when a question looks risky, checks a question’s assumptions before answering, and checks factual answers afterwards. It says so when it isn’t sure.</p>
+        <div class="cta">
+          <a class="btn navy" href="https://askeden.com/signin">Try it in Eden</a>
+          <a class="btn line" href="https://askeden.com/accuracy">How we measured it</a>
+        </div>
+        <p class="fine">432 factual questions, 9 October 2026.</p>
+      </div>
+      <div class="score" id="results" role="group" aria-labelledby="scoreH">
+        <p class="k" id="scoreH">Made something up · lower is better</p>
+        <p class="big">9.7<i>%</i></p>
+        <p class="cap">EVES, on 432 factual questions</p>
+        <div class="bar e"><span>EVES</span><b class="w1"></b><span>9.7%</span></div>
+        <div class="bar"><span>Gemini 3.1 Pro</span><b class="w2"></b><span>18.3%</span></div>
+        <div class="bar"><span>Gemini 3.8 Flash</span><b class="w3"></b><span>21.8%</span></div>
+        <div class="bar"><span>Claude Sonnet 5.5</span><b class="w4"></b><span>24.5%</span></div>
+        <p class="fine">The three models answered from memory, without web search.</p>
+      </div>
+    </div>
+
+    <section class="s" aria-labelledby="filmH">
+      <h2 id="filmH">The chart, in 13 seconds.</h2>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-7.mp4" poster="/eves-home/poster.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-describedby="filmWhat" aria-label="A chart film: how often EVES and three AI models made something up on 432 factual questions. A 13-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
+      </figure>
+      <p class="sr" id="filmWhat">How often each one made something up on 432 factual questions, lower is better: EVES 9.7% (95% interval 7.3% to 12.9%), Gemini 3.1 Pro (preview) 18.3% (14.9% to 22.2%), Gemini 3.8 Flash 21.8% (18.1% to 25.9%), Claude Sonnet 5.5 24.5% (20.7% to 28.8%). EVES checks the web when needed and says when it isn’t sure; the models answered directly from memory.</p>
+    </section>
+
+    <section class="s" id="how" aria-labelledby="howH">
+      <h2 id="howH">Four checks.</h2>
+      <div class="steps">
+        <div class="step"><small>01 · PICK</small><h3>The right model</h3><p>EVES picks a model for each question.</p></div>
+        <div class="step"><small>02 · SEARCH</small><h3>The web first</h3><p>When a factual question looks risky, it searches the web before answering.</p></div>
+        <div class="step"><small>03 · ASSUMPTIONS</small><h3>Before answering</h3><p>It checks a question’s assumptions first, so a false premise gets pointed out and not repeated.</p></div>
+        <div class="step"><small>04 · AFTER</small><h3>Checked again</h3><p>Factual answers made without a search are checked against the web afterwards, and corrected when the web disagrees.</p></div>
+      </div>
+    </section>
+
+    <section class="s" aria-labelledby="tabH">
+      <h2 id="tabH">The numbers.</h2>
+      <p class="sub">The same 432 questions for everyone: 300 short factual questions from SimpleQA Verified and 132 questions built on a false premise (100 from MultiHoax, 32 written by us).</p>
+      <div class="tablebox">
+        <table>
+          <caption class="sr">All 432 questions: how often each one made something up, its 95% interval, and how often it was right or said it didn’t know</caption>
+          <thead><tr><th scope="col">All 432 questions</th><th scope="col">Made up</th><th scope="col">95% interval</th><th scope="col">Right</th><th scope="col">Said it didn’t know</th></tr></thead>
+          <tbody>
+            <tr class="eves"><th scope="row">EVES</th><td>9.7%</td><td>7.3%–12.9%</td><td>69.7%</td><td>20.6%</td></tr>
+            <tr><th scope="row">Gemini 3.1 Pro (preview)</th><td>18.3%</td><td>14.9%–22.2%</td><td>80.8%</td><td>0.9%</td></tr>
+            <tr><th scope="row">Gemini 3.8 Flash</th><td>21.8%</td><td>18.1%–25.9%</td><td>78.0%</td><td>0.2%</td></tr>
+            <tr><th scope="row">Claude Sonnet 5.5</th><td>24.5%</td><td>20.7%–28.8%</td><td>59.0%</td><td>16.4%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="twocols">
+        <div class="mini"><b>Short factual questions (300)</b><span>EVES made up 12.7%, against 24.7%, 26.7% and 33.7% for Gemini 3.1 Pro, Gemini 3.8 Flash and Claude Sonnet 5.5.</span></div>
+        <div class="mini"><b>False-premise questions (132)</b><span>EVES made up 3.0%. Clearly fewer than Gemini 3.8 Flash (10.6%); no clear difference from Gemini 3.1 Pro or Claude Sonnet 5.5 (3.8% each).</span></div>
+      </div>
+    </section>
+
+    <section class="s" id="limits" aria-labelledby="limH">
+      <h2 id="limH">What the numbers can’t tell you.</h2>
+      <div class="limits">
+        <div class="limit"><h3>EVES declines more often</h3><p>It said it didn’t know on 20.6% of the questions, against about 1% for the Gemini models. Part of its lead comes from that: both Gemini models got more questions right than EVES did.</p></div>
+        <div class="limit"><h3>Web search is a big part</h3><p>The three models answered from memory, by design. About 60% of EVES’s gain over Claude Sonnet 5.5 came from using the web. A model with web search of its own wasn’t part of this comparison, so this doesn’t show that EVES beats one.</p></div>
+        <div class="limit"><h3>One run, one date</h3><p>Each model answered each question once, on 9 October 2026, with one set-up of EVES, without OpenAI’s models. With them, EVES could pick different models and the numbers could change.</p></div>
+        <div class="limit"><h3>Grading isn’t perfect</h3><p>An automatic grader and an AI judge graded the answers, and both make mistakes. The judge is also one of the models compared. The questions are a sample, and short factual questions are only one kind of question.</p></div>
+      </div>
+      <p class="sub after">The full method, every number and every caveat: <a href="https://askeden.com/accuracy"><u>how we measured this</u></a>.</p>
+    </section>
+
+    <section class="get" id="try" aria-labelledby="tryH">
+      <div><h2 id="tryH">Try it in Eden</h2><p>EVES is part of Eden. Sign in at askeden.com and ask it something hard.</p></div>
+      <div class="cta"><a class="btn navy" href="https://askeden.com/signin">Get started</a><a class="btn line" href="https://askeden.com/">See Eden</a></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>© Harrat Global Holdings, Inc.</span>
+    <span class="links"><a href="https://askeden.com/">Part of Eden</a><a href="https://askeden.com/accuracy">Method</a><a href="https://edenrouter.com/">Eden Router</a><a href="https://askeden.com/privacy">Privacy</a><a href="https://askeden.com/terms">Terms</a></span>
+  </footer>
+</div>
+</body>
+</html>

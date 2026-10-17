@@ -36,6 +36,8 @@ const exact = {
   /* bringing another sign-in's chats in */
   'Bring in chats': 'Importer les discussions',
   'Chats are copied into this account; the other account keeps its own copy. Then use this account on every device (sign out and back in there) and everything is in one place.': 'Les discussions sont copiées dans ce compte ; l’autre compte garde sa propre copie. Utilisez ensuite ce compte sur tous vos appareils (déconnectez-vous puis reconnectez-vous) : tout sera au même endroit.',
+  /* which account this is (account.js whoCard) */
+  'This code is the same on every device signed in to this account. A device with another code is in another account.': 'Ce code est le même sur tous les appareils connectés à ce compte. Un appareil qui affiche un autre code est dans un autre compte.',
   'It has no chats to bring in.': 'Il n’a aucune discussion à importer.',
   'Chats brought in': 'Discussions importées',
   'Done': 'OK',
@@ -60,6 +62,7 @@ const exact = {
   'Not synced yet': 'Pas encore synchronisé',
   'This account': 'Ce compte',
   'Another device showing different chats is signed in with a different sign-in that isn’t linked to this account. Link it under Sign-in methods below, or sign in there with the same one.': 'Un autre appareil qui affiche d’autres discussions est connecté avec un autre moyen de connexion, non lié à ce compte. Liez-le ci-dessous dans Moyens de connexion, ou connectez-vous sur cet appareil avec le même.',
+  'A device showing different chats is in another account: its account code differs. Each way of signing in opens its own account until you add it under Ways to sign in below.': 'Un appareil qui affiche d’autres discussions est dans un autre compte : son code de compte est différent. Chaque moyen de connexion ouvre son propre compte, jusqu’à ce que vous l’ajoutiez ci-dessous dans Moyens de connexion.',
   'Sync paused': 'Synchronisation en pause',
   'Synced · all devices': 'Synchronisé · tous les appareils',
   'Sync is off': 'Synchronisation désactivée',
@@ -126,6 +129,11 @@ const exact = {
   'This browser doesn’t have the key.': 'Ce navigateur n’a pas la clé.',
   'This browser’s sync key doesn’t open this account’s history. Stop syncing here, then approve it again.': 'La clé de synchronisation de ce navigateur n’ouvre pas l’historique de ce compte. Arrêtez la synchronisation ici, puis approuvez-le à nouveau.',
   'askeden.com asked this device to slow down; syncing goes on in a minute.': 'askeden.com a demandé à cet appareil de ralentir ; la synchronisation reprend dans une minute.',
+  'This chat isn’t in your account any more.': 'Cette discussion n’est plus dans votre compte.',
+  'This browser’s saved chats couldn’t be read, so syncing waits. Reload the page.': 'Les discussions enregistrées dans ce navigateur n’ont pas pu être lues : la synchronisation attend. Rechargez la page.',
+  'It didn’t load.': 'Elle ne s’est pas chargée.',
+  'This browser’s chat storage had a problem. A backup copy of your chat was kept on this device.': 'Le stockage des discussions de ce navigateur a eu un problème. Une copie de secours de votre discussion a été gardée sur cet appareil.',
+  'Couldn’t save this chat on this device (is its storage full?). Keep this page open until it has synced.': 'Impossible d’enregistrer cette discussion sur cet appareil (son stockage est-il plein ?). Gardez cette page ouverte jusqu’à ce qu’elle soit synchronisée.',
   'That isn’t a device key.': 'Ce n’est pas une clé d’appareil.',
   'The sealed key is unreadable.': 'La clé scellée est illisible.',
   'The sealed key didn’t open with this browser’s key.': 'La clé scellée ne s’est pas ouverte avec la clé de ce navigateur.',
@@ -209,6 +217,11 @@ const exact = {
 
   /* Plan in the iPhone app: Eden Plus from the App Store (docs/bug-sweep/ios-2026-10-09-iap.md) */
   'App Store subscription': 'abonnement App Store',
+  'Google Play subscription': 'abonnement Google Play',
+  'bought in the Android app': 'acheté dans l’app Android',
+  'You have Plus from two subscriptions: one on Google Play and one outside it. Cancel one so you’re not billed twice.': 'Vous avez Plus par deux abonnements : l’un sur Google Play, l’autre ailleurs. Annulez-en un pour ne pas être facturé deux fois.',
+  'Payment is charged to your Google Play account when you confirm the purchase. The subscription renews automatically at the same price for the same period until you cancel it. Cancel or change it any time in Manage Subscription (or Google Play › Payments & subscriptions › Subscriptions).': 'Le paiement est débité de votre compte Google Play à la confirmation de l’achat. L’abonnement se renouvelle automatiquement au même prix et pour la même durée jusqu’à ce que vous l’annuliez. Annulez-le ou modifiez-le à tout moment dans Gérer l’abonnement (ou Google Play › Paiements et abonnements › Abonnements).',
+  'Waiting for approval.': 'En attente d’approbation.',
   'on your Eden account': 'sur votre compte Eden',
   'two subscriptions': 'deux abonnements',
   'free with a code': 'offert avec un code',
@@ -280,6 +293,8 @@ const exact = {
   'Ways to sign in': 'Moyens de connexion',
   'This is your only way to sign in, so it can’t be unlinked. Any of them opens the same account. A browser can also be approved from the Eden app on your iPhone.': 'C’est votre seul moyen de connexion : il ne peut donc pas être dissocié. Chacun d’eux ouvre le même compte. Un navigateur peut aussi être approuvé depuis l’app Eden sur votre iPhone.',
   'Any of them opens the same account. A browser can also be approved from the Eden app on your iPhone.': 'Chacun d’eux ouvre le même compte. Un navigateur peut aussi être approuvé depuis l’app Eden sur votre iPhone.',
+  'This is your only way to sign in, so it can’t be unlinked. Each way listed here opens this account. Another Apple ID, Google account or passkey opens a separate account until you add it here. A browser can also be approved from the Eden app on your iPhone.': 'C’est votre seul moyen de connexion : il ne peut donc pas être dissocié. Chaque moyen listé ici ouvre ce compte. Un autre identifiant Apple, compte Google ou clé d’accès ouvre un compte distinct, jusqu’à ce que vous l’ajoutiez ici. Un navigateur peut aussi être approuvé depuis l’app Eden sur votre iPhone.',
+  'Each way listed here opens this account. Another Apple ID, Google account or passkey opens a separate account until you add it here. A browser can also be approved from the Eden app on your iPhone.': 'Chaque moyen listé ici ouvre ce compte. Un autre identifiant Apple, compte Google ou clé d’accès ouvre un compte distinct, jusqu’à ce que vous l’ajoutiez ici. Un navigateur peut aussi être approuvé depuis l’app Eden sur votre iPhone.',
   'Privacy Policy': 'Politique de confidentialité',
   'Terms of Service': 'Conditions d’utilisation',
   'Download apps': 'Télécharger les apps',
@@ -651,6 +666,9 @@ const num = (s) => Number(String(s).replace(/[^\d]/g, ''));
 const pl = (n, one, many) => (num(n) <= 1 ? one : many);
 const PROV = { Apple: 'Apple', Google: 'Google', Passkey: 'clé d’accès', 'sign-in': 'connexion' };
 const prov = (p) => PROV[p] || p;
+// A way in as a sentence's subject ("Google opens…"), and account.js waysOf ("Apple or a passkey").
+const provSubject = (p) => (p === 'Passkey' ? 'Cette clé d’accès' : p === 'sign-in' ? 'Ce moyen de connexion' : p);
+const waysFr = (s) => (s === 'the way you signed in here' ? 'le moyen utilisé ici' : s.replace(/\ba passkey\b/g, 'une clé d’accès').replace(/ or /g, ' ou '));
 // memory-model.js agoWords → French ("today", "3 weeks ago", …).
 function agoFr(s) {
   const w = {
@@ -707,6 +725,14 @@ const patterns = [
   [/^This (.+) account is already used by another Eden account, so it wasn’t added\.$/, (_, p) => (p === 'Passkey'
     ? 'Cette clé d’accès est déjà utilisée par un autre compte Eden ; elle n’a donc pas été ajoutée.'
     : `Ce compte ${p === 'sign-in' ? '' : `${p} `}est déjà utilisé par un autre compte Eden ; il n’a donc pas été ajouté.`)],
+  [/^This account already has (an Apple ID|a Google account|a passkey|one like it), so it wasn’t added\. Unlink that one first\.$/, (_, w) => (w === 'a passkey'
+    ? 'Ce compte a déjà une clé d’accès, donc rien n’a été ajouté. Dissociez-la d’abord.'
+    : `Ce compte a déjà ${({ 'an Apple ID': 'un identifiant Apple', 'a Google account': 'un compte Google', 'one like it': 'un moyen de ce type' })[w]}, donc rien n’a été ajouté. Dissociez-le d’abord.`)],
+  [/^This (.+) account already opens another Eden account, so it wasn’t added: \1 still opens that one\. To keep one account, sign in to it the same way on every device; adding \1 again offers to bring the other account’s chats in\.$/, (_, p) => {
+    const what = p === 'Passkey' ? 'Cette clé d’accès' : p === 'sign-in' ? 'Ce moyen de connexion' : `Ce compte ${p}`;
+    const name = p === 'Passkey' ? 'la clé d’accès' : p === 'sign-in' ? 'ce moyen de connexion' : p;
+    return `${what} ouvre déjà un autre compte Eden, donc rien n’a été ajouté : ${name} ouvre toujours celui-là. Pour garder un seul compte, connectez-vous-y de la même façon sur tous vos appareils ; si vous ajoutez à nouveau ${name}, Eden propose d’importer les discussions de l’autre compte.`;
+  }],
   [/^Signing in with (.+) isn’t ready yet\.$/, (_, p) => `La connexion avec ${p === 'Passkey' ? 'une clé d’accès' : prov(p)} n’est pas encore prête.`],
   [/^Adding (.+) didn’t finish\. Try again\.$/, (_, p) => `L’ajout ${p === 'that sign-in' ? 'de ce moyen de connexion' : p === 'Passkey' ? 'de la clé d’accès' : `de ${p}`} n’a pas abouti. Réessayez.`],
   [/^(Apple|Google|Passkey|sign-in) added( \(simulated\))?\.?$/, (_, p, sim) => `${p === 'Passkey' ? 'Clé d’accès ajoutée' : p === 'sign-in' ? 'Moyen de connexion ajouté' : `${p} ajouté`}${sim ? ' (simulé).' : ''}`],
@@ -714,6 +740,11 @@ const patterns = [
   // bringing chats in
   [/^Looking at the (.+) account…$/, (_, p) => `Consultation du compte ${prov(p)}…`],
   [/^That (.+) account already has chats$/, (_, p) => `Ce compte ${prov(p)} contient déjà des discussions`],
+  [/^(Apple|Google|Passkey|sign-in) opens another Eden account$/, (_, p) => `${provSubject(p)} ouvre un autre compte Eden`],
+  [/^This account(?: \(([0-9A-Z]{3}-[0-9A-Z]{3})\))? opens with (.+)\. (Apple|Google|Passkey|sign-in) opens another one(?: \(([0-9A-Z]{3}-[0-9A-Z]{3})\))?\.$/,
+    (_, mine, ways, p, other) => `Ce compte${mine ? ` (${mine})` : ''} s’ouvre avec ${waysFr(ways)}. ${provSubject(p)} en ouvre un autre${other ? ` (${other})` : ''}.`],
+  [/^Eden can’t join two accounts or move (Apple|Google|Passkey|sign-in) over\. To use just this one: bring the chats in, then on every device sign in with (.+), not \1 \(sign out first where \1 is used\)\. The other account keeps its copy; chats changed there later aren’t brought in again\.$/,
+    (_, p, ways) => `Eden ne peut pas fusionner deux comptes ni y transférer ${prov(p)}. Pour n’utiliser que celui-ci : importez les discussions, puis sur chaque appareil connectez-vous avec ${waysFr(ways)}, pas avec ${prov(p)} (déconnectez-vous d’abord là où ${prov(p)} est utilisé). L’autre compte garde sa copie ; les discussions modifiées là-bas plus tard ne sont pas importées à nouveau.`],
   [R(`^${N} chats? found\\.$`), (_, n) => `${n.trim()} ${pl(n, 'discussion trouvée', 'discussions trouvées')}.`],
   [R(`^Copying… ${N} so far$`), (_, n) => `Copie… ${n.trim()} pour l’instant`],
   [R(`^${N} copied(?:, ${N} already here)?(?:, ${N} couldn’t be copied)?\\.(?: ([\\s\\S]+))?$`), (_, a, b, c, why) => [
@@ -731,6 +762,9 @@ const patterns = [
   [/^Last synced (.+)$/, (_, w) => `Synchronisé ${agoShortFr(w)}`],
   [/^(\d+) on askeden\.com$/, '$1 sur askeden.com'],
   [/^Signed in with (.+) · (\d+) on this device$/, (_, who, n) => `Connecté avec ${who.replace(/\bPasskey\b/g, 'Clé d’accès')} · ${n} sur cet appareil`],
+  // which account this is: its ways in (whoCard) and its code beside the sync status
+  [/^Opens with ((?:Apple|Google|Passkey)(?: · \S+)?(?: {2}\+ {2}(?:Apple|Google|Passkey)(?: · \S+)?)*)$/, (_, who) => `S’ouvre avec ${who.replace(/\bPasskey\b/g, 'Clé d’accès')}`], // not mail-voice.js's "Opens with “Hi”"
+  [/^Account ([0-9A-Z]{3}-[0-9A-Z]{3})$/, 'Compte $1'],
   [/^(\d+) on this device$/, '$1 sur cet appareil'],
   [/^(\d+) chats?$/, (_, n) => `${n} ${pl(n, 'discussion', 'discussions')}`],
   [/^(\d+) download when opened$/, '$1 à télécharger à l’ouverture'],

@@ -21,8 +21,8 @@
 // there are no accounts: the local server (model-router-ui) has no /api/web/account, and its
 // meta has no `hosted`. ?mock=1 answers it from mock.js.
 
-import { $, el, svgEl, ico, toast } from './util.js';
-import { state, ui, deleteConversation } from './state.js';
+import { $, el, svgEl, ico, toast, store, retryWait } from './util.js';
+import { state, ui, deleteConversation, claimChats, forgetOwner, ACCOUNT_HOST } from './state.js';
 import { rawFetch, isMock } from './api.js';
 import { setActing } from './acting.js';
 import * as Sync from './sync.js';
@@ -30,7 +30,7 @@ import * as Cloud from './cloud-sync.js';
 import { passphraseProblem, suggestPassphrase, verifyCode } from './eden-crypto.js';
 import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
-import { IN_APP, appPlus, appSellsPlus, onAppPlus } from './native.js';
+import { IN_APP, IN_ANDROID, appPlus, appSellsPlus, onAppPlus } from './native.js';
 import { setPlanOffer } from './plan.js';
 import { locale, t, tr, isFr } from './i18n.js';
 // Included AI is shown as a share left, never in dollars.
@@ -38,17 +38,27 @@ const pctLeft = (left, total) => `${Math.max(0, Math.min(100, Math.round((Number
 
 let H = {};
 let available = false;
+// Accounts: askeden.com (and its preview and Edu hosts), or a page whose meta once said so (remembered), or ?mock=1.
+// Not only this load's meta: when that call failed (offline at launch), or the iPhone app answered it offline, sync
+// never started for the page's whole life. The Mac's local server has none.
+const HOSTED_KEY = 'jchat:hosted';
+const hasAccounts = () => isMock || ACCOUNT_HOST || Boolean(state.meta && state.meta.hosted) || store.get(HOSTED_KEY, false) === true;
 let returnFocus = null;
 let busy = false;
 // Where a signed-out browser goes: askeden.com/ (the landing page); in mock mode, this page again.
 const HOME = () => (isMock ? location.pathname + location.search : '/');
 
 const PROVIDERS = { apple: 'Apple', google: 'Google', passkey: 'Passkey' };
+// A way in, inside a sentence ("sign in with Apple or a passkey").
+const WAY = { apple: 'Apple', google: 'Google', passkey: 'a passkey' };
+const waysOf = (ids) => [...new Set(ids.map((i) => WAY[i.provider]).filter(Boolean))].join(' or ');
 const APPS = { iphone: 'iPhone', ipad: 'iPad', watch: 'Apple Watch', mac: 'Mac' };
 // What came back in #account?error=…: only these, in plain words (never text from the address).
 const ERRORS = {
-  taken: (p) => `This ${p} account is already used by another Eden account, so it wasn’t added.`,
-  identity_taken: (p) => ERRORS.taken(p),
+  // `taken`: this account already has one of that kind (the server's already_linked)
+  taken: (p) => `This account already has ${({ Apple: 'an Apple ID', Google: 'a Google account', Passkey: 'a passkey' })[p] || 'one like it'}, so it wasn’t added. Unlink that one first.`,
+  // `identity_taken`: that sign-in opens another Eden account (shown when bringing its chats in can't be offered)
+  identity_taken: (p) => `This ${p} account already opens another Eden account, so it wasn’t added: ${p} still opens that one. To keep one account, sign in to it the same way on every device; adding ${p} again offers to bring the other account’s chats in.`,
   cancelled: () => 'Adding it was cancelled. Nothing changed.',
   access_denied: () => 'Adding it was cancelled. Nothing changed.',
   expired: () => 'That took too long. Try again.',
@@ -252,8 +262,9 @@ async function draw(notice, { ok = false, merge = null } = {}) {
   pendingInvite = null;
   body.replaceChildren(...[
     notice ? el('div', { class: `sp-warn acct-notice${ok ? ' ok' : ''}`, role: ok ? 'status' : 'alert' }, notice) : null,
-    merge && !account.acting ? mergeCard(merge) : null,
+    merge && !account.acting ? mergeCard(merge, account) : null,
     account.acting ? actingBanner(account.acting) : null,
+    whoCard(account),
     planSection(account, config),
     syncSection(),
     delegatesSection(invite && invite.kind === 'delegate' ? invite.code : null),
@@ -267,41 +278,65 @@ async function draw(notice, { ok = false, merge = null } = {}) {
   return account;
 }
 
+/* ---------- which account this is ---------- */
+
+// The account this browser is in: its ways in (with the email a provider gave; Apple gives none here) and its short
+// code (the server's account_code), the same on every device signed in to it. Each way in opens its own account until
+// it's added under Ways to sign in, so two devices showing different chats can be told apart by their codes.
+export function whoCard(a) { // (exported for its page test, as are mergeCard and methodsSection: account-identity.test.ts)
+  const ids = Array.isArray(a.identities) ? a.identities : [];
+  const ways = ids.map((x) => `${PROVIDERS[x.provider] || x.provider}${x.email ? ` · ${x.email}` : ''}`);
+  return el('div', 'icard acct-card acct-who', el('div', 'acct-allow',
+    el('div', 'acct-row-top', el('span', 'acct-k', 'This account'), a.account_code ? el('b', { class: 'acct-v acct-idcode', 'data-no-i18n': '' }, a.account_code) : null),
+    ways.length ? el('div', 'acct-sub', `Opens with ${ways.join('  +  ')}`) : null,
+    a.account_code ? el('div', 'acct-sub', 'This code is the same on every device signed in to this account. A device with another code is in another account.') : null));
+}
+
 /* ---------- bring another sign-in's chats in ---------- */
 
 // "Add Google/Apple" found that sign-in already opens another Eden account (with its own chats): the
 // person has just proved it's theirs, so offer to copy its chats into this one (chat-sync.js, merge).
-function mergeCard({ token: raw, provider }) {
+// The two stay two accounts (that sign-in can't be moved over), so the card says which way in opens which
+// account (their codes), and how to end up in one: bring the chats in, then sign in here the same way everywhere.
+export function mergeCard({ token: raw, provider }, account = {}) {
   const [iv, ct] = raw.split('.');
   const token = { iv, ct };
+  const ways = waysOf((Array.isArray(account.identities) ? account.identities : []).filter((i) => PROVIDERS[i.provider] !== provider)) || 'the way you signed in here';
+  const mine = account.account_code || '';
+  const which = (other = '') => `This account${mine ? ` (${mine})` : ''} opens with ${ways}. ${provider} opens another one${other ? ` (${other})` : ''}.`;
+  const opens = el('p', 'acct-sub', which());
   const line = el('p', 'acct-sub', `Looking at the ${provider} account…`);
   const go = el('button', { type: 'button', class: 'cap primary', disabled: true }, 'Bring in chats');
   const card = el('div', 'icard acct-card', el('div', 'acct-allow',
-    el('div', 'acct-row-top', el('span', 'acct-k', `That ${provider} account already has chats`)),
+    el('div', 'acct-row-top', el('span', 'acct-k', `${provider} opens another Eden account`)),
+    opens,
     line,
-    el('p', 'acct-sub', 'Chats are copied into this account; the other account keeps its own copy. Then use this account on every device (sign out and back in there) and everything is in one place.'),
+    el('p', 'acct-sub', `Eden can’t join two accounts or move ${provider} over. To use just this one: bring the chats in, then on every device sign in with ${ways}, not ${provider} (sign out first where ${provider} is used). The other account keeps its copy; chats changed there later aren’t brought in again.`),
     el('div', 'acct-row-actions', go)));
   post('/api/web/merge/preview', { token }).then((r) => {
+    if (typeof r.account_code === 'string' && r.account_code) opens.textContent = which(r.account_code);
     if (!r.count) { line.textContent = 'It has no chats to bring in.'; return; }
     line.textContent = `${r.count.toLocaleString(locale())} ${r.count === 1 ? 'chat' : 'chats'} found.`;
     go.disabled = false;
   }).catch((e) => { line.textContent = e.message; });
   go.addEventListener('click', async () => {
     go.disabled = true;
-    let since = 0, copied = 0, skipped = 0, failed = 0, problem = '';
+    let since = 0, copied = 0, skipped = 0, failed = 0, problem = '', ended = false;
     try {
       for (let guard = 0; guard < 400; guard++) {
         const r = await post('/api/web/merge/step', { token, since });
         copied += r.copied; skipped += r.skipped; failed += r.failed; since = r.since;
         if (r.error) problem = r.error;
         line.textContent = `Copying… ${copied.toLocaleString(locale())} so far`;
-        if (r.done) break;
+        if (r.done) { ended = true; break; }
       }
     } catch (e) { problem = e.message; }
     line.textContent = `${copied.toLocaleString(locale())} copied${skipped ? `, ${skipped.toLocaleString(locale())} already here` : ''}${failed ? `, ${failed.toLocaleString(locale())} couldn’t be copied` : ''}.${problem ? ` ${problem}` : ''}`;
     if (copied) { toast('Chats brought in'); Cloud.syncNow().catch(() => {}); }
-    go.textContent = problem ? 'Try again' : 'Done';
-    go.disabled = Boolean(!problem);
+    // Try again only after a step that didn't get through: once askeden.com finished, its refusal (the account syncs
+    // end to end, or is full) would come back the same.
+    go.textContent = problem && !ended ? 'Try again' : 'Done';
+    go.disabled = !problem || ended;
   });
   return card;
 }
@@ -416,10 +451,11 @@ async function drawSync(box) {
     who || held ? el('div', 'icard acct-card', el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', 'This account'), el('b', 'acct-v', held ? `${held.count} on askeden.com` : '')),
       el('div', 'acct-sub', [who ? `Signed in with ${who}` : '', `${here} on this device`].filter(Boolean).join(' · ')),
-      el('div', 'acct-sub', 'Another device showing different chats is signed in with a different sign-in that isn’t linked to this account. Link it under Sign-in methods below, or sign in there with the same one.'))) : '',
+      el('div', 'acct-sub', 'A device showing different chats is in another account: its account code differs. Each way of signing in opens its own account until you add it under Ways to sign in below.'))) : '',
     el('div', 'icard acct-card', el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', c.error ? 'Sync paused' : c.on ? 'Synced · all devices' : 'Sync is off'), el('b', 'acct-v', `${c.chats} ${c.chats === 1 ? 'chat' : 'chats'}`)),
-      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error ? `Couldn’t sync: ${c.error}` : ''].filter(Boolean).map(t).join(' · ')),
+      // the account's code beside the status: the same on every device that syncs with this one
+      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error ? `Couldn’t sync: ${c.error}` : '', acct && acct.account_code ? `Account ${acct.account_code}` : ''].filter(Boolean).map(t).join(' · ')),
       el('div', 'acct-row-actions',
         el('button', { type: 'button', class: 'cap primary', disabled: c.running, onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Syncing…'; await Cloud.syncNow(); drawSync(box); } }, 'Sync now'),
         confirmButton('Delete all chats', 'Delete every chat here, on askeden.com and on your other devices?', async () => { await Cloud.deleteAllChats(deleteConversation); toast('All chats deleted'); drawSync(box); })))),
@@ -622,8 +658,8 @@ function meter(leftUsd, totalUsd, label) {
 // Where Plus was bought (the plan's `source`), as the plan's line says it. In the iPhone app
 // askeden.com's billing is never named (App Store 3.1.1).
 const SOURCE_WORDS = IN_APP
-  ? { app_store: 'App Store subscription', stripe: 'on your Eden account', both: 'two subscriptions', promo: 'free with a code' }
-  : { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com', promo: 'free with a promo code' };
+  ? { app_store: 'App Store subscription', google_play: 'Google Play subscription', stripe: 'on your Eden account', both: 'two subscriptions', promo: 'free with a code', unlimited: 'unlimited, on the house' }
+  : { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com', promo: 'free with a promo code', unlimited: 'unlimited, on the house', google_play: 'bought in the Android app' };
 
 // Stripe Checkout or its Customer Portal: askeden.com makes the session, then the browser goes there.
 // kind: checkout ({ plan: "monthly" | "yearly" }), credits ({ pack }), or portal.
@@ -701,7 +737,7 @@ export function planSection(a, config = {}) { // (exported for its page test: ac
   const warnings = [
     plan.payment_failed ? el('div', 'sp-warn acct-notice', el('b', '', 'Your last payment didn’t go through'), portal ? 'Update your card in Manage billing, or Plus stops in a few days.' : IN_APP ? 'Update your payment method, or Plus stops in a few days.' : 'Update your card at askeden.com, or Plus stops in a few days.') : null,
     plan.source === 'both' ? el('p', 'sp-note', IN_APP
-      ? 'You have Plus from two subscriptions: one in the App Store and one outside it. Cancel one so you’re not billed twice.'
+      ? (IN_ANDROID ? 'You have Plus from two subscriptions: one on Google Play and one outside it. Cancel one so you’re not billed twice.' : 'You have Plus from two subscriptions: one in the App Store and one outside it. Cancel one so you’re not billed twice.')
       : 'You’re paying for Plus twice: in the App Store and on askeden.com. Cancel one of them.') : null,
   ];
 
@@ -780,7 +816,7 @@ function appPlusBlock(plan, included) {
     const prices = products.map((x) => `${x.displayPrice}/${per(x)}`).join(t(' or '));
     const terms = el('p', 'sp-note acct-iap-terms',
       products.length ? `${t('Eden Plus is an auto-renewing subscription')}: ${prices}. ` : '',
-      t('Payment is charged to your Apple Account when you confirm the purchase. The subscription renews automatically at the same price for the same period unless auto-renew is turned off at least 24 hours before the end of the current period; your account is charged for the renewal within 24 hours before the end of the period. Cancel or change it any time in Manage Subscription (or Settings › your name › Subscriptions).'),
+      IN_ANDROID ? t('Payment is charged to your Google Play account when you confirm the purchase. The subscription renews automatically at the same price for the same period until you cancel it. Cancel or change it any time in Manage Subscription (or Google Play › Payments & subscriptions › Subscriptions).') : t('Payment is charged to your Apple Account when you confirm the purchase. The subscription renews automatically at the same price for the same period unless auto-renew is turned off at least 24 hours before the end of the current period; your account is charged for the renewal within 24 hours before the end of the period. Cancel or change it any time in Manage Subscription (or Settings › your name › Subscriptions).'),
       ' ',
       el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, t('Terms of Use (EULA)')),
       ' · ',
@@ -796,7 +832,7 @@ function appPlusBlock(plan, included) {
         btn(t('Manage Subscription'), 'manage'),
         btn(t('Redeem Code'), 'redeem')),
       s.error ? el('p', 'sp-warn acct-notice', String(s.error)) : s.notice && !s.pending ? el('p', 'sp-note', String(s.notice)) : null, // pending says it once, below
-      s.pending ? el('p', 'sp-note', t('Waiting for approval (Ask to Buy).')) : null,
+      s.pending ? el('p', 'sp-note', t(IN_ANDROID ? 'Waiting for approval.' : 'Waiting for approval (Ask to Buy).')) : null,
       terms].filter(Boolean));
   };
   if (stopPlus) stopPlus();
@@ -891,7 +927,7 @@ function confirmButton(label, question, run, { danger = true } = {}) {
 
 function deviceRow(d) {
   const web = d.kind === 'web';
-  const name = String(d.name || (web ? t('A browser') : APPS[d.kind] || t('A device'))).replace(/^Eden on the web: /, '');
+  const name = String(d.name || (web ? t('A browser') : APPS[d.kind] || t('A device'))).replace(/^Eden on the web: /, '').replace(/^Eden app: (?:a browser|Safari|Chrome|Firefox|Edge) on /, 'Eden app on '); // the app's own web view is no browser to its owner
   const facts = [web ? 'Browser' : APPS[d.kind] || d.kind, ago(d.last_seen), web && d.expires ? left(d.expires) : ''].filter(Boolean).map(t).join(' · ');
   let action;
   if (web && d.this) {
@@ -950,7 +986,7 @@ function appsSection() {
 
 /* ---------- ways to sign in ---------- */
 
-function methodsSection(a, config) {
+export function methodsSection(a, config) {
   const ids = Array.isArray(a.identities) ? a.identities : [];
   const rows = Object.entries(PROVIDERS).map(([p, label]) => {
     const linked = ids.find((i) => i.provider === p);
@@ -974,7 +1010,8 @@ function methodsSection(a, config) {
   const last = ids.length <= 1;
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctWaysH' }, el('h3', { id: 'acctWaysH' }, 'Ways to sign in'),
     el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
-    el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the Eden app on your iPhone.`),
+    // Only the ways listed open this account: any other Apple ID, Google account or passkey opens its own (accounts/index.js).
+    el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Each way listed here opens this account. Another Apple ID, Google account or passkey opens a separate account until you add it here. A browser can also be approved from the Eden app on your iPhone.`),
     el('p', 'sp-note', el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), ' · ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service'), ' · ', el('a', { href: '/download' }, 'Download apps')));
 }
 
@@ -1110,7 +1147,7 @@ function fromHash() {
   return { notice: null };
 }
 
-/** The acting state changed under the page: the panels it hides or shows, and Jarvis's status. */
+/** The acting state changed under the page: the panels it hides or shows, and Eden Secretary's status. */
 function acted() {
   ui.renderSidebar();
   dispatchEvent(new CustomEvent('eden:acting'));
@@ -1127,16 +1164,37 @@ export async function initAccount(handlers = {}) {
   // Back from Stripe with the browser's Back button: the page as it was (its buttons still
   // "Opening…") comes out of the back-forward cache, so it's drawn again.
   addEventListener('pageshow', (e) => { if (e.persisted && accountOpen()) draw(); });
-  if (!isMock && !(state.meta && state.meta.hosted)) { if (setActing(null)) acted(); return; } // the local server: no accounts
-  let res;
-  try { res = await call('/api/web/account'); } catch { return; }
-  if (!res.ok) return;
+  if (!hasAccounts()) { if (setActing(null)) acted(); return; } // the local server: no accounts
+  if (state.meta && state.meta.hosted) store.set(HOSTED_KEY, true);
+  // The Account button at once (askeden.com always has an account), so Settings › Sync can say why sync hasn't started.
+  const button = $('btnAccount');
+  if (button) {
+    button.hidden = false;
+    button.addEventListener('click', () => { if (H.closeSettings) H.closeSettings(); openAccount(); });
+  }
+  // Asked again until it answers: one network error, 5xx or 429 here at launch left sync off for the page's whole
+  // life (app pages live for days). Sooner when the network comes back or the page is looked at again.
+  let res = null;
+  for (let tries = 0; ; tries++) {
+    try { res = await call('/api/web/account'); } catch { res = null; }
+    if (res && (res.ok || (res.status < 500 && res.status !== 408 && res.status !== 429))) break;
+    Cloud.setStartError('Couldn’t start syncing. Check your connection');
+    await retryWait(tries);
+  }
+  // Signed out (the server's sign-out: the 30 days ran out, another device signed this browser out): the next page
+  // doesn't draw this account's chats before askeden.com says who signed in (hosted.js goes to the front page).
+  if (res.status === 401) forgetOwner();
+  // Any other refusal (asking again won't change it): sync can't start on this page, and a chat still downloading
+  // says why (cloud-sync.js setStartError) rather than "Loading this chat…" for ever.
+  if (!res.ok) { if (res.status !== 401) { const why = (await read(res)).error; Cloud.setStartError(`Couldn’t start syncing: ${why || `askeden.com said ${res.status}.`}`); } return; }
   available = true;
   addEventListener('eden:get-plus', () => openAccount({ focusPlus: true }));
   addEventListener('eden:add-credits', () => openAccount({ focusCredits: true }));
   addEventListener('eden:manage-billing', () => openBilling(null, 'portal'));
   enableWorkflowSharing(); // Workflows › Share to a space… (spaces.js)
   const me = await read(res);
+  // This browser's chats are this account's; another account's (signed in here before) are put away, never synced into this one (state.js).
+  if (!isMock && claimChats(me.account_id)) { ui.renderSidebar(); ui.render(); }
   // What the page assumed at load (acting.js keeps it between loads) against what's true now.
   if (setActing(me.acting || null)) acted();
   // Acting for someone: say so everywhere, and start a space's chats at its router level.
@@ -1157,10 +1215,11 @@ export async function initAccount(handlers = {}) {
       let server = i.server;
       let why = '';
       if (!server) server = await Sync.refreshStatus().catch((e) => { why = (e && e.message) || ''; return null; });
-      if (server) { Cloud.initCloud(me.account_id, { e2e: Boolean(server.key) }); return; }
-      // Never give up for good: say so in Settings › Sync, and ask again (every minute at most).
+      if (server) { if (server.key || !Cloud.info().on) Cloud.initCloud(me.account_id, { e2e: Boolean(server.key) }); return; } // (started already: onSyncChange, below)
+      // Never give up for good: say so in Settings › Sync, and ask again (every minute at most; sooner back online).
       Cloud.setStartError(`Couldn’t start syncing${why ? `: ${why}` : '. Check your connection'}`);
-      setTimeout(() => startCloud(Sync.info(), tries + 1), Math.min(60_000, 5000 * (tries + 1)));
+      await retryWait(tries);
+      if (!Cloud.info().on) startCloud(Sync.info(), tries + 1);
     };
     Sync.initSync(me.account_id).then((i) => {
       startCloud(i);
@@ -1172,11 +1231,6 @@ export async function initAccount(handlers = {}) {
         else if (!e2e && !Cloud.info().on) Cloud.initCloud(me.account_id);
       });
     });
-  }
-  const button = $('btnAccount');
-  if (button) {
-    button.hidden = false;
-    button.addEventListener('click', () => { if (H.closeSettings) H.closeSettings(); openAccount(); });
   }
   const h = fromHash();
   if (h) openAccount(h);

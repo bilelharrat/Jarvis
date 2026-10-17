@@ -964,7 +964,7 @@ async def test_the_hub_turns_answering_on_from_settings_and_republishes_on_chang
     assert published == [True]
 
 
-# ── talking, and the calls JARVIS places ──
+# ── talking, and the calls Jarvis places ──
 
 KEY = "sk-ant-api03-" + "k" * 40
 

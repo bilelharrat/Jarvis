@@ -71,8 +71,8 @@ def test_anything_becomes_text():
 
 
 def test_a_command_line_can_carry_what_argv_text_gives_it():
-    text = argv_text("You are JARVIS.\x00 Facts: 12\x0034, Sam \ud83d, 东京 👩🏽\u200d💻")
-    assert text == "You are JARVIS. Facts: 1234, Sam , 东京 👩🏽\u200d💻"
+    text = argv_text("You are Jarvis.\x00 Facts: 12\x0034, Sam \ud83d, 东京 👩🏽\u200d💻")
+    assert text == "You are Jarvis. Facts: 1234, Sam , 东京 👩🏽\u200d💻"
     text.encode("utf-8")  # no half surrogate pair left
 
 

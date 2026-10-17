@@ -30,9 +30,22 @@ function versionsFor(c, title, lang) {
   return out;
 }
 
+/** Wide: the canvas over the whole window (essay.css #artifact.full); the essay writer opens wide (essay.js, website only). */
+export function setWide(on) {
+  $('artifact').classList.toggle('full', on);
+  const b = $('btnArtWide'); // only where the page has one
+  if (!b) return;
+  b.setAttribute('aria-pressed', String(on));
+  b.title = on ? 'Back to the side' : 'Wide';
+  b.setAttribute('aria-label', b.title);
+  const u = b.querySelector('use');
+  if (u) u.setAttribute('href', on ? '#i-collapse' : '#i-expand');
+}
+
 export function openArtifact({ title, lang, code, nodeId, report = false }) {
   const c = state.current;
   $('artifact').classList.remove('sheet-on'); // the spreadsheet canvas (sheet.js, Q15) steps aside for this
+  stepAsideEssay();
   // `report`: a research report (Q2, research.js): Markdown, previewed as a page here, Download gives the .md
   const canvas = CANVAS_LANGS.has(lang) || report;
   const extra = report ? { report: true, edLang: 'markdown' } : {};
@@ -52,6 +65,7 @@ export function openArtifact({ title, lang, code, nodeId, report = false }) {
 
 // Q14: a slide deck in the canvas (deck.js): its versions are the chat's deck versions; Preview draws the slides.
 export function openDeckCanvas({ versions, i }) {
+  stepAsideEssay();
   art.versions = versions;
   art.i = Math.max(0, Math.min(versions.length - 1, i));
   art.view = 0;
@@ -66,12 +80,19 @@ export const deckCanvasVersion = () => { const v = artifactOpen() && art.version
 /** A deck edit made in the canvas: the newest version, shown. */
 export function pushDeckVersion(v) { art.versions.push(v); art.i = art.versions.length - 1; art.view = 0; show(); }
 /** Send a message from the canvas (a deck's per-slide buttons). */
-export function artifactSend(text) { if (H.send) H.send(text); }
+export function artifactSend(text, opts) { if (H.send) { if (opts) H.send(text, opts); else H.send(text); } } // opts.origin: the essay writer's own prompts (chat.js)
+/** The essay writer (essay.js) steps aside for a page or a deck, and the canvas leaves Wide; nothing to do when it never opened. */
+function stepAsideEssay() {
+  const a = $('artifact');
+  if (a.classList.contains('essay-on')) a.classList.remove('essay-on');
+  if (a.classList.contains('full')) setWide(false);
+}
 
 export function closeArtifact() {
   if (!$('split').classList.contains('art-open')) return false;
   $('split').classList.remove('art-open', 'chat-view');
   document.body.classList.remove('canvas-hidden');
+  if ($('artifact').classList.contains('full')) setWide(false); // the essay writer's Wide ends with it
   $('artPreview').replaceChildren();
   runner.stop();
   return true;
@@ -336,7 +357,7 @@ export function initArtifact(handlers) {
   divider.addEventListener('pointerdown', (e) => { if (isMobile()) return; dragging = true; divider.setPointerCapture(e.pointerId); document.body.classList.add('col-resize'); e.preventDefault(); });
   divider.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const r = split.getBoundingClientRect();
+    const r = pane.parentElement.getBoundingClientRect(); // #split, or #app while the essay sits beside the chat (essay.js placePane)
     pane.style.width = `${Math.min(72, Math.max(24, 100 - ((e.clientX - r.left) / r.width) * 100))}%`;
   });
   const end = () => { dragging = false; document.body.classList.remove('col-resize'); };

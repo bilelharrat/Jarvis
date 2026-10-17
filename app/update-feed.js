@@ -5,7 +5,7 @@
 //
 //   { "currentRelease": "0.2.0",
 //     "releases": [{ "version": "0.2.0",
-//                    "updateTo": { "version": "0.2.0", "name": "J.A.R.V.I.S. 0.2.0",
+//                    "updateTo": { "version": "0.2.0", "name": "Eden Secretary 0.2.0",
 //                                  "pub_date": "2026-10-01T12:00:00Z", "notes": "…",
 //                                  "url": "https://…/J.A.R.V.I.S.-0.2.0-mac.zip" } }] }
 'use strict';
@@ -69,7 +69,7 @@ function parseFeed(text, feedUrl) {
   if (!url.startsWith('https://')) throw new Error("the update's address isn't https");
   return {
     version: current,
-    name: String(to.name || `J.A.R.V.I.S. ${current}`).slice(0, 80),
+    name: String(to.name || `Eden Secretary ${current}`).slice(0, 80),
     notes: String(to.notes || '').slice(0, MAX_NOTES),
     pubDate: String(to.pub_date || '').slice(0, 40),
     url,
@@ -92,7 +92,7 @@ function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() 
     currentRelease: version,
     releases: [{
       version,
-      updateTo: { version, name: `J.A.R.V.I.S. ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
+      updateTo: { version, name: `Eden Secretary ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
     }],
   };
 }

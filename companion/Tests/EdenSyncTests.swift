@@ -258,7 +258,7 @@ final class EdenSyncTests: XCTestCase {
 
     // MARK: - Against a local Worker (only when asked)
 
-    /// The QA driver (docs/accounts.md, "The J.A.R.V.I.S. apps") starts `wrangler dev`, turns
+    /// The QA driver (docs/accounts.md, "The Eden Secretary apps") starts `wrangler dev`, turns
     /// sync on in a "browser" with a passphrase, has a second one ask, and runs this with the
     /// iPhone's token; it then checks the second browser opens what this sealed.
     func testAgainstALocalWorker() async throws {

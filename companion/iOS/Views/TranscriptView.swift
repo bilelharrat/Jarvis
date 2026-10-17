@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The conversation, the way Apple sets one: what you said in bubbles on the right, Jarvis's
+/// The conversation, the way Apple sets one: what you said in bubbles on the right, Eden Secretary's
 /// answers as plain text on the left, newest at the bottom.
 struct TranscriptView: View {
     let lines: [TranscriptLine]
@@ -56,11 +56,11 @@ struct TranscriptRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityActions {
-            if line.offersUpgrade { Button("Upgrade to Jarvis Plus") { onAction(.upgrade) } }
+            if line.offersUpgrade { Button("Upgrade to Eden Plus") { onAction(.upgrade) } }
         }
     }
 
-    /// Copy, share, read aloud; on Jarvis's last reply here, try again and feedback; on
+    /// Copy, share, read aloud; on Eden Secretary's last reply here, try again and feedback; on
     /// the last question, edit it.
     @ViewBuilder
     private var menu: some View {
@@ -121,7 +121,7 @@ struct TranscriptRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 OrbMark(size: 12)
-                HUDText("Jarvis", color: Palette.ring)
+                HUDText("Eden Secretary", color: Palette.ring)
                 if line.onPhone {
                     Image(systemName: "iphone")
                         .font(.caption2)
@@ -176,7 +176,7 @@ struct TranscriptRow: View {
                     .font(.callout)
                     .foregroundStyle(Palette.ink2)
                 if line.offersUpgrade {
-                    Button("Upgrade to Jarvis Plus") { onAction(.upgrade) }
+                    Button("Upgrade to Eden Plus") { onAction(.upgrade) }
                         .font(.callout.weight(.semibold))
                         .padding(.horizontal, Space.s)
                         .padding(.vertical, 6)
@@ -195,7 +195,7 @@ struct TranscriptRow: View {
             let pictures = line.pictures.isEmpty ? "" : "With \(line.pictures.count) picture\(line.pictures.count == 1 ? "" : "s"). "
             return line.waiting ? "Waiting for your Mac: \(line.text)" : "\(pictures)You said: \(line.text)"
         case .problem: return line.text
-        case .jarvis: return line.text.isEmpty ? (line.onHold ? "Jarvis is waiting for your OK." : "Jarvis is thinking.") : "Jarvis: \(line.text)"
+        case .jarvis: return line.text.isEmpty ? (line.onHold ? "Eden Secretary is waiting for your OK." : "Eden Secretary is thinking.") : "Eden Secretary: \(line.text)"
         }
     }
 

@@ -97,7 +97,7 @@ async def test_a_healthy_player_is_asked_once_a_sentence_and_kept(player):
 
 
 async def test_an_answer_in_while_the_event_loop_was_busy_counts(player, monkeypatch):
-    """The ping's deadline can pass while JARVIS's event loop is busy (a slow step, a busy
+    """The ping's deadline can pass while Jarvis's event loop is busy (a slow step, a busy
     Mac) with the answer already in: the deadline ran before the reader saw it, and a player
     that plays was started anew and said its sentence again from the start."""
     path, files = player

@@ -1,4 +1,4 @@
-// The Jarvis number in JARVIS's own voice (src/jarvis/twilio/line.js): with the Mac's cloud
+// The Eden Secretary number in Eden Secretary's own voice (src/jarvis/twilio/line.js): with the Mac's cloud
 // voice in the service's variables, every line is a <Play> of the Function's voice step,
 // which voices it and sends back the phone's WAV. When the voice service fails, the caller
 // hears a moment's silence, never an error, and Twilio's voice reads the call for a while.
@@ -100,7 +100,7 @@ test("with the Mac's cloud voice, callers hear it, not Twilio's", async () => {
   assert.doesNotMatch(xml, /<Say/);
   const lines = played(xml);
   assert.deepEqual(lines.map((l) => l.say), [
-    "Hello, you've reached Jarvis, Bilel's AI assistant. Please leave a message for Bilel after the tone.",
+    "Hello, you've reached Eden Secretary, Bilel's AI assistant. Please leave a message for Bilel after the tone.",
     "I didn't hear a message. Goodbye.",
   ]);
   assert.match(xml, /<\/Play><Record [^>]*\/><Play>/); // the tone comes after the greeting
@@ -110,7 +110,7 @@ test("with the Mac's cloud voice, callers hear it, not Twilio's", async () => {
 test('without a cloud voice, Twilio reads the call as before', async () => {
   reset({ owner: 'Bilel', booking: false });
   const xml = await call({}, PLAIN);
-  assert.match(xml, /<Say voice="Polly\.Brian-Neural">Hello, you've reached Jarvis/);
+  assert.match(xml, /<Say voice="Polly\.Brian-Neural">Hello, you've reached Eden Secretary/);
   assert.doesNotMatch(xml, /<Play>/);
   assert.ok(!sync.requests.some((r) => r.path.endsWith('/voice-down')));
 });
@@ -120,11 +120,11 @@ test('a conversation speaks in the voice, and the caller can still talk over it'
   const xml = await call({}, { ...VOICED, ANTHROPIC_API_KEY: 'sk-ant-test' });
   wellFormed(xml);
   assert.match(xml, /<Gather input="speech"[^>]*><Play>[^<]+<\/Play><\/Gather>/);
-  assert.equal(played(xml)[0].say, "Hello, you've reached Jarvis, Bilel's AI assistant. This call is transcribed. How can I help you?");
+  assert.equal(played(xml)[0].say, "Hello, you've reached Eden Secretary, Bilel's AI assistant. This call is transcribed. How can I help you?");
 });
 
 test("what's said is unescaped for the voice, and long lines go in pieces at sentence ends", async () => {
-  const long = Array.from({ length: 12 }, (_, i) => `This is sentence number ${i + 1} of what Jarvis says.`).join(' ');
+  const long = Array.from({ length: 12 }, (_, i) => `This is sentence number ${i + 1} of what Eden Secretary says.`).join(' ');
   reset({ owner: `Ann & <Co> ${long}`, booking: false });
   const lines = played(await call({ step: 'left', RecordingDuration: '12' }));
   const said = lines.map((l) => l.say);
@@ -176,7 +176,7 @@ test('a refused voice (key, credit) is silence, and Twilio reads calls for an ho
   assert.equal(sync.down.ttl, '3600');
   assert.ok(Date.parse(sync.down.data.until) > Date.now() + 3500 * 1000);
   const xml = await call({});
-  assert.match(xml, /<Say voice="Polly\.Brian-Neural">Hello, you've reached Jarvis/);
+  assert.match(xml, /<Say voice="Polly\.Brian-Neural">Hello, you've reached Eden Secretary/);
   assert.doesNotMatch(xml, /<Play>/);
 });
 

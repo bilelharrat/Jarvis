@@ -9,11 +9,11 @@ if (query.get('app') === 'eden-code') {
   document.title = 'Eden Code';
   message.textContent = 'Opening Eden Code…';
 }
-// J.A.R.V.I.S. Daredevil's: large yellow type on black from the first moment, named for a screen reader.
+// Eden Daredevil's: large yellow type on black from the first moment, named for a screen reader.
 if (query.get('app') === 'daredevil') {
   document.body.classList.add('daredevil');
-  document.title = 'J.A.R.V.I.S. Daredevil';
-  message.textContent = 'Opening J.A.R.V.I.S. Daredevil…';
+  document.title = 'Eden Daredevil';
+  message.textContent = 'Opening Eden Daredevil…';
 }
 // Every edition's boot-up sound, the owner's choice ("C'est, c'est, c'est énergétique !"): main.js calls this once the
 // window is on screen and the sound is on in Settings. Never when it starts hidden at sign-in (quiet) or when the page

@@ -1,13 +1,13 @@
 import AppIntents
 import Foundation
 
-/// "Hey Siri, Jarvis", the Action Button, a Control Center or Lock Screen control, Back Tap
-/// or a Vocal Shortcut ("Hey Jarvis", trained in iOS): opens J.A.R.V.I.S. already
+/// "Hey Siri, Eden Secretary", the Action Button, a Control Center or Lock Screen control, Back Tap
+/// or a Vocal Shortcut ("Hey Eden", trained in iOS): opens Eden Secretary already
 /// listening. In the app and the widget extension, so a control can run it; it always runs
 /// in the app.
 struct TalkToJarvisIntent: AppIntent {
-    static let title: LocalizedStringResource = "Talk to Jarvis"
-    static let description = IntentDescription("Opens Jarvis, listening for what you want.")
+    static let title: LocalizedStringResource = "Talk to Eden Secretary"
+    static let description = IntentDescription("Opens Eden Secretary, listening for what you want.")
     static let supportedModes: IntentModes = .foreground(.immediate)
 
     @MainActor

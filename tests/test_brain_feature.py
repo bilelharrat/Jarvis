@@ -95,7 +95,7 @@ def test_the_feature_installs_its_settings_hooks_commands_and_tools(hub):
         "brain_bookmarks": False,
         "brain_reminders": False,
         "brain_voicememos": False,
-        "brain_journal": True,  # JARVIS's own daily notes (jarvis.journal)
+        "brain_journal": True,  # Jarvis's own daily notes (jarvis.journal)
         "browser_memories": False,  # pages read in the built-in browser (browser_ai): opt-in
         "brain_semantic": False,  # may download Apple's model files: only when turned on
     }

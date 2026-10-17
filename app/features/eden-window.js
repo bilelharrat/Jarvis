@@ -5,10 +5,10 @@
 // prefs eden_hotkey and eden_hotkey_keys); ⌃⌥Space by default, since ⌥Space is Talk.
 //
 // The window reports the setting ('feature:eden:hotkey'); new keys are tried here first
-// ('feature:eden:try': macOS's own and JARVIS's other shortcuts are refused), and the last
+// ('feature:eden:try': macOS's own and Eden Secretary's other shortcuts are refused), and the last
 // setting is kept in eden-window.json so the shortcut works before the backend answers.
 // While Settings records any shortcut ('feature:shell:recording') this one steps aside too.
-// Eden's browser panel in this window (askeden web/chat/browser-pane.js) is Jarvis's own built-in
+// Eden's browser panel in this window (askeden web/chat/browser-pane.js) is Eden Secretary's own built-in
 // browser: eden-preload.js gives the page window.jarvisBrowser, and the tab on show is drawn
 // in the panel's slot (ctx.browserDock in main.js: the same tabs, adblock and gates). Only
 // Eden's own page in this window may ask ('feature:eden:browser:…'); the window widens while
@@ -82,7 +82,7 @@ function install(ctx) {
     error = '';
     if (!takesShortcuts || !setting.on || stepAside) return;
     let ok = false;
-    // JARVIS's own (Talk, What's this?) are registered already: never take one of them.
+    // Eden Secretary's own (Talk, What's this?) are registered already: never take one of them.
     if (!globalShortcut.isRegistered(setting.accelerator)) {
       try { ok = globalShortcut.register(setting.accelerator, () => { toggle(); }); } catch { ok = false; }
     }
@@ -160,7 +160,7 @@ function install(ctx) {
     win.on('closed', () => { dock().hide(win); win = null; loadedFrom = ''; narrow = null; });
   }
 
-  // ── Eden's browser panel: Jarvis's browser, docked in this window ──
+  // ── Eden's browser panel: Eden Secretary's browser, docked in this window ──
 
   const dock = () => ctx.browserDock || { show() {}, hide() {}, bounds() {}, nav() {}, tab() {}, shields() {}, state() {} };
   let narrow = null; // the window's size before the panel widened it

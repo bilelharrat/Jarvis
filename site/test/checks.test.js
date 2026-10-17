@@ -52,7 +52,9 @@ beforeEach(() => {
     falsify: { text: 'Sources agree.\n{"counter_supported": "no", "original_supported": "yes", "evidence": "The sources support the answer."}', sources: NOBEL },
     reanswer: { text: 'Neil Armstrong walked on the Moon on July 20, 1969.', sources: NASA },
   };
-  env = { OPENAI_API_KEY: 'o-test', GEMINI_API_KEY: 'g-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20' };
+  // These tests are about the checks, written around GPT-6 Luna as the cheap tier: it stays in this site's list here
+  // (EDEN_MODELS) though askeden.com retired it on 2026-10-13. The live list is tested below and in providers.test.js.
+  env = { OPENAI_API_KEY: 'o-test', GEMINI_API_KEY: 'g-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_MODELS: 'claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gpt-6-sol,gpt-6-luna,gemini-3.1-pro-preview,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3,kimi-k2.7-code' };
   env.ACCOUNTS = namespace(Account, env);
   env.LINKS = namespace(Link, env);
   globalThis.fetch = async (input, init = {}) => {
@@ -118,10 +120,12 @@ const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-5, `${msg}: ${a} vs $
 // ── the models and what a turn may run ──
 
 test('the checks’ models: the cheapest model at its lowest effort, Gemini 3.8 Flash grounding at medium; the page’s providers apply', () => {
-  const cfg = hostedConfig({});
+  const cfg = hostedConfig({ EDEN_MODELS: env.EDEN_MODELS });
   const picks = checkModels(cfg.models);
   assert.equal(picks.cheap.model.id, 'gpt-6-luna');
   assert.equal(picks.cheap.effort, 'none');
+  // askeden.com without Luna: the cheapest model at or above the reasoning floor (Gemini 3.8 Flash), never the weaker Flash-Lite
+  assert.equal(checkModels(hostedConfig({}).models).cheap.model.id, 'gemini-3.8-flash');
   assert.equal(picks.search.model.id, 'gemini-3.8-flash');
   assert.equal(picks.search.effort, 'medium', 'at low effort Gemini answers from memory without searching');
   assert.equal(checkModels(cfg.models, ['openai']).search, null, 'Gemini switched off: nothing to search with');

@@ -2,7 +2,7 @@
 // drive the account's own BrowserSession (the same tabs the viewer sees in the panel), their
 // argument checks, and the approval rules. Pure: no CDP here (browser/agent.js runs them).
 //
-// The vocabulary is J.A.R.V.I.S.'s browser agent's (app/browser-agent*.js): read the page as a
+// The vocabulary is Eden Secretary's browser agent's (app/browser-agent*.js): read the page as a
 // numbered list of elements, then act on a number. The safety ideas are its gate's
 // (src/jarvis/browser_gate.py, hands_guard.py): page words are data, never instructions; anything
 // that can't be taken back (buying, sending, posting, signing in, accepting terms, deleting,

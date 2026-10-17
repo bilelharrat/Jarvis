@@ -1,4 +1,4 @@
-// Settings › Email accounts (features/winmail.py): add the email accounts Jarvis reads and sends
+// Settings › Email accounts (features/winmail.py): add the email accounts Eden Secretary reads and sends
 // through, on a PC (on a Mac, Mail.app is used and this page never appears: the backend doesn't
 // answer). Type the address; the provider's servers and what to do about its password come back;
 // "Check it" signs in to both servers and says so in words; "Add account" keeps it. The password
@@ -146,7 +146,7 @@
     group.dataset.settingsPane = 'general';
     group.dataset.keywords = 'email mail gmail outlook icloud yahoo account accounts imap smtp password send read inbox';
     group.append(el('h3', '', t('Email accounts')));
-    group.append(el('p', 'group-note', t('Jarvis reads and sends your email through your own accounts, straight from this computer. Passwords are kept in the system’s password store and are never shown again.')));
+    group.append(el('p', 'group-note', t('Eden Secretary reads and sends your email through your own accounts, straight from this computer. Passwords are kept in the system’s password store and are never shown again.')));
     field.summary = el('p', 'small-status');
     field.summary.id = 'mail-summary';
     field.list = el('ul', 'mail-list');
@@ -158,7 +158,7 @@
     field.outlookBox = el('div', 'mail-outlook');
     field.outlookBox.hidden = true;
     field.outlookBox.append(el('h4', '', t('Use Outlook on this PC')));
-    field.outlookBox.append(el('p', 'group-note', t('If your mail is in Outlook (a school or an office account), Jarvis can read and send it through the Outlook program that is already signed in on this computer. Nothing to type. What you send goes out from Outlook, in your own signature and font, and is kept in your Sent Items. Outlook has to be open.')));
+    field.outlookBox.append(el('p', 'group-note', t('If your mail is in Outlook (a school or an office account), Eden Secretary can read and send it through the Outlook program that is already signed in on this computer. Nothing to type. What you send goes out from Outlook, in your own signature and font, and is kept in your Sent Items. Outlook has to be open.')));
     field.outlookAdd = el('button', 'btn primary', t('Use my Outlook'));
     field.outlookAdd.type = 'button';
     field.outlookAdd.id = 'mail-outlook-add';

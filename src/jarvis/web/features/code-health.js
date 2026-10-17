@@ -61,7 +61,7 @@
     const engine = answer.engine || {};
     const eng = el('ul', 'jc-list ch-list');
     const version = engine.version ? mine(el('span', '', engine.version)) : el('span', 'jc-dim', 'Unknown');
-    const where = engine.path ? (engine.bundled ? el('small', 'jc-dim', 'Built into Jarvis') : mine(el('small', 'jc-dim ch-path', engine.path))) : el('small', 'ch-bad', 'Not found');
+    const where = engine.path ? (engine.bundled ? el('small', 'jc-dim', 'Built into Eden Secretary') : mine(el('small', 'jc-dim ch-path', engine.path))) : el('small', 'ch-bad', 'Not found');
     eng.append(row('Engine', version, where));
     const signin = answer.signin || {};
     const state = el('span', `ch-state ${signin.state || 'unknown'}`, signin.summary || 'Couldn’t tell');

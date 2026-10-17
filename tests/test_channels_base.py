@@ -197,7 +197,7 @@ def test_a_rate_limit_allows_a_burst_then_refills():
     assert limit.take() and not limit.take()
 
 
-# ── what JARVIS writes ──
+# ── what Jarvis writes ──
 
 _SLOT = re.compile(r"\{(\w+)\}")
 

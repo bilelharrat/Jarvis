@@ -165,7 +165,7 @@ test('on Windows the bundled Python is python.exe, the PATH is joined with semic
     packaged: true, resourcesPath: res, port: 51234, token: 'tok', extraPath: ['C:\\Program Files\\Git\\cmd'],
     env: { Path: 'C:\\Windows\\System32', PYTHONPATH: 'C:\\evil', APPDATA: 'C:\\Users\\Ann\\AppData\\Roaming' },
     uv: () => { throw new Error('uv asked'); }, home: () => { throw new Error('repo asked'); },
-    dataDir: 'C:\\Users\\Ann\\AppData\\Roaming\\Jarvis', exists: (p) => p === python, platform: 'win32',
+    dataDir: 'C:\\Users\\Ann\\AppData\\Roaming\\Eden Secretary', exists: (p) => p === python, platform: 'win32',
   });
   assert.equal(how.bundled, true);
   assert.equal(how.command, python);

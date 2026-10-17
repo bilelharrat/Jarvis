@@ -1,9 +1,9 @@
 // The Mac app's shell, window side (app/features/shell.js is the other half): tells the app
-// what JARVIS is doing for the menu bar icon and which cards wait for an OK (the Dock's
+// what Eden Secretary is doing for the menu bar icon and which cards wait for an OK (the Dock's
 // badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
 // out what its menus, notifications and jarvis:// links ask over this window's connection,
 // and adds the "This Mac" group to Settings (the menu bar icon, opening at login, the
-// global shortcuts, the Services menu's "Ask JARVIS", waking the Mac for the briefing).
+// global shortcuts, the Services menu's "Ask Eden Secretary", waking the Mac for the briefing).
 (() => {
   // ── pure helpers (tests/web/shell.test.mjs requires this file for them) ──
 
@@ -92,21 +92,21 @@
       paused: t('Heads-ups paused'),
       pausedUntil: until > Date.now() ? t(`Heads-ups paused until ${clockText(until)}`) : '',
       resume: t('Resume heads-ups'),
-      open: t('Open J.A.R.V.I.S.'),
+      open: t('Open Eden Secretary'),
       code: t('Eden Code'),
       browser: t('Browser'),
-      quit: t('Quit J.A.R.V.I.S.'),
+      quit: t('Quit Eden Secretary'),
       needsOk: t('Needs your OK'),
       allow: t('Allow'),
       notNow: t('Not now'),
-      purchaseHint: t('Say “confirm purchase”, or confirm it in J.A.R.V.I.S.'),
+      purchaseHint: t('Say “confirm purchase”, or confirm it in Eden Secretary.'),
       // the app's menu bar
-      about: t('About J.A.R.V.I.S.'),
+      about: t('About Eden Secretary'),
       settings: t('Settings…'),
       history: t('History'),
       bookmarks: t('Bookmarks'),
       services: t('Services'),
-      hide: t('Hide J.A.R.V.I.S.'),
+      hide: t('Hide Eden Secretary'),
       hideOthers: t('Hide Others'),
       showAll: t('Show All'),
       edit: t('Edit'),
@@ -225,9 +225,9 @@
   // own: sent, the request goes marked as a link's (from_link), so the backend treats it as
   // outside content, and no word in it counts as the owner asking for anything. The mark
   // stays until the box is emptied: words typed after a link's don't make its words theirs.
-  // From the Services menu's "Ask JARVIS" (service: the owner's own click, as the app vouches)
+  // From the Services menu's "Ask Eden Secretary" (service: the owner's own click, as the app vouches)
   // it's sent at once, still marked as a link's, unless Settings › This Mac › "Ask before
-  // sending messages to J.A.R.V.I.S." is on.
+  // sending messages to Eden Secretary." is on.
   let fromLink = false;
   function prefill(text, service = false) {
     if (!F.$('cc').hidden) toggleCC(false);
@@ -260,7 +260,7 @@
     e.preventDefault();
     e.stopImmediatePropagation();
     if (!F.send({ type: 'ask', text, from_link: true })) {
-      notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
+      notice('Eden Secretary', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
       return;
     }
     fromLink = false;
@@ -314,7 +314,7 @@
       case 'resume': F.send({ type: 'shell_pause', minutes: 0 }); break;
       case 'open': openPanel(cmd.panel); break;
       case 'stop':
-        // The Stop talking key, from any program: what JARVIS says and reads stops, and the
+        // The Stop talking key, from any program: what Eden Secretary says and reads stops, and the
         // window's own announcements with it (features/accessibility.js hears jarvis:stop-all).
         F.send({ type: 'stop' });
         document.dispatchEvent(new Event('jarvis:stop-all'));
@@ -388,7 +388,7 @@
     bridge.invoke(`${CH}login`, typeof on === 'boolean' ? { on } : {}).then((state) => { loginState = state; renderLogin(); }, () => {});
   }
 
-  // The Services menu's "Ask JARVIS": Add writes the Quick Action, Remove takes it away.
+  // The Services menu's "Ask Eden Secretary": Add writes the Quick Action, Remove takes it away.
   function serviceRow() {
     const row = F.el('div', 'row shell-service-row');
     row.id = 'shell-service-row';
@@ -396,7 +396,7 @@
     const words = F.el('span');
     words.append(
       F.el('strong', '', 'Ask about a selection'),
-      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text is sent to JARVIS at once (or waits in the request box, with the switch below).'),
+      F.el('small', '', 'Adds “Ask Eden Secretary” to the Services menu: select text in any app, then right-click › Services. The text is sent to Eden Secretary at once (or waits in the request box, with the switch below).'),
     );
     const button = F.el('button', 'btn', 'Add');
     button.type = 'button';
@@ -516,7 +516,7 @@
     const serviceNote = F.el('p', 'small-status warn-line');
     serviceNote.id = 'shell-service-note';
     serviceNote.hidden = true;
-    const loginRow = switchRow('sw-shell-login', 'Open at login', 'JARVIS opens when you log in to this Mac.');
+    const loginRow = switchRow('sw-shell-login', 'Open at login', 'Eden Secretary opens when you log in to this Mac.');
     loginRow.hidden = true; // until the app says it can (the installed app only)
     const loginNote = F.el('p', 'small-status warn-line');
     loginNote.id = 'shell-login-note';
@@ -525,14 +525,14 @@
       F.el('h3', '', 'This Mac'),
       loginRow,
       loginNote,
-      switchRow('sw-shell-menubar', 'Show in the menu bar', 'What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
-      shortcutRow('ask', 'Talk', 'From any app: shows JARVIS and starts listening.'),
-      shortcutRow('whatsThis', 'What’s this?', 'From any app: JARVIS explains what’s in front of you.'),
-      shortcutRow('stop', 'Stop talking', 'From any app: JARVIS stops speaking and stops reading at once.'),
+      switchRow('sw-shell-menubar', 'Show in the menu bar', 'What Eden Secretary is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
+      shortcutRow('ask', 'Talk', 'From any app: shows Eden Secretary and starts listening.'),
+      shortcutRow('whatsThis', 'What’s this?', 'From any app: Eden Secretary explains what’s in front of you.'),
+      shortcutRow('stop', 'Stop talking', 'From any app: Eden Secretary stops speaking and stops reading at once.'),
       note,
       serviceRow(),
       serviceNote,
-      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to J.A.R.V.I.S.', 'For “Ask JARVIS” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
+      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to Eden Secretary', 'For “Ask Eden Secretary” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
       ...wakeRows(),
     );
     const settings = F.$('settings');
@@ -588,12 +588,12 @@
       F.$(`shell-rec-${slot}`).disabled = !online && recordingSlot !== slot;
     }
     document.dispatchEvent(new Event('jarvis:shortcuts'));
-    // A shortcut another app already had when JARVIS started: said until it's changed.
+    // A shortcut another app already had when Eden Secretary started: said until it's changed.
     const taken = SLOTS.map((slot) => keyStatus[slot]).find((s) => s && s.error === 'taken');
     // One in use by another program, with another key standing in for it: said, and not a problem.
     const standIn = SLOTS.map((slot) => keyStatus[slot]).find((s) => s && s.wanted && !s.error);
     if (taken && noteFrom !== 'recorder') setNote(problem('taken', taken.label), true, 'taken');
-    else if (standIn && noteFrom !== 'recorder') setNote(en(`${standIn.wanted} is used by another program, so J.A.R.V.I.S. listens for ${standIn.label} instead. You can pick another key below.`), false, 'standin');
+    else if (standIn && noteFrom !== 'recorder') setNote(en(`${standIn.wanted} is used by another program, so Eden Secretary listens for ${standIn.label} instead. You can pick another key below.`), false, 'standin');
     else if (!taken && !standIn && (noteFrom === 'taken' || noteFrom === 'standin')) setNote('', false, '');
     updateHint();
   }
@@ -691,7 +691,7 @@
   });
 
   // A heads-up while the window isn't in front (app.js asks first): the app raises it, so a
-  // click on it can open JARVIS on its card. Without the app's side, app.js raises its own.
+  // click on it can open Eden Secretary on its card. Without the app's side, app.js raises its own.
   window.addEventListener('jarvis-notify', (e) => {
     if (!ready || !canNotify || !e.detail) return;
     e.preventDefault();
@@ -709,7 +709,7 @@
   F.on('muted', (ev) => { seen.muted = Boolean(ev.value); report(); });
   F.on('prefs', (ev) => { seen.prefs = ev; renderGroup(); afterLanguage(ev); });
 
-  // Offline while the window's connection is down ("Reconnecting to Jarvis…" is showing).
+  // Offline while the window's connection is down ("Reconnecting to Eden Secretary…" is showing).
   const offline = F.$('offline');
   if (offline) {
     new MutationObserver(() => { online = offline.hidden; report(); renderShortcuts(); renderWake(); })
@@ -739,7 +739,7 @@
       renderShortcuts();
       report();
       sendApprovals();
-      if (info.recovered) notice('Jarvis', '', 'The window stopped unexpectedly and was reloaded.', 15000);
+      if (info.recovered) notice('Eden Secretary', '', 'The window stopped unexpectedly and was reloaded.', 15000);
       serviceAction('status');
       setLogin();
     }, () => { /* an app without the shell feature: nothing to report to */ });

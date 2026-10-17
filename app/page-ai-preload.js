@@ -1,4 +1,4 @@
-// JARVIS's reading of a page in the built-in browser, for the browser-ai feature
+// Eden Secretary's reading of a page in the built-in browser, for the browser-ai feature
 // (app/features/browser-ai.js registers it for the browser's tabs; it runs in each tab's main
 // frame, in the same isolated world as page-preload.js, so the page's own scripts can't see
 // or reach it):
@@ -206,7 +206,7 @@
     return out;
   }
 
-  // The picture under the owner's pointer (the page's menu: Ask Jarvis): its box on the page
+  // The picture under the owner's pointer (the page's menu: Ask Eden Secretary): its box on the page
   // and its words, for the app to take a picture of it.
   function imageAt(args = {}) {
     const hit = document.elementFromPoint(Number(args.x) || 0, Number(args.y) || 0);
@@ -219,8 +219,8 @@
     return { ok: true, box: { x: r.left, y: r.top, width: r.width, height: r.height }, scroll: { x: window.scrollX, y: window.scrollY }, alt };
   }
 
-  // Where the page needs the owner, not JARVIS (hand back): a captcha (JARVIS never tries
-  // one), a password, card details, a one-time code (codes: whether JARVIS may type those),
+  // Where the page needs the owner, not Eden Secretary (hand back): a captcha (Eden Secretary never tries
+  // one), a password, card details, a one-time code (codes: whether Eden Secretary may type those),
   // or a wall that asks to sign in first. Only what shows counts: a field hidden from view, a sliver,
   // or an invisible reCAPTCHA's badge doesn't.
   const CAPTCHA_FRAME = /(?:google\.com|recaptcha\.net)\/recaptcha\/|hcaptcha\.com\/|challenges\.cloudflare\.com\/|arkoselabs\.com\/|funcaptcha\.com\/|geetest\.com\/|captcha-delivery\.com\/|perimeterx\.net\//i;

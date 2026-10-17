@@ -3,7 +3,7 @@
 // DevTools Protocol. The page in Eden's browser panel is a picture of it: the active tab's
 // screencast (JPEG frames, one or two in flight, the panel acks each), drawn on a canvas; the
 // panel sends back the mouse, keys and text (rules.js maps them), and the address bar, tabs,
-// find, zoom, bookmarks and history work through this object. Nothing of J.A.R.V.I.S. or a Mac
+// find, zoom, bookmarks and history work through this object. Nothing of Eden Secretary or a Mac
 // is involved.
 //
 // Safety: only http(s) pages, never a local or private network address (every request is
@@ -29,7 +29,7 @@ const AGENT_IDLE_MS = 90 * 1000; // "Eden is controlling" ends by itself if the 
 const TICK_MS = 20 * 1000;
 const NEW_TAB = 'about:blank';
 
-// In the page (Runtime.evaluate): find with the CSS Custom Highlight API, as J.A.R.V.I.S.
+// In the page (Runtime.evaluate): find with the CSS Custom Highlight API, as Eden Secretary.
 // highlights ranges itself rather than Chrome's find bar.
 const FIND = `(q, dir) => {
   const S = (window.__edenFind ??= { q: '', ranges: [], i: -1 });

@@ -136,3 +136,9 @@ test('delete one, delete all, and account deletion erase memory', async () => {
   await env.ACCOUNTS.objects.get(ACCOUNT).deleteAll();
   assert.equal(await storage().get('memory'), undefined);
 });
+
+test('a person the user looks up never becomes the user (2026-10-13: a searched name was saved as the owner\'s name)', async () => {
+  const { EXTRACT_SYSTEM } = await import('../src/eden/memory.js');
+  assert.match(EXTRACT_SYSTEM, /A person they look up, research, search for, ask about, quote or write to is NOT the user/);
+  assert.match(memoryBlock([{ id: 'a', text: 'Has a brother named Adam' }]), /Address the user by name only when a memory plainly says that name is theirs/);
+});

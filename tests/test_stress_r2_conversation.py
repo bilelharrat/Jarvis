@@ -1,4 +1,4 @@
-"""Round 2's stress sweep of JARVIS's own conversation (the hub with a fake Claude, a quiet
+"""Round 2's stress sweep of Jarvis's own conversation (the hub with a fake Claude, a quiet
 speaker and temp stores): the app quitting as a turn ends and in the middle of one, where a
 hub on a folder of its own keeps its projects and pins, New conversation and projects, Stop
 before a request reaches Claude and while its card is up, a past conversation carried on

@@ -418,7 +418,7 @@ async function ask(request, env, ctx) {
     } finally {
       reader.cancel().catch(() => {}); // a failed answer: Claude's stream ends here too
       const usd = costOf(meter.model || model, meter.usage({ input: inputTokens }));
-      if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: hold.bucket }).catch((error) => console.error('eden ask: spend failed', error && error.message));
+      if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta: { feature: 'ask', product: 'messenger' } }).catch((error) => console.error('eden ask: spend failed', error && error.message));
       await release();
     }
   };

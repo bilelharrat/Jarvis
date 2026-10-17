@@ -26,7 +26,7 @@ final class AppModel {
     }
 
     private(set) var pairing: Pairing?
-    /// The other Jarvises this iPhone is paired with, to switch to (a Mac, the cloud Jarvis).
+    /// The other Jarvises this iPhone is paired with, to switch to (a Mac, the cloud Eden Secretary).
     private(set) var otherPairings: [Pairing] = PairingStore.others()
     private(set) var remote: RemoteState?
     private(set) var link: Link = .connecting
@@ -58,14 +58,14 @@ final class AppModel {
 
     let speech = SpeechController()
     let voice = VoicePlayer()
-    /// Jarvis on the iPhone itself: answers when there's no Mac, the Mac can't be reached,
+    /// Eden Secretary on the iPhone itself: answers when there's no Mac, the Mac can't be reached,
     /// or the owner chose it.
     let brain = LocalBrain()
-    /// Listens for "Hey Jarvis" while the owner has it on.
+    /// Listens for "Hey Eden" while the owner has it on.
     let wake = WakeWordListener()
-    /// Which Jarvis answers (Settings).
+    /// Which Eden Secretary answers (Settings).
     private(set) var brainMode: BrainMode = .automatic
-    /// A Claude or Gemini API key is saved for Jarvis on the iPhone.
+    /// A Claude or Gemini API key is saved for Eden Secretary on the iPhone.
     private(set) var hasPhoneKey = false
     /// Apple's own model can answer on this iPhone (Apple Intelligence on, the model ready):
     /// looked at again each time the app comes to the front.
@@ -84,11 +84,11 @@ final class AppModel {
     @ObservationIgnored private var applied = 0
     /// Poll quickly until then (after starting the briefing or a routine on the Mac).
     @ObservationIgnored private var followUntil = Date.distantPast
-    /// When this phone last asked the Mac to open JARVIS (at most once a minute).
+    /// When this phone last asked the Mac to open Eden Secretary (at most once a minute).
     @ObservationIgnored private var wokeAt = Date.distantPast
-    /// The Mac said it's opening JARVIS, and isn't back yet.
+    /// The Mac said it's opening Eden Secretary, and isn't back yet.
     private(set) var macOpening = false
-    /// The Mac is reached through the Jarvis relay (its own address can't be).
+    /// The Mac is reached through the Eden Secretary relay (its own address can't be).
     private(set) var viaRelay = false
     /// Settings › Account, over everything (an Upgrade button, a link code from the Camera).
     var showAccount = false
@@ -152,7 +152,7 @@ final class AppModel {
         }
         watch.activate()
         watch.push(pairing)  // on every launch, so the Watch always has the latest
-        // The Jarvis account (optional): the relay route to the Mac, purchases, push, sync.
+        // The Eden Secretary account (optional): the relay route to the Mac, purchases, push, sync.
         MacRoute.router = MacRouter.shared
         Task { await MacRouter.shared.reload() }
         AccountStore.shared.start()
@@ -200,16 +200,16 @@ final class AppModel {
             }
         }
         guard !copied.isEmpty else {
-            return "Your Mac has no Claude or Gemini API key saved (add one in JARVIS on your Mac, Settings › Models)."
+            return "Your Mac has no Claude or Gemini API key saved (add one in Eden Secretary on your Mac, Settings › Models)."
         }
-        return "Copied your Mac’s \(copied.joined(separator: " and ")) key. Jarvis answers here with it when your Mac can’t be reached."
+        return "Copied your Mac’s \(copied.joined(separator: " and ")) key. Eden Secretary answers here with it when your Mac can’t be reached."
     }
 
-    /// Jarvis on the iPhone can answer: with a Claude or Gemini key, the AI included with a
-    /// Jarvis account, or Apple's own model.
+    /// Eden Secretary on the iPhone can answer: with a Claude or Gemini key, the AI included with a
+    /// Eden Secretary account, or Apple's own model.
     var phoneCanAnswer: Bool { hasPhoneKey || hasAppleBrain || AccountStore.shared.isSignedIn }
 
-    /// Jarvis Plus answers here as readily as the owner's own key would.
+    /// Eden Plus answers here as readily as the owner's own key would.
     private var phoneHasPlus: Bool { AccountStore.shared.isSignedIn && AccountStore.shared.account?.plan.isPlus == true }
 
     /// The next request is answered on the iPhone: there's no Mac, the Mac can't be reached
@@ -296,7 +296,7 @@ final class AppModel {
         if pending?.isOpen == true { return visibleApprovals.isEmpty ? "Thinking" : "Waiting for your OK" }
         if !answersOnPhone, let state = remote?.state, state.isBusy { return "Mac is \(state.label.lowercased())" }
         if !answersOnPhone, remote == nil { return "Connecting" }
-        return wake.isListening ? "Say “Hey Jarvis”, or tap" : "Tap to talk"
+        return wake.isListening ? "Say “Hey Eden”, or tap" : "Tap to talk"
     }
 
     // MARK: - Lifecycle
@@ -325,7 +325,7 @@ final class AppModel {
             stopPolling()
             speech.cancel()
             voice.stop()
-            // "Hey Jarvis" carries on in the background only when the owner turned that on.
+            // "Hey Eden" carries on in the background only when the owner turned that on.
             if !UserDefaults.standard.bool(forKey: Self.wakeBackgroundKey) { wake.stop() }
             if pairing != nil { BackgroundRefresh.schedule() }
         }
@@ -344,7 +344,7 @@ final class AppModel {
         )
         do {
             if let current = self.pairing, !PairingStore.same(current, pairing) {
-                PairingStore.keepOther(current)  // pairing another Jarvis keeps this one to switch back to
+                PairingStore.keepOther(current)  // pairing another Eden Secretary keeps this one to switch back to
             }
             PairingStore.removeOther(pairing)
             try PairingStore.save(pairing)
@@ -355,7 +355,7 @@ final class AppModel {
         activate(pairing)
     }
 
-    /// Switches to another Jarvis this iPhone is paired with (the cloud one while the Mac is
+    /// Switches to another Eden Secretary this iPhone is paired with (the cloud one while the Mac is
     /// off): the one in use now is kept to switch back to.
     func use(_ other: Pairing) {
         guard let current = pairing, !PairingStore.same(current, other) else { return }
@@ -374,7 +374,7 @@ final class AppModel {
         show("Now using \(other.macLabel).", style: .success)
     }
 
-    /// Forgets another Jarvis (not the one in use).
+    /// Forgets another Eden Secretary (not the one in use).
     func forgetOther(_ other: Pairing) {
         PairingStore.removeOther(other)
         otherPairings = PairingStore.others()
@@ -402,7 +402,7 @@ final class AppModel {
     /// first), or a place in the app.
     func open(_ url: URL) {
         if url.scheme == Destination.scheme, url.host == "listen" {
-            // "Hey Jarvis" from Siri or Vocal Shortcuts, the Action Button, a Control.
+            // "Hey Eden" from Siri or Vocal Shortcuts, the Action Button, a Control.
             if foreground { startListening() } else { listenOnOpen = true }
         } else if let link = PairingLink(url.absoluteString) {
             offeredLink = link
@@ -443,7 +443,7 @@ final class AppModel {
         restartPolling()
     }
 
-    /// The Mac's device id in the owner's Jarvis account (from its /api/state, or from
+    /// The Mac's device id in the owner's Eden Secretary account (from its /api/state, or from
     /// linking it here), kept with the pairing for the relay.
     func learnMacDeviceID(_ id: String?) {
         guard var pairing, pairing.macDeviceID != id else { return }
@@ -464,7 +464,7 @@ final class AppModel {
 
     // MARK: - Talking
 
-    /// Opened by "Hey Jarvis", the Action Button or a Control: listen as soon as the app is in front.
+    /// Opened by "Hey Eden", the Action Button or a Control: listen as soon as the app is in front.
     @ObservationIgnored var listenOnOpen = false
 
     /// Listen now (from a shortcut, a control, or the wake word).
@@ -473,7 +473,7 @@ final class AppModel {
         talk()
     }
 
-    /// "Talk to Jarvis" ran (Siri, a control, the Action Button): listen once the app is in front.
+    /// "Talk to Eden Secretary" ran (Siri, a control, the Action Button): listen once the app is in front.
     func takeListenRequest() {
         guard ListenRequest.pending else { return }
         ListenRequest.pending = false
@@ -582,8 +582,8 @@ final class AppModel {
         }
     }
 
-    /// A question about pictures (photos, screenshots): Jarvis on the Mac looks at them
-    /// (POST /api/photo), or Jarvis on the iPhone when it's the one answering. They can't wait
+    /// A question about pictures (photos, screenshots): Eden Secretary on the Mac looks at them
+    /// (POST /api/photo), or Eden Secretary on the iPhone when it's the one answering. They can't wait
     /// in the outbox: when the Mac can't be reached they go back into the composer.
     func send(_ raw: String, pictures: [Attachment], documents files: [PickedDocument] = []) async {
         let question = raw.trimmed.isEmpty
@@ -639,7 +639,7 @@ final class AppModel {
         } catch let error as JarvisError where error.neverDelivered {
             if pending?.id == request.id { pending = nil }
             sentPictures[question] = nil
-            // The Mac can't be reached: Jarvis on the iPhone looks at them instead.
+            // The Mac can't be reached: Eden Secretary on the iPhone looks at them instead.
             if phoneCanAnswer { return await askPhone(about: question, raw: raw, pictures: pictures, files: []) }
             return restore(raw, pictures, unreachable)
         } catch is CancellationError {
@@ -654,7 +654,7 @@ final class AppModel {
         resumeWakeWord()
     }
 
-    /// Jarvis on the iPhone looks at pictures (and reads documents) with a question.
+    /// Eden Secretary on the iPhone looks at pictures (and reads documents) with a question.
     private func askPhone(about question: String, raw: String, pictures: [Attachment], files: [PickedDocument]) async {
         let jpegs = pictures.compactMap { PhotoPrep.jpeg(from: $0.image, longest: 1568, maxBytes: 4 * 1024 * 1024) }
         guard jpegs.count == pictures.count else {
@@ -695,7 +695,7 @@ final class AppModel {
         if retry, let work = brain.regenerate() {
             Task { if let reply = await work.value { announce(reply) } }
         } else {
-            show(lesson.isEmpty ? "Thanks. Noted." : "Got it. Jarvis won’t do that again.", style: .success)
+            show(lesson.isEmpty ? "Thanks. Noted." : "Got it. Eden Secretary won’t do that again.", style: .success)
         }
     }
 
@@ -742,7 +742,7 @@ final class AppModel {
             if pending?.id == request.id { pending?.phase = .waiting }
         } catch let error as JarvisError where error.neverDelivered {
             if pending?.id == request.id { pending = nil }
-            // It never got to the Mac: Jarvis on the iPhone answers when it can (not one that
+            // It never got to the Mac: Eden Secretary on the iPhone answers when it can (not one that
             // already waited in the outbox for the Mac); otherwise it waits for the Mac.
             if queuedAt == nil, phoneCanAnswer { return await askPhone(text, spoken: spoken) }
             keep(.ask(text, at: queuedAt ?? request.sentAt))
@@ -758,7 +758,7 @@ final class AppModel {
         resumeWakeWord()
     }
 
-    /// Jarvis on the iPhone answers.
+    /// Eden Secretary on the iPhone answers.
     func askPhone(
         _ text: String, images: [Data] = [], pictures: [Data] = [], documents: [JSONValue] = [], files: [String] = [],
         spoken: Bool = false
@@ -798,7 +798,7 @@ final class AppModel {
             resumeWakeWord()
             return
         }
-        // Jarvis's own voice from the Mac when it's there; the iPhone's best voice otherwise.
+        // Eden Secretary's own voice from the Mac when it's there; the iPhone's best voice otherwise.
         if let api = pairing?.api, !isOffline {
             voice.speak(reply, using: api)
         } else {
@@ -810,7 +810,7 @@ final class AppModel {
     // MARK: - Voice mode
 
     /// A spoken conversation, hands free, as the ChatGPT, Gemini and Claude apps have it:
-    /// Jarvis listens, answers aloud (sentence by sentence as it's written, on the iPhone), and
+    /// Eden Secretary listens, answers aloud (sentence by sentence as it's written, on the iPhone), and
     /// listens again; talking over a reply stops it. Two silences in a row end it.
     private(set) var voiceMode = false
     @ObservationIgnored let bargeIn = BargeIn()
@@ -845,7 +845,7 @@ final class AppModel {
         if voice.isPlaying || brain.isWorking { cutIn() } else if speech.status == .listening { speech.finish() } else if speech.status == .idle { listenInVoiceMode() }
     }
 
-    /// The owner talked over the reply (or tapped): it stops, and Jarvis listens.
+    /// The owner talked over the reply (or tapped): it stops, and Eden Secretary listens.
     private func cutIn() {
         guard voiceMode else { return }
         bargeIn.stop()
@@ -955,7 +955,7 @@ final class AppModel {
                 show("Taking meeting notes on your Mac.", style: .success)
             case .meetingStop:
                 followUntil = Date().addingTimeInterval(20)
-                show("Stopped. Jarvis is writing up the notes.", style: .success)
+                show("Stopped. Eden Secretary is writing up the notes.", style: .success)
             case .runRoutine:
                 followUntil = Date().addingTimeInterval(45)
                 show("Routine started on your Mac.", style: .success)
@@ -1181,7 +1181,7 @@ final class AppModel {
         }
     }
 
-    /// JARVIS on the Mac isn't answering: maybe it was quit. Its wake listener opens it, and
+    /// Eden Secretary on the Mac isn't answering: maybe it was quit. Its wake listener opens it, and
     /// polling picks it up (what waits in the outbox then goes).
     func openMac(force: Bool = false) {
         guard let api = pairing?.api, force || Date().timeIntervalSince(wokeAt) > 60 else { return }
@@ -1189,7 +1189,7 @@ final class AppModel {
         Task {
             guard await api.wake(), isOffline else { return }
             macOpening = true
-            show("Opening JARVIS on your Mac…")
+            show("Opening Eden Secretary on your Mac…")
             expectActivity(for: 40)
             try? await Task.sleep(for: .seconds(40))
             macOpening = false
@@ -1228,7 +1228,7 @@ final class AppModel {
     }
 
     private func lost() {
-        forget(notice: "Jarvis on your Mac doesn’t recognise this iPhone anymore (it may have been removed there). Pair it again.")
+        forget(notice: "Eden Secretary on your Mac doesn’t recognise this iPhone anymore (it may have been removed there). Pair it again.")
     }
 
     private func forget(notice: String?) {

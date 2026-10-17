@@ -1,4 +1,4 @@
-// Settings › Speaking › JARVIS (on this Mac) (local_voice.py, features/offline_voice.py):
+// Settings › Speaking › Eden Secretary (on this Mac) (local_voice.py, features/offline_voice.py):
 // the offline voice's download (its size shown first, then progress), which of its voices
 // speaks, and its removal. Shown while that provider is picked; the rest of the Speaking
 // group is voice.js's. State is the "local" part of the "voice" event; the buttons send

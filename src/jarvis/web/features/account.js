@@ -1,7 +1,7 @@
-// The Jarvis account in Settings › iPhone & Watch (jarvis.features.account): what it adds,
+// The Eden Secretary account in Settings › iPhone & Watch (jarvis.features.account): what it adds,
 // linking this Mac with the iPhone (the code, big, and its QR code), and once linked the
 // plan, this month's usage, the account's devices, the relay, Eden on the web (whether
-// askeden.com reaches this Mac, and how its line is) and Jarvis Plus switches, sync,
+// askeden.com reaches this Mac, and how its line is) and Eden Plus switches, sync,
 // approving a browser's sign-in to Eden at askeden.com (its code, typed here),
 // trusting a browser for Eden sync (this Mac holds Eden's key once a browser that syncs, or
 // the recovery passphrase, gave it; then it approves browsers whose six digits match), and
@@ -17,7 +17,7 @@
   const SERVER = 'account_server';
   const SERVER_NAMES = { 'askeden.com': 'askeden.com', 'preview.askeden.com': 'preview.askeden.com (test accounts)' };
   const PERKS = [
-    ['AI included', 'Jarvis Plus answers without a Claude sign-in or an API key of your own.'],
+    ['AI included', 'Eden Plus answers without a Claude sign-in or an API key of your own.'],
     ['Notifications without a push key', 'Approvals and heads-ups reach your iPhone through the account’s Apple push key.'],
     ['Your Mac from anywhere', 'Your iPhone reaches this Mac away from home, with no shared Wi-Fi. What goes between them stays encrypted end to end.'],
     ['Sync', 'Memory and settings stay the same on your iPhone and this Mac, sealed so only your devices can read them.'],
@@ -96,7 +96,7 @@
   // The plan, in a few words.
   function planLine(plan) {
     if (!plan || plan.name !== 'plus' || !plan.active) return 'Free plan';
-    return 'Jarvis Plus';
+    return 'Eden Plus';
   }
 
   // The relay's state, in words.
@@ -109,8 +109,8 @@
 
   // Eden on the web's line to this Mac (jarvis.eden_link), in words: [text, needs attention].
   function edenLinkLine(link) {
-    if (!link || !link.on) return ['Off: Eden at askeden.com can’t reach Jarvis, Code mode or privacy mode on this Mac.', false];
-    if (link.state === 'open') return ['Connected: Eden at askeden.com reaches Jarvis, Code mode and privacy mode here.', false];
+    if (!link || !link.on) return ['Off: Eden at askeden.com can’t reach Eden Secretary, Code mode or privacy mode on this Mac.', false];
+    if (link.state === 'open') return ['Connected: Eden at askeden.com reaches Eden Secretary, Code mode and privacy mode here.', false];
     if (link.state === 'waiting') return [`Offline${link.error ? `: ${link.error.replace(/\.$/, '')}` : ''}. Trying again…`, true];
     return ['Connecting to askeden.com…', false];
   }
@@ -152,7 +152,7 @@
   group.id = 'account-group';
   group.dataset.settingsPane = 'devices';
   group.dataset.keywords = 'account jarvis plus askeden link relay sync subscription iphone eden web privacy';
-  const heading = el('h3', '', 'Jarvis account');
+  const heading = el('h3', '', 'Eden Secretary account');
   const intro = el('p', 'small-status', 'An optional account at askeden.com, for what your devices can’t do alone. Everything works without it, as before.');
   const problem = el('p', 'warn-line small-status');
   problem.hidden = true;
@@ -200,7 +200,7 @@
         data('code', 'account-code', link.code),
         link.browser
           ? el('small', '', `In your browser, signed in to Eden at ${server} in the last 10 minutes, approve this Mac on the page that opened. Check it shows this code.`)
-          : el('small', '', 'In the J.A.R.V.I.S. app on your iPhone, open Settings › Account, then scan this or type the code.'),
+          : el('small', '', 'In the Eden Secretary app on your iPhone, open Settings › Account, then scan this or type the code.'),
       );
       const left = el('small', 'account-left');
       left.id = 'account-left';
@@ -280,7 +280,7 @@
       trial.append(el('span', '', 'Trial left '), data('span', 'account-mono', dollars(usage.trial_left_usd)));
       lines.append(trial);
     }
-    if (!(plan.name === 'plus' && plan.active)) lines.append(el('small', '', 'Subscribe to Jarvis Plus in the J.A.R.V.I.S. app on your iPhone.'));
+    if (!(plan.name === 'plus' && plan.active)) lines.append(el('small', '', 'Subscribe to Eden Plus in the Eden Secretary app on your iPhone.'));
     box.append(name, lines);
     return box;
   }
@@ -479,10 +479,10 @@
       toggle('Eden on the web reaches this Mac', eden.on, (on) => send({ type: 'feature_prefs', changes: { [EDEN_LINK]: on } }))));
     const plusNote = plus.in_use && !plus.chosen
       ? 'In use: this Mac has no other way in to Claude.'
-      : 'Claude in Jarvis and Eden Code runs on your account’s allowance.';
-    nodes.push(row('Use Jarvis Plus for AI', plusNote,
-      toggle('Use Jarvis Plus for AI', plus.chosen, (on) => send({ type: 'feature_prefs', changes: { [PLUS]: on } }))));
-    nodes.push(row('Notifications', status.push_via_account ? 'Through your Jarvis account' : 'With your own push key, or not set up (iPhone & Watch › Notifications)'));
+      : 'Claude in Eden Secretary and Eden Code runs on your account’s allowance.';
+    nodes.push(row('Use Eden Plus for AI', plusNote,
+      toggle('Use Eden Plus for AI', plus.chosen, (on) => send({ type: 'feature_prefs', changes: { [PLUS]: on } }))));
+    nodes.push(row('Notifications', status.push_via_account ? 'Through your Eden Secretary account' : 'With your own push key, or not set up (iPhone & Watch › Notifications)'));
     nodes.push(row('Sync', syncLine(status.sync), button('Sync now', 'btn', () => send({ type: 'account_sync' }))));
     nodes.push(approveBox());
     drawEsync();

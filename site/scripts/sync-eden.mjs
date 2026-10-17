@@ -80,7 +80,7 @@ const HELP_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'help.js');
 // What the page may be made of. Anything else in web/chat is left out (and named).
 const TYPES = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.woff2', '.woff', '.json', '.txt']);
 // Root paths the Worker already answers: an Eden file may never take one.
-const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin', 'eden', 'help', 's', 'p', 'favicon.ico', 'robots.txt']);
+const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin', 'eden', 'help', 's', 'p', 'admin', 'favicon.ico', 'robots.txt']);
 // Lines added to the copy's index.html, just before </head>.
 const ADDED_HEAD = '<meta name="robots" content="noindex, nofollow">\n<script type="module" src="hosted.js"></script>\n';
 

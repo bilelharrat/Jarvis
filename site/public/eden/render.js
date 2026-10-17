@@ -3,17 +3,20 @@
 // research cards and sources, drafts pagers. Actions are data-act attributes handled by
 // one delegated listener (app.js).
 
-import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys } from './util.js';
+import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys, fileType } from './util.js';
 import { state, siblings, summarizeInput, nodeText, attachmentData, persona } from './state.js';
 import { renderMarkdown, CANVAS_LANGS } from './markdown.js';
 import { parseEmailDraft } from './md-plain.js';
 import { ratedBadge } from './router.js';
 import { whereBadge } from './privacy.js';
 import { isSpeaking } from './voice.js';
+import { IN_APP } from './native.js';
+import { withoutEssayBlocks, writingEssay, streamingEssay } from './eden-tools.js';
 import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton } from './compare.js';
 import { approvalCard, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
 import { browserCard, stepChips } from './browser-agent.js';
+import { imageFigures } from './image-mode.js';
 import { toolCards } from './tools-ui.js'; // Google Calendar / Gmail approval cards
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
@@ -23,7 +26,18 @@ import { t as tx, locale } from './i18n.js';
 import { spentWords, stepsView } from './research-model.js'; // Q2: research's progress steps
 import { deckPart } from './deck-card.js'; // Q14: slide decks
 
-export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
+// The essay writer (essay.js, askeden.com in a browser only; never in the app): Eden's essay text while it streams is drawn
+// in the open essay (essay.js essayPreview), one reply at a time; the chat shows a note and the count, not the text twice.
+const ESSAYS = !IN_APP;
+const countWords = (text) => (String(text || '').match(/[\p{L}\p{N}]+(?:['’‑-][\p{L}\p{N}]+)*/gu) || []).length; // as essay-model.js counts
+let previewing = null;
+function livePreview(node, live) {
+  if (!document.querySelector('#artifact.essay-on')) { previewing = null; return; }
+  previewing = live ? node.id : null;
+  import('./essay.js').then((E) => E.essayPreview(live)).catch(() => {});
+}
+
+export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), meta: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
 setLaneRenderer((c, node) => assistantMessage(c, node, false, { lane: true }));
 
@@ -44,7 +58,21 @@ function pager(c, node, label) {
     el('button', { type: 'button', 'data-act': 'sib-next', 'aria-label': `Next ${label.toLowerCase()}`, disabled: i === sib.length - 1 }, ico('chevr')));
 }
 
+function fileCard(a) {
+  const t = fileType(a.name, a.kind);
+  const square = a.kind === 'video' && a.thumb ? el('img', { class: 'f-ic', src: a.thumb, alt: '' }) : el('span', `f-ic ${t.tone}`, ico(t.icon, 18));
+  return el('div', { class: 'u-file', title: `${a.name}${a.size ? ` · ${sizeText(a.size)}` : ''}` }, square,
+    el('span', 'f-tx', el('span', { class: 'f-nm', 'data-no-i18n': '' }, a.name), el('span', 'f-ty', `${tx(t.label)}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}`)));
+}
+
 function userMessage(c, node, last) {
+  // a lookup Eden made mid-answer (tools-ui.js runReads) goes back to the model as a turn of its own; it's not something
+  // the person typed, so it shows as one quiet line, like ChatGPT's "Searched …", not as their bubble
+  if (node.toolResult) {
+    const what = (node.context || []).map((x) => x.title)[0] || '';
+    const label = /chat/i.test(what) ? 'Searched your chats' : /calendar/i.test(what) ? 'Checked your calendar' : /mail/i.test(what) ? 'Checked your mail' : 'Looked something up';
+    return el('div', { class: 'msg tool-step', 'data-id': node.id }, el('span', 'tool-step-line', ico('search', 13), tx(label)));
+  }
   const wrap = el('div', { class: `msg user${last ? ' last' : ''}`, 'data-id': node.id });
   if (ui_open.editing === node.id) {
     const ta = el('textarea', { 'aria-label': 'Edit your message', 'data-edit': '1' });
@@ -66,13 +94,22 @@ function userMessage(c, node, last) {
   if (long) bubble.append(el('button', { type: 'button', class: 'more', 'data-act': 'expand-user', 'aria-expanded': String(open) },
     tx(open ? 'Show less' : `Show all · ${lines > 1 ? `${lines} lines, ` : ''}${text.length.toLocaleString(locale())} characters`)));
   const data = attachmentData.get(node.id) || [];
+  // images sit above the bubble as pictures (no file name, no size), like ChatGPT; other files stay chips inside it
+  const pics = [];
+  const files = [];
   for (const a of node.attachments || []) {
     const live = data.find((d) => d.name === a.name && d.kind === a.kind);
-    const thumb = a.kind === 'image' && live && live.url ? el('img', { class: 'thumb', src: live.url, alt: '' }) : a.kind === 'video' && a.thumb ? el('img', { class: 'thumb', src: a.thumb, alt: '' }) : el('span', 'thumb');
-    bubble.append(el('span', 'attach', thumb, `${a.name}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}${a.size ? ` · ${sizeText(a.size)}` : ''}${a.kind === 'image' && !live ? tx(' · image not kept after reload') : ''}`));
+    if (a.kind === 'image') {
+      pics.push(live && live.url ? el('img', { class: 'u-img', src: live.url, alt: '' }) : el('span', { class: 'u-img gone', title: tx('Image not kept after reload') }));
+      continue;
+    }
+    // a file: its own card above the bubble, like ChatGPT's (a coloured type square, the name, the type)
+    files.push(fileCard(a));
   }
+  if (pics.length) wrap.append(el('div', { class: `u-imgs${pics.length > 1 ? ' multi' : ''}` }, ...pics));
+  if (files.length) wrap.append(el('div', 'u-files', ...files));
   for (const ctx of node.context || []) bubble.append(el('span', 'ctxchip', `⧉ ${ctx.title}`));
-  wrap.append(bubble);
+  if (text || bubble.querySelector('.ctxchip') || (!pics.length && !files.length)) wrap.append(bubble); // a picture alone has no empty bubble
   wrap.append(el('div', 'msg-acts',
     pager(c, node, 'Branch'),
     el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy message' }, ico('copy')),
@@ -94,11 +131,14 @@ function routeChip(node) {
 }
 
 function assistantMessage(c, node, last, { lane = false } = {}) {
-  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}`, 'data-id': node.id });
+  // which model answered, where, why and any fallback: shown only after a tap on the reply (owner, 2026-10-12)
+  const showMeta = lane || ui_open.meta.has(node.id);
+  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}${showMeta ? '' : ' meta-hidden'}`, 'data-id': node.id });
   if (node.route) {
     const head = el('div', 'msg-head');
     head.append(el('div', 'chip-wrap', routeChip(node), whereBadge(node.route)));
     if (node.route.rationale && !lane) head.append(el('div', 'rationale', node.route.rationale));
+    for (const f of node.fallbacks || []) head.append(el('div', 'rationale', f));
     wrap.append(head);
   } else if (node.imported && node.importedModel) { // Q1: the model that wrote an imported reply, from the export
     wrap.append(el('div', 'msg-head', el('div', 'chip-wrap', el('span', { class: 'chip imp-model', title: 'Imported: the model named in the export' }, node.importedModel))));
@@ -144,24 +184,35 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   }
   const chips = stepChips(node); // what Eden did in the cloud browser (browser-agent.js)
   if (chips) bubble.append(chips);
+  const pics = imageFigures(node); // Eden's pictures, or "Drawing…" while one is made (image-mode.js)
+  if (pics) bubble.append(pics);
   const parts = node.parts || [];
   for (const [i, part] of parts.entries()) {
     if (part.type === 'text') {
       const dp = deckPart(c, node, stripSources(part.text)); // Q14: a deck's JSON shows as its card, not code (deck-card.js)
-      const text = dp.text; // a checked reply's <sources> block shows as the strip below (courses.js)
-      if (!text && !dp.card) continue;
+      const text = ESSAYS ? withoutEssayBlocks(dp.text) : dp.text; // a checked reply's <sources> block shows as the strip below (courses.js); the essay writer's blocks never show
+      const writing = ESSAYS && node.streaming && writingEssay(part.text); // Eden writing in the open essay (essay.js): a note, not the text twice
+      if (!text && !dp.card && !writing) continue;
       if (text) {
         const md = el('div', 'md');
         md.append(renderMarkdown(text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
         bubble.append(md);
       }
       if (dp.card) bubble.append(dp.card);
+      if (writing) {
+        // the words appear in the essay as they come (essay.js essayPreview), and how many so far here (T19d)
+        const live = streamingEssay(part.text);
+        const n = live ? countWords(live.text.replace(/\[@[^\]]+\]/g, '')) : 0;
+        bubble.append(el('div', 'tc-writing', ico('edit', 13), n ? `Writing in your essay… ${n.toLocaleString()} word${n === 1 ? '' : 's'}` : 'Writing in your essay…'));
+        livePreview(node, live);
+      }
     } else if (part.type === 'tool') bubble.append(toolCard(c, node, part));
     else if (part.type === 'perm') bubble.append(part.approval ? approvalCard(c, node, part.approval, { perm: i }) : permCard(c, part, i));
     else if (part.type === 'note') bubble.append(el('div', 'notice', part.text));
     else if (part.type === 'mac') bubble.append(macCard(c, node, part)); // what Eden read on the Mac (files.js)
   }
-  if (node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
+  if (ESSAYS && !node.streaming && previewing === node.id) livePreview(node, null); // the reply ended: the real change lands (tools-ui.js)
+  if (node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive && !pics) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
   if (sources.length && !research) bubble.append(sourceList(sources));
   if (node.grounding && !node.streaming) bubble.append(groundingStrip(node.grounding)); // Eden for Education (courses.js)
   if (!node.streaming) {
@@ -189,17 +240,19 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     bubble.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', node.error), plus,
       el('button', { type: 'button', class: `cap${plus ? '' : ' primary'}`, 'data-act': 'retry' }, ico('retry'), 'Retry')));
   } else if (node.finish === 'aborted') bubble.append(el('div', 'stopped', 'Stopped.'));
-  else if (node.finish === 'length') bubble.append(el('div', 'notice warn', 'Cut off at the model’s output limit.'));
+  else if (node.finish === 'length' && !(node.tools || []).some((t) => t.note === 'cutoff')) bubble.append(el('div', 'notice warn', 'Cut off at the model’s output limit.', last && !lane ? el('button', { type: 'button', class: 'cap primary', 'data-act': 'continue', style: 'margin-left:8px' }, 'Continue') : null));
   wrap.append(bubble);
   if (!node.streaming) {
     wrap.append(el('div', 'msg-acts',
       lane ? null : pager(c, node, 'Draft'),
       el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy reply' }, ico('copy')),
+      // a reply long enough to be essay text: into the essay writer, without the chat around it (essay.js pasteIntoEssay; website only)
+      !ESSAYS || lane || c.kind === 'code' || countWords(withoutEssayBlocks(nodeText(node))) < 60 ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'to-essay', title: 'Paste into essay: just the essay, in its format', 'aria-label': 'Paste into essay' }, ico('edit')),
       lane || !parseEmailDraft(nodeText(node)) ? null : el('button', { type: 'button', class: 'cap', 'data-act': 'open-mail', title: 'Open this draft in Eden’s Mail composer to review and send' }, ico('mail', 14), 'Open in Mail'),
       lane ? null : strongerButton(c, node),
       lane ? null : reopenButton(c, node),
       lane ? null : feedbackButtons(c, node), // H2: 👍 / 👎 teach the router (learned.js)
-      nodeText(node).trim() ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
+      nodeText(node).trim() && !IN_APP ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
       c.kind === 'code' || lane ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'regen', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Try again', 'aria-label': 'Try again' }, ico('retry')),
       node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null));
   }

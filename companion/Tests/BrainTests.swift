@@ -2,7 +2,7 @@ import FoundationModels
 import XCTest
 @testable import JarvisCompanion
 
-/// Jarvis on the iPhone: the streamed answer rebuilt block by block, the wake word, dates the
+/// Eden Secretary on the iPhone: the streamed answer rebuilt block by block, the wake word, dates the
 /// tools read, the new places in the app, and the Mac's feature list.
 final class BrainTests: XCTestCase {
     private func event(_ json: String) throws -> JSONValue {
@@ -59,8 +59,8 @@ final class BrainTests: XCTestCase {
     }
 
     func testWakeWordFindsTheNameAndWhatFollows() {
-        XCTAssertEqual(WakeWordListener.afterName(in: "Hey Jarvis"), "")
-        XCTAssertEqual(WakeWordListener.afterName(in: "hey jarvis, what's next today?"), "what's next today")
+        XCTAssertEqual(WakeWordListener.afterName(in: "Hey Eden"), "")
+        XCTAssertEqual(WakeWordListener.afterName(in: "hey eden, what's next today?"), "what's next today")
         XCTAssertEqual(WakeWordListener.afterName(in: "OK Jervis turn on the lights"), "turn on the lights")
         XCTAssertNil(WakeWordListener.afterName(in: "what's the weather like"))
     }
@@ -271,7 +271,7 @@ final class GeminiTests: XCTestCase {
     }
 }
 
-/// Jarvis on the iPhone without the Mac: who answers when the Mac can't be reached, and
+/// Eden Secretary on the iPhone without the Mac: who answers when the Mac can't be reached, and
 /// what Apple's models are given.
 final class OfflineBrainTests: XCTestCase {
     func testAMacThatCantBeReachedNeverLeavesAQuestionWaitingWhenTheIPhoneCanAnswer() {
@@ -341,7 +341,7 @@ private struct FakeClient: BrainClient {
     }
 }
 
-/// What Jarvis on the iPhone learns: facts by kind, corrections it keeps, names it resolves.
+/// What Eden Secretary on the iPhone learns: facts by kind, corrections it keeps, names it resolves.
 @MainActor
 final class MemoryTests: XCTestCase {
     private func folder() throws -> URL {

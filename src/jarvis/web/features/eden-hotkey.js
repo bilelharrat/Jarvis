@@ -84,7 +84,7 @@
     note.hidden = true;
     note.setAttribute('aria-live', 'polite');
     group.append(row, keyRow, note);
-    // In This Mac, under JARVIS's own shortcuts; its own group when that isn't there.
+    // In This Mac, under Eden Secretary's own shortcuts; its own group when that isn't there.
     const anchor = shellGroup && F.$('shell-key-note');
     if (anchor) anchor.after(group);
     else {
@@ -103,7 +103,7 @@
   }
 
   function problem(error, label) {
-    if (error === 'same') return en(`${label} is already one of JARVIS’s shortcuts. Pick another.`);
+    if (error === 'same') return en(`${label} is already one of Eden Secretary’s shortcuts. Pick another.`);
     if (error === 'taken') return en(`${label} is taken by another app. Pick another.`);
     if (error === 'modifier') return en('Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.');
     if (error === 'reserved') return en(`${label} belongs to macOS. Pick another.`);
@@ -127,7 +127,7 @@
 
   function start() {
     recording = true;
-    bridge.send('feature:shell:recording', true); // every JARVIS shortcut steps aside, so the keys reach here
+    bridge.send('feature:shell:recording', true); // every Eden Secretary shortcut steps aside, so the keys reach here
     F.$('eden-hotkey-cap').textContent = '…';
     F.$('eden-hotkey-change').textContent = en('Cancel');
     setNote(en('Type the new shortcut, or press Esc.'), false);

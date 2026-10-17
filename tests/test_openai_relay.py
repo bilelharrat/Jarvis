@@ -40,7 +40,7 @@ def test_a_messages_request_becomes_chat_completions():
         "model": "qwen3",
         "max_tokens": 500,
         "stream": True,
-        "system": [{"type": "text", "text": "You are JARVIS."}],
+        "system": [{"type": "text", "text": "You are Jarvis."}],
         "temperature": 0.2,
         "stop_sequences": ["\n\nHuman:"],
         "tools": [
@@ -89,7 +89,7 @@ def test_a_messages_request_becomes_chat_completions():
     assert out["stream_options"] == {"include_usage": True}
     assert out["temperature"] == 0.2 and out["stop"] == ["\n\nHuman:"]
     system, user, assistant, tool, follow = out["messages"]
-    assert system["role"] == "system" and system["content"].startswith("You are JARVIS.")
+    assert system["role"] == "system" and system["content"].startswith("You are Jarvis.")
     assert "How to work with your tools" in system["content"]  # told to take the steps itself
     assert user == {"role": "user", "content": "What's on tomorrow?"}
     assert assistant == {
@@ -462,7 +462,7 @@ async def test_errors_come_back_as_anthropic_errors_in_plain_words():
 async def test_a_model_server_that_fails_or_answers_garbage_says_so_instead_of_going_quiet():
     """A local model server that stops with an error part-way, breaks off, or isn't a model
     server at all (a web page at that address): the reply ends in an Anthropic error Claude
-    Code reports, never a quiet, empty or cut-off answer JARVIS takes as done."""
+    Code reports, never a quiet, empty or cut-off answer Jarvis takes as done."""
 
     async def run(answer, stream=True):
         relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
@@ -847,7 +847,7 @@ def test_a_messages_request_becomes_a_responses_request():
             "model": "gpt-6-luna",
             "max_tokens": 1,
             "stream": True,
-            "system": "You are JARVIS.",
+            "system": "You are Jarvis.",
             "temperature": 1,
             "stop_sequences": ["X"],
             "output_config": {"effort": "max"},
@@ -885,7 +885,7 @@ def test_a_messages_request_becomes_a_responses_request():
     )
     assert out["model"] == "gpt-6-luna" and out["stream"] is True and out["store"] is False
     assert out["max_output_tokens"] == 16  # the least the Responses API takes
-    assert out["instructions"].startswith("You are JARVIS.")
+    assert out["instructions"].startswith("You are Jarvis.")
     assert "messages" not in out and "stop" not in out and "stream_options" not in out
     assert "reasoning_effort" not in out and out["reasoning"] == {"effort": "high"}
     assert out["temperature"] == 1

@@ -204,7 +204,7 @@ async def test_api_providers_are_listed_and_counted_on_their_own(settings, quiet
             model_usage={"gemini-flash-latest": {}},
         )  # fmt: skip
 
-    hub._connected_ref = "custom:g1"  # JARVIS on the Gemini fallback
+    hub._connected_ref = "custom:g1"  # Jarvis on the Gemini fallback
     await hub._on_message("r1", result(0.40))
     hub._code_usage(SimpleNamespace(model="custom:g1"), 0.9, result(0.9, n=5000))
     s = hub.usage_summary()

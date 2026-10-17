@@ -44,8 +44,11 @@ export function wantsBrowser(text, { panel = false } = {}) {
   return Boolean(panel && PANEL.test(t));
 }
 
+const BROWSER_PROVIDERS = ['gemini', 'openai', 'anthropic', 'kimi'];
+
 /** The model that drives: the page's pick, else the hosted default, else the cheapest keyed model. */
-export function pickBrowserModel(models, { override = null, preferred = null, rates = () => [0, 0] } = {}) {
+export function pickBrowserModel(all, { override = null, preferred = null, rates = () => [0, 0] } = {}) {
+  const models = all.filter((m) => BROWSER_PROVIDERS.includes(m.provider)); // the providers this file can drive (tools + screenshots)
   if (!models.length) return null;
   if (override) { const m = models.find((x) => x.id === override); if (m) return m; }
   if (preferred) { const m = models.find((x) => x.id === preferred); if (m) return m; }
@@ -266,7 +269,7 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
         if (!hold.ok) { write('error', { message: hold.why || 'Not enough of your included AI is left.' }); return; }
       }
       const limit = own ? cap : Math.min(cap, allow.left);
-      write('route', { model: model.id, modelName: model.name, provider: model.provider, effort: null, effortLabel: '', via: 'api', costUSD: null, quality: null, confidence: null, rationale: `Browser: ${model.name} drives your cloud browser with tool calls (at most ${MAX_STEPS} steps).`, rated: false, ratedBy: 'rules', ratedLabel: '', complexity: null, candidates: [], fallbacks: [], warnings: [], notes: [`browser turn: at most $${limit.toFixed(2)} of model use`, own ? 'on askeden.com: your own API key (not counted on your included AI)' : 'on askeden.com: your Jarvis account’s included AI'], where: computedWhere(model.provider), ...(own ? { ownKey: true } : {}) });
+      write('route', { model: model.id, modelName: model.name, provider: model.provider, effort: null, effortLabel: '', via: 'api', costUSD: null, quality: null, confidence: null, rationale: `Browser: ${model.name} drives your cloud browser with tool calls (at most ${MAX_STEPS} steps).`, rated: false, ratedBy: 'rules', ratedLabel: '', complexity: null, candidates: [], fallbacks: [], warnings: [], notes: [`browser turn: at most $${limit.toFixed(2)} of model use`, own ? 'on askeden.com: your own API key (not counted on your included AI)' : 'on askeden.com: your Eden Secretary account’s included AI'], where: computedWhere(model.provider), ...(own ? { ownKey: true } : {}) });
       write('browser', { open: true, runId: run });
       let plus;
       try { plus = Boolean((await call(env, who.account, 'get', {}, who.token)).plan?.active); } catch { plus = undefined; }
@@ -302,7 +305,7 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
         const usd = usageUSD(model, { ...r.usage, webSearches: 0 });
         usage.inputTokens += r.usage.inputTokens; usage.outputTokens += r.usage.outputTokens; usage.reasoningTokens += r.usage.reasoningTokens;
         charged += usd;
-        if (!own && usd > 0) charges.push(call(env, who.account, 'spend', { usd, bucket: hold ? hold.bucket : allow.bucket }).catch((e) => console.error('spend failed', e && e.message)));
+        if (!own && usd > 0) charges.push(call(env, who.account, 'spend', { usd, bucket: hold ? hold.bucket : allow.bucket, meta: { feature: 'browser', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens } }).catch((e) => console.error('spend failed', e && e.message)));
         return { ...r, costUSD: usd };
       };
       ledger.mark('web', 'Pages read in the cloud browser');

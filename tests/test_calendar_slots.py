@@ -1,4 +1,4 @@
-"""JARVIS finds open times across the user's calendars. Read-only: it proposes windows;
+"""Jarvis finds open times across the user's calendars. Read-only: it proposes windows;
 booking still goes through create_event's card."""
 
 from dataclasses import replace

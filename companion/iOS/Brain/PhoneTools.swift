@@ -7,8 +7,8 @@ import MapKit
 import MediaPlayer
 import UserNotifications
 
-/// Something Jarvis prepared that the owner finishes with a tap: a text or email to send,
-/// a call to place. Jarvis never sends or calls by itself.
+/// Something Eden Secretary prepared that the owner finishes with a tap: a text or email to send,
+/// a call to place. Eden Secretary never sends or calls by itself.
 enum PhoneAction: Identifiable, Equatable, Sendable {
     case message(recipients: [String], body: String)
     case email(recipients: [String], subject: String, body: String)
@@ -25,7 +25,7 @@ enum PhoneAction: Identifiable, Equatable, Sendable {
     }
 }
 
-/// What Jarvis can do on the iPhone itself, as Claude tools: Calendar, Reminders, Contacts,
+/// What Eden Secretary can do on the iPhone itself, as Claude tools: Calendar, Reminders, Contacts,
 /// weather, Maps, timers, Music, Home, Health, its own memory, and (when paired) the Mac.
 /// Each tool runs here and answers with a short text result for Claude.
 @MainActor
@@ -130,7 +130,7 @@ final class PhoneTools {
             ], required: ["url"]),
         ]
         if mac != nil {
-            tools.append(tool("ask_mac", "Hands a request to Jarvis on the owner's Mac, which has their files, mail, iMessage, browser, Eden Code, notes and everything on the Mac. Use it for anything that needs the Mac.", [
+            tools.append(tool("ask_mac", "Hands a request to Eden Secretary on the owner's Mac, which has their files, mail, iMessage, browser, Eden Code, notes and everything on the Mac. Use it for anything that needs the Mac.", [
                 "request": prop("string", "The request, in the owner's words."),
             ], required: ["request"]))
         }
@@ -253,7 +253,7 @@ final class PhoneTools {
                         ? "The Mac is still working on it; its answer will show in the app."
                         : "The Mac needs the owner's OK first; the card is in the app."
                 } catch let error as JarvisError where error.neverDelivered && waited < 20 {
-                    // JARVIS on the Mac may have been quit: open it there, then ask again.
+                    // Eden Secretary on the Mac may have been quit: open it there, then ask again.
                     if !opened {
                         guard await mac.wake() else { throw Self.unreachable(error) }
                         opened = true
@@ -277,13 +277,13 @@ final class PhoneTools {
 
     private func calendarAccess() async throws {
         guard try await events.requestFullAccessToEvents() else {
-            throw ToolProblem(message: "Calendar access is off for J.A.R.V.I.S. (Settings › Privacy › Calendars).")
+            throw ToolProblem(message: "Calendar access is off for Eden Secretary (Settings › Privacy › Calendars).")
         }
     }
 
     private func reminderAccess() async throws {
         guard try await events.requestFullAccessToReminders() else {
-            throw ToolProblem(message: "Reminders access is off for J.A.R.V.I.S. (Settings › Privacy › Reminders).")
+            throw ToolProblem(message: "Reminders access is off for Eden Secretary (Settings › Privacy › Reminders).")
         }
     }
 
@@ -360,7 +360,7 @@ final class PhoneTools {
     private func contacts(named name: String) async throws -> [CNContact] {
         let store = CNContactStore()
         guard try await store.requestAccess(for: .contacts) else {
-            throw ToolProblem(message: "Contacts access is off for J.A.R.V.I.S. (Settings › Privacy › Contacts).")
+            throw ToolProblem(message: "Contacts access is off for Eden Secretary (Settings › Privacy › Contacts).")
         }
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactOrganizationNameKey,
                     CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
@@ -387,7 +387,7 @@ final class PhoneTools {
     }
 
     /// Which contact a name means: the one the owner meant by it before, else the only one.
-    /// Several and none learned: the tool says who they are, so Jarvis can pick from context
+    /// Several and none learned: the tool says who they are, so Eden Secretary can pick from context
     /// or ask, and the name is learned once the choice is made.
     private func contact(for who: String) async throws -> CNContact {
         let found = try await contacts(named: who)
@@ -515,7 +515,7 @@ final class PhoneTools {
             let status = await withCheckedContinuation { continuation in
                 MPMediaLibrary.requestAuthorization { continuation.resume(returning: $0) }
             }
-            guard status == .authorized else { throw ToolProblem(message: "Music library access is off for J.A.R.V.I.S.") }
+            guard status == .authorized else { throw ToolProblem(message: "Music library access is off for Eden Secretary.") }
             guard let query else {
                 player.setQueue(with: MPMediaQuery.songs())
                 player.shuffleMode = .songs
@@ -549,7 +549,7 @@ final class PhoneTools {
         let service = HealthService.shared
         guard service.available else { return "Apple Health isn't available on this device." }
         guard service.enabled else {
-            return "The Health summary is off. The owner can turn it on in J.A.R.V.I.S. Settings › Sensors."
+            return "The Health summary is off. The owner can turn it on in Eden Secretary. Settings › Sensors."
         }
         let now = Date()
         let calendar = Calendar.current
@@ -590,7 +590,7 @@ final class PhoneTools {
 
 // MARK: - Location
 
-/// One fix, when Jarvis needs to know where the owner is.
+/// One fix, when Eden Secretary needs to know where the owner is.
 @MainActor
 final class Locator {
     private var session: CLServiceSession?
@@ -601,7 +601,7 @@ final class Locator {
         for try await update in CLLocationUpdate.liveUpdates() {
             if let location = update.location { return location }
             if update.authorizationDenied || update.authorizationDeniedGlobally {
-                throw PhoneTools.ToolProblem(message: "Location is off for J.A.R.V.I.S. (Settings › Privacy › Location Services).")
+                throw PhoneTools.ToolProblem(message: "Location is off for Eden Secretary (Settings › Privacy › Location Services).")
             }
             if Date() > deadline { break }
         }
@@ -821,7 +821,7 @@ final class HomeLink: NSObject, HMHomeManagerDelegate {
     func perform(action: String, name: String?, on: Bool?) async throws -> String {
         let homes = await homes()
         guard !homes.isEmpty else {
-            throw PhoneTools.ToolProblem(message: "No Apple Home is set up, or Home access is off for J.A.R.V.I.S.")
+            throw PhoneTools.ToolProblem(message: "No Apple Home is set up, or Home access is off for Eden Secretary.")
         }
         switch action {
         case "list":

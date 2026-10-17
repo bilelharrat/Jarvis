@@ -1,4 +1,4 @@
-// Settings › Speaking and Listening (features/voice.py): the voice Jarvis speaks with, how
+// Settings › Speaking and Listening (features/voice.py): the voice Eden Secretary speaks with, how
 // hands-free tells your voice from other sounds, and the wake words. The hub sends the
 // panes' state as a "voice" event; changes go back as voice_settings (and voice_list,
 // voice_preview, voice_key and voice_key_forget for the buttons).
@@ -22,8 +22,8 @@
     send({ type: 'voice_settings', changes });
   }
 
-  const PROVIDERS = [['jarvis', 'JARVIS'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio'], ['local', 'JARVIS (on this Mac)']];
-  // The JARVIS voice is a Fish Audio voice: its optional key is Fish Audio's.
+  const PROVIDERS = [['jarvis', 'Eden Secretary'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio'], ['local', 'Eden Secretary (on this Mac)']];
+  // The Eden Secretary voice is a Fish Audio voice: its optional key is Fish Audio's.
   const keyProvider = () => (state && state.provider === 'jarvis' ? 'fish' : state && state.provider);
   const NAMES = Object.fromEntries(PROVIDERS);
 
@@ -63,7 +63,7 @@
   useEnv.id = 'voice-use-env';
   useEnv.addEventListener('click', () => change({ voice_provider: '' }));
 
-  // The Mac voice, for the language Jarvis speaks now.
+  // The Mac voice, for the language Eden Secretary speaks now.
   const macSelect = el('select');
   macSelect.id = 'voice-mac-select';
   macSelect.addEventListener('change', () => change({ voice_mac: macSelect.value }));
@@ -203,9 +203,9 @@
     for (const node of [keyRow, keyForm]) node.hidden = !cloud && !jarvis;
     if (jarvis) {
       const fish = (state.clouds || {}).fish || {};
-      keyNote.textContent = fish.key ? `Your Fish Audio key (${fish.key}): the JARVIS voice, unlimited.`
-        : fish.env_key ? 'Using the Fish Audio key from your .env file: the JARVIS voice, unlimited.'
-        : 'Optional. Without one, the JARVIS voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.';
+      keyNote.textContent = fish.key ? `Your Fish Audio key (${fish.key}): the Eden Secretary voice, unlimited.`
+        : fish.env_key ? 'Using the Fish Audio key from your .env file: the Eden Secretary voice, unlimited.'
+        : 'Optional. Without one, the Eden Secretary voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.';
       keyForget.hidden = !fish.key;
     }
 
@@ -244,15 +244,15 @@
     preview.textContent = state.busy === 'preview' ? 'Playing…' : 'Preview';
 
     let note = '';
-    // When a cloud voice (JARVIS's too) fails: the offline voice for English once it's downloaded, else the Mac voice.
+    // When a cloud voice (Eden Secretary's too) fails: the offline voice for English once it's downloaded, else the Mac voice.
     const offline = !!(state.local && state.local.fallback);
-    const instead = offline ? 'JARVIS (on this Mac)' : state.fallback_voice || state.mac_voice;
-    if (jarvis && state.cloud_error) note = `The JARVIS voice wasn't available last time (its daily allowance may be used up); ${instead} spoke instead.`;
-    else if (jarvis && offline) note = state.jarvis_own_key ? 'Speaking as JARVIS with your own Fish Audio key.' : 'Speaking as JARVIS. If it can’t be reached, JARVIS (on this Mac) speaks.';
-    else if (jarvis) note = state.jarvis_own_key ? 'Speaking as JARVIS with your own Fish Audio key.' : 'Speaking as JARVIS. If it can’t be reached, the Mac voice speaks.';
+    const instead = offline ? 'Eden Secretary (on this Mac)' : state.fallback_voice || state.mac_voice;
+    if (jarvis && state.cloud_error) note = `The Eden Secretary voice wasn't available last time (its daily allowance may be used up); ${instead} spoke instead.`;
+    else if (jarvis && offline) note = state.jarvis_own_key ? 'Speaking as Eden Secretary with your own Fish Audio key.' : 'Speaking as Eden Secretary. If it can’t be reached, Eden Secretary (on this Mac) speaks.';
+    else if (jarvis) note = state.jarvis_own_key ? 'Speaking as Eden Secretary with your own Fish Audio key.' : 'Speaking as Eden Secretary. If it can’t be reached, the Mac voice speaks.';
     else if (cloud && !state.cloud_on) note = `${NAMES[p]} needs an API key and a voice; the Mac voice speaks until then.`;
     else if (cloud && state.cloud_error) note = `${NAMES[p]} failed last time; ${state.fallback_voice || state.mac_voice} spoke instead.`;
-    else if (cloud && offline) note = `If ${NAMES[p]} fails, JARVIS (on this Mac) speaks instead.`;
+    else if (cloud && offline) note = `If ${NAMES[p]} fails, Eden Secretary (on this Mac) speaks instead.`;
     else if (cloud) note = `If ${NAMES[p]} fails, ${state.fallback_voice || state.mac_voice} speaks instead.`;
     speakingNote.textContent = note;
     speakingNote.title = cloud && state.cloud_error ? state.cloud_error : '';
@@ -309,7 +309,7 @@
   const wakeRow = el('div', 'row stack');
   const wakeLabel = el('span');
   wakeLabel.append(el('strong', '', 'Wake words'),
-    el('small', '', '“Jarvis” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.'));
+    el('small', '', '“Eden” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.'));
   wakeRow.append(wakeLabel);
   const wakeList = el('ul', 'folders voice-wake-list');
   wakeList.id = 'voice-wake-list';
@@ -355,15 +355,15 @@
   download.id = 'voice-engine-download';
   download.addEventListener('click', () => { download.disabled = true; send({ type: 'voice_engine_download' }); });
 
-  // Talk over Jarvis: its voice and the microphone through the Mac's echo cancellation.
+  // Talk over Eden Secretary: its voice and the microphone through the Mac's echo cancellation.
   const talkRow = el('div', 'row');
   const talkLabel = el('span');
-  talkLabel.append(el('strong', '', 'Talk over Jarvis'), el('small', '', 'Interrupt a reply just by speaking, no wake word'));
+  talkLabel.append(el('strong', '', 'Talk over Eden Secretary'), el('small', '', 'Interrupt a reply just by speaking, no wake word'));
   const talkSwitch = el('button', 'switch');
   talkSwitch.type = 'button';
   talkSwitch.id = 'voice-talk-over';
   talkSwitch.setAttribute('role', 'switch');
-  talkSwitch.setAttribute('aria-label', 'Talk over Jarvis');
+  talkSwitch.setAttribute('aria-label', 'Talk over Eden Secretary');
   talkSwitch.addEventListener('click', () => change({ voice_talk_over: !(state && state.talk_over) }));
   talkRow.append(talkLabel, talkSwitch);
   const talkNote = el('p', 'small-status');
@@ -373,18 +373,18 @@
     engineSize, download, wakeRow, wakeList, wakeForm, wakeError);
 
   // What the hands-free row says about interrupting: true either way.
-  const TALK_OVER_COPY = 'Say “Jarvis” to talk; talk over me to interrupt. Keeps the mic on.';
-  const WAKE_WORD_COPY = 'Say “Jarvis” to talk, and “Jarvis, stop” to interrupt me. Keeps the mic on.';
+  const TALK_OVER_COPY = 'Say “Eden” to talk; talk over me to interrupt. Keeps the mic on.';
+  const WAKE_WORD_COPY = 'Say “Eden” to talk, and “Eden, stop” to interrupt me. Keeps the mic on.';
 
   function renderTalkOver() {
     const on = !!state.talk_over;
     const talk = state.talk_over_state || {};
     talkSwitch.setAttribute('aria-checked', String(on));
     let note;
-    if (!on) note = 'Off: say “Jarvis, stop” to interrupt me.';
+    if (!on) note = 'Off: say “Eden, stop” to interrupt me.';
     else if (talk.state === 'on') note = 'On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.';
     else if (talk.state === 'preparing') note = 'Starting the Mac’s echo cancellation…';
-    else if (talk.state === 'unavailable') note = 'Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Jarvis, stop” to interrupt. Why:';
+    else if (talk.state === 'unavailable') note = 'Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Eden, stop” to interrupt. Why:';
     else note = 'Works while hands-free listens.';
     withReason(talkNote, note, talk.state === 'unavailable' && on ? talk.why || 'unknown' : '');
     const handsFree = F.$('sw-handsfree') && F.$('sw-handsfree').closest('.row');
@@ -439,11 +439,11 @@
     hint();
   }
 
-  // The footer's "Say “Hey Jarvis”" (its first text, while hands-free is on) names the first
-  // wake word when Jarvis isn't one. Written in English: the i18n layer puts it in Chinese.
+  // The footer's "Say “Hey Eden”" (its first text, while hands-free is on) names the first
+  // wake word when Eden isn't one. Written in English: the i18n layer puts it in Chinese.
   function hint() {
     const words = (state && state.wake_words) || [];
-    const name = words.some((w) => w.toLowerCase() === 'jarvis') ? 'Jarvis' : words[0];
+    const name = words.some((w) => w.toLowerCase() === 'eden') ? 'Eden' : words[0];
     const first = F.$('hint') && F.$('hint').firstChild;
     if (!name || !first || first.nodeType !== Node.TEXT_NODE) return;
     const wanted = `Say “Hey ${name}” · `;
@@ -492,7 +492,7 @@
   place();
   F.on('voice', (ev) => { state = ev; place(); render(); renderTalkOver(); renderEngine(); renderWakeWords(); renderSpeaking(); }, { replay: true });
 
-  // Live captions under the orb while you talk to Jarvis (Apple's recognizer): the words so
+  // Live captions under the orb while you talk to Eden Secretary (Apple's recognizer): the words so
   // far, then gone a few seconds after the last unless the request took their place.
   let caption = '';
   let captionTimer = null;

@@ -1,12 +1,12 @@
 """The wake words the owner keeps (Settings › Listening › Wake words).
 
-"Jarvis" is always one unless the owner removes it. A persona brings its own name ("Friday"
+"Eden" is always one unless the owner removes it ("Jarvis" is no longer a default; the owner can add it). A persona brings its own name ("Friday"
 for FRIDAY, "TARS" for TARS; in Chinese also 星期五 and 塔斯), and the owner can add others
 and remove any of them, as long as one is left. What's kept is only the changes, so a
 persona's name follows the persona: {"added": [...], "removed": [...]} in prefs.features.
 
-wake.py applies them (wake.configure): "Jarvis" anywhere in a sentence, the others only
-when called ("Friday, what's on today?", "Hey Friday").
+wake.py applies them (wake.configure): "Eden", like the others, only when called
+("Eden, what's on today?", "Hey Eden"); "Jarvis", if the owner adds it, anywhere in a sentence.
 """
 
 from __future__ import annotations
@@ -74,10 +74,10 @@ def clean_pref(value: Any) -> dict[str, list[str]] | None:
 
 
 def defaults(persona: str, language: str = "en") -> list[str]:
-    """What wakes it before the owner changes anything: "Jarvis", and the persona's own
+    """What wakes it before the owner changes anything: "Eden", and the persona's own
     name (and, in Chinese, the name in Chinese)."""
     english, chinese = PERSONA_NAMES.get(persona, ("", ""))
-    names = ["Jarvis"] + ([english] if english else [])
+    names = ["Eden"] + ([english] if english else [])
     if chinese and is_zh(language):
         names.append(chinese)
     return names
@@ -85,14 +85,14 @@ def defaults(persona: str, language: str = "en") -> list[str]:
 
 def effective(persona: str, language: str, pref: Any) -> list[str]:
     """The wake words in use: the defaults and what was added, less what was removed.
-    Never empty (a file edited down to nothing still answers to "Jarvis")."""
+    Never empty (a file edited down to nothing still answers to "Eden")."""
     changes = clean_pref(pref) or EMPTY
     removed = {fold(w) for w in changes["removed"]}
     words: dict[str, str] = {}
     for word in defaults(persona, language) + changes["added"]:
         if fold(word) not in removed:
             words.setdefault(fold(word), word)
-    return list(words.values())[:MAX_WORDS] or ["Jarvis"]
+    return list(words.values())[:MAX_WORDS] or ["Eden"]
 
 
 def of(prefs: Any) -> list[str]:

@@ -47,7 +47,7 @@ const ic = (n, s = 18, cls = '') => `<svg class="dk-i ${cls}" width="${s}" heigh
 const MARK = '<svg viewBox="43 81 410 422" width="62%" height="62%" aria-hidden="true"><g fill="#fff" stroke="#fff" stroke-width="18" stroke-linejoin="round"><polygon points="211,93 314,90 444,236 343,353 249,352 333,251"/><polygon points="252,235 160,346 282,491 186,494 52,350 151,234"/></g></svg>';
 
 const APPS = () => [['Browser', 'globe', '#2f9bff', () => $('btnBrowser').click()], ['Chat', 'chat', '#5b6cf0', () => { H.newChat(); show('chat'); }],
-  ['Eden Code', 'code', '#12305a', () => H.projectPicker()], ['Tasks', 'list', '#34c759', () => H.openTasks()], ['Workflows', 'spark', '#a24ae6', () => H.openWorkflows()]];
+  ['Eden Code', 'code', '#12305a', () => H.projectPicker()], ...(H.openEssayWriter ? [['Essays', 'edit', '#f5476a', () => H.openEssayWriter()]] : []), ['Tasks', 'list', '#34c759', () => H.openTasks()], ['Workflows', 'spark', '#a24ae6', () => H.openWorkflows()]];
 const PC = () => [['Brief', 'sun', () => H.openBrief()], ['Memory', 'spark', () => openSpace('memory')], ['Second Brain', 'brain', () => openSpace('brain')], ['Files', 'folder', () => show('files')],
   ['Calendar', 'cal', () => H.openCalendar()], ['Mail', 'mail', () => openSpace('mail')], ['Routines', 'routine', () => openSpace('routines')], ['Meetings', 'quote', () => openSpace('meetings')],
   ['On a website', 'globe', () => openSpace('web')], ['Activity', 'act', () => openSpace('activity')], ...(state.meta && state.meta.hosted ? [['Courses', 'doc', () => openSpace('courses')]] : [])];

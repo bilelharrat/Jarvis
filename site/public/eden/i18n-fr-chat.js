@@ -9,6 +9,7 @@
 const X = {
   /* ---------- chat.js ---------- */
   'Wait for the reply, or stop it first': 'Attendez la réponse, ou arrêtez-la d’abord',
+  'This chat is still loading. Send it again once its messages are here.': 'Cette discussion est encore en chargement. Renvoyez votre message une fois ses messages arrivés.',
   'Compare asks cloud models; in this private chat your Mac answers alone': 'Comparer interroge des modèles dans le cloud ; dans cette discussion privée, seul votre Mac répond',
   'EVES did not write an answer. Try again, or turn EVES off.': 'EVES n’a pas écrit de réponse. Réessayez, ou désactivez EVES.',
   'The model sent an empty reply.': 'Le modèle a envoyé une réponse vide.',

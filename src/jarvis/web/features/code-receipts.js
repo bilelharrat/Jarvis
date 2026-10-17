@@ -49,7 +49,7 @@
     }
     const qa = el('button', 'rc-qa', F.t('Try it like a user'));
     qa.type = 'button';
-    qa.title = F.t('Jarvis has the session use what it built in the browser or Simulator, then report what broke');
+    qa.title = F.t('Eden Secretary has the session use what it built in the browser or Simulator, then report what broke');
     qa.addEventListener('click', () => { const t = F.currentTask(); if (t) F.send({ type: 'code_qa', id: t.id }); qa.disabled = true; });
     li.append(qa);
     if (r.files && r.files.length) {

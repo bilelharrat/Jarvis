@@ -4,7 +4,7 @@
 export const BUNDLE_ID = 'com.askeden.jarvis';
 export const PLUS_PRODUCTS = ['com.askeden.jarvis.plus.monthly', 'com.askeden.jarvis.plus.yearly'];
 // Eden for iPhone sells Plus with StoreKit 2 too (group "Eden Plus"; askeden/ios Eden/PlusStore.swift),
-// at today's web price, so it gets today's allowance (account.js plusCap), not the Jarvis legacy one.
+// at today's web price, so it gets today's allowance (account.js plusCap), not the Eden Secretary legacy one.
 export const EDEN_BUNDLE_ID = 'com.askeden.eden';
 export const EDEN_PLUS_PRODUCTS = ['com.askeden.eden.plus.monthly', 'com.askeden.eden.plus.yearly'];
 /** The apps that sell Plus through the App Store, and their products. */
@@ -46,7 +46,7 @@ export class ApiError extends Error {
   }
 }
 
-export const signedOut = () => new ApiError(401, 'signed_out', 'This device is signed out of its Jarvis account.');
+export const signedOut = () => new ApiError(401, 'signed_out', 'This device is signed out of its Eden Secretary account.');
 
 export async function readJson(request, cap = 1 << 20) {
   const text = await request.text();
@@ -108,6 +108,18 @@ export async function accountIdFor(sub) {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const h = hex(bytes);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// An account's short code, like K7Q-M4Z: the same on every device signed in to that account, so two
+// devices can be compared at a glance (the account page, Settings › Sync, "you last signed in here").
+// 30 bits of a hash of the id, in link.js's letters: it opens nothing, and the id can't be read back from it.
+const CODE_LETTERS = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+export async function accountCode(accountId) {
+  const b = await sha256(`eden-account-code:${accountId}`);
+  const n = ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 2;
+  let out = '';
+  for (let i = 5; i >= 0; i--) out += CODE_LETTERS[(n >>> (i * 5)) & 31];
+  return `${out.slice(0, 3)}-${out.slice(3)}`;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

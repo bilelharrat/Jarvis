@@ -195,9 +195,9 @@ function onThumb(e) {
   const cls = classOf(c, node);
   node.feedback = node.feedback === want ? null : want;
   saveConversation(c);
-  ui.updateMessage(c, node, { final: true });
+  ui.updateMessage(c, node, { final: true, keepScroll: true });
   const fb = $('transcript').querySelector(`.msg[data-id="${node.id}"] [data-act="${b.dataset.act}"]`);
-  if (fb) fb.focus();
+  if (fb) fb.focus({ preventScroll: true });
   if (!cls) return;
   if (node.feedback) record({ id: `th-${node.id}`, kind: 'thumbs', cls, model: node.route.model, up: node.feedback === 'up', session: c.id, turnId: node.turnId });
   else record({ id: `th-${node.id}`, kind: 'thumbs', cls, model: node.route.model, clear: true, session: c.id });

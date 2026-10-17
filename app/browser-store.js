@@ -1,6 +1,6 @@
 // The built-in browser's own settings and its last session, kept beside browser.json (which
 // holds history, bookmarks and the ad blocker's choices) in browser-state.json: the search
-// engine, each site's permissions and zoom, whether tabs reopen, whether JARVIS browses signed
+// engine, each site's permissions and zoom, whether tabs reopen, whether Eden Secretary browses signed
 // out, and the tabs that were open.
 // Read defensively (a hand-edited or damaged file keeps what's valid and never stops the app),
 // saved atomically a moment after a change.

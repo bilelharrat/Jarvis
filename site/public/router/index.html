@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
+<title>Eden Router · the right model for each request</title>
+<meta name="description" content="Eden Router picks the model and the reasoning effort for each task across Anthropic, OpenAI, Google and Moonshot. Move the dial and see what it costs and what it passes, measured on 44 graded tasks and 18 models. An OpenAI-compatible API is in private beta.">
+<link rel="canonical" href="https://edenrouter.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Eden Router">
+<meta property="og:url" content="https://edenrouter.com/">
+<meta property="og:title" content="Eden Router: the right model for each request">
+<meta property="og:description" content="Move the dial: what each setting costs and what it passes, from our own 44-task test, including where it falls short.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/router/router.css">
+<script src="/router/router.js" defer></script>
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Eden Router"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden Router</span></a>
+  <nav aria-label="Site"><a href="#numbers">The numbers</a><a href="#eves">EVES</a><a href="#api">API</a><a class="pill" href="https://askeden.com">Eden</a></nav>
+</header>
+
+<main id="main">
+  <section class="hero solo" aria-labelledby="heroH">
+    <p class="domain">edenrouter.com</p>
+    <h1 id="heroH">The right model for each request<u aria-hidden="true"></u></h1>
+    <p class="lede">Eden Router picks the model, and how hard it thinks, for every task, across Anthropic, OpenAI, Google and Moonshot. One dial sets whether you want it cheap or the best answer money can buy.</p>
+    <div class="cta"><a class="btn primary" href="#numbers">Move the dial</a><a class="btn" href="#api">API access</a></div>
+  </section>
+
+  <!-- The film (public/router/film.mp4 + film.jpg, 1280x720, silent; sources and re-render in askeden/marketing/router-film/): /home/features.js plays it while it is on screen and adds the pause button; without the script the browser's controls show. Its picks are illustrative, not measured: the measured numbers are below. -->
+  <figure class="fvid">
+    <video class="fv" src="/router/film.mp4" poster="/router/film.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="A 35-second animated film: questions arrive and Eden Router reads each one, then sends it along a path of light to the model that fits it, with the model, effort, price and time shown before you send. A dial from Efficiency to Performance re-routes them all live. The router runs locally with no API calls by default. The picks shown are illustrative."></video>
+    <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
+    <figcaption>Illustrative picks. The measured numbers are below.</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li><i>01</i><b>Read the request</b><span>Rules read the prompt for free, in a fraction of a second. Optionally a small, cheap model rates how hard it is.</span></li>
+    <li><i>02</i><b>Score every option</b><span>Each model at each effort gets an expected-quality score for that kind of task, from eight public benchmarks and our own paid tests, set against its price.</span></li>
+    <li><i>03</i><b>Pick for your goal</b><span>One dial, five levels. The router returns the model, the effort and the request to send.</span></li>
+  </ol>
+
+  <section class="section" id="numbers" aria-labelledby="nH">
+    <p class="kicker">Measured</p>
+    <h2 id="nH">Move the dial, see what it does</h2>
+    <p class="sub">44 graded tasks, simple to expert, run on 18 models (13 October 2026). Each dot is one way of choosing: coral for the router, light for always using one model. Further up passes more; further left costs less.</p>
+    <div class="chartcard" id="chart">
+      <div class="ctl">
+        <p class="k">Optimize for</p>
+        <div class="dial"><label for="lvl" id="lvlName">Level 3 · balanced (default)</label><input id="lvl" type="range" min="1" max="5" step="1" value="3" aria-describedby="says"><div class="ticks" aria-hidden="true"><span>cheapest</span><span>best</span></div></div>
+        <div class="read" aria-hidden="true"><div><b id="rPass">93%</b><span>of tasks passed</span></div><div><b id="rCost">$0.013</b><span>per task</span></div></div>
+        <p class="says" id="says" aria-live="polite">Level 3 passes <b>93%</b> of tasks at <b>$0.013</b> each: 2.4× cheaper than always using Claude Opus 5.5, and 1.7× the cost of always using GPT-6.1 Sol, which passed 100%.</p>
+        <button class="sweep" id="sweep" type="button"><span aria-hidden="true">▶</span> Sweep the dial</button>
+      </div>
+      <div class="plotbox">
+        <svg viewBox="0 0 700 380" role="group" aria-label="Chart: share of tasks passed against cost per task, for the router's five levels and for single models"><line class="grid" x1="62" x2="684" y1="330.0" y2="330.0"/><text class="lab" x="52" y="334.0" text-anchor="end">40%</text><line class="grid" x1="62" x2="684" y1="279.0" y2="279.0"/><text class="lab" x="52" y="283.0" text-anchor="end">50%</text><line class="grid" x1="62" x2="684" y1="228.0" y2="228.0"/><text class="lab" x="52" y="232.0" text-anchor="end">60%</text><line class="grid" x1="62" x2="684" y1="177.0" y2="177.0"/><text class="lab" x="52" y="181.0" text-anchor="end">70%</text><line class="grid" x1="62" x2="684" y1="126.0" y2="126.0"/><text class="lab" x="52" y="130.0" text-anchor="end">80%</text><line class="grid" x1="62" x2="684" y1="75.0" y2="75.0"/><text class="lab" x="52" y="79.0" text-anchor="end">90%</text><line class="grid" x1="62" x2="684" y1="24.0" y2="24.0"/><text class="lab" x="52" y="28.0" text-anchor="end">100%</text><line class="grid" x1="180.0" x2="180.0" y1="24" y2="330"/><text class="lab" x="180.0" y="350" text-anchor="middle">$0.001</text><line class="grid" x1="321.6" x2="321.6" y1="24" y2="330"/><text class="lab" x="321.6" y="350" text-anchor="middle">$0.003</text><line class="grid" x1="476.7" x2="476.7" y1="24" y2="330"/><text class="lab" x="476.7" y="350" text-anchor="middle">$0.01</text><line class="grid" x1="618.2" x2="618.2" y1="24" y2="330"/><text class="lab" x="618.2" y="350" text-anchor="middle">$0.03</text><line class="axis" x1="62" x2="684" y1="330" y2="330"/><line class="axis" x1="62" x2="62" y1="24" y2="330"/><text class="axt" x="373" y="376" text-anchor="middle">Cost per task, log scale (cheaper →)</text><text class="axt" x="14" y="177" transform="rotate(-90 14 177)" text-anchor="middle">Tasks passed</text><path class="route" id="route" d="M 341.4 95.4 L 406.5 69.9 L 510.5 59.7 L 589.4 34.2 L 613.8 49.5"/><g class="pt ref" tabindex="0" role="img" aria-label="Always GPT-6.1 Sol: passed 100% of tasks, mean score 1.00, $0.0078 per task" data-name="Always GPT-6.1 Sol" data-pass="100" data-score="1.0" data-cost="0.0078" data-kind="ref" data-level="0"><circle class="dot" cx="444.7" cy="24.0" r="6"/><text x="442.7" y="10.0" text-anchor="middle">Sol</text></g><g class="pt ref" tabindex="0" role="img" aria-label="Always Claude Opus 5.5: passed 100% of tasks, mean score 1.00, $0.031 per task" data-name="Always Claude Opus 5.5" data-pass="100" data-score="1.0" data-cost="0.031" data-kind="ref" data-level="0"><circle class="dot" cx="622.4" cy="24.0" r="6"/><text x="612.4" y="12.0" text-anchor="end">Opus</text></g><g class="pt ref" tabindex="0" role="img" aria-label="Always GPT-6 Luna: passed 84% of tasks, mean score 0.83, $0.00065 per task" data-name="Always GPT-6 Luna" data-pass="84" data-score="0.83" data-cost="0.00065" data-kind="ref" data-level="0"><circle class="dot" cx="124.5" cy="105.6" r="6"/><text x="134.5" y="109.6" text-anchor="start">Luna</text></g><g class="pt ref" tabindex="0" role="img" aria-label="Always Claude Haiku 4.5: passed 50% of tasks, mean score 0.51, $0.0071 per task" data-name="Always Claude Haiku 4.5" data-pass="50" data-score="0.51" data-cost="0.0071" data-kind="ref" data-level="0"><circle class="dot" cx="432.5" cy="279.0" r="6"/><text x="442.5" y="283.0" text-anchor="start">Haiku</text></g><g class="pt ideal" tabindex="0" role="img" aria-label="An ideal chooser (knows the cheapest passing model per task): passed 100% of tasks, mean score 1.00, $0.0027 per task" data-name="An ideal chooser (knows the cheapest passing model per task)" data-pass="100" data-score="1.0" data-cost="0.0027" data-kind="ideal" data-level="0"><circle class="dot" cx="308.0" cy="24.0" r="6"/><text x="298.0" y="12.0" text-anchor="end">Ideal</text></g><g class="pt pt" tabindex="0" role="img" aria-label="Level 1 · max efficiency: passed 86% of tasks, mean score 0.85, $0.0035 per task" data-name="Level 1 · max efficiency" data-pass="86" data-score="0.85" data-cost="0.0035" data-kind="pt" data-level="1"><circle class="dot" cx="341.4" cy="95.4" r="7"/><text x="351.4" y="85.4" text-anchor="start">L1</text></g><g class="pt pt" tabindex="0" role="img" aria-label="Level 2 · efficient: passed 91% of tasks, mean score 0.90, $0.0058 per task" data-name="Level 2 · efficient" data-pass="91" data-score="0.9" data-cost="0.0058" data-kind="pt" data-level="2"><circle class="dot" cx="406.5" cy="69.9" r="7"/><text x="416.5" y="59.900000000000006" text-anchor="start">L2</text></g><g class="pt pt" tabindex="0" role="img" aria-label="Level 3 · balanced (default): passed 93% of tasks, mean score 0.95, $0.013 per task" data-name="Level 3 · balanced (default)" data-pass="93" data-score="0.95" data-cost="0.013" data-kind="pt" data-level="3"><circle class="dot" cx="510.5" cy="59.7" r="7"/><text x="520.5" y="49.7" text-anchor="start">L3</text></g><g class="pt pt" tabindex="0" role="img" aria-label="Level 4 · performance: passed 98% of tasks, mean score 0.99, $0.024 per task" data-name="Level 4 · performance" data-pass="98" data-score="0.99" data-cost="0.024" data-kind="pt" data-level="4"><circle class="dot" cx="589.4" cy="34.2" r="7"/><text x="599.4" y="24.200000000000003" text-anchor="start">L4</text></g><g class="pt pt" tabindex="0" role="img" aria-label="Level 5 · max performance: passed 95% of tasks, mean score 0.98, $0.029 per task" data-name="Level 5 · max performance" data-pass="95" data-score="0.98" data-cost="0.029" data-kind="pt" data-level="5"><circle class="dot" cx="613.8" cy="49.5" r="7"/><text x="623.8" y="65.5" text-anchor="start">L5</text></g><circle class="ring pulse" id="ring" cx="510.5" cy="59.7" r="13"/></svg>
+        <p class="cap" id="cap">Hover or focus a dot for its numbers.</p>
+      </div>
+    </div>
+    <p class="chartnote">Passed = scored 0.70 or more. Claude costs are the price of the answer’s own tokens at API rates. L1–L5 are the router at each level.</p>
+    <details><summary>The same numbers as a table</summary><div class="tw"><table><caption class="sr">Router levels and single-model baselines</caption><thead><tr><th>Setting</th><th>Passed</th><th>Mean score</th><th>Cost per task</th></tr></thead><tbody><tr><td>Level 1 · max efficiency</td><td>86%</td><td>0.85</td><td>$0.0035</td></tr><tr><td>Level 2 · efficient</td><td>91%</td><td>0.90</td><td>$0.0058</td></tr><tr><td>Level 3 · balanced (default)</td><td>93%</td><td>0.95</td><td>$0.013</td></tr><tr><td>Level 4 · performance</td><td>98%</td><td>0.99</td><td>$0.024</td></tr><tr><td>Level 5 · max performance</td><td>95%</td><td>0.98</td><td>$0.029</td></tr><tr><td>Always GPT-6.1 Sol</td><td>100%</td><td>1.00</td><td>$0.0078</td></tr><tr><td>Always Claude Opus 5.5</td><td>100%</td><td>1.00</td><td>$0.031</td></tr><tr><td>Always GPT-6 Luna</td><td>84%</td><td>0.83</td><td>$0.00065</td></tr><tr><td>Always Claude Haiku 4.5</td><td>50%</td><td>0.51</td><td>$0.0071</td></tr></tbody></table></div></details>
+    <div class="plain"><b>What this says, plainly.</b> Against always using a flagship model, the router is much cheaper: level 3 passed 93% for $0.013 a task, while Claude Opus 5.5 on every task cost $0.031. But one strong, cheap model, GPT-6.1 Sol, passed every task for $0.0078, and on this set the router did not beat it. An ideal chooser that knew each task’s best cheap model would have spent about a third of that ($0.0027 a task). The router is the practical way to get close without knowing in advance, and closing that gap is what we are working on.</div>
+  </section>
+
+  <section class="section" id="how" aria-labelledby="mH2">
+    <p class="kicker">How we measured</p>
+    <h2 id="mH2">Graded tasks, keys we computed ourselves</h2>
+    <div class="cols">
+      <div><h3>The test</h3><ul>
+        <li><b>44 tasks:</b> 9 simple, 12 moderate, 13 complex, 10 expert. 38 graded by rule, 6 by an AI judge with fixed rubrics.</li>
+        <li><b>Every answer key is computed</b> and cross-checked by a second, independent method.</li>
+        <li><b>18 models</b> from Anthropic, OpenAI, Google and Moonshot, each at the effort it was measured at.</li>
+        <li>The router ran on rules alone and made no model calls of its own.</li></ul></div>
+      <div><h3>Limits</h3><ul>
+        <li><b>Small sample.</b> 44 tasks, one run each. Gaps of a few points between levels are within noise.</li>
+        <li><b>Our tasks, not yours.</b> They lean toward exact computation and code.</li>
+        <li><b>Prices and models move.</b> These are October 2026 prices and versions.</li>
+        <li><b>One judge is also a contestant.</b> The AI judge for six tasks is one of the models compared.</li></ul></div>
+    </div>
+  </section>
+
+  <section class="section" id="eves" aria-labelledby="eH">
+    <div class="eves">
+      <div>
+        <p class="kicker">EVES</p>
+        <h2 id="eH">Checking the answer too</h2>
+        <p class="sub">EVES is Eden’s verification system. It checks claims against the web before it answers, and says when it doesn’t know. On 432 factual questions it stated something false <b>9.7%</b> of the time.</p>
+        <p class="fine">It also declined to answer more often (about 21% of questions), and part of its lead comes from web search. <a href="https://askeden.com/accuracy"><u>Method and limits</u></a></p>
+      </div>
+      <div class="ebars" id="ebars" role="img" aria-label="Share of answers that stated something false, 432 questions: EVES 9.7%, Gemini 3.1 Pro 18.3%, Claude Sonnet 5.5 24.5%. Lower is better.">
+        <div class="er me"><span class="n">EVES</span><svg viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><rect class="tr" width="100" height="22" rx="4"/><rect class="bar" width="38.8" height="22" rx="4"/></svg><b>9.7%</b></div>
+        <div class="er"><span class="n">Gemini 3.1 Pro</span><svg viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><rect class="tr" width="100" height="22" rx="4"/><rect class="bar" width="73.2" height="22" rx="4"/></svg><b>18.3%</b></div>
+        <div class="er"><span class="n">Claude Sonnet 5.5</span><svg viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><rect class="tr" width="100" height="22" rx="4"/><rect class="bar" width="98" height="22" rx="4"/></svg><b>24.5%</b></div>
+        <p class="fine">Made-up answers, share of 432 questions. Lower is better.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="get" id="api" aria-labelledby="aH">
+    <h2 id="aH">The Eden Router API<span class="tag">private beta</span></h2>
+    <p class="sub">One OpenAI-compatible endpoint. Send a chat request with your own provider keys; the router picks the model and the effort among the providers you sent a key for, calls it, and tells you what it picked, why, and what it cost.</p>
+    <p class="fine">Invite only for now: one key per client, made by us. Server to server only (no browser calls). We keep your key hashed and log numbers only (time, model, tokens, cost, latency, status), never prompts, answers or provider keys.</p>
+    <pre>curl https://edenrouter.com/v1/chat/completions \
+  -H "Authorization: Bearer $EDEN_ROUTER_KEY" \
+  -H "x-openai-key: $OPENAI_API_KEY" \
+  -H "x-gemini-key: $GEMINI_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"model": "eden-router:level-3",
+       "messages": [{"role": "user", "content": "Refactor this to fix a race condition"}]}'</pre>
+    <pre>from openai import OpenAI
+
+client = OpenAI(base_url="https://edenrouter.com/v1", api_key=EDEN_ROUTER_KEY,
+                default_headers={"x-anthropic-key": ANTHROPIC_API_KEY, "x-gemini-key": GEMINI_API_KEY})
+r = client.chat.completions.create(model="eden-router", messages=[{"role": "user", "content": "Hi"}],
+                                   extra_body={"x_eden": {"efficiency": 70, "performance": 60}})
+print(r.choices[0].message.content, r.model, r.x_eden["actual_cost_usd"])</pre>
+    <p class="fine">Models: <code>eden-router</code> (balanced) or <code>eden-router:level-1</code> (max efficiency) to <code>level-5</code> (max performance). Optional <code>x_eden</code>: <code>efficiency</code> and <code>performance</code> (0–100), <code>providers</code> (openai, anthropic, gemini, moonshot), <code>classifier</code> (off, auto, always: a Gemini rating on your Gemini key, about $0.0005). Provider keys: <code>x-openai-key</code>, <code>x-anthropic-key</code>, <code>x-gemini-key</code>, <code>x-moonshot-key</code>. Streaming (<code>"stream": true</code>) works as in OpenAI's API. Every answer carries <code>x_eden</code>: the model, effort, estimated and actual cost, and the rationale. On a provider error before any text, it tries the router's next pick once.</p>
+    <p class="fine">Also: <code>POST /v1/route</code> (the decision only, no model call), <code>GET /v1/models</code>, <code>GET /v1/usage</code> (your requests and daily totals). Limits per key: requests a minute and a daily spend cap; past them you get a 429. Text only for now: no images, files or tool calls yet.</p>
+    <a class="btn primary" href="mailto:support@askeden.com?subject=Eden%20Router%20API%20private%20beta">Ask to join the beta</a>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="https://askeden.com/accuracy">Accuracy</a><a href="https://askeden.com/help">Help</a><a href="https://askeden.com/privacy">Privacy</a><a href="https://askeden.com/terms">Terms</a></nav>
+</footer>
+</body>
+</html>

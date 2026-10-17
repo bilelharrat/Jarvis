@@ -3,12 +3,12 @@
 // first use and cached by this file's hash.
 //
 //   jarvis-callaudio [pid …]   16 kHz mono signed 16-bit little-endian PCM on stdout, the
-//                              sound of every app but the pids given (JARVIS's own voice);
+//                              sound of every app but the pids given (Eden Secretary's own voice);
 //                              one JSON line on stderr: {"ready": true} once it's listening,
 //                              or {"error": "no_permission" | "no_display" | "why"}.
 //
 // It stops when its input closes (the notes stopped, or the app quit) or on SIGTERM. It
-// needs Screen Recording for J.A.R.V.I.S. (macOS asks once). No picture is kept: the stream
+// needs Screen Recording for Eden Secretary (macOS asks once). No picture is kept: the stream
 // is set to 2 by 2 pixels once a second and its frames are never read. Never writes files,
 // never goes online.
 

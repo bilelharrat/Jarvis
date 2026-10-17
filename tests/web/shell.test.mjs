@@ -216,7 +216,7 @@ test('the menu follows the state: status line, Mute or Unmute, hands-free ticked
   const on = lib.normalizeState({ state: 'speaking', online: true, muted: true, handsFree: true, pausedUntil: 10_000 });
   const menu = lib.trayTemplate(on, L, act, { now: 5_000, ask: 'Alt+Space' });
   const labels = menu.map((m) => m.label || '—');
-  assert.deepEqual(labels, ['Speaking…', '—', 'Ask…', '—', 'Unmute', 'Hands-free', 'Heads-ups paused until 3:40 PM', 'Resume heads-ups', '—', 'Open J.A.R.V.I.S.', 'Eden Code', '—', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(labels, ['Speaking…', '—', 'Ask…', '—', 'Unmute', 'Hands-free', 'Heads-ups paused until 3:40 PM', 'Resume heads-ups', '—', 'Open Eden Secretary', 'Eden Code', '—', 'Quit Eden Secretary']);
   assert.equal(menu[0].enabled, false);
   assert.equal(menu[2].accelerator, 'Alt+Space');
   assert.equal(menu[2].registerAccelerator, false, 'shown, never a second registration');
@@ -239,9 +239,9 @@ test('the menu follows the state: status line, Mute or Unmute, hands-free ticked
 test('the window’s labels and reports are taken only in their expected shapes', () => {
   const L = lib.mergeLabels({ mute: '静音', quit: 'x'.repeat(500), nope: 'ignored', ask: 'A\nB', open: 5 });
   assert.equal(L.mute, '静音');
-  assert.equal(L.quit, 'Quit J.A.R.V.I.S.');
+  assert.equal(L.quit, 'Quit Eden Secretary');
   assert.equal(L.ask, 'A B');
-  assert.equal(L.open, 'Open J.A.R.V.I.S.');
+  assert.equal(L.open, 'Open Eden Secretary');
   assert.equal('nope' in L, false);
   assert.deepEqual(lib.normalizeState({ state: 'dancing', online: 'yes', pausedUntil: 'soon', menuBar: 0 }),
     { state: 'idle', online: false, muted: false, handsFree: false, pausedUntil: 0, menuBar: true });
@@ -267,7 +267,7 @@ test('the icon shows the state the window reports, as a template image at both s
   t.report({ state: 'listening', online: true, labels: { listening: '正在聆听…' } });
   assert.notEqual(tray.image, idleImage);
   assert.equal(tray.menu.template[0].label, '正在聆听…');
-  assert.match(tray.tip, /J\.A\.R\.V\.I\.S\. · 正在聆听…/);
+  assert.match(tray.tip, /Eden Secretary · 正在聆听…/);
   // Something other than the window can't report.
   t.ctx.ipcMain.emit('feature:shell:state', { sender: {} }, { state: 'speaking', online: true });
   assert.equal(tray.menu.template[0].label, '正在聆听…');
@@ -332,7 +332,7 @@ test('a yes-or-no card gets its own two buttons; a purchase, a plan or a questio
   assert.deepEqual(unlabelled.actions, ['Allow', 'Not now']);
   const purchase = lib.approvalNotice(lib.normalizeApproval(card('a3', { askKind: 'purchase', question: 'Buy the headphones for $99?', detail: '', choices: [{ id: 'allow', label: 'Confirm purchase' }, { id: 'deny', label: 'Cancel' }] })), L);
   assert.deepEqual(purchase.actions, []);
-  assert.equal(purchase.body, 'Buy the headphones for $99?\nSay “confirm purchase”, or confirm it in J.A.R.V.I.S.');
+  assert.equal(purchase.body, 'Buy the headphones for $99?\nSay “confirm purchase”, or confirm it in Eden Secretary.');
   const plan = lib.approvalNotice(lib.normalizeApproval(card('a4', { choices: [{ id: 'plan_edits', label: 'Go' }, { id: 'plan_keep', label: 'Keep planning' }] })), L);
   assert.deepEqual(plan.actions, []);
   const shortcut = lib.approvalNotice(lib.normalizeApproval(card('a5', { choices: [{ id: 'allow', label: 'Run' }, { id: 'always', label: 'Always' }, { id: 'deny', label: 'Not now' }] })), L);
@@ -373,7 +373,7 @@ test('a card that goes up while the window is away: a notification whose buttons
   assert.equal(t.commands().length, 1);
 });
 
-test('a click on a card’s notification opens JARVIS on it; a purchase has no buttons', async () => {
+test('a click on a card’s notification opens Eden Secretary on it; a purchase has no buttons', async () => {
   const t = fakeContext();
   shell.install(t.ctx);
   await t.hello();
@@ -409,7 +409,7 @@ test('no notification while the window is in front, for a card seen before, or f
   assert.equal(t.electron.made.notes[0].closed, true, 'a2 is gone, and its notification');
 });
 
-test('a heads-up raised for the window opens JARVIS on its card when clicked', async () => {
+test('a heads-up raised for the window opens Eden Secretary on its card when clicked', async () => {
   const t = fakeContext();
   shell.install(t.ctx);
   await t.hello();
@@ -759,7 +759,7 @@ test('a page that ends cleanly, or while quitting, is left alone', async () => {
 
 // ── jarvis:// links ──
 
-test('a link shows JARVIS and fills in the request box, opens a panel or a project; never more', async () => {
+test('a link shows Eden Secretary and fills in the request box, opens a panel or a project; never more', async () => {
   const t = fakeContext();
   t.ctx.early.push('jarvis://ask?text=Summarize%20this%20page'); // it launched the app
   shell.install(t.ctx);
@@ -770,13 +770,13 @@ test('a link shows JARVIS and fills in the request box, opens a panel or a proje
   assert.deepEqual(t.commands(), [{ action: 'prefill', text: 'Summarize this page' }]);
   t.ctx.openLink('jarvis://open?panel=settings');
   t.ctx.openLink('jarvis://code?project=alpha');
-  t.ctx.openLink('jarvis://open'); // just JARVIS
-  t.ctx.openLink('jarvis://send?to=someone'); // not one JARVIS opens: nothing at all
+  t.ctx.openLink('jarvis://open'); // just Eden Secretary
+  t.ctx.openLink('jarvis://send?to=someone'); // not one Eden Secretary opens: nothing at all
   assert.deepEqual(t.commands().slice(1), [{ action: 'open', panel: 'settings' }, { action: 'project', name: 'alpha' }]);
   assert.equal(t.win.shown, 4);
 });
 
-test('"Ask JARVIS" from the Services menu (this Mac’s key) is marked to send; any other link only fills in', async () => {
+test('"Ask Eden Secretary" from the Services menu (this Mac’s key) is marked to send; any other link only fills in', async () => {
   const t = fakeContext({ packaged: true });
   shell.install(t.ctx);
   await t.hello();
@@ -794,7 +794,7 @@ test('"Ask JARVIS" from the Services menu (this Mac’s key) is marked to send; 
 
 test('a Quick Action written before it had a key is rewritten with this Mac’s, once', () => {
   const t = fakeContext({ packaged: true });
-  const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  const bundle = path.join(t.ctx.servicesDir, 'Ask Eden Secretary.workflow');
   for (const [rel, text] of Object.entries(links.serviceFiles())) {
     mkdirSync(path.dirname(path.join(bundle, rel)), { recursive: true });
     writeFileSync(path.join(bundle, rel), text);
@@ -833,7 +833,7 @@ test('only the installed app becomes the jarvis:// app', () => {
   assert.deepEqual(installed.app.protocols, ['jarvis']);
 });
 
-// ── the Services menu's "Ask JARVIS" ──
+// ── the Services menu's "Ask Eden Secretary" ──
 
 test('Add writes the Quick Action (its golden copy) and refreshes the Services menu; Remove takes it away', async () => {
   const t = fakeContext({ packaged: true });
@@ -841,7 +841,7 @@ test('Add writes the Quick Action (its golden copy) and refreshes the Services m
   const service = (action) => t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action });
   assert.deepEqual(service('status'), { available: true, installed: false, taken: false, error: '' });
   assert.deepEqual(service('add'), { available: true, installed: true, taken: false, error: '' });
-  const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  const bundle = path.join(t.ctx.servicesDir, 'Ask Eden Secretary.workflow');
   const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
   assert.equal(readFileSync(path.join(bundle, 'Contents/Info.plist'), 'utf8'), readFileSync(path.join(fixtures, 'ask-jarvis.Info.plist'), 'utf8'));
   const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
@@ -859,7 +859,7 @@ test('Add writes the Quick Action (its golden copy) and refreshes the Services m
 
 test('a Quick Action of the owner’s own with the same name is never touched', () => {
   const t = fakeContext({ packaged: true });
-  const theirs = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow', 'Contents');
+  const theirs = path.join(t.ctx.servicesDir, 'Ask Eden Secretary.workflow', 'Contents');
   mkdirSync(theirs, { recursive: true });
   writeFileSync(path.join(theirs, 'Info.plist'), '<plist><dict><key>CFBundleIdentifier</key><string>com.them</string></dict></plist>');
   shell.install(t.ctx);
@@ -881,12 +881,12 @@ test('the test window and a build from source never write a Quick Action', () =>
 
 // ── the app's menu bar ──
 
-test('the app’s first menu has JARVIS’s places; Edit is the standard one', () => {
+test('the app’s first menu has Eden Secretary’s places; Edit is the standard one', () => {
   const acted = [];
   const menu = lib.appMenuTemplate(lib.mergeLabels(), (name) => acted.push(name), 'darwin');
-  assert.deepEqual(menu.map((m) => m.label), ['J.A.R.V.I.S.', 'Edit', 'View', 'Window']);
+  assert.deepEqual(menu.map((m) => m.label), ['Eden Secretary', 'Edit', 'View', 'Window']);
   const first = menu[0].submenu.filter((i) => i.type !== 'separator');
-  assert.deepEqual(first.map((i) => i.label), ['About J.A.R.V.I.S.', 'Settings…', 'Eden Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide J.A.R.V.I.S.', 'Hide Others', 'Show All', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(first.map((i) => i.label), ['About Eden Secretary', 'Settings…', 'Eden Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide Eden Secretary', 'Hide Others', 'Show All', 'Quit Eden Secretary']);
   assert.deepEqual(first.filter((i) => i.accelerator).map((i) => [i.label, i.accelerator]), [
     ['Settings…', 'Command+,'], ['Eden Code', 'Shift+Command+J'], ['Browser', 'Shift+Command+B'], ['History', 'Command+Y'], ['Bookmarks', 'Alt+Command+B'],
   ]);

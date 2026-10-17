@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Eden News</title>
+<link rel="icon" type="image/svg+xml" href="/news/news-logo.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/news/favicon-64.png">
+<link rel="apple-touch-icon" href="/news/apple-touch-icon.png">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="/news/news.css">
+<script src="/news/news.js" defer></script>
+</head>
+<body>
+<!-- the compact bar: glass, shown once the large title scrolls away (iOS large-title behaviour) -->
+<header class="nav" id="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="/news"><img class="logo" src="/news/news-logo.svg" alt="" width="26" height="26"><span>Eden News</span></a>
+    <span class="grow"></span>
+    <button type="button" class="round" id="yours-small" aria-label="Your News: topics and follows" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap" id="main" aria-busy="true">
+  <div class="hero" id="hero">
+    <div>
+      <p class="eyebrow" id="date">Today</p>
+      <h1>News</h1>
+    </div>
+    <div class="hero-end">
+      <a class="capsule capsule-blue" id="signin" href="/signin?return=%2Fnews" hidden>Sign in to make it yours</a>
+      <button type="button" class="round round-lg" id="yours" aria-label="Your News: topics and follows" hidden>
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>
+      </button>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Sections" id="tabs"></nav>
+  <p class="notice" id="sample" hidden>Sample stories: Eden News isn’t connected to a news source yet, so these headlines and outlets are made up.</p>
+  <p class="notice notice-err" id="error" role="alert" hidden></p>
+  <section class="following" id="following" aria-labelledby="following-title" hidden>
+    <h2 class="sec"><span id="following-title">Following</span></h2>
+    <div class="rail" id="rail"></div>
+  </section>
+  <div id="feed"></div>
+  <footer class="foot">
+    <p id="updated"></p>
+    <p>Eden writes short summaries in its own words and links every story to its publishers. Read the full reporting at the source.</p>
+  </footer>
+</main>
+
+<!-- the phone's tab bar: a floating glass capsule -->
+<nav class="dock" id="dock" aria-label="News"></nav>
+
+<!-- a story's "⋯" menu -->
+<div class="menu" id="menu" role="menu" hidden></div>
+
+<div class="sheet-back" id="ask" hidden>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="q-title">
+    <div class="sheet-top">
+      <div class="steps" id="q-steps" aria-hidden="true"></div>
+      <button type="button" class="link" id="q-skipall">Skip for now</button>
+    </div>
+    <p class="muted small" id="q-count"></p>
+    <h2 id="q-title"></h2>
+    <p class="muted" id="q-help"></p>
+    <div id="q-body"></div>
+    <div class="sheet-nav">
+      <button type="button" class="capsule" id="q-back">Back</button>
+      <span class="grow"></span>
+      <button type="button" class="link" id="q-skip">Skip this</button>
+      <button type="button" class="capsule capsule-blue" id="q-next">Continue</button>
+    </div>
+  </section>
+</div>
+</body>
+</html>

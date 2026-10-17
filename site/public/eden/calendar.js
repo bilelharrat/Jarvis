@@ -1,6 +1,6 @@
 // The calendar: one large glass surface over the chat with day, week, month and agenda
 // views, a mini month, per-calendar colours and show/hide, event popovers, and two sources —
-// the Mac's calendars through the Jarvis app (POST /api/chat/jarvis: calendar, and
+// the Mac's calendars through the Eden Secretary app (POST /api/chat/jarvis: calendar, and
 // calendar_create/update/delete, each also confirmed on the Mac), and Google Calendar
 // directly (/api/chat/gcal). Every change goes through a review step here first; nothing a
 // model writes ever changes the calendar. Everything shown is data, set as text only.
@@ -19,7 +19,7 @@ const FIRST_DAY = M.firstDayOfWeek(LOCALE);
 const HOUR_PX = 48;
 const LANE_PX = 21;
 const ALLDAY_LANES = 3;
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const VIEW_LABEL = { day: 'Day', week: 'Week', month: 'Month', year: 'Year', agenda: 'Schedule' };
 const VIEW_KEY = { day: 'D', week: 'W', month: 'M', year: 'Y', agenda: 'A' };
 /** Working hours, shaded outside in the day and week views (kept in this browser). */
@@ -51,7 +51,7 @@ const S = {
   google: { state: 'idle', reason: '', email: '', calendars: [], events: [], errors: [], range: null, loadedIds: null },
   macSeq: 0, gSeq: 0, pop: null, sheet: null, timer: null, ro: null, returnFocus: null,
   scroll: null, alldayOpen: false, selectedDay: null, sideOpen: false,
-  approval: jarvisApprovalWaiting(), // a Mac call is waiting on the "Let Eden use Jarvis?" card
+  approval: jarvisApprovalWaiting(), // a Mac call is waiting on the "Let Eden use Eden Secretary?" card
   drag: null, preview: null, dragDirty: false, justDragged: 0, colorMenu: null,
   query: '', contacts: null, seriesRules: new Map(),
 };
@@ -143,7 +143,7 @@ async function loadMac(r, seq, force) {
     if (first.is_error) throw new Error(strip(first.text) || 'Eden couldn’t read the calendar.');
     let got = M.parseMacCalendar(first.text, r.start, r.end);
     if (got.legacy && M.daysBetween(r.start, r.end) > 14) {
-      // An older Jarvis reads 14 days a call and ignores start/end: ask it piece by piece.
+      // An older Eden Secretary reads 14 days a call and ignores start/end: ask it piece by piece.
       const rest = M.legacyChunks(r.start, r.end).slice(1);
       const parts = await Promise.all(rest.map(([a, b]) => api.jarvis('calendar', { start_offset_days: Math.max(-31, M.daysBetween(M.startOfDay(new Date()), a)), days: M.daysBetween(a, b) })
         .then((more) => (more.is_error ? null : M.parseLegacyText(more.text, a, b)), () => null)));
@@ -476,7 +476,7 @@ function macNote() {
   if (m.state === 'error') return el('div', 'cal-note warn', el('b', '', 'Couldn’t read the Mac’s calendar'), el('span', '', m.reason), el('button', { type: 'button', class: 'cap', onclick: () => load(true) }, 'Try again'));
   if (m.state === 'ready' && m.legacy) return el('div', 'cal-note', el('span', '', 'Restart Eden to change these from Eden and see their colours.'));
   if (m.state === 'ready' && !m.calendars.size) return el('div', 'cal-note', el('span', '', 'Nothing in this range yet.'));
-  if (m.state === 'loading' && S.approval) return el('div', 'cal-note warn', el('b', '', 'Approve Eden on your Mac'), el('span', '', 'Eden is asking “Let Eden use Jarvis?”. Your calendars show once you allow it.'));
+  if (m.state === 'loading' && S.approval) return el('div', 'cal-note warn', el('b', '', 'Approve Eden on your Mac'), el('span', '', 'Eden is asking “Let Eden use Eden Secretary?”. Your calendars show once you allow it.'));
   if (m.state === 'loading' && !m.calendars.size) return el('div', 'cal-note', el('span', '', 'Asking your Mac…'));
   return null;
 }
@@ -516,7 +516,7 @@ function renderBanners() {
             : el('button', { type: 'button', class: 'btn primary', onclick: connectGoogle }, S.google.state === 'reconnect' ? 'Reconnect Google' : 'Connect Google Calendar')),
       el('p', 'cal-connect-why', [S.mac.state === 'off' || S.mac.state === 'error' ? `Mac: ${S.mac.reason || 'not connected'}.` : '', S.google.state === 'reconnect' ? 'Google: reconnect Google to see your calendar.' : S.google.state === 'error' ? `Google: ${S.google.reason}` : ''].filter(Boolean).join(' '))));
   } else if (S.approval && S.mac.state === 'loading') {
-    out.push(el('div', 'cal-banner wait', ico('cal', 15), el('span', '', el('b', '', 'Approve Eden on your Mac. '), 'Eden is asking “Let Eden use Jarvis?”; your Mac’s calendars show once you allow it.')));
+    out.push(el('div', 'cal-banner wait', ico('cal', 15), el('span', '', el('b', '', 'Approve Eden on your Mac. '), 'Eden is asking “Let Eden use Eden Secretary?”; your Mac’s calendars show once you allow it.')));
   } else if (S.google.state === 'reconnect' && macOk) {
     out.push(el('div', 'cal-banner', ico('cal', 15), el('span', '', 'Reconnect Google to see your calendar.'), el('button', { type: 'button', class: 'cap primary', onclick: connectGoogle }, 'Reconnect')));
   }
@@ -542,7 +542,7 @@ function renderView() {
   if (!busy() && !anyHere && (usable(S.mac) || usable(S.google)) && S.view !== 'agenda' && S.view !== 'year' && !S.query) {
     R.view.append(el('div', 'cal-empty', S.view === 'day' ? 'Nothing on your calendar this day.' : S.view === 'week' ? 'Nothing on your calendar this week.' : 'Nothing on your calendar this month.'));
   }
-  // while Jarvis waits on its card the banner says "Approve Eden on your Mac" instead of a spinner
+  // while Eden Secretary waits on its card the banner says "Approve Eden on your Mac" instead of a spinner
   if (busy() && !anyHere && !S.query && S.view !== 'year' && !(S.approval && S.mac.state === 'loading')) R.view.append(el('div', 'cal-loading', el('span', 'cal-spin'), 'Loading your calendars…'));
   const sc = R.view.querySelector('.cal-tg-scroll');
   if (sc) {
@@ -745,7 +745,7 @@ function previewOf(e) {
   const at = (d) => (e.allDay ? M.ymd(d) : d.toISOString());
   return { ...e, start: at(S.preview.start), end: at(S.preview.end) };
 }
-/** Timed, writable, and its first day is here (Mac events: Jarvis can change the start and the length). */
+/** Timed, writable, and its first day is here (Mac events: Eden Secretary can change the start and the length). */
 function canDrag(e, v) {
   if (e.allDay || M.isLong(e) || M.isLong(v) || (S.view !== 'week' && S.view !== 'day')) return false;
   const w = writableFor(e);
@@ -1216,7 +1216,7 @@ function drawPop(e) {
     (e.attachments || []).length ? el('div', 'cev-row', ico('clip', 14), el('div', 'cev-files', ...e.attachments.map((f) => safeHref(f.fileUrl) ? el('a', { href: safeHref(f.fileUrl), target: '_blank', rel: 'noopener noreferrer', ...(f.title ? { 'data-no-i18n': '' } : {}) }, f.title || 'Attachment') : null))) : null,
   ];
   const links = [];
-  // Jarvis's url is the event's own link field when it has one (eventUrl), else a call link from its notes or place
+  // Eden Secretary's url is the event's own link field when it has one (eventUrl), else a call link from its notes or place
   if (e.url && safeHref(e.url)) links.push(el('a', { class: `cap${/meet\.google\.com/.test(e.url) ? ' meet' : ''}`, href: safeHref(e.url), target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 11), e.eventUrl && e.url === e.eventUrl ? 'Open link' : /meet\.google\.com/.test(e.url) ? 'Join with Google Meet' : 'Join call'));
   if (e.link && safeHref(e.link)) links.push(el('a', { class: 'cap', href: safeHref(e.link), target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 11), 'Open in Google'));
   // Going? Yes / No / Maybe — an invitation in Google Calendar (not the organizer's own event)
@@ -1700,7 +1700,7 @@ function editor(ctx) {
       const url = fUrl.value.trim();
       if (url && !/^https:\/\/[^\s/]+/i.test(url)) { err.textContent = 'The link must start with https://.'; fUrl.focus(); return; }
       out.draft.url = url;
-      // alerts go only when known or set here (an older Jarvis doesn't say what they are)
+      // alerts go only when known or set here (an older Eden Secretary doesn't say what they are)
       if (known || alertsTouched) out.draft.alerts = [...new Set([...fAlerts.map((f) => f.value).filter((v) => v !== '').map(Number), ...extraAlerts])].sort((a, b) => a - b).slice(0, 3);
     } else {
       const g = out.draft;
@@ -1726,7 +1726,7 @@ function editor(ctx) {
   };
   [fTitle, fLoc, fUrl].forEach((f) => f.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); review(); } }));
 
-  // Google's parts, and the Mac's (Jarvis: a link and alerts; no repeats, guests or zones)
+  // Google's parts, and the Mac's (Eden Secretary: a link and alerts; no repeats, guests or zones)
   const gOnly = el('div', 'cal-gonly',
     el('div', 'cal-fsec', el('span', 'k', ico('user', 13), 'Guests'), el('div', 'cal-fbody', el('div', 'cal-frow', fGuest, guestList, fbBtn), chips, fbBox, permsBox)),
     el('div', 'cal-fsec', el('span', 'k', ico('cal', 13), 'Meet'), el('label', 'cal-fcheck', fMeet, el('span', '', 'Add Google Meet video conferencing'))),
@@ -1926,7 +1926,7 @@ async function doDelete(e, cal, scope = 'this', send = 'none') {
 export function initCalendar(handlers) {
   H = { ...H, ...handlers }; // (from calendar-entry.js, when the calendar first opens)
   matchMedia('(max-width:640px)').addEventListener('change', () => { if (S.open) { closePop(); render(); } });
-  // Jarvis waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
+  // Eden Secretary waiting on the owner's "Let Eden use Eden Secretary?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     S.approval = !!(e.detail && e.detail.waiting);
     if (!S.open) return;

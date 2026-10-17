@@ -11,7 +11,7 @@
 //   and a look at the page on show (look: its context and a picture of it); and Chrome's
 //   shortcuts for the dock (shortcut: find, bookmark, close), sent to the window's own handler
 //   as main.js sends the page's;
-// - Ask Jarvis in the page's own menu, for a selection, a link or a picture: what the owner
+// - Ask Eden Secretary in the page's own menu, for a selection, a link or a picture: what the owner
 //   picked goes to the window ('feature:browser-ai:ask'; the hub's menuask.py asks or saves),
 //   the selection as it shows (read in the page, hidden text left out) and a picture of the
 //   picture. The window gives the menu its words in the owner's language
@@ -19,7 +19,7 @@
 // - The Passwords app, from the hand back's "Your turn" at a password or sign-in
 //   ('feature:browser-ai:passwords': check, open). macOS has no address for Passwords at a
 //   given site (its only URL schemes are otpauth's), so it just opens the app: the owner
-//   finds the password there. Nothing is read, filled or seen by Jarvis.
+//   finds the password there. Nothing is read, filled or seen by Eden Secretary.
 // Only the window's own page may call; only the browser's tabs may answer.
 'use strict';
 
@@ -37,8 +37,8 @@ function install(ctx) {
   const browser = ctx.browser;
   if (!browser) return; // an app without the browser hooks: nothing to add
   const { ipcMain } = ctx;
-  // Every profile a tab can be in (the owner's, private tabs', JARVIS's signed-out one): the
-  // hand back, recording and the reader need it wherever JARVIS or the owner is.
+  // Every profile a tab can be in (the owner's, private tabs', Eden Secretary's signed-out one): the
+  // hand back, recording and the reader need it wherever Eden Secretary or the owner is.
   for (const partition of browser.partitions ? browser.partitions() : [browser.partition]) {
     session.fromPartition(partition).registerPreloadScript({ type: 'frame', filePath: PRELOAD });
   }
@@ -149,9 +149,9 @@ function install(ctx) {
     }
   }
 
-  // ── Ask Jarvis in the page's own menu ──
+  // ── Ask Eden Secretary in the page's own menu ──
   const labels = {
-    ask: 'Ask Jarvis', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
+    ask: 'Ask Eden Secretary', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
     save: 'Save to Second Brain', link: 'Summarize the Linked Page', image: 'Explain This Picture',
     translate_zh: 'Translate to Chinese', translate_en: 'Translate to English',
   };
@@ -258,7 +258,7 @@ function install(ctx) {
       }
       if (!submenu.length) return;
       if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' });
-      // Translate, beside Ask Jarvis: shown over the page (the hub's translate.py), no turn.
+      // Translate, beside Ask Eden Secretary: shown over the page (the hub's translate.py), no turn.
       if (selected) items.push({ label: mostlyChinese(selected) ? labels.translate_en : labels.translate_zh, click: go('translate_quick') });
       items.push({ label: labels.ask, submenu });
     });

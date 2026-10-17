@@ -3,15 +3,15 @@
 // viewer's mouse, touch, wheel and keys become messages for the cloud browser.
 //
 // Where it browses:
-// - 'app': Eden in the J.A.R.V.I.S. app's Ask Eden window (its preload gives the page
-//   window.jarvisBrowser): Jarvis's own built-in browser, drawn in the panel's slot.
+// - 'app': Eden in the Eden Secretary app's Ask Eden window (its preload gives the page
+//   window.jarvisBrowser): Eden Secretary's own built-in browser, drawn in the panel's slot.
 // - 'cloud': anywhere else: Eden's own browser, a Chrome on Cloudflare for this account
 //   (the server's browser/session.js), shown as a live picture the viewer clicks and types in.
 //   No Mac involved.
 
 export const OPEN_KEY = 'eden:browser:open';
 
-/** The bridge the J.A.R.V.I.S. app gives its Ask Eden window, when it's this one. */
+/** The bridge the Eden Secretary app gives its Ask Eden window, when it's this one. */
 export function appBridge(win) {
   const b = win && win.jarvisBrowser;
   return b && typeof b.show === 'function' && typeof b.nav === 'function' && typeof b.onState === 'function' ? b : null;
@@ -90,7 +90,7 @@ export const touchScroll = (dx, dy, at) => ({ t: 'mouse', e: 'wheel', x: at.x, y
 export const TAP_SLOP = 8;
 
 /**
- * The panel's own shortcuts while the page has the keys (as in J.A.R.V.I.S.'s browser): the
+ * The panel's own shortcuts while the page has the keys (as in Eden Secretary's browser): the
  * action's name, or ''. ⌘ on a Mac, Ctrl elsewhere.
  */
 export function shortcut(e, mac = true) {

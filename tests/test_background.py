@@ -1,4 +1,4 @@
-"""Background tasks for JARVIS (jarvis.background, jarvis.features.background): started only
+"""Background tasks for Jarvis (jarvis.background, jarvis.features.background): started only
 when the owner asked (or said yes), run on a fake Claude with restricted tools, listed and
 stopped with the rest of the tasks, and announced with a heads-up that says what they cost.
 Web pages after private data ask first; nothing reaches a real model or the real calendar."""

@@ -7,7 +7,7 @@ enum Haptics {
     static func talkStop() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     static func tap() { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.8) }
     static func reply() { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
-    /// Jarvis needs a yes.
+    /// Eden Secretary needs a yes.
     static func attention() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
     static func answered(negative: Bool) {
         if negative {

@@ -1,6 +1,6 @@
 """Record and replay: a task recorded in the built-in browser as steps (never a password, a
 card or a code), named and edited, saved; done again by name through the same guards as
-JARVIS's own browser tools (the turn gate, watch mode, the hand back, the purchase guard),
+Jarvis's own browser tools (the turn gate, watch mode, the hand back, the purchase guard),
 stopping safely when a page isn't as it was recorded."""
 
 import asyncio
@@ -42,7 +42,7 @@ def body(result):
 
 
 class Browser:
-    """The window's browser, one tab (7) that JARVIS opens: pages as PAGES has them, typing
+    """The window's browser, one tab (7) that Jarvis opens: pages as PAGES has them, typing
     with Enter going to the results, and every call kept."""
 
     def __init__(self, after_search=RESULTS):

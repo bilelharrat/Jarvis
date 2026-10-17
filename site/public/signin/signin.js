@@ -8,8 +8,14 @@
 // sends it; a new account isn't made without it (accounts/turnstile.js).
 // ?return=<path> (Eden Messenger's "Connect Eden" page, a deep link like /#tasks): where every
 // way in goes back to once signed in, if return.js finds it safe; else Eden's home.
+// The way this browser last signed in (config `last`) is pointed out, so a returning person picks the same one.
 
 import { safeReturn } from './return.js';
+
+// Whoever signs in next may be someone else (signed out by the server: the 30 days ran out, another browser or
+// device signed this one out): Eden's page then doesn't draw the last account's chats (`jchat:account`, Eden's
+// state.js) before askeden.com says who signed in.
+try { localStorage.removeItem('jchat:account'); } catch { /* storage blocked */ }
 
 const $ = (id) => document.getElementById(id);
 const back = safeReturn(new URLSearchParams(location.search).get('return'));
@@ -245,6 +251,16 @@ function toJson(c) {
   return { id: c.id, rawId: b64u(c.rawId), type: c.type, response };
 }
 
+// A passkey made on www.askeden.com opens only there (its site is www, not askeden.com): when none opened here, the
+// way to it. www's sign-in page with ?on=www stays on www (worker.js), and so does the browser once signed in there.
+function wwwPasskey() {
+  if (location.hostname !== 'askeden.com') return;
+  const a = document.createElement('a');
+  a.href = `https://www.askeden.com/signin?on=www${back === '/' ? '' : `&return=${encodeURIComponent(back)}`}`;
+  a.textContent = 'Made your passkey on www.askeden.com? Sign in with it there.';
+  $('alert').append(' ', a);
+}
+
 async function passkey(mode) {
   $('alert').hidden = true;
   if (mode === 'signup' && turnstileOn && !human) return say(ERRORS.verify);
@@ -261,7 +277,11 @@ async function passkey(mode) {
     if (!done.ok) return say(v.error || `askeden.com said ${done.status}. Try again.`);
     location.replace(v.to || back);
   } catch (error) {
-    if (error && error.name === 'NotAllowedError') return say('The passkey was cancelled or timed out. Nothing changed.');
+    if (error && error.name === 'NotAllowedError') {
+      say('The passkey was cancelled or timed out. Nothing changed.');
+      if (mode === 'signin') wwwPasskey();
+      return;
+    }
     if (error && error.name === 'InvalidStateError') return say('This device already has a passkey for Eden. Sign in with it instead.');
     say('That passkey didn’t work here. Try again, or use another way in.');
   }
@@ -315,6 +335,23 @@ async function main() {
   } else {
     // Only the code: straight to it, as the page always did.
     phone({ focus: false });
+  }
+  showLast(ways.last);
+}
+
+// This browser's last way in (the server's __Host-eden-last cookie, which no script reads, given as config `last`):
+// said once and its button marked, since each way in opens its own account until they're added to one.
+const LAST = { apple: ['apple', 'Apple'], google: ['google', 'Google'], passkey: ['passkey', 'a passkey'], code: ['phone', 'a code from the Eden app'] };
+
+function showLast(last) {
+  if (!last || !Object.hasOwn(LAST, last.method)) return;
+  const [id, words] = LAST[last.method];
+  $('lastWay').textContent = `You last signed in here with ${words}.`;
+  $('lastWay').hidden = false;
+  const button = $(id);
+  if (button && !button.hidden) {
+    button.classList.add('last');
+    button.setAttribute('aria-describedby', 'lastWay');
   }
 }
 

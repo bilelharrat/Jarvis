@@ -38,7 +38,7 @@ struct SensorSettings: View {
                     place(.home, set: home)
                     place(.work, set: work)
                     if authorization == .denied || authorization == .restricted {
-                        openSettings("Location is off for J.A.R.V.I.S. in Settings.")
+                        openSettings("Location is off for Eden Secretary in Settings.")
                     } else if authorization == .authorizedWhenInUse {
                         openSettings("Allow location “Always” so arrivals count when the app is closed.")
                     }
@@ -46,7 +46,7 @@ struct SensorSettings: View {
             } header: {
                 ListHeader("Location")
             } footer: {
-                ListFooter("Tells Jarvis on your Mac where you are, so travel times start from you, and when you arrive at or leave home and work. It uses iOS’s low-power updates (about every 500 m), never continuous tracking, and only your Mac gets it.")
+                ListFooter("Tells Eden Secretary on your Mac where you are, so travel times start from you, and when you arrive at or leave home and work. It uses iOS’s low-power updates (about every 500 m), never continuous tracking, and only your Mac gets it.")
             }
             .glassRow()
 
@@ -85,7 +85,7 @@ struct SensorSettings: View {
             } header: {
                 ListHeader("Camera")
             } footer: {
-                ListFooter("Adds a live view to Show Jarvis: point the camera and ask “What’s this?” or “Read this”. The camera shows only on your screen; one still frame goes to Jarvis each time you ask, never a video stream. Show Jarvis can always take a single photo.")
+                ListFooter("Adds a live view to Show Eden Secretary: point the camera and ask “What’s this?” or “Read this”. The camera shows only on your screen; one still frame goes to Eden Secretary each time you ask, never a video stream. Show Eden Secretary can always take a single photo.")
             }
             .glassRow()
 
@@ -101,7 +101,7 @@ struct SensorSettings: View {
             } header: {
                 ListHeader("Contacts")
             } footer: {
-                ListFooter("When your Mac’s Contacts don’t have someone, Jarvis can ask this iPhone “who is…”. It looks up that one name here and sends back at most five matches: name, job, company, numbers and emails. Your address book is never uploaded.")
+                ListFooter("When your Mac’s Contacts don’t have someone, Eden Secretary can ask this iPhone “who is…”. It looks up that one name here and sends back at most five matches: name, job, company, numbers and emails. Your address book is never uploaded.")
             }
             .glassRow()
 
@@ -132,7 +132,7 @@ struct SensorSettings: View {
             } header: {
                 ListHeader("Calendar")
             } footer: {
-                ListFooter("For calendars that live only on this iPhone: the next 14 days of events (title, time, place and calendar name; never notes, invitees or links) go to your Mac every 30 minutes, and when Jarvis asks. Your Mac keeps only the latest copy and forgets it when you turn this off.")
+                ListFooter("For calendars that live only on this iPhone: the next 14 days of events (title, time, place and calendar name; never notes, invitees or links) go to your Mac every 30 minutes, and when Eden Secretary asks. Your Mac keeps only the latest copy and forgets it when you turn this off.")
             }
             .glassRow()
 
@@ -152,7 +152,7 @@ struct SensorSettings: View {
             } header: {
                 ListHeader("Notifications")
             } footer: {
-                ListFooter("iOS doesn’t let any app read other apps’ notifications, so Jarvis can’t see them. Two things come close: a Focus filter (Settings › Focus) decides which apps and people can reach you, and a Shortcuts automation (Shortcuts › Automation, for example “When I get an email from…” or “When an app is opened”) can run “Ask Jarvis” with what you choose to pass it.")
+                ListFooter("iOS doesn’t let any app read other apps’ notifications, so Eden Secretary can’t see them. Two things come close: a Focus filter (Settings › Focus) decides which apps and people can reach you, and a Shortcuts automation (Shortcuts › Automation, for example “When I get an email from…” or “When an app is opened”) can run “Ask Eden Secretary” with what you choose to pass it.")
             }
             .glassRow()
         }
@@ -245,7 +245,7 @@ struct SensorSettings: View {
         Task {
             let allowed = await AVCaptureDevice.requestAccess(for: .video)
             liveCamera = allowed
-            if !allowed { cameraProblem = "The camera is off for J.A.R.V.I.S. in Settings." }
+            if !allowed { cameraProblem = "The camera is off for Eden Secretary in Settings." }
         }
     }
 
@@ -256,7 +256,7 @@ struct SensorSettings: View {
             if on {
                 if await PhoneSensors.shared.turnOnContacts() == false {
                     contacts = false
-                    contactsProblem = "Contacts are off for J.A.R.V.I.S. in Settings."
+                    contactsProblem = "Contacts are off for Eden Secretary in Settings."
                 }
             } else {
                 await PhoneSensors.shared.turnOffContacts()
@@ -272,7 +272,7 @@ struct SensorSettings: View {
                 syncing = true
                 if await PhoneSensors.shared.turnOnCalendar() == false {
                     calendar = false
-                    calendarProblem = "Calendars are off for J.A.R.V.I.S. in Settings (it needs full access to read them)."
+                    calendarProblem = "Calendars are off for Eden Secretary in Settings (it needs full access to read them)."
                 }
                 syncing = false
             } else {

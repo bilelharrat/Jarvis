@@ -14,6 +14,25 @@
     if (a11y && a11y.announce) a11y.announce(text);
   }
 
+  // Beeps for someone who can't see the screen: one a second for the last three seconds of the
+  // wait, and a higher one when the picture is taken. Never a reason to fail the picture.
+  let audio = null;
+  function beep(freq, ms) {
+    try {
+      const Ctx = root.AudioContext || root.webkitAudioContext;
+      if (!Ctx) return;
+      audio = audio || new Ctx();
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.frequency.value = freq;
+      gain.gain.value = 0.15;
+      osc.connect(gain);
+      gain.connect(audio.destination);
+      osc.start();
+      osc.stop(audio.currentTime + ms / 1000);
+    } catch (err) { /* silent */ }
+  }
+
   async function snap(wait) {
     const media = root.navigator && root.navigator.mediaDevices;
     if (!media || !media.getUserMedia) throw new Error('This computer has no camera the app can use.');
@@ -33,7 +52,12 @@
       video.playsInline = true;
       video.srcObject = stream;
       await video.play();
-      await sleep(1200 + Math.max(0, Math.min(10, Number(wait) || 0)) * 1000); // exposure and focus settle
+      const seconds = Math.max(0, Math.min(10, Number(wait) || 0));
+      await sleep(1200); // exposure and focus settle
+      for (let left = Math.ceil(seconds); left > 0; left--) { // time to hold it in place
+        if (left <= 3 && seconds >= 3) beep(660, 120);
+        await sleep(1000);
+      }
       const w = video.videoWidth;
       const h = video.videoHeight;
       if (!w || !h) throw new Error('The camera gave no picture.');
@@ -42,6 +66,7 @@
       canvas.width = Math.round(w * scale);
       canvas.height = Math.round(h * scale);
       canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (seconds >= 3) beep(990, 180);
       return canvas.toDataURL('image/jpeg', 0.88);
     } finally {
       stream.getTracks().forEach((t) => t.stop());
@@ -50,10 +75,10 @@
 
   F.on('camera_cmd', async (ev) => {
     if (!ev || !ev.id || busy) return;
-    if (doc.body && doc.body.dataset.app === 'eden-code') return; // (J.A.R.V.I.S.'s window answers)
+    if (doc.body && doc.body.dataset.app === 'eden-code') return; // (Eden Secretary's window answers)
     busy = true;
     const wait = Number(ev.wait) || 0;
-    say(wait > 1.5 ? `Looking through the camera in ${Math.round(wait)} seconds. Hold it in front of the camera.` : 'Looking through the camera.');
+    say(wait > 1.5 ? `Looking through the camera in ${Math.round(wait)} seconds. Hold it a hand’s length in front of the screen, at the top middle, facing the camera.` : 'Looking through the camera.');
     try {
       const image = await snap(wait);
       F.send({ type: 'camera_result', id: ev.id, image });

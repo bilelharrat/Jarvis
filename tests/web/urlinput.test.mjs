@@ -27,7 +27,7 @@ test('ports and local addresses are pages, never searches, and local ones get ht
   assert.ok(!isLocalHost('example.com') && !isLocalHost('local.example.com'));
 });
 
-test('a script, data or a file JARVIS asks for is never opened', () => {
+test('a script, data or a file Eden Secretary asks for is never opened', () => {
   for (const input of ['javascript:alert(document.cookie)', 'data:text/html,<b>x</b>', 'file:///etc/passwd', ' JAVASCRIPT:x']) {
     assert.ok(toUrl(input).startsWith(SEARCH), input);
   }

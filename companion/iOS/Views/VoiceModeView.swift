@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Voice mode: a spoken conversation, hands free (AppModel's voice mode). The orb listens,
-/// thinks and speaks; talking over Jarvis (or tapping the orb) cuts it short.
+/// thinks and speaks; talking over Eden Secretary (or tapping the orb) cuts it short.
 struct VoiceModeView: View {
     @Environment(AppModel.self) private var model
 

@@ -1,14 +1,14 @@
-// Runs inside every page of J.A.R.V.I.S.'s built-in browser, in an isolated world: the
-// page's own scripts can't see it or reach the app through it. It is J.A.R.V.I.S.'s hand
+// Runs inside every page of Eden Secretary's built-in browser, in an isolated world: the
+// page's own scripts can't see it or reach the app through it. It is Eden Secretary's hand
 // in the page:
 // - draws the hand cursor, lights up what it's aiming at (snapping to the nearest thing
 //   you can open, so you needn't be precise) and says what a pinch will do;
 // - turns a pinch into a real click (the main process sends it; direct mouse and
 //   keyboard input is blocked there), a pinch-and-move into scrolling that coasts;
 // - asks for a second pinch before anything that starts a run, sends, posts or deletes;
-// - on the BSH Research Center (only J.A.R.V.I.S. drives it) blocks the trackpad, wheel
+// - on the BSH Research Center (only Eden Secretary drives it) blocks the trackpad, wheel
 //   and keys, which the main process can't all stop;
-// - answers J.A.R.V.I.S.'s voice commands: find and press, read, scroll, the search box.
+// - answers Eden Secretary's voice commands: find and press, read, scroll, the search box.
 
 const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
@@ -27,7 +27,7 @@ const CONFIRM_MS = 4000;
 const SCROLL_GAIN = 1.6; // the page moves a little further than the hand
 
 let locked = false; // the main process says when (the Research Center's own pages)
-let typing = false; // true only while J.A.R.V.I.S. itself fills in the search box
+let typing = false; // true only while Eden Secretary itself fills in the search box
 let ui = null;
 let hover = null; // the element lit under the cursor
 let latch = null; // what the current pinch will open
@@ -479,7 +479,7 @@ function sightJudge() {
 // same way; the page's scripts can't see this world.
 globalThis.jarvisSight = sightJudge;
 
-// ── the fuller read JARVIS's and Eden Code's browser_read ask for (rich) ──
+// ── the fuller read Eden Secretary's and Eden Code's browser_read ask for (rich) ──
 // What <main> leaves out: an open dialog, an alert or toast, a fixed banner or drawer, a
 // sidebar (an order summary with the total). Each goes ahead of <main>'s text, labelled.
 const REGIONS = [
@@ -837,7 +837,7 @@ async function command({ action, args = {} }) {
   }
 }
 
-// ── lock: while J.A.R.V.I.S. is in control, the wheel and trackpad do nothing ──
+// ── lock: while Eden Secretary is in control, the wheel and trackpad do nothing ──
 
 // (The main process already drops the mouse and keyboard; this also stops the wheel,
 // which it can't see, and anything that reaches the page some other way.)
@@ -873,7 +873,7 @@ if (window === window.top) {
     window.addEventListener(type, block, { capture: true, passive: false });
   }
 
-  // ── the page's alert, confirm and prompt while JARVIS or Eden Code acts in this tab ──
+  // ── the page's alert, confirm and prompt while Eden Secretary or Eden Code acts in this tab ──
   // They go to the app, which hands them to the agent to answer (the page waits for the
   // answer, as it would for the box). Otherwise, and in frames inside the page, they're the
   // page's own box as always. Electron's own box can't be closed once the agent has answered

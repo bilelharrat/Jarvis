@@ -1,4 +1,4 @@
-"""The patterns of the conversations JARVIS holds (delegate), the interrupter, goals and the
+"""The patterns of the conversations Jarvis holds (delegate), the interrupter, goals and the
 invitation check (clashes) are compiled the first time they're tried, not when the backend
 starts: most sessions never hold a conversation for the owner, and the interrupter's are
 tried only once a message arrives. Compiled at import, they cost every start of the backend

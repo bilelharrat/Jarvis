@@ -1,4 +1,4 @@
-"""Signing JARVIS in with the user's own Anthropic API key (claude_signin.py, features/
+"""Signing Jarvis in with the user's own Anthropic API key (claude_signin.py, features/
 signin.py), the checkup's view of it, and the downloadable app's checkup lines. The key is
 checked by a stand-in: nothing here reaches Anthropic, and the Keychain is a MemoryVault."""
 
@@ -87,7 +87,7 @@ async def test_a_pasted_key_signs_every_run_in_through_the_keychain(hub):
 
 
 async def test_the_conversation_signs_in_with_the_key_on_a_built_in_model_too(hub):
-    """JARVIS's own conversation (brain.build_options) signs in with the key; a built-in
+    """Jarvis's own conversation (brain.build_options) signs in with the key; a built-in
     model picked to run it on (Settings › Brain) has no settings of its own and keeps it."""
     found, _ = signin_of(hub)
     await found.use_key({"key": KEY})

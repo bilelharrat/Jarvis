@@ -257,7 +257,10 @@ const runPreview = debounce(async () => {
   try {
     const [res, compare, research] = await Promise.all([
       // eden: the owner's routing (H2 profile, H3 autopilot) shapes the preview as it will the send
-      api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }) }, mine.signal),
+      // T18d: with the essay writer open (website only), the estimate is priced as the essay turn will route (tools-ui.js)
+      document.querySelector('#artifact.essay-on')
+        ? import('./tools-ui.js').then((m) => m.essayPreviewBody(text)).catch(() => ({})).then((essay) => api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }), ...essay }, mine.signal))
+        : api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }) }, mine.signal),
       comparing ? api.compareEstimate({ prompt: text, settings: r }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
       researching ? api.researchEstimate({ prompt: text, settings: r, budgetUSD: capOf(state.settings), ...(currentOverride() ? { override: currentOverride() } : {}) }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
     ]);

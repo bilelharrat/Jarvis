@@ -1,4 +1,4 @@
-"""Reader mode's reading aloud: the article read in JARVIS's voice a paragraph at a time
+"""Reader mode's reading aloud: the article read in Jarvis's voice a paragraph at a time
 through the speech queue, with pause, resume, skip, back and again, giving way to a new
 request or a "stop"; the words for it in both languages."""
 

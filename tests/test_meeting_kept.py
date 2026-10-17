@@ -65,7 +65,7 @@ def test_the_same_rows_as_comparing_afresh_while_the_lines_change(tmp_path):
         elif roll < 0.85 and m.lines:  # the notes model's better line
             index = rng.randrange(len(m.lines))
             m.lines[index] = (m.lines[index][0], sentence(rng))
-        elif roll < 0.92 and m.lines:  # taken out as JARVIS's own words (meeting_agent)
+        elif roll < 0.92 and m.lines:  # taken out as Jarvis's own words (meeting_agent)
             index = rng.randrange(len(m.lines))
             m.lines[index] = (m.lines[index][0], "")
         else:  # a line added directly, with no speaker kept

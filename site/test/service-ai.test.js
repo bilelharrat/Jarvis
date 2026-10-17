@@ -19,7 +19,7 @@ function recorder(answer) {
 test('the stand-in: Gemini first, then OpenAI, never with an Anthropic key, and either may be switched off', () => {
   assert.equal(serviceFallback({ ANTHROPIC_API_KEY: 'sk', GEMINI_API_KEY: 'g' }), null);
   assert.equal(serviceFallback({ GEMINI_API_KEY: 'g', OPENAI_API_KEY: 'o' }).provider, 'gemini');
-  assert.equal(serviceFallback({ GEMINI_API_KEY: 'g', EDEN_GEMINI: 'off', OPENAI_API_KEY: 'o' }).model, 'gpt-6-luna');
+  assert.equal(serviceFallback({ GEMINI_API_KEY: 'g', EDEN_GEMINI: 'off', OPENAI_API_KEY: 'o' }).model, 'gpt-6.1-sol');
   assert.equal(serviceFallback({}), null);
   assert.equal(serviceAiReady({}), false);
   assert.equal(serviceAiReady({ OPENAI_API_KEY: 'o' }), true);
@@ -76,7 +76,7 @@ test('OpenAI as the stand-in: tool results become tool messages, a JSON schema i
   );
   const sent = calls[0].body;
   assert.equal(calls[0].headers.authorization, 'Bearer o-key');
-  assert.equal(sent.model, 'gpt-6-luna');
+  assert.equal(sent.model, 'gpt-6.1-sol');
   assert.equal(sent.max_completion_tokens, 100);
   assert.deepEqual(sent.messages[0], { role: 'system', content: 'S' });
   assert.equal(sent.messages[1].tool_calls[0].id, 'c1');

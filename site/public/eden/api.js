@@ -17,10 +17,10 @@ export const LOCAL_SERVER = isLocalServer(location.hostname);
  * Where the server lives. Every request is built from API_ROOT: by default the path the page
  * is served under its chat mount (http://localhost:5174/ → "",
  * https://askeden.com/ai/ → "/ai"). A <meta name="jarvis-api-root" content="…"> in
- * index.html re-points it (another path or origin).
+ * index.html re-points it (another path or origin). Eden Mail on its own (askeden.com/mail) is the site's root.
  */
 const metaRoot = document.querySelector('meta[name="jarvis-api-root"]');
-export const API_ROOT = (metaRoot && metaRoot.content.trim() ? metaRoot.content.trim() : location.pathname.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '')).replace(/\/$/, '');
+export const API_ROOT = (metaRoot && metaRoot.content.trim() ? metaRoot.content.trim() : location.pathname.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '').replace(/^\/mail$/, '')).replace(/\/$/, '');
 export const API_BASE = `${API_ROOT}/api/chat`;
 /** A server path ("/api/chat/meta", "/artifact/x") as a URL under API_ROOT. */
 export function apiUrl(path) {
@@ -47,11 +47,11 @@ export const isMock = MOCK;
 /** Straight to the server (or ?mock=1's sample answers): no acting refusal, no on-device turn. */
 export const rawFetch = network;
 /**
- * askeden.com's own JSON calls (sync, team spaces): GET without a body, else POST it. Errors carry
- * `status` (0: no connection) and the server's `code`.
+ * askeden.com's own JSON calls (sync, team spaces): GET without a body, else POST it, with `extraHeaders`. Errors
+ * carry `status` (0: no connection) and the server's `code`.
  */
-export async function askedenJSON(path, body) {
-  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST', headers: { 'X-Jarvis-Chat': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) };
+export async function askedenJSON(path, body, extraHeaders = {}) {
+  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST', headers: { 'X-Jarvis-Chat': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...extraHeaders }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) };
   let res;
   try { res = await network(path, init); }
   catch { throw Object.assign(new Error('Can’t reach askeden.com. Check your connection.'), { status: 0 }); }
@@ -201,8 +201,8 @@ export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, 
 }
 
 /**
- * Jarvis's first call from Eden waits for the owner's "Let Eden use Jarvis?" card on the Mac.
- * While any Jarvis call has run 3 s, the status is polled; when the server says the call is
+ * Eden Secretary's first call from Eden waits for the owner's "Let Eden use Eden Secretary?" card on the Mac.
+ * While any Eden Secretary call has run 3 s, the status is polled; when the server says the call is
  * waiting on that card, `eden:jarvis-approval` fires on window with { waiting: true }, and with
  * { waiting: false } once nothing is waiting. jarvisApprovalWaiting() reads the current state.
  */
@@ -235,7 +235,7 @@ async function watchApproval(p) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * POST /api/chat/jarvis with a client deadline (25 s; longer only while the Mac shows its "Let
- * Eden use Jarvis?" card, up to 130 s). `x-eden-wait: 20` asks askeden.com to answer within 20 s:
+ * Eden use Eden Secretary?" card, up to 130 s). `x-eden-wait: 20` asks askeden.com to answer within 20 s:
  * when the card is up it says so at once (202 { approval: 'waiting' }) instead of holding the
  * request, and the call looks at the status until the card is answered, then asks again. A server
  * that doesn't know the header holds the request as before; the status poll above still says so.
@@ -276,7 +276,7 @@ async function jarvisCall(tool, args) {
       if (!res.ok) throw await errorFrom(res);
       out = await res.json();
     } catch (e) {
-      if (d.timedOut()) { keepForRetry(); throw lateError(approvalWaiting ? 'Eden is still waiting for you to approve it on your Mac (“Let Eden use Jarvis?”). Approve it there, then try again.' : MAC_LATE); }
+      if (d.timedOut()) { keepForRetry(); throw lateError(approvalWaiting ? 'Eden is still waiting for you to approve it on your Mac (“Let Eden use Eden Secretary?”). Approve it there, then try again.' : MAC_LATE); }
       if (e instanceof ApiError && e.status === 409 && e.code === 'request_id_reused' && !reminted) { reminted = true; id = newRequestId(); again = true; }
       else if (e instanceof ApiError && e.status === 504 && e.code === 'mac_timeout') { keepForRetry(); throw lateError(MAC_LATE); }
       else if (e instanceof ApiError && e.status === 504 && e.code === 'approval_pending') { keepForRetry(); e.approvalPending = true; throw e; } // it runs once approved: not asked again
@@ -290,7 +290,7 @@ async function jarvisCall(tool, args) {
     try {
       setApproval(true);
       for (let n = 0; ; n++) {
-        if (Date.now() - started > DEADLINE.approval) { keepForRetry(); throw lateError('Eden is still waiting for you to approve it on your Mac (“Let Eden use Jarvis?”). Approve it there, then try again.'); }
+        if (Date.now() - started > DEADLINE.approval) { keepForRetry(); throw lateError('Eden is still waiting for you to approve it on your Mac (“Let Eden use Eden Secretary?”). Approve it there, then try again.'); }
         await sleep(approvalGap(n));
         if (document.hidden) continue;
         const s = await statusOnce().catch(() => null);

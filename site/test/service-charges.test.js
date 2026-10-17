@@ -48,6 +48,7 @@ beforeEach(() => {
   env = {
     ANTHROPIC_API_KEY: 'sk-test',
     GEMINI_API_KEY: 'test-gemini',
+    EDEN_MODELS: 'claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5', // replies on the fake Claude; Gemini only for the memory extractor
     EDEN_TOKEN_KEY: Buffer.alloc(32, 7).toString('base64'),
     TRIAL_BUDGET_USD: '1',
     PLUS_BUDGET_USD: '6',

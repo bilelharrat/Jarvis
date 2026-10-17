@@ -1,5 +1,5 @@
 // The calendar's pure parts (no DOM, no imports): local-time date math that is safe across
-// daylight-saving changes, the normalized event shape for the Mac's calendar (Jarvis's JSON,
+// daylight-saving changes, the normalized event shape for the Mac's calendar (Eden Secretary's JSON,
 // or the older text format), the layout of overlapping events (side by side, as Apple
 // Calendar does) and of all-day bars, and the arguments each write sends. calendar.js draws;
 // src/__tests__/calendar.test.ts tests this file directly.
@@ -32,7 +32,7 @@ export function daysBetween(a, b) {
 }
 /** Minutes since local midnight by the wall clock (1:30 PM → 810), so events line up with the hour labels on DST days too. */
 export function minutesIntoDay(d) { return d.getHours() * 60 + d.getMinutes(); }
-/** Local wall time, as Jarvis takes it: 2026-10-06T10:00. */
+/** Local wall time, as Eden Secretary takes it: 2026-10-06T10:00. */
 export function isoLocal(d) { return `${ymd(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 /** An instant with the local offset at that instant: 2026-10-06T10:00:00+01:00 (what Google takes). */
 export function isoWithOffset(d) {
@@ -123,7 +123,7 @@ export function isLong(e) {
 export function overlaps(e, start, end) { const b = bounds(e); return b.s < end && (b.e > start || (+b.e === +b.s && b.s >= start)); }
 export function eventKey(e) { return `${e.source}|${e.calendarId}|${e.id}|${e.start}`; }
 
-/** A date or date-time from Jarvis as the normalized value: all-day → YYYY-MM-DD; timed → UTC ISO. */
+/** A date or date-time from Eden Secretary as the normalized value: all-day → YYYY-MM-DD; timed → UTC ISO. */
 function macTime(v, allDay) {
   const s = String(v || '');
   if (allDay) return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
@@ -132,7 +132,7 @@ function macTime(v, allDay) {
 }
 
 /**
- * Jarvis's structured calendar (`calendar` with format "json") → { calendars, events, timeZone }.
+ * Eden Secretary's structured calendar (`calendar` with format "json") → { calendars, events, timeZone }.
  * Unknown or broken rows are dropped, never guessed.
  */
 export function normalizeMacJson(j) {
@@ -178,14 +178,14 @@ export function normalizeMacJson(j) {
         : { name: String(a.name || ''), email: String(a.email || ''), status: String(a.status || ''), organizer: a.organizer === true, self: a.self === true })),
       recurrence: r.recurring === true || r.repeats === true ? { recurring: true, seriesId: null, rules: [] } : null,
       url: /^https:\/\//.test(String(r.url || '')) ? String(r.url) : '',
-      // its own link field and its alerts (minutes before), which Eden can change; null: this Jarvis doesn't say
+      // its own link field and its alerts (minutes before), which Eden can change; null: this Eden Secretary doesn't say
       eventUrl: /^https:\/\//.test(String(r.eventUrl || '')) ? String(r.eventUrl) : '',
       alerts: Array.isArray(r.alerts) ? [...new Set(r.alerts.filter((m) => Number.isInteger(m) && m >= 0 && m <= ALERT_MOST))].sort((a, b) => a - b) : null,
       link: '',
       color: null,
       readOnly: !writable,
       canEdit: writable,
-      // How Jarvis finds it again for a change: its title, its start as Jarvis wrote it, its calendar's name.
+      // How Eden Secretary finds it again for a change: its title, its start as Eden Secretary wrote it, its calendar's name.
       mac: { title: String(r.title || ''), start: String(r.start ?? r.begin ?? ''), calendar: cal.title },
     });
   }
@@ -208,11 +208,11 @@ function legacyDay(day, mon, rangeStart, rangeEnd) {
 }
 let legacySeq = 0;
 /**
- * The older Jarvis's text ("- Tue 06 Oct 10:00–10:30: Title [Work]", "- Wed 07 Oct (all day): …")
- * for the range it was asked → normalized events (read-only: that Jarvis can't change events).
+ * The older Eden Secretary's text ("- Tue 06 Oct 10:00–10:30: Title [Work]", "- Wed 07 Oct (all day): …")
+ * for the range it was asked → normalized events (read-only: that Eden Secretary can't change events).
  */
 export function parseLegacyText(text, rangeStart, rangeEnd) {
-  const t = String(text || '').replace(/^\(From the owner's Jarvis:[^)]*\)\s*/, '').trim();
+  const t = String(text || '').replace(/^\(From the owner's Eden Secretary:[^)]*\)\s*/, '').trim();
   if (!t || /^Nothing on the calendar/i.test(t)) return { calendars: [], events: [] };
   const calendars = new Map();
   const events = [];
@@ -239,7 +239,7 @@ export function parseLegacyText(text, rangeStart, rangeEnd) {
   return { calendars: [...calendars.values()], events };
 }
 
-/** Jarvis's answer to `calendar` → normalized, whichever Jarvis answered: { calendars, events, legacy }. */
+/** Eden Secretary's answer to `calendar` → normalized, whichever Eden Secretary answered: { calendars, events, legacy }. */
 export function parseMacCalendar(text, rangeStart, rangeEnd) {
   const raw = String(text || '').trim();
   if (raw.startsWith('{')) {
@@ -251,7 +251,7 @@ export function parseMacCalendar(text, rangeStart, rangeEnd) {
   return { ...parseLegacyText(raw, rangeStart, rangeEnd), legacy: true, timeZone: null };
 }
 
-/** The arguments for Jarvis's calendar read of [start, end): JSON for a new Jarvis, and the old offset/days an older one reads. */
+/** The arguments for Eden Secretary's calendar read of [start, end): JSON for a new Eden Secretary, and the old offset/days an older one reads. */
 export function macReadArgs(start, end, today = new Date()) {
   const days = Math.max(1, daysBetween(start, end));
   return {
@@ -260,7 +260,7 @@ export function macReadArgs(start, end, today = new Date()) {
     days: Math.min(14, days),
   };
 }
-/** An older Jarvis reads 14 days at most: the [start, end) pieces to ask it for. */
+/** An older Eden Secretary reads 14 days at most: the [start, end) pieces to ask it for. */
 export function legacyChunks(start, end) {
   const out = [];
   for (let s = startOfDay(start); s < end; s = addDays(s, 14)) out.push([s, addDays(s, 14) < end ? addDays(s, 14) : end]);
@@ -476,7 +476,7 @@ export function guestsAffected(original, changes) {
   return Boolean((had || will) && Object.keys(changes).some((k) => !['colorId', 'reminders', 'transparency'].includes(k)));
 }
 
-/** Alerts Jarvis takes: minutes before the start, up to four weeks, three at most. */
+/** Alerts Eden Secretary takes: minutes before the start, up to four weeks, three at most. */
 export const ALERT_MOST = 4 * 7 * 24 * 60;
 /** The editor's alert choices (minutes before), as Apple Calendar offers them. */
 export const ALERT_CHOICES = [0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080];
@@ -490,7 +490,7 @@ export function alertText(m) {
 }
 const sameAlerts = (a, b) => JSON.stringify([...(a || [])].sort((x, y) => x - y)) === JSON.stringify([...(b || [])].sort((x, y) => x - y));
 
-/** Jarvis's calendar_create arguments for a draft. */
+/** Eden Secretary's calendar_create arguments for a draft. */
 export function macCreateArgs(d, calendarTitle) {
   const a = { title: d.title, confirm: true };
   if (d.allDay) Object.assign(a, { start: ymd(d.start), all_day: true, days: Math.max(1, daysBetween(d.start, d.end)) });
@@ -504,8 +504,8 @@ export function macCreateArgs(d, calendarTitle) {
 }
 
 /**
- * How Jarvis finds an event again: its title, its start (the date when all-day; else the
- * instant with its offset, as Jarvis wrote it, so a page in another zone still names the
+ * How Eden Secretary finds an event again: its title, its start (the date when all-day; else the
+ * instant with its offset, as Eden Secretary wrote it, so a page in another zone still names the
  * right minute) and its calendar's name.
  */
 export function macIdentity(e) {
@@ -515,7 +515,7 @@ export function macIdentity(e) {
 }
 
 /**
- * Jarvis's calendar_update arguments: only what it can change (title, time, length, place,
+ * Eden Secretary's calendar_update arguments: only what it can change (title, time, length, place,
  * notes, link, alerts) and only what changed; a draft without `url` or `alerts` leaves those
  * alone (a drag). null when nothing changed.
  */

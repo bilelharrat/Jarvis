@@ -1,4 +1,4 @@
-"""Stress round 2, what JARVIS knows and does on its own, at scale and under odd clocks: the
+"""Stress round 2, what Jarvis knows and does on its own, at scale and under odd clocks: the
 file index with a damaged database, routines after the Mac's clock was wrong, the
 proactive watcher after the clock moves back (flying west), documents written from
 Markdown with markers that never close, webhook calls that arrive together, and the

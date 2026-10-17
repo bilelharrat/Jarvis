@@ -8,7 +8,7 @@
 //   selected           the text selected in the focused element, read through Accessibility
 //                      (never the clipboard); left out when nothing is selected or it can't
 //                      be read
-//   ax                 whether Accessibility is allowed for J.A.R.V.I.S.
+//   ax                 whether Accessibility is allowed for Eden Secretary.
 // It changes nothing: it only reads.
 
 import AppKit

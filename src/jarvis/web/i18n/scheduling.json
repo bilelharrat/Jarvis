@@ -1,7 +1,10 @@
 {
   "strings": {
     "Nudge when they go quiet": "对方不回复时提醒一下",
-    "One short, polite follow-up after Jarvis’s last message, shown to you before it goes like any other": "在 Jarvis 的上一条消息之后发一条简短、礼貌的跟进消息；和其他消息一样，发出前先给你看",
+    "One short, polite follow-up after Eden Secretary’s last message, shown to you before it goes like any other": "在 Eden Secretary 的上一条消息之后发一条简短、礼貌的跟进消息；和其他消息一样，发出前先给你看",
+    "One short, polite follow-up after Jarvis’s last message, shown to you before it goes like any other": "在 Eden Secretary 的上一条消息之后发一条简短、礼貌的跟进消息；和其他消息一样，发出前先给你看",
+    "One short, polite follow-up after JARVIS’s last message, shown to you before it goes like any other": "在 Eden Secretary 的上一条消息之后发一条简短、礼貌的跟进消息；和其他消息一样，发出前先给你看",
+    "One short, polite follow-up after J.A.R.V.I.S.’s last message, shown to you before it goes like any other": "在 Eden Secretary 的上一条消息之后发一条简短、礼貌的跟进消息；和其他消息一样，发出前先给你看",
     "Never": "从不",
     "After 12 hours": "12小时后",
     "After a day": "一天后",

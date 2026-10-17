@@ -46,7 +46,7 @@
   voice.id = 'realtime-voice';
   voice.setAttribute('role', 'radiogroup');
   voice.setAttribute('aria-label', 'Realtime voice');
-  for (const [value, text] of [['jarvis', 'Jarvis’s voice'], ['model', 'The model’s voice (fastest)']]) {
+  for (const [value, text] of [['jarvis', 'Eden Secretary’s voice'], ['model', 'The model’s voice (fastest)']]) {
     const b = el('button', '', text);
     b.type = 'button';
     b.setAttribute('role', 'radio');
@@ -104,10 +104,10 @@
     provider.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.provider === state.provider)));
     if (document.activeElement !== minutes) minutes.value = String(state.minutes);
     used.textContent = `${state.used} of ${state.minutes} minutes used today`;
-    how.textContent = 'Say “Jarvis” or hold the orb to start. It ends after 20 seconds of quiet, when you say “that’s all”, or when you tap the orb. Claude still does the work, with every approval.';
+    how.textContent = 'Say “Eden” or hold the orb to start. It ends after 20 seconds of quiet, when you say “that’s all”, or when you tap the orb. Claude still does the work, with every approval.';
     cost.textContent = 'Billed per minute to your own OpenAI or Google key from Settings › Models: roughly $0.02–0.10 a minute with OpenAI, less with Gemini.';
     talkOver.hidden = !on || !!state.talk_over;
-    talkOver.textContent = 'Turn on Talk over Jarvis to interrupt it while it speaks.';
+    talkOver.textContent = 'Turn on Talk over Eden Secretary to interrupt it while it speaks.';
     why.textContent = state.why || '';
     why.hidden = !on || !state.why;
     if (state.active) document.body.dataset.realtime = 'on';

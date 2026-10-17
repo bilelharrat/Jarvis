@@ -1,4 +1,4 @@
-"""Other models for JARVIS itself: the utility model (jarvis.utility_model) and the servers on
+"""Other models for Jarvis itself: the utility model (jarvis.utility_model) and the servers on
 this Mac found and added in one click (jarvis.features.local_models). No model is reached:
 utility_model.run_turn is faked, and the "servers" are httpx stand-ins."""
 

@@ -43,7 +43,7 @@ test("a rejection prints Apple's log of why and stops the build", () => {
   const error = console.error;
   console.error = (text) => printed.push(String(text));
   try {
-    assert.throws(() => notarize.notarize('/out/J.A.R.V.I.S.zip', 'jarvis', { runner }), /didn't notarize J\.A\.R\.V\.I\.S\.zip: Invalid[\s\S]*notarytool log def/);
+    assert.throws(() => notarize.notarize('/out/J.A.R.V.I.S.zip', 'jarvis', { runner }), /didn't notarize J.A.R.V.I.S.zip: Invalid[\s\S]*notarytool log def/);
   } finally {
     console.error = error;
   }

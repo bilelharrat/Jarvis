@@ -165,7 +165,7 @@ def remotes(tmp_path):
 def ssh(tmp_path, remotes, monkeypatch):
     # A command there starts a Python or three (this ssh; a claude's --version and --help), and
     # on a busy Mac that can outlast the wait meant for a real ssh: what these tests prove
-    # isn't how long JARVIS waits.
+    # isn't how long Jarvis waits.
     monkeypatch.setattr(handoff, "CHECK_SECONDS", 120.0)
     monkeypatch.setattr(handoff, "WRITE_SECONDS", 120.0)
     return python_executable(tmp_path / "fake ssh" / "ssh", FAKE_SSH.format(root=str(remotes)))
@@ -431,7 +431,7 @@ async def test_a_session_moves_there_asks_here_and_comes_back_ready_to_land(
     tool = next(e for e in task.transcript if e.get("tool") == "Write")
     assert tool["status"] == "done" and tool["text"] == "Writing there.txt"
     assert "Done with turn 1 there." in said(task) and rec.cost == 0.25
-    assert task.cost_usd is None  # shown, never counted against JARVIS's limits
+    assert task.cost_usd is None  # shown, never counted against Jarvis's limits
     assert not task.busy and task.status == "waiting"
     assert any(kind == "task_finished" for kind, _ in hub.events)
     args = json.loads((remotes / "studio" / "claude-args.jsonl").read_text().splitlines()[0])
@@ -535,7 +535,7 @@ async def test_after_a_restart_it_reattaches_and_asks_again_what_nobody_answered
     await desk.hand_off(task, "studio", "WRITE:x.txt")
     rec = desk.of_task(task)
     assert await until(lambda: rec.pending)
-    # JARVIS quits before the card is answered: a new desk reads the kept list.
+    # Jarvis quits before the card is answered: a new desk reads the kept list.
     for follower in desk._followers.values():
         follower.cancel()
     for asked in [a for asks in desk._asks.values() for a in asks.values()]:

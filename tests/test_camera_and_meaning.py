@@ -118,3 +118,11 @@ def test_a_failing_model_is_that_batchs_error_not_a_crash():
 def test_without_the_models_files_there_is_no_embedder(tmp_path, monkeypatch):
     monkeypatch.setattr(winembed, "model_dir", lambda: tmp_path)
     assert winembed.model_ready() is False and winembed.embedder() is None
+
+
+def test_eden_says_where_to_hold_it_before_the_picture_and_in_the_owners_terms():
+    prompt = camera_look.PROMPT
+    assert "exactly where to put it" in prompt and "wait_seconds of 6" in prompt
+    assert "top middle of the laptop screen" in prompt and "hand's length" in prompt
+    assert "left of the picture is the owner's right" in prompt  # mirrored for someone facing it
+    assert "up to three tries" in prompt

@@ -852,7 +852,7 @@ export async function taskOp(account, op, body, device = null) {
     case 'task-approve':
     case 'task-deny':
       // From a notification (POST /api/tasks/approvals/<id>, accounts/index.js): the account's own app only.
-      if (body.from_app === true && !(device && isPhone(device.kind))) throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone, or in Eden’s Tasks.');
+      if (body.from_app === true && !(device && isPhone(device.kind))) throw new ApiError(403, 'forbidden', 'Approve it in the Eden Secretary app on your iPhone, or in Eden’s Tasks.');
       return { approval: approvalView(await decide(account, body, op === 'task-approve')) };
     default:
       throw new ApiError(404, 'not_found', 'No such thing.');
@@ -938,7 +938,7 @@ async function propose(env, who, args, { call, local }) {
   try {
     answer = await askModel(env, { system, user, schema: PROPOSAL_SCHEMA, maxTokens, model, fetch: backgroundFetch(env, local) });
   } finally {
-    if (answer && answer.costUSD > 0) await call(env, who.account, 'spend', { usd: answer.costUSD, bucket: hold.bucket }).catch(() => {});
+    if (answer && answer.costUSD > 0) await call(env, who.account, 'spend', { usd: answer.costUSD, bucket: hold.bucket, meta: { feature: 'tasks' } }).catch(() => {});
     await call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
   }
   if (!answer.ok) throw new ApiError(502, 'upstream', answer.error);

@@ -4,6 +4,7 @@
 // (POST /api/chat/compare): one question to up to three models, each answer a draft.
 
 import { toast, effortLabel, store, uid } from './util.js';
+import { imageEvent, imagesText } from './image-mode.js'; // Eden's pictures (GPT Image on askeden.com)
 import { state, ui, addNode, path, parentOf, saveConversation, nodeText, attachmentData, persona, addConversation, newConversation } from './state.js';
 import { api, LOCAL_SERVER } from './api.js';
 import { routeSettings, settingsSig, currentOverride, modelInfo } from './router.js';
@@ -16,7 +17,7 @@ import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody, endAutopilotSkip } from './autopilot.js';
 import { browserBody, parseBrowse, followUpRoute, steerNote } from './browser-agent.js';
-import { typedMention, fillScopes, toolsSystemFor } from './tools-ui.js'; // chat that acts on Google Calendar and Gmail (eden-tools.js)
+import { typedMention, fillScopes, toolsSystemFor, essayBody } from './tools-ui.js'; // chat that acts on Google Calendar and Gmail (eden-tools.js)
 import { evesWanted, beginEves, withEvesSetting } from './eves.js'; // EVES: several models, the facts they disagree on checked, one answer (POST /api/chat/eves)
 import { turnStreamStep } from './eves-model.js'; // what a normal reply's stream event is for (lanes ignored, the turn ends on `done`)
 import { noteVerification } from './verify.js'; // the label under a reply, and a repaired answer swapped in
@@ -58,9 +59,39 @@ export function ensureConversation() {
 }
 
 /** The composer's send: text + attachments ([{kind,name,mime,size,data,url,text}]). */
-export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false } = {}) {
+/** The person's date, weekday and local time: without it a model guessed at "it's 9:40, which train?" (weekday and weekend timetables differ). */
+export function nowNote(d = new Date()) {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const when = d.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `Right now it is ${when}${zone ? ` (${zone})` : ''} for the user. Use this for "today", "now", schedules and deadlines.\n` +
+      'Live facts (departures and timetables, traffic and ETAs, weather, scores, prices, opening hours, events, delays): never estimate or make them up. ' +
+      'Give the specific times or values from the web results you have, with their source; if those results don\u2019t contain them, say so plainly and point to the official live source ' +
+      '(the transit agency\u2019s trip planner, Google Maps for traffic, the weather service). The user\u2019s location is only what they say in the conversation.\n' +
+      'Your training data ends before today: phones, products, people, events and releases newer than it exist. Never say something doesn\u2019t exist, ' +
+      'wasn\u2019t released or isn\u2019t real only because you don\u2019t know it; use the web results when you have them, otherwise say you aren\u2019t sure it\u2019s out yet.';
+  } catch { return ''; }
+}
+
+/** A provider's error in plain words: a raw JSON body ({"error":{"message":…}}) becomes its message; an empty account says so. */
+export function plainError(text) {
+  const s = String(text || '');
+  if (/insufficient_quota|credit_balance|billing_hard_limit|exceeded your current quota/i.test(s)) return s.replace(/\s*[({][\s\S]*$/, '').replace(/[:\s]+$/, '') + ': the account is out of API credit';
+  return s.replace(/\{[\s\S]*"message"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*\}/, (_, m) => m.replace(/\\"/g, '"')).slice(0, 300);
+}
+
+// origin: a prompt Eden wrote for itself from the essay writer ('essay' rubric/feedback): kept on the message so
+// auto-search doesn't treat its wording as the person's question.
+export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false, origin = '' } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
+  // A chat from another device whose messages haven't arrived yet (cloud-sync.js): a message added now would land
+  // outside them, so nothing is sent; the words stay in the composer, and the chat is asked for again.
+  if (c.remote) {
+    toast('This chat is still loading. Send it again once its messages are here.');
+    dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } }));
+    return false;
+  }
   // In the iPhone app without the person's OK for AI providers: ask first (app.js shows it), send nothing
   if (c.kind !== 'code' && aiConsentBlocks({ privacy: privacyOn(c), model: (currentOverride() || {}).model })) { dispatchEvent(new CustomEvent('eden:ai-consent')); return false; }
   // "/browse what to do": this message goes to the cloud browser (browser-agent.js); a steer of a browser run stays there.
@@ -77,6 +108,7 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
     context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) })),
     ...(steered ? { steered: true } : {}),
     ...(toolResult ? { toolResult: true } : {}),
+    ...(origin ? { origin: String(origin) } : {}),
     ...browse,
     ...(browser ? { browserAnswer: browser } : {}),
   });
@@ -114,7 +146,7 @@ function historyFor(c, upTo) {
       }
       out.push({ role: 'user', content: n.content || '', ...(atts.length ? { attachments: atts } : {}) });
     } else {
-      const t = nodeText(n);
+      const t = nodeText(n) || imagesText(n); // a picture's reply: what was drawn (image-mode.js)
       // a reply written after reading untrusted content is itself untrusted (prompt-injection guard, H8)
       if (t) out.push({ role: 'assistant', content: t, ...(n.provenance && n.provenance.tainted ? { untrusted: true } : {}) });
       else if (out.length && out.at(-1).role === 'user') out.pop(); // a failed turn: its question goes again below
@@ -124,7 +156,7 @@ function historyFor(c, upTo) {
 }
 
 function contextFor(c, user) {
-  // context blocks attached to any user message on the path (Jarvis notes, memory)
+  // context blocks attached to any user message on the path (Eden Secretary notes, memory)
   const blocks = [];
   for (const n of path(c)) {
     if (n.role === 'user') for (const x of n.context || []) blocks.push({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) });
@@ -150,7 +182,10 @@ function endStream(c, node) {
   state.streams.delete(c.id);
   if (c.kind === 'code') c.queue = (c.queue || []).filter((q) => q.state !== 'sent');
   if (c.status === 'running') c.status = node.parts && node.parts.some((p) => p.type === 'perm' && (!p.state || p.state === 'pending')) ? 'waiting' : 'done';
-  touch(c);
+  // The reply as it ended, written now: on the 300 ms timer, a reload or a close just after it kept the
+  // half-written copy, which the next load marked Stopped and sync then uploaded as the newest.
+  c.updated = Date.now();
+  saveConversation(c, { now: true });
   ui.updateMessage(c, node, { final: true });
   ui.renderSidebar();
   ui.renderComposer();
@@ -207,7 +242,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const sig = settingsSig();
   // Auto-search: a plain Chat message that needs current information goes as a Search one (autosearch-rules.js; no model call).
   // Never in a temporary or private chat, a course, with attachments, when turned off in Settings › Routing, or when Chat was picked on purpose.
-  if ((node.mode || 'chat') === 'chat' && !node.autoSearched) {
+  if ((node.mode || 'chat') === 'chat' && !node.autoSearched && !user.origin) { // not on a prompt Eden wrote for itself (essay rubric/feedback)
     const m = autoSearchMode({
       text: user.content || '', mode: 'chat', enabled: state.settings.autoSearch !== false, temp: !!c.temp, privacy: privacyOn(c),
       pinnedChat: !!c.chatPinned || !!c.course, hasImages: !!(user.attachments && user.attachments.length),
@@ -220,8 +255,10 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   // Before the send: Stop ends these waits at once, and a slow Google answer is gone without (B2).
   await untilStopped(fillScopes(user), ctrl.signal, 8000); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
   const ctx = contextFor(c, user);
-  if (!c.temp && !c.course && !privacyOn(c) && state.settings.recall !== false) { const r = recallBlock(state.convs, user.content || '', { currentId: c.id, isPrivate: privacyOn }); if (r) ctx.push(r); } // other chats that bear on this message (recall-model.js)
-  const sys = [await untilStopped(toolsSystemFor(user, p && p.system ? p.system : '').catch(() => (p && p.system) || ''), ctrl.signal, 0, ''), replyLanguageNote()].filter(Boolean).join('\n\n');
+  // not on a turn about the open essay or from its buttons (it pulled other essays into this one's prompt: T20b)
+  const essayTurn = user.origin === 'essay' || Boolean(document.querySelector('#split.art-open') && document.querySelector('#artifact.essay-on'));
+  if (!c.temp && !c.course && !privacyOn(c) && state.settings.recall !== false && !essayTurn) { const r = recallBlock(state.convs, user.content || '', { currentId: c.id, isPrivate: privacyOn }); if (r) ctx.push(r); } // other chats that bear on this message (recall-model.js)
+  const sys = [await untilStopped(toolsSystemFor(user, p && p.system ? p.system : '').catch(() => (p && p.system) || ''), ctrl.signal, 0, ''), nowNote(), replyLanguageNote()].filter(Boolean).join('\n\n');
   const body = {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
     ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
@@ -230,7 +267,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     ...(c.temp ? { temporary: true } : { chatId: c.id }),
     // the EVES setting rides along when it isn't Off; autoSearch: false tells the server's risk rules not to turn this into a search
     // (Auto-search is off in Settings › Routing, or Chat was picked on purpose / this is a course chat)
-    settings: withEvesSetting({ ...routeSettings(), ...(state.settings.autoSearch === false || c.chatPinned || c.course ? { autoSearch: false } : {}), ...factCheckSettings(state.settings) }), // N19: the two fact-check switches, sent only when off
+    settings: withEvesSetting({ ...routeSettings(), ...(state.settings.autoSearch === false || c.chatPinned || c.course || user.origin ? { autoSearch: false } : {}), ...factCheckSettings(state.settings) }), // N19: the two fact-check switches, sent only when off
     mode: node.mode === 'search' || node.mode === 'research' ? node.mode : 'chat',
     // Q2: the verified research pipeline (server meta.research) never spends more than the cap the estimate line shows
     ...(node.mode === 'research' && verifiedResearch(state.meta) ? { budgetUSD: capOf(state.settings) } : {}),
@@ -242,6 +279,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
     ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
     ...(refusalRetry ? { refusalRetry: true } : {}), // a refusal's one retry: never retried again
+    ...essayBody(user), // a turn about the open essay: `essay: { kind, words }`, routed as careful writing with room for it (T18; never in the app)
 
     ...browserBody(user, { panelOpen: document.body.classList.contains('browser-open') }), // Eden drives the cloud browser (browser-agent.js)
   };
@@ -316,10 +354,10 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
           case 'usage': node.usage = d; break;
           case 'fallback': {
             const m = modelInfo(d.from && d.from.model);
-            node.notes.push(`${m ? m.name : (d.from && d.from.model) || 'The pick'} failed (${d.reason || 'error'}); retried on the next choice.`);
+            (node.fallbacks ||= []).push(`${m ? m.name : (d.from && d.from.model) || 'The pick'} failed (${plainError(d.reason || 'error')}); retried on the next choice.`);
             break;
           }
-          case 'error': node.error = d.message || 'The turn failed.'; break;
+          case 'error': node.error = plainError(d.message || 'The turn failed.'); break;
           // H8: what the turn read from outside (guard.js source strip), and actions the server's gate holds for the owner
           case 'provenance': node.provenance = d; break;
           case 'refusal': node.refusal = d; break; // the model declined (server refusal.js): retried below, or a "Try another model" button (render.js)
@@ -337,6 +375,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
             if (d.open) dispatchEvent(new CustomEvent('eden:browser-open'));
             else if (d.kind === 'approval' || d.kind === 'takeover' || d.kind === 'paused') node.browserCard = d;
             break;
+          case 'image': imageEvent(c, node, d); break; // a picture Eden made (image-mode.js)
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }
@@ -700,6 +739,7 @@ export async function runCode(c, node, prompt, { images = [], texts = [], allowT
           case 'guard': node.parts.push({ type: 'note', text: d.note || '' }); break;
           case 'usage': node.usage = { ...(node.usage || {}), ...d, costUSD: (append && node.usage && typeof node.usage.costUSD === 'number' ? node.usage.costUSD : 0) + (d.costUSD || 0) }; break;
           case 'error': node.error = d.message || 'The Code turn failed.'; break;
+          case 'image': imageEvent(c, node, d); break; // a picture Eden made (image-mode.js)
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }
@@ -753,7 +793,7 @@ export function answerPermission(c, node, index, choice, { approval } = {}) {
 }
 
 /**
- * Steer without interrupting (Jarvis Code's Steer, for every conversation): while a reply
+ * Steer without interrupting (Eden Code's Steer, for every conversation): while a reply
  * streams, what you send waits in the queue above the composer. A Code turn takes it at
  * once (POST /api/chat/code/steer, into the running step); a chat turn sends it as the next
  * message the moment the reply ends. "Steer now" stops the reply (keeping what it wrote)

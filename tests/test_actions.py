@@ -1,4 +1,4 @@
-"""What JARVIS did (jarvis.features.actions): every tool call of its conversation logged from
+"""What Jarvis did (jarvis.features.actions): every tool call of its conversation logged from
 the stream, per day, with words that say nothing private and how it went; nothing while
 incognito; what_did_you_do reads it back; the Activity drawer's History tab searches it."""
 

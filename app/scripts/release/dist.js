@@ -46,7 +46,8 @@ const APPS = {
   jarvis: {
     flavor: 'jarvis',
     name: 'J.A.R.V.I.S',
-    display: 'J.A.R.V.I.S.',
+    display: 'J.A.R.V.I.S.', // file names and the .app folder: release assets, not shown
+    shown: 'Eden Secretary', // the name Finder shows (CFBundleDisplayName)
     // The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App
     // ID for it, so it stays (renaming it would also move the wake agent's label, the Quick
     // Action's and the helpers' identifiers).
@@ -276,7 +277,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 async function buildApp(spec, { args, identity, profile, backend, minimum, helpers, feed, out }) {
   say(`1. packaging ${spec.display}`);
   const app = await packageApp(spec, out);
-  plist(app, `Set :CFBundleDisplayName ${spec.display}`); // CFBundleName stays: Electron finds its helpers by it
+  plist(app, `Set :CFBundleDisplayName ${spec.shown || spec.display}`); // CFBundleName stays: Electron finds its helpers by it
 
   say(`2. ${spec.display}: the backend and the Swift helpers`);
   const resources = path.join(app, 'Contents', 'Resources');

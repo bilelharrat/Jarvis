@@ -1,6 +1,6 @@
 // Who pays for students' AI in a course (askeden ROADMAP L9; owner decision 2026-10-09).
 //
-// A student's course turn (study chat, quiz, flashcard set, J.A.R.V.I.S. tutor) is paid, in order:
+// A student's course turn (study chat, quiz, flashcard set, Eden Secretary tutor) is paid, in order:
 //   1. the course budget, when the professor funded one, it isn't paused or used up, and this
 //      student is still under its per-student daily cap;
 //   2. the student's free Edu allowance (EDU_FREE: a day's worth across all their courses, on cheap
@@ -36,7 +36,7 @@ export const EDU_FREE = {
   // allowance (QA 2026-10-09: one turn took a student past the $0.10 they had). The course budget does the same.
   estimateMargin: 1.25,
   turnsPerDay: 60, // free course turns a day, whatever they cost
-  voiceChars: 8000, // J.A.R.V.I.S.'s tutor voice on the free allowance (about 9 minutes)
+  voiceChars: 8000, // Eden Secretary's tutor voice on the free allowance (about 9 minutes)
   level: 2, // the Model Router's "Efficient" level
   typicalTurnUSD: 0.002, // for "about N questions" in plain words
 };

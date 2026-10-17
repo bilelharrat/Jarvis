@@ -4,7 +4,7 @@
 // gets { text } back. Here Workers AI's Whisper hears it (the AI binding in wrangler.toml), counted
 // on the account's included AI at Cloudflare's price, the way a chat turn is: the allowance asked,
 // the worst case held, what it cost spent, the hold let go. On the Mac, Eden's server asks
-// J.A.R.V.I.S.'s own Whisper instead (askeden src/chat/transcribe.ts), with the same limits.
+// Eden Secretary's own Whisper instead (askeden src/chat/transcribe.ts), with the same limits.
 //
 // The recording is never stored or logged, nor are its words.
 
@@ -84,7 +84,7 @@ export async function transcribeApi(request, env, who, { call, limited }) {
     const duration = Number(out && out.transcription_info && out.transcription_info.duration);
     const seconds = Number.isFinite(duration) && duration > 0 ? duration : limit;
     const usd = transcribeUSD(seconds);
-    if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: hold.bucket }).catch((error) => console.error('spend failed', error && error.message));
+    if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta: { feature: 'transcribe' } }).catch((error) => console.error('spend failed', error && error.message));
     if (seconds > limit) throw new ApiError(413, 'too_long', TOO_LONG);
     return json({ text: String((out && out.text) || '').trim(), seconds: Math.round(seconds * 10) / 10, costUSD: usd });
   } finally {

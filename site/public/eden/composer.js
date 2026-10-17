@@ -1,4 +1,4 @@
-// Jarvis Code's composer, ported from JARVIS V1 (src/jarvis/web/app.js 3434-4609): the
+// Eden Code's composer, ported from JARVIS V1 (src/jarvis/web/app.js 3434-4609): the
 // reactor orb unfolds the control row (right-click pins it), auto-grow to 220px, Enter sends
 // and Shift+Enter breaks a line, attachments (paste, drag and drop, ⌘U), / commands,
 // @ mentions, ? shortcuts, ↑ recall, ⇧Tab mode cycle, ⌘⇧M / ⌘⇧I / ⌘⇧E, Esc in order, the
@@ -8,7 +8,7 @@
 // Search / Research, or Manual / Accept edits / Plan / Auto in Code conversations. Dictate
 // and Talk (the mic and the waveform beside send) live in voice.js.
 
-import { $, el, toast, fmtCost, fmtTokens, sizeText, placePopup, shortModel, effortLabel, EFFORT_SHORT, store, isTouch, noKeys } from './util.js';
+import { $, el, toast, fmtCost, fmtTokens, sizeText, fileType, placePopup, shortModel, effortLabel, EFFORT_SHORT, store, isTouch, noKeys } from './util.js';
 import { browseMode, setBrowseMode } from './browser-agent.js';
 import { state, path, nodeText, sessionCost, persona, ui } from './state.js';
 import { initVoice, voiceEscape } from './voice.js';
@@ -20,6 +20,7 @@ import { api } from './api.js';
 import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calendar / @mail scope chips
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
+import { imagesAvailable } from './image-mode.js';
 import { stripBidi, putDraft, getDraft, storeDrafts, packDraftFiles, unpackDraftFiles, DRAFT_KEY, DRAFT_FILES_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
 
 let H = {}; // handlers from app.js
@@ -27,7 +28,7 @@ let H = {}; // handlers from app.js
 /** The draft changed: the router prices it, and so does EVES (eves.js). */
 function setPreviewText(text) { setRoutePreviewText(text); setEvesDraft(text); }
 
-/* ---------- icons (Jarvis Code's ICON_PATHS) ---------- */
+/* ---------- icons (Eden Code's ICON_PATHS) ---------- */
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ICON_PATHS = {
   ask: ['M5.4 8.4V4.2a1 1 0 0 1 2 0v3.4', 'M7.4 7.4V3.1a1 1 0 0 1 2 0v4.3', 'M9.4 7.5V4.1a1 1 0 0 1 2 0v4.8c0 2.8-1.8 4.6-4.3 4.6-1.6 0-2.6-.7-3.4-2L2.3 9a1 1 0 0 1 1.7-1l1.4 1.6'],
@@ -37,6 +38,7 @@ const ICON_PATHS = {
   auto: ['M9.2 1.6L3.4 9.1h4.2l-1.1 5.3 5.8-7.6H8.1z'],
   chat: ['M2.6 4.2A1.6 1.6 0 0 1 4.2 2.6h7.6a1.6 1.6 0 0 1 1.6 1.6v5.4a1.6 1.6 0 0 1-1.6 1.6H6.4L3.4 13.6V11.2h-.8a.0 .0 0 0 1 0 0z'],
   search: ['M7 2.4a4.6 4.6 0 1 1 0 9.2 4.6 4.6 0 0 1 0-9.2z', 'M10.4 10.4l3.4 3.4'],
+  image: ['M2.2 2.6h11.6v10.8H2.2z', 'M5.6 7.2a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z', 'M2.2 11.4l3.6-3.4 2.6 2.2 2.2-2 3.2 3'],
   slides: ['M2.2 3h11.6v7.6H2.2z', 'M8 10.6v2.6', 'M5.4 13.8h5.2', 'M4.6 8.2l2-2.2 1.6 1.4 2.6-2.8'],
   research: ['M8 1.8a6.2 6.2 0 1 1 0 12.4A6.2 6.2 0 0 1 8 1.8z', 'M1.8 8h12.4', 'M8 1.8c1.7 1.6 2.6 3.7 2.6 6.2S9.7 12.6 8 14.2C6.3 12.6 5.4 10.5 5.4 8S6.3 3.4 8 1.8z'],
   clip: ['M13.2 7.3l-5.3 5.3a3.2 3.2 0 0 1-4.5-4.5L8.8 2.7a2.1 2.1 0 0 1 3 3L6.6 11a1 1 0 0 1-1.5-1.5l4.9-4.9'],
@@ -70,6 +72,7 @@ export const CHAT_MODES = [
   { id: 'research', icon: 'research', label: 'Research', note: 'Searches widely, then writes a structured report (high effort)' },
   { id: 'compare', icon: 'compare', label: 'Compare', note: 'Up to 3 models answer side by side, then a short summary' },
   { id: 'slides', icon: 'slides', label: 'Slides', note: 'A slide deck from your prompt, files or this chat, shown in the canvas' }, // Q14 (deck.js)
+  { id: 'image', icon: 'image', label: 'Image', note: 'Eden draws a picture from your words, or changes one you attach (GPT Image)' }, // image-mode.js; askeden.com only, when switched on
 ];
 /** Compare needs two models you can use (askeden.com: the hosted Claude models). */
 const compareOff = () => (state.meta && availableModels().length < 2 ? 'Compare needs at least two models: add another API key in Settings' : '');
@@ -81,13 +84,13 @@ export const CODE_MODES = [
   { id: 'plan', css: 'plan', icon: 'plan', label: 'Plan', note: 'Explores and plans; changes nothing until you approve' },
   { id: 'bypassPermissions', css: 'auto', icon: 'auto', label: 'Auto', note: 'Runs anything without asking', danger: true },
 ];
-const modesFor = (c) => (c && c.kind === 'code' ? CODE_MODES : CHAT_MODES);
+const modesFor = (c) => (c && c.kind === 'code' ? CODE_MODES : CHAT_MODES.filter((m) => m.id !== 'image' || imagesAvailable())); // Image: only where pictures are switched on (image-mode.js)
 const curMode = () => { const c = state.current; return c ? c.mode : (state.pendingMode || 'chat'); };
 
 /* ---------- slash commands, keys ---------- */
 const SLASH_CHAT = [
   ['new', 'New chat'], ['temp', 'New temporary chat (not saved)'], ['chat', 'Chat mode'], ['search', 'Search mode: web, with sources'],
-  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
+  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['image', 'Image mode: Eden draws a picture'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
   ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
   ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
@@ -121,7 +124,7 @@ function suggestions() {
   if (inp.value === '?') return { kind: 'keys', items: KEYS.map(([key, help]) => ({ label: key, help, value: '' })) };
   if (/^\/[\w.:-]*$/.test(v)) {
     const q = v.slice(1).toLowerCase();
-    const list = [...SLASH_CHAT, ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))];
+    const list = [...SLASH_CHAT.filter(([n]) => n !== 'image' || imagesAvailable()), ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))];
     return { kind: 'slash', items: list.filter(([n]) => n.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })).slice(0, 40) };
   }
   const m = v.match(/(?:^|\s)@([\w./-]*)$/);
@@ -354,6 +357,7 @@ export function addFile(file) {
     if (kind === 'text') {
       if (result.includes('\u0000')) { toast(`${file.name} isn’t a text file.`); return; }
       attachments.push({ kind, mime: file.type || 'text/plain', text: result, name: file.name, size: file.size });
+      dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: result } })); // app.js (website only): a rubric opens the essay writer
     } else attachments.push({ kind, mime: file.type, data: result.split(',', 2)[1], url: result, name: file.name, size: file.size });
     renderAttachments();
   };
@@ -384,6 +388,7 @@ function addDocument(file) {
     }
     if (cut) { text += cut; toast(`${file.name} is long: its first part is attached (as much as one message carries).`); }
     attachments.push({ kind: 'text', mime: 'text/plain', text: text.trim(), name: file.name, size: text.length });
+    dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: text.trim() } })); // app.js (website only): a rubric opens the essay writer
     renderAttachments();
   }, (e) => { reading.delete(slot); renderAttachments(); toast(`${file.name}: ${e.message || 'couldn’t be read.'}`); });
 }
@@ -453,7 +458,9 @@ export function renderAttachments() {
     const drop = () => { attachments.splice(i, 1); renderAttachments(); input().focus(); };
     if (a.kind === 'image') return el('span', 'jc-thumb-img', el('img', { src: a.url, alt: a.name || 'Attached image' }), removeChip(a.name || 'image', drop));
     if (a.kind === 'video') return videoChip(a, removeChip(a.name || 'video', drop));
-    return el('span', { class: 'jc-file-chip', title: a.name }, icon('doc', 15), el('span', { class: 'nm', 'data-no-i18n': '' }, a.name), el('small', '', sizeText(a.size || 0)), removeChip(a.name, drop));
+    const t = fileType(a.name, a.kind); // a card like the sent message's (render.js) and ChatGPT's: type square, name, type
+    return el('span', { class: 'jc-file-chip card', title: `${a.name} · ${sizeText(a.size || 0)}` }, el('span', `f-ic ${t.tone}`, icon(t.icon, 16)),
+      el('span', 'f-tx', el('span', { class: 'nm', 'data-no-i18n': '' }, a.name), el('small', '', t.label)), removeChip(a.name, drop));
   });
   for (const s of reading) if (s.kind === 'video') chips.push(videoChip({ ...s, size: s.fileSize }, null, true));
   state.draftContext.forEach((x, i) => chips.push(el('span', { class: 'jc-file-chip ctx', title: x.title }, icon('note', 15), el('span', { class: 'nm', 'data-no-i18n': '' }, x.title), el('small', '', x.scope ? 'scope' : 'context'), removeChip(x.title, () => { state.draftContext.splice(i, 1); renderAttachments(); }))));
@@ -472,7 +479,7 @@ export function addContext(block) {
   toast(`“${block.title}” goes with your next message`);
 }
 
-/* ---------- menus (Jarvis Code's engine) ---------- */
+/* ---------- menus (Eden Code's engine) ---------- */
 function menuItem(item) {
   if (item === '-') return el('hr');
   if (item.heading) return el('p', { class: 'jc-menu-head', role: 'presentation' }, item.heading);
@@ -529,11 +536,21 @@ export function openMenu(anchor, items, opts = {}) {
   anchor.setAttribute('aria-expanded', 'true');
   if (opts.sub) { anchor.setAttribute('data-sub-open', '1'); menu.dataset.parent = '1'; }
   else { menu._anchor = anchor; menu.dataset.anchor = anchor.id || ''; }
-  if (!opts.noFocus) {
+  // Not on a touch screen: focusing the menu closed the iPhone keyboard, the composer dropped and the menu was left
+  // mid-screen where the keyboard had been (2026-10-15). There a tap is the way in anyway.
+  if (!opts.noFocus && !isTouch()) {
     const first = menu.querySelector('button:not([disabled])[aria-checked="true"]') || menu.querySelector('button:not([disabled])');
     if (first) first.focus();
   }
 }
+// An open menu stays on its button when the screen changes under it (the keyboard closing, rotation, the window resized).
+function keepMenuOnAnchor() {
+  const menu = $('jc-menu');
+  if (!menu || menu.hidden || !menu._anchor || !document.contains(menu._anchor)) return;
+  placePopup(menu, menu._anchor, 'auto');
+}
+addEventListener('resize', keepMenuOnAnchor, { passive: true });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', keepMenuOnAnchor, { passive: true });
 function closeSubmenu(refocus) {
   const sub = $('jc-submenu');
   if (sub.hidden) return;
@@ -866,6 +883,7 @@ export function renderComposer() {
   $('deck-composer').classList.toggle('busy', !!streaming);
   input().placeholder = code ? `Ask Eden to plan, build or fix something in ${c.project ? c.project.name : 'this project'}…`
     : curMode() === 'search' ? 'Search the web — answers with sources…' : curMode() === 'research' ? 'What should I research? A sourced report…'
+    : curMode() === 'image' ? 'Describe the picture, or attach one to change…'
     : curMode() === 'slides' ? (state.current && state.current.deckVersions && state.current.deckVersions.length ? 'Change the deck: “make slide 3 shorter”, “add a slide about costs”…' : 'Describe the deck, or attach a file to build it from…')
     : curMode() === 'compare' ? 'Ask several models at once — answers side by side…' : 'Message Eden — routed automatically…';
   renderEstimate(); // the routed model, its cost and time, above the input (compare.js)

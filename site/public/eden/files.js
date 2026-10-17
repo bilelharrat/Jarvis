@@ -1,12 +1,12 @@
-// "Use my Mac" (ROADMAP G2) and "Ask about my screen" (H4), on Jarvis's read-only tools
+// "Use my Mac" (ROADMAP G2) and "Ask about my screen" (H4), on Eden Secretary's read-only tools
 // (docs/chat-api.md "Your Mac in a turn"):
 // - a switch (the composer's + menu, the chip it puts above the composer) that lets a chat turn
 //   search and read the owner's files: the server plans the reads with the model that answers
 //   and sends `mac` events, drawn here as file cards saying which model sees them;
-// - a pane that searches the Mac's files and previews one a page at a time (text from Jarvis:
+// - a pane that searches the Mac's files and previews one a page at a time (text from Eden Secretary:
 //   shown as text only, never as HTML), with "Use in chat" and "Summarize";
 // - "Ask about my screen": the front window (app, title, selected text, its text; a picture when
-//   the owner allows one in Jarvis) attached to the next message as a chip they can remove.
+//   the owner allows one in Eden Secretary) attached to the next message as a chip they can remove.
 // Everything from the Mac is the owner's data and other people's words: text only.
 
 import { $, el, ico, toast, store, sizeText, debounce, shortModel } from './util.js';
@@ -205,7 +205,7 @@ async function jarvisJson(tool, args) {
   try { return JSON.parse(r.text); } catch { throw new Error('Eden sent something Eden can’t read. Is it up to date?'); }
 }
 
-/** Search the Mac's files (Jarvis's index, then Spotlight), in the folders the owner allows. */
+/** Search the Mac's files (Eden Secretary's index, then Spotlight), in the folders the owner allows. */
 let lastQuery = '';
 export function openFiles(query = '') {
   query = query || lastQuery;

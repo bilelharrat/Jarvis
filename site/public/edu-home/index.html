@@ -3,31 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
 <title>Eden for Education</title>
 <meta name="description" content="A study assistant built from your professor's own slides and readings. Every answer cites the page it came from.">
 <link rel="icon" type="image/svg+xml" href="/edu-home/edu-logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/edu-home/edu-home.css">
+<script src="/home/features.js" defer></script>
 <script src="/lang/site-i18n.js" data-page="edu-home"></script>
 </head>
 <body>
+<a class="skip" href="#main">Skip to the main content</a>
 <header class="top">
-  <a class="brand" href="/edu" aria-label="Eden for Education"><span class="logo" aria-hidden="true"></span><span><b>Eden</b> for Education</span></a>
-  <nav><a class="pill" href="/signin?return=%2Fedu">Sign in</a></nav>
+  <a class="brand" href="/edu" aria-label="Eden for Education"><img src="/edu-home/edu-logo.svg" alt="" width="36" height="36"><span>Eden for Education</span></a>
+  <nav aria-label="Site"><a href="#films">Films</a><a href="#students">For students</a><a href="/">Eden</a><a class="pill" href="/signin?return=%2Fedu">Sign in</a></nav>
 </header>
-<main>
-  <section class="hero">
-    <span class="eyebrow">For students and professors</span>
-    <h1>Study from your class’s own materials.</h1>
+<main id="main">
+  <section class="hero" aria-labelledby="heroH">
+    <div class="hero-text">  
+    <p class="eyebrow">For students and professors</p>
+    <h1 id="heroH">Study from your class’s own materials<u aria-hidden="true"></u></h1>
     <p class="lede">Professors add their syllabus, slides and readings. Students ask questions, take practice quizzes and get answers that point to the exact slide or page, checked word for word.</p>
     <div class="cta">
       <a class="btn primary" href="/signin?return=%2Fedu">Get started</a>
       <a class="btn" href="/signin?return=%2Fedu">I have a class code</a>
     </div>
     <p class="fine">Sign in with Apple, Google or a passkey. Free to start.</p>
-  </section>
-
-  <section class="demo" aria-label="An example answer">
+  </div>
+  <div class="demo" role="group" aria-label="An example answer">
     <div class="q">Why does the electron transport chain need oxygen?</div>
     <div class="a">
       <p>Oxygen is the <b>final electron acceptor</b>. At complex IV it takes the electrons and combines with H⁺ to form water <span class="ref">1</span>. Without it the chain backs up and ATP synthase stops <span class="ref">2</span>.</p>
@@ -35,9 +41,63 @@
       <div class="src"><span class="ref">1</span>Lecture 5 · Cellular respiration · slide 22</div>
       <div class="src"><span class="ref">2</span>OpenStax Biology 2e · p. 214</div>
     </div>
+  </div>
   </section>
 
-  <section class="cols">
+  <!-- Eden for Education in five short films, as on the front page (muted, playing while on screen; only the tutor film has sound, behind a
+       sound button). The films are public/edu-home/film-N.mp4 (1280x720, index first), professors first (owner, 2026-10-10); made by
+       askeden/marketing/walkthroughs/capture/edu/make-edu-web-films.sh. /home/features.js plays them; without it the browser's controls show. -->
+  <div class="features" id="films">
+    <section class="feature" id="f-prof" aria-labelledby="f-prof-h">
+      <p class="kicker">For professors</p>
+      <h2 id="f-prof-h">Set up your class in minutes.</h2>
+      <p class="sub">Drop in your syllabus, slides and readings. Students join with one code, and you see what they ask about.</p>
+      <figure class="fvid">
+        <video class="fv" src="/edu-home/film-1.mp4" poster="/edu-home/film-1.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Creating a course, dropping in a syllabus and two lecture decks, the join code, the rules for Eden, and anonymous insights on what students ask. A 23-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-answers" aria-labelledby="f-answers-h">
+      <p class="kicker">Answers you can trust</p>
+      <h2 id="f-answers-h">Straight from your course.</h2>
+      <p class="sub">Every answer cites the slide or page, checked word for word. Anything not in your materials is labeled.</p>
+      <figure class="fvid">
+        <video class="fv" src="/edu-home/film-2.mp4" poster="/edu-home/film-2.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="A student asks a question and gets an answer verified from the course, opens the slide it came from with the quote highlighted, and sees a question outside the course labeled. A 22-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-cards" aria-labelledby="f-cards-h">
+      <p class="kicker">Flashcards and games</p>
+      <h2 id="f-cards-h">Study smarter, not longer.</h2>
+      <p class="sub">Ask for flashcards and Eden makes a set from your class’s materials, each card checked against its source.</p>
+      <figure class="fvid">
+        <video class="fv" src="/edu-home/film-3.mp4" poster="/edu-home/film-3.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Flashcards made from the course in a study chat, a card flipped to show its slide, a Learn question answered and a Match game. A 22-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-tutor" aria-labelledby="f-tutor-h">
+      <p class="kicker">Your tutor, out loud</p>
+      <h2 id="f-tutor-h">Talk it through.</h2>
+      <p class="sub">Ask out loud and Eden answers in its own voice, points you to the slide, then asks you a question back.</p>
+      <figure class="fvid">
+        <video class="fv" src="/edu-home/film-4.mp4" poster="/edu-home/film-4.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="A student asks the tutor out loud why the electron transport chain needs oxygen; Eden answers by voice, citing Lecture 5, slide 22, asks a question back and confirms her answer. A 31-second film with sound."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-exam" aria-labelledby="f-exam-h">
+      <p class="kicker">Exam prep</p>
+      <h2 id="f-exam-h">Walk in ready.</h2>
+      <p class="sub">Practice quizzes with a source for every question, and a day-by-day plan to the exam.</p>
+      <figure class="fvid">
+        <video class="fv" src="/edu-home/film-5.mp4" poster="/edu-home/film-5.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="A practice quiz with a source for each question, one answered right and one wrong with its explanation, then a day-by-day plan to the midterm. A 23-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
+      </figure>
+    </section>
+  </div>
+
+
+
+  <section class="cols" id="students">
     <div class="col">
       <h2>For students</h2>
       <ul>
@@ -63,8 +123,9 @@
     <p>Course files are read on your device and only their text is uploaded. Materials are never used to train AI models, and they’re deleted when the course is. Professors see topics, never who asked.</p>
   </section>
 </main>
-<footer class="foot">
-  <a href="/">Eden</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span>© Harrat Global Holdings, Inc.</span><span data-lang-switch></span>
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
 </footer>
 </body>
 </html>

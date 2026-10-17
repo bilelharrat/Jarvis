@@ -1,5 +1,6 @@
 {
   "strings": {
+    "Eden": "Eden",
     "Listening": "聆听",
     "Voice detection": "语音检测",
     "How hands-free tells your voice from other sounds": "免提模式如何把你的声音和其他声音区分开",
@@ -13,7 +14,10 @@
     "The neural detector couldn’t load here, so loudness decides.": "神经网络检测器在这台 Mac 上无法加载，所以改为按音量判断。",
     "A neural model tells speech from noise: doors, typing and fans don’t start a request.": "由神经网络模型区分语音和噪音：关门声、打字声和风扇声都不会触发请求。",
     "Wake words": "唤醒词",
-    "“Jarvis” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.": "“贾维斯”在句子里任何位置都能唤醒我；其他名字要放在请求开头（“星期五，今天有什么安排？”），或跟在“嘿”后面。",
+    "“Eden” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.": "“Eden”在句子里任何位置都能唤醒我；其他名字要放在请求开头（“星期五，今天有什么安排？”），或跟在“嘿”后面。",
+    "“Eden” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.": "“Eden”在句子里任何位置都能唤醒我；其他名字要放在请求开头（“星期五，今天有什么安排？”），或跟在“嘿”后面。",
+    "“JARVIS” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.": "“Eden”在句子里任何位置都能唤醒我；其他名字要放在请求开头（“星期五，今天有什么安排？”），或跟在“嘿”后面。",
+    "“J.A.R.V.I.S.” works anywhere in a sentence; other names when a request starts with them (“Friday, what’s on today?”) or after “Hey”.": "“Eden”在句子里任何位置都能唤醒我；其他名字要放在请求开头（“星期五，今天有什么安排？”），或跟在“嘿”后面。",
     "Add a name, like Friday": "添加一个名字，例如 Friday",
     "Add a wake word": "添加唤醒词",
     "A wake word is one word (2 to 20 letters) or 2 to 8 Chinese characters, and not one I already answer to, like “stop” or “yes”.": "唤醒词是一个单词（2 到 20 个字母）或 2 到 8 个汉字，而且不能是我已经会回应的词，比如“stop”或“yes”。",
@@ -57,18 +61,33 @@
     "Apple’s speech model for English isn’t on this Mac yet. macOS downloads it from Apple when you press Download.": "这台 Mac 上还没有 Apple 的英语语音模型。按“下载”后，macOS 会从 Apple 下载。",
     "Apple’s speech model for Chinese isn’t on this Mac yet. macOS downloads it from Apple when you press Download.": "这台 Mac 上还没有 Apple 的中文语音模型。按“下载”后，macOS 会从 Apple 下载。",
     "Starts when hands-free listens.": "免提开始聆听时启动。",
-    "Say “Jarvis” to talk, and “Jarvis, stop” to interrupt me. Keeps the mic on.": "说“贾维斯”即可对话，说“贾维斯，停”可以打断我。麦克风会保持开启。",
+    "Say “Eden” to talk, and “Eden, stop” to interrupt me. Keeps the mic on.": "说“Eden”即可对话，说“Eden，停”可以打断我。麦克风会保持开启。",
+    "Say “Eden” to talk, and “Eden, stop” to interrupt me. Keeps the mic on.": "说“Eden”即可对话，说“Eden，停”可以打断我。麦克风会保持开启。",
+    "Say “JARVIS” to talk, and “JARVIS, stop” to interrupt me. Keeps the mic on.": "说“Eden”即可对话，说“Eden，停”可以打断我。麦克风会保持开启。",
+    "Say “J.A.R.V.I.S.” to talk, and “J.A.R.V.I.S., stop” to interrupt me. Keeps the mic on.": "说“Eden”即可对话，说“Eden，停”可以打断我。麦克风会保持开启。",
+    "Talk over Eden Secretary": "开口即可打断",
     "Talk over Jarvis": "开口即可打断",
+    "Talk over JARVIS": "开口即可打断",
+    "Talk over J.A.R.V.I.S.": "开口即可打断",
     "Interrupt a reply just by speaking, no wake word": "我回答时你直接说话就能打断，不用说唤醒词",
-    "Off: say “Jarvis, stop” to interrupt me.": "已关闭：说“贾维斯，停”来打断我。",
+    "Off: say “Eden, stop” to interrupt me.": "已关闭：说“Eden，停”来打断我。",
+    "Off: say “Eden, stop” to interrupt me.": "已关闭：说“Eden，停”来打断我。",
+    "Off: say “JARVIS, stop” to interrupt me.": "已关闭：说“Eden，停”来打断我。",
+    "Off: say “J.A.R.V.I.S., stop” to interrupt me.": "已关闭：说“Eden，停”来打断我。",
     "Starting the Mac’s echo cancellation…": "正在启动 Mac 的回声消除…",
     "Works while hands-free listens.": "免提聆听时可用。",
     "On: talk over me to interrupt (any voice near the Mac does). The Mac’s echo cancellation keeps my own voice out of the microphone.": "已开启：我说话时你直接开口就能打断我（Mac 附近任何人说话都会）。Mac 的回声消除会把我自己的声音挡在麦克风之外。",
-    "Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Jarvis, stop” to interrupt. Why:": "打断我需要 Mac 的回声消除，但它在这里无法启动，所以请说“贾维斯，停”来打断。原因：",
+    "Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Eden, stop” to interrupt. Why:": "打断我需要 Mac 的回声消除，但它在这里无法启动，所以请说“Eden，停”来打断。原因：",
+    "Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “Eden, stop” to interrupt. Why:": "打断我需要 Mac 的回声消除，但它在这里无法启动，所以请说“Eden，停”来打断。原因：",
+    "Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “JARVIS, stop” to interrupt. Why:": "打断我需要 Mac 的回声消除，但它在这里无法启动，所以请说“Eden，停”来打断。原因：",
+    "Talking over me needs the Mac’s echo cancellation, which couldn’t start here, so say “J.A.R.V.I.S., stop” to interrupt. Why:": "打断我需要 Mac 的回声消除，但它在这里无法启动，所以请说“Eden，停”来打断。原因：",
     "Apple’s recognizer couldn’t start, so Whisper listens. Why:": "Apple 的识别器无法启动，所以由 Whisper 来听。原因：",
     "unknown": "未知",
     "the helper couldn't be built on this Mac (swiftc)": "这台 Mac 上无法编译辅助程序（swiftc）",
-    "Jarvis's voice player isn't ready": "Jarvis 的语音播放器还没准备好",
+    "Eden Secretary's voice player isn't ready": "Eden Secretary 的语音播放器还没准备好",
+    "Jarvis's voice player isn't ready": "Eden Secretary 的语音播放器还没准备好",
+    "JARVIS's voice player isn't ready": "Eden Secretary 的语音播放器还没准备好",
+    "J.A.R.V.I.S.'s voice player isn't ready": "Eden Secretary 的语音播放器还没准备好",
     "the voice couldn't be moved to the echo-cancelling player": "无法把语音切换到带回声消除的播放器",
     "the echo-cancelled microphone didn't start": "带回声消除的麦克风没有启动",
     "the echo-cancelling helper kept stopping": "回声消除辅助程序反复停止",
@@ -82,11 +101,23 @@
     "Apple's recognizer fell behind": "Apple 的识别器跟不上了",
     "Apple's recognizer stopped": "Apple 的识别器停止了",
     "no audio format for the speech model": "语音模型没有可用的音频格式",
-    "JARVIS": "JARVIS",
-    "Optional. Without one, the JARVIS voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，JARVIS 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
-    "Using the Fish Audio key from your .env file: the JARVIS voice, unlimited.": "正在使用 .env 文件中的 Fish Audio 密钥：JARVIS 声音，不限量。",
-    "Speaking as JARVIS with your own Fish Audio key.": "正在用你自己的 Fish Audio 密钥以 JARVIS 的声音说话。",
-    "Speaking as JARVIS. If it can’t be reached, the Mac voice speaks.": "正在以 JARVIS 的声音说话。如果无法连接，将使用 Mac 的声音。"
+    "Eden Secretary": "Eden Secretary",
+    "Optional. Without one, the Eden Secretary voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
+    "Optional. Without one, the Jarvis voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
+    "Optional. Without one, the JARVIS voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
+    "Optional. Without one, the J.A.R.V.I.S. voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
+    "Using the Fish Audio key from your .env file: the Eden Secretary voice, unlimited.": "正在使用 .env 文件中的 Fish Audio 密钥：Eden Secretary 声音，不限量。",
+    "Using the Fish Audio key from your .env file: the Jarvis voice, unlimited.": "正在使用 .env 文件中的 Fish Audio 密钥：Eden Secretary 声音，不限量。",
+    "Using the Fish Audio key from your .env file: the JARVIS voice, unlimited.": "正在使用 .env 文件中的 Fish Audio 密钥：Eden Secretary 声音，不限量。",
+    "Using the Fish Audio key from your .env file: the J.A.R.V.I.S. voice, unlimited.": "正在使用 .env 文件中的 Fish Audio 密钥：Eden Secretary 声音，不限量。",
+    "Speaking as Eden Secretary with your own Fish Audio key.": "正在用你自己的 Fish Audio 密钥以 Eden Secretary 的声音说话。",
+    "Speaking as Jarvis with your own Fish Audio key.": "正在用你自己的 Fish Audio 密钥以 Eden Secretary 的声音说话。",
+    "Speaking as JARVIS with your own Fish Audio key.": "正在用你自己的 Fish Audio 密钥以 Eden Secretary 的声音说话。",
+    "Speaking as J.A.R.V.I.S. with your own Fish Audio key.": "正在用你自己的 Fish Audio 密钥以 Eden Secretary 的声音说话。",
+    "Speaking as Eden Secretary. If it can’t be reached, the Mac voice speaks.": "正在以 Eden Secretary 的声音说话。如果无法连接，将使用 Mac 的声音。",
+    "Speaking as Jarvis. If it can’t be reached, the Mac voice speaks.": "正在以 Eden Secretary 的声音说话。如果无法连接，将使用 Mac 的声音。",
+    "Speaking as JARVIS. If it can’t be reached, the Mac voice speaks.": "正在以 Eden Secretary 的声音说话。如果无法连接，将使用 Mac 的声音。",
+    "Speaking as J.A.R.V.I.S.. If it can’t be reached, the Mac voice speaks.": "正在以 Eden Secretary 的声音说话。如果无法连接，将使用 Mac 的声音。"
   },
   "patterns": [
     [
@@ -166,12 +197,12 @@
       "这台 Mac 上没有 Apple 的 $1 语音模型"
     ],
     [
-      "^Your Fish Audio key \\((.+)\\): the JARVIS voice, unlimited\\.$",
-      "你的 Fish Audio 密钥（$1）：JARVIS 声音，不限量。"
+      "^Your Fish Audio key \\((.+)\\): the (?:Eden Secretary|Jarvis|JARVIS|J\\.A\\.R\\.V\\.I\\.S\\.) voice, unlimited\\.$",
+      "你的 Fish Audio 密钥（$1）：Eden Secretary 声音，不限量。"
     ],
     [
-      "^The JARVIS voice wasn't available last time \\(its daily allowance may be used up\\); (.+) spoke instead\\.$",
-      "上次无法使用 JARVIS 声音（可能已用完每日额度），改由 $1 说话。"
+      "^The (?:Eden Secretary|Jarvis|JARVIS|J\\.A\\.R\\.V\\.I\\.S\\.) voice wasn't available last time \\(its daily allowance may be used up\\); (.+) spoke instead\\.$",
+      "上次无法使用 Eden Secretary 声音（可能已用完每日额度），改由 $1 说话。"
     ]
   ]
 }

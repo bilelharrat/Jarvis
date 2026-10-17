@@ -1,4 +1,4 @@
-/* Settings › Speaking › JARVIS (on this Mac) (features/voice_offline.js). */
+/* Settings › Speaking › Eden Secretary (on this Mac) (features/voice_offline.js). */
 .voice-offline { display: contents; }
 .voice-offline[hidden], .voice-offline [hidden] { display: none !important; }
 .voice-offline .btn:disabled { opacity: 0.45; cursor: default; }

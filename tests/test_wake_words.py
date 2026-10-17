@@ -133,7 +133,7 @@ def test_added_and_removed_names_follow_the_persona():
     assert wakewords.of(prefs("friday", wake_words=kept)) == ["Friday", "Computer"]
     assert wakewords.of(prefs("jarvis", wake_words=kept)) == ["Computer"]
     everything_removed = {"added": [], "removed": ["Jarvis"]}
-    assert wakewords.of(prefs(wake_words=everything_removed)) == ["Jarvis"]  # never none
+    assert wakewords.of(prefs(wake_words=everything_removed)) == ["Eden"]  # never none
 
 
 def test_adding_and_removing():

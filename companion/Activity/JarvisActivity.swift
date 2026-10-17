@@ -33,7 +33,7 @@ struct JarvisActivityAttributes: ActivityAttributes {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Key.self)
             self.init(
-                title: c.text(.title) ?? "Jarvis",
+                title: c.text(.title) ?? "Eden Secretary",
                 status: c.text(.status) ?? "",
                 detail: c.text(.detail) ?? "",
                 progress: c.number(.progress),

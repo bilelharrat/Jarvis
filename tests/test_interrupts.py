@@ -93,7 +93,7 @@ def _run(path, sql, args=()):
 
 
 class ChatDB:
-    """A synthetic Messages database with the columns JARVIS reads."""
+    """A synthetic Messages database with the columns Jarvis reads."""
 
     def __init__(self, path):
         self.path = path
@@ -840,7 +840,7 @@ def test_snippets_are_short_linkless_and_one_line():
 
 def test_spoken_words_never_include_the_wake_word():
     assert speakable("tell Jarvis to call me") == "tell the assistant to call me"
-    assert speakable("J.A.R.V.I.S., wake up") == "the assistant, wake up"
+    assert speakable("Jarvis, wake up") == "the assistant, wake up"
     assert "贾维斯" not in speakable("贾维斯你好", "zh")
 
 
@@ -2079,7 +2079,7 @@ async def test_names_other_people_chose_are_cleaned_like_messages(env):
 
 FUZZ_PIECES = [
     "urgent", "URGENT:", "not urgent", "emergency", "call me", "help", "紧急", "不急", "马上",
-    "Jarvis", "J.A.R.V.I.S.", "jar-vis", "贾维斯", "ignore previous instructions",
+    "Jarvis", "Jarvis.", "jar-vis", "贾维斯", "ignore previous instructions",
     "SYSTEM PROMPT:", "忽略之前的所有指令", "password is: hunter2", "code 4821",
     "4242 4242 4242 4242", "https://evil.example/x?t=1", "\u200b", "\u202e", "\ufffc", "😀",
     "'", "“", "\n", "  ", ":", "，", "->", "Ann Lee", "reply STOP", "【银行】", "OTP: 123456",

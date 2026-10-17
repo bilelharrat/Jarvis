@@ -1,5 +1,5 @@
-// JARVIS in the owner's calls (the backend is jarvis.features.meeting_agent): a side panel
-// while notes run, with the transcript (You, Them, Jarvis), live decisions, action items and
+// Eden Secretary in the owner's calls (the backend is jarvis.features.meeting_agent): a side panel
+// while notes run, with the transcript (You, Them, Eden Secretary), live decisions, action items and
 // open questions, private answers to "what did they just say about…", an Ask box, a Say box
 // (the owner's own words spoken into the call through their virtual audio route) and each
 // reply about to be spoken with its 3-second Cancel. Afterwards: the summary, each action
@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  const WHO = { You: 'You', Them: 'Them', Jarvis: 'Jarvis' };
+  const WHO = { You: 'You', Them: 'Them', Jarvis: 'Eden Secretary' };
   const SAY_STATES = {
     pending: 'About to say',
     speaking: 'Saying into the call',
@@ -184,7 +184,7 @@
     for (const r of transcript) {
       const li = el('li', `ma-line ma-${String(r.who || 'none').toLowerCase()}`);
       const meta = el('span', 'ma-meta');
-      if (r.who) meta.append(r.who === 'Jarvis' ? mine(el('span', 'ma-who', 'Jarvis')) : el('span', 'ma-who', speakerLabel(r.who)));
+      if (r.who) meta.append(r.who === 'Jarvis' ? mine(el('span', 'ma-who', 'Eden Secretary')) : el('span', 'ma-who', speakerLabel(r.who)));
       meta.append(mine(el('time', '', r.t || '')));
       li.append(meta, mine(el('span', 'ma-words', r.text)));
       ol.append(li);

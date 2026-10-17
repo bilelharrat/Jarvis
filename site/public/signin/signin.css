@@ -74,6 +74,10 @@ body {
   html { font: -apple-system-body; }
   body { font-size: 1rem; }
 }
+/* The Eden Android app (it adds .eden-android): the iPhone app's 17 px body (Dynamic Type's default), so the
+   page reads the same on both phones. */
+html.eden-android { font-size: 17px; }
+html.eden-android body { font-size: 1rem; }
 body::before {
   content: "";
   position: fixed;
@@ -186,6 +190,9 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
   backdrop-filter: blur(20px) saturate(1.8);
   box-shadow: inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--hairline), 0 1px 3px rgba(0, 0, 0, 0.06);
 }
+/* this browser's last way in: said above the buttons, and that button ringed (outside it: Apple's and Google's own looks stay) */
+.lastway { margin-top: 18px; font-size: 0.9em; color: var(--text2); }
+.way.last { outline: 2px solid var(--accent); outline-offset: 3px; }
 .or {
   display: flex;
   align-items: center;
@@ -258,6 +265,9 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
 .button.ghost { color: var(--accent); background: var(--accent-soft); }
 .button:hover { filter: brightness(1.06); }
 .card > p > .button { margin-top: 20px; }
+/* the new-account question (session.js choicePage): its two answers, one under the other */
+.choice .lead + .lead { margin-top: 10px; }
+.choice form .button { margin-top: 10px; }
 
 .fine, .legal-links { font-size: 0.8em; color: var(--text3); overflow-wrap: break-word; hyphens: auto; text-wrap: pretty; }
 .fine { margin-top: 24px; }

@@ -87,7 +87,7 @@ test('the session and zoom kept are read defensively; reopening tabs is on unles
   assert.equal(clean({ restore: false }).restore, false);
   assert.equal(clean({ restore: 'no' }).restore, true);
   assert.equal(clean({ agentProfile: true }).agentProfile, true);
-  assert.equal(clean({ agentProfile: 'yes' }).agentProfile, false, 'JARVIS browses signed out only when turned on');
+  assert.equal(clean({ agentProfile: 'yes' }).agentProfile, false, 'Eden Secretary browses signed out only when turned on');
   assert.deepEqual(cleanZoom({ 'a.example': 1.25, 'b.example': 1, 'c.example': 99, 'd.example': 'big', '': 2 }), { 'a.example': 1.25 });
   assert.deepEqual(cleanSession({ tabs: [
     { url: 'https://a.example/', title: 'A', pinned: true, entries: [{ url: 'https://a.example/', title: 'A' }], index: 7 },

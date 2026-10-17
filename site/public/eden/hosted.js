@@ -18,6 +18,12 @@ function svgIcon() {
 
 const money = (n) => (typeof n === 'number' ? `$${n.toFixed(2)}` : '');
 
+// The account the last page here was signed in to (web/chat state.js, `jchat:account`): its chats are drawn at once
+// on the next load. Signed out, it goes, so the next person to sign in here doesn't see them.
+function forgetChatsOwner() {
+  try { localStorage.removeItem('jchat:account'); } catch { /* storage blocked */ }
+}
+
 function describe(session) {
   if (!session) return 'Signed in to askeden.com';
   const u = session.usage || {};
@@ -30,6 +36,14 @@ async function signOut() {
   // In the Mac or iPhone app it's an app, not "this browser".
   const inApp = document.documentElement.classList.contains('eden-desktop') || document.documentElement.classList.contains('eden-app');
   if (!window.confirm(inApp ? 'Sign out of Eden?' : 'Sign this browser out of Eden?')) return;
+  // Nothing of this account is left for whoever signs in here next, as with the account page's sign-outs (sync.js
+  // forgetAllKeys): the next page's first paint listed this account's chats, openable, until askeden.com said who it was.
+  forgetChatsOwner();
+  try {
+    await Promise.race([import('./sync.js').then((m) => m.forgetAllKeys()), new Promise((done) => setTimeout(done, 2000))]);
+  } catch {
+    // no end-to-end keys here (or no sync.js on this page): signing out goes on
+  }
   try {
     await fetch('/api/web/signout', { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: '{}' });
   } finally {
@@ -59,6 +73,7 @@ async function main() {
   try {
     const res = await fetch('/api/web/session', { headers: { 'X-Jarvis-Chat': '1' }, cache: 'no-store' });
     if (res.status === 401) {
+      forgetChatsOwner();
       location.replace('/'); // signed out elsewhere (the app, or the 30 days ran out)
       return;
     }
@@ -67,6 +82,20 @@ async function main() {
     // offline: the page says so itself
   }
   mount(session);
+}
+
+// Errors in this browser, for the owner's dashboard (stats/stats.js clientError): the message and the page, nothing typed.
+{
+  let sent = 0;
+  const report = (message) => {
+    if (!message || sent >= 5) return;
+    sent += 1;
+    try {
+      navigator.sendBeacon('/api/stats/error', new Blob([JSON.stringify({ message: String(message).slice(0, 300), page: location.pathname })], { type: 'application/json' }));
+    } catch {}
+  };
+  addEventListener('error', (e) => report(e.error && e.error.stack ? e.error.stack.split('\n').slice(0, 3).join(' | ') : e.message));
+  addEventListener('unhandledrejection', (e) => report(`Unhandled: ${(e.reason && (e.reason.stack || e.reason.message)) || e.reason}`));
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', main, { once: true });

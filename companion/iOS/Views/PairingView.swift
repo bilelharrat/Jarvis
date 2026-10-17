@@ -46,14 +46,14 @@ struct PairingView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Scan the Pairing Code")
                                     .foregroundStyle(Palette.ink)
-                                Text("Jarvis Settings › iPhone & Watch on your Mac")
+                                Text("Eden Secretary Settings › iPhone & Watch on your Mac")
                                     .font(.footnote)
                                     .foregroundStyle(Palette.muted)
                             }
                         }
                     }
                     .disabled(working)
-                    .accessibilityHint("Opens the camera. The code is in Jarvis Settings, iPhone and Watch, on your Mac.")
+                    .accessibilityHint("Opens the camera. The code is in Eden Secretary Settings, iPhone and Watch, on your Mac.")
                 } footer: {
                     Text("The quickest way: the code carries your Mac’s address, a one-time code and its certificate.")
                 }
@@ -69,7 +69,7 @@ struct PairingView: View {
                 } header: {
                     Text("Or Pair by Hand")
                 } footer: {
-                    Text("On your Mac, open Jarvis Settings › iPhone & Watch and turn on “Let my phone connect”. Its addresses are listed there.")
+                    Text("On your Mac, open Eden Secretary Settings › iPhone & Watch and turn on “Let my phone connect”. Its addresses are listed there.")
                 }
 
                 Section {
@@ -226,7 +226,7 @@ struct PairingView: View {
             } else {
                 ProgressView()
                     .frame(width: 29)
-                Text("Looking for Jarvis on your network…")
+                Text("Looking for Eden Secretary on your network…")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
             }
@@ -261,8 +261,8 @@ struct PairingView: View {
                         .foregroundStyle(warn ? Palette.amber : Palette.ink)
                 }
                 Text(warn
-                    ? "This isn’t the fingerprint the Mac announced on the network. Pair only if it matches the one in Jarvis Settings on your Mac."
-                    : "Check it matches the fingerprint in Jarvis Settings › iPhone & Watch on your Mac, then pair.")
+                    ? "This isn’t the fingerprint the Mac announced on the network. Pair only if it matches the one in Eden Secretary Settings on your Mac."
+                    : "Check it matches the fingerprint in Eden Secretary Settings › iPhone & Watch on your Mac, then pair.")
                     .font(.footnote)
                     .foregroundStyle(warn ? Palette.amber : Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -334,10 +334,10 @@ struct PairingView: View {
     private static let failureID = "pairing-failure"
     private static let pairID = "pair-button"
 
-    /// "J.A.R.V.I.S. on Tony-MacBook-Pro" → "Tony-MacBook-Pro" (display only; the whole
+    /// "Eden Secretary on Tony-MacBook-Pro" → "Tony-MacBook-Pro" (display only; the whole
     /// name stays the row's VoiceOver label).
     private static func shortName(_ name: String) -> String {
-        let prefix = "J.A.R.V.I.S. on "
+        let prefix = "Eden Secretary on "
         guard name.hasPrefix(prefix), name.count > prefix.count else { return name }
         return String(name.dropFirst(prefix.count))
     }

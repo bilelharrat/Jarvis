@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The app: Jarvis (the conversation), Today (what's going on), Code (Eden Code on the
+/// The app: Eden Secretary (the conversation), Today (what's going on), Code (Eden Code on the
 /// Mac) and Library (everything else), in the system tab bar.
 struct MainTabs: View {
     @Environment(AppModel.self) private var model
@@ -16,7 +16,7 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Jarvis", systemImage: "sparkle", value: AppTab.jarvis) {
+            Tab("Eden Secretary", systemImage: "sparkle", value: AppTab.jarvis) {
                 JarvisView(showSettings: $showSettings, showOutbox: $showOutbox)
             }
             Tab("Today", systemImage: "sun.horizon", value: AppTab.today) {

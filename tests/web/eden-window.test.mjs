@@ -1,5 +1,5 @@
 // "Ask Eden" on a global shortcut (app/features/eden-window.js) with a stand-in Electron: off
-// until switched on, ⌃⌥Space by default, never one of JARVIS's own or macOS's keys, the small
+// until switched on, ⌃⌥Space by default, never one of Eden Secretary's own or macOS's keys, the small
 // window on Eden on this Mac or askeden.com. node --test tests/web/
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -123,7 +123,7 @@ test('askeden.com when Eden isn’t running on this Mac; other sites open in the
   assert.deepEqual(win.loaded, [eden.HOSTED, eden.LOCAL]);
 });
 
-test('new keys: never JARVIS’s own, macOS’s or a bare letter; another app’s keeps the old ones', () => {
+test('new keys: never Eden Secretary’s own, macOS’s or a bare letter; another app’s keeps the old ones', () => {
   const t = fake();
   const keys = t.electron.globalShortcut;
   keys.register('Alt+Space', () => {}); // Talk (shell.js)
@@ -160,7 +160,7 @@ test('kept for the next launch, and out of the way while Settings records a shor
   assert.deepEqual(eden.normalize({ on: 'yes', accelerator: 'Command+Tab' }), { on: false, accelerator: eden.DEFAULT_KEYS });
 });
 
-test('Eden’s browser panel: Jarvis’s own browser docked in the window, asked for by Eden’s page only', async () => {
+test('Eden’s browser panel: Eden Secretary’s own browser docked in the window, asked for by Eden’s page only', async () => {
   const t = fake();
   const calls = [];
   t.ctx.browserDock = {

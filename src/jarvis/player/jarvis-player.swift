@@ -1,4 +1,4 @@
-// jarvis-player: plays JARVIS's voice as it arrives.
+// jarvis-player: plays Eden Secretary's voice as it arrives.
 //
 //   jarvis-player <sample-rate> [--effect]           one clip: raw 16-bit LE mono PCM on
 //                                                    stdin until EOF, then exit

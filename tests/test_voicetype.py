@@ -32,7 +32,7 @@ from jarvis import hub as hub_module
         ("take dictation", ("start", "")),
         ("type what I say", ("start", "")),
         ("help me write by talking", ("start", "")),
-        ("write an email to Pepper", None),  # a request for JARVIS, not words to type
+        ("write an email to Pepper", None),  # a request for Jarvis, not words to type
         ("what's the weather", None),
         ("type", None),
     ],
@@ -158,7 +158,7 @@ async def test_no_accessibility_says_so_and_stops(settings, quiet_speaker, isola
 async def test_jarvis_can_turn_it_on_however_it_was_asked(
     settings, quiet_speaker, isolated, keyboard
 ):
-    """ "Jarvis, I'm trying to write with you" goes to JARVIS, whose voice_typing tool
+    """ "Jarvis, I'm trying to write with you" goes to Jarvis, whose voice_typing tool
     (window_apply) turns it on, but only while hands-free is listening."""
     from jarvis import ui
 

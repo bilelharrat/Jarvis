@@ -1,0 +1,58 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Eden Code, mockup A: Navy Night</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#0b0e13;--ink:#f4f5f7;--ink2:rgba(244,245,247,.72);--muted:rgba(244,245,247,.6);--line:rgba(255,255,255,.09);--glass:rgba(255,255,255,.04);--rim:rgba(255,255,255,.16);--blue:#3d9bff;--blue2:#1e6fe0;--navy:#0E2747;--coral:#ef7b6c;--serif:'Fraunces',Georgia,serif;--sans:'Instrument Sans',-apple-system,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 17px/1.55 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body:before{content:"";position:fixed;inset:-20vh -20vw auto;height:120vh;z-index:-1;background:radial-gradient(ellipse 40% 34% at 34% 22%,rgba(61,155,255,.18),transparent 70%),radial-gradient(ellipse 36% 30% at 68% 26%,rgba(120,150,220,.12),transparent 70%)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}a{color:inherit;text-decoration:none}
+header{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600}.brand img{width:34px;height:34px;border-radius:9px}
+nav{display:flex;align-items:center;gap:24px;font-size:15px;color:var(--ink2)}
+.pill{padding:8px 16px;border-radius:999px;color:var(--ink);font-weight:600;font-size:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);box-shadow:inset 0 1px 0 var(--rim)}
+.hero{text-align:center;padding:56px 0 36px}.hero .icon{width:96px;height:96px;border-radius:24px;box-shadow:0 24px 60px -18px rgba(61,155,255,.55)}
+.eyebrow{margin:20px 0 14px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+h1{margin:0;font:300 clamp(40px,7vw,78px)/1.04 var(--serif);letter-spacing:-.02em}h1 em{font-style:italic;color:#8cc8ff}
+.lede{max-width:640px;margin:22px auto 0;color:var(--ink2);font-size:20px}
+.cta{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:30px}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:15px 26px;border-radius:999px;font-weight:600;font-size:17px}
+.btn.white{background:var(--ink);color:var(--navy);box-shadow:0 12px 30px -12px rgba(0,0,0,.6),inset 0 1px 0 #fff}
+.btn.ghost{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05)}
+.fine{color:var(--muted);font-size:14px;margin-top:14px}
+/* film frame */
+.film{position:relative;border-radius:22px;border:1px solid var(--navy-line,rgba(140,170,220,.2));background:linear-gradient(180deg,#0f2342,#0a1830);box-shadow:0 50px 100px -40px rgba(61,155,255,.45),inset 0 1px 0 var(--rim);overflow:hidden;aspect-ratio:16/9}
+.bar{display:flex;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line)}.bar i{width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.18)}
+.code{padding:20px 26px;font:13.5px/1.9 ui-monospace,Menlo,monospace;color:#b8c7e0}.code .add{color:#7ee0a0;background:rgba(80,200,120,.1);display:block;padding:0 8px;border-radius:4px}.code .del{color:#f09a9a;background:rgba(240,120,120,.09);display:block;padding:0 8px;border-radius:4px}.code .c{color:#6c7f9f;display:block}
+.play{position:absolute;left:50%;top:56%;transform:translate(-50%,-50%);width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);backdrop-filter:blur(14px);display:grid;place-items:center}.play:after{content:"";margin-left:6px;border-left:20px solid #fff;border-top:12px solid transparent;border-bottom:12px solid transparent}
+.tag{position:absolute;left:18px;bottom:16px;font-size:13px;color:var(--ink2);background:rgba(0,0,0,.35);padding:5px 12px;border-radius:99px;backdrop-filter:blur(8px)}
+.hero .film{max-width:960px;margin:44px auto 0;text-align:left}
+section{padding:72px 0 8px}
+.row{display:grid;grid-template-columns:1fr 1.25fr;gap:56px;align-items:center;margin-bottom:76px}.row.flip{grid-template-columns:1.25fr 1fr}.row.flip .txt{order:2}
+.kicker{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#8cc8ff;margin:0 0 10px}
+h2{margin:0 0 12px;font:400 clamp(30px,4vw,42px)/1.12 var(--serif);letter-spacing:-.01em}.txt p{color:var(--ink2);margin:0}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{padding:26px;border-radius:20px;background:rgba(14,39,71,.32);border:1px solid rgba(140,170,220,.16)}.card h3{margin:0 0 6px;font-size:17px}.card p{margin:0;color:var(--ink2);font-size:15px}
+.band{margin:56px 0;padding:44px;border-radius:26px;background:linear-gradient(180deg,rgba(14,39,71,.65),rgba(14,39,71,.25));border:1px solid rgba(140,170,220,.2);display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap}
+.band h2{margin:0 0 6px}.band p{margin:0;color:var(--ink2)}
+footer{border-top:1px solid var(--line);padding:26px 0 40px;color:var(--muted);font-size:14px;display:flex;flex-wrap:wrap;gap:12px 24px;justify-content:space-between}
+@media(max-width:860px){.row,.row.flip{grid-template-columns:1fr;gap:24px}.row.flip .txt{order:0}.cards{grid-template-columns:1fr}nav a:not(.pill){display:none}}
+</style></head><body><div class="wrap">
+<header><a class="brand" href="#"><img src="eden-code.png" alt="">Eden Code</a><nav><a href="#films">Films</a><a href="#why">Why Eden Code</a><a href="#get">Download</a><a class="pill" href="#get">Get Eden Code</a></nav></header>
+<div class="hero">
+ <img class="icon" src="eden-code.png" alt="">
+ <p class="eyebrow">Eden Code · for Mac and Windows</p>
+ <h1>Describe the work.<br><em>Watch it get done.</em></h1>
+ <p class="lede">Eden Code plans, edits, runs and tests in your own project, and shows you every change before it lands.</p>
+ <div class="cta"><a class="btn white" href="#get">Download for Mac</a><a class="btn white" href="#get">Download for Windows</a><a class="btn ghost" href="#films">Watch the films</a></div>
+ <p class="fine">Free to try · Runs on your machine · Your code is never used to train models</p>
+ <div class="film"><div class="bar"><i></i><i></i><i></i></div><div class="code"><span class="c">// Add a rate limiter to the signup route</span><span class="del">- app.post("/signup", handler)</span><span class="add">+ app.post("/signup", rateLimit({ max: 5 }), handler)</span><span class="add">+ // 429 after 5 tries per minute, per address</span><span class="c">Tests: 14 passed · Checkpoint saved</span></div><div class="play"></div><span class="tag">The 40-second tour</span></div>
+</div>
+<section id="films">
+ <div class="row"><div class="txt"><p class="kicker">Plan first</p><h2>Agree on the plan, then it builds.</h2><p>Plan mode lays out the steps before a single file changes. Approve it, tweak it, or send it back.</p></div><div class="film"><div class="bar"><i></i><i></i><i></i></div><div class="code"><span class="c">Plan</span>1. Add rateLimit middleware<br>2. Wire it into /signup<br>3. Write two tests<span class="add">Approve and build</span></div><div class="play"></div><span class="tag">Film 1 · 24 s</span></div></div>
+ <div class="row flip"><div class="txt"><p class="kicker">Review every change</p><h2>Hunk by hunk, with your comments.</h2><p>See each edit as a diff, comment on a line, and open a pull request with CI watched and fixed for you.</p></div><div class="film"><div class="bar"><i></i><i></i><i></i></div><div class="code"><span class="del">- const limit = 100</span><span class="add">+ const limit = 5</span><span class="c">💬 “Why 5? Make it a setting.”</span></div><div class="play"></div><span class="tag">Film 2 · 22 s</span></div></div>
+ <div class="row"><div class="txt"><p class="kicker">Sees its own work</p><h2>Starts your app and looks at it.</h2><p>Eden Code runs your dev server and checks the page in its own browser after each change.</p></div><div class="film"><div class="bar"><i></i><i></i><i></i></div><div class="code"><span class="c">Preview · localhost:3000</span>Sign-up form · 6th try<span class="del">429 Too many requests ✓</span></div><div class="play"></div><span class="tag">Film 3 · 23 s</span></div></div>
+ <div class="row flip"><div class="txt"><p class="kicker">Rewind anything</p><h2>Every step is a checkpoint.</h2><p>Don’t like where it went? Rewind the code, the conversation, or both, in one click.</p></div><div class="film"><div class="bar"><i></i><i></i><i></i></div><div class="code"><span class="c">Checkpoints</span>● 4 · Added tests<br>● 3 · Wired route<br>○ 2 · Plan approved<span class="add">Rewind to 2</span></div><div class="play"></div><span class="tag">Film 4 · 20 s</span></div></div>
+</section>
+<section id="why"><div class="cards"><div class="card"><h3>Runs on your machine</h3><p>Your files stay local. Only what a request needs goes to the model.</p></div><div class="card"><h3>Every model, one place</h3><p>Eden picks the right model for each step, or you choose.</p></div><div class="card"><h3>Eden Secretary included</h3><p>Say “Eden Secretary, let’s code” and it opens on the same sessions.</p></div></div></section>
+<div class="band" id="get"><div><h2>Get Eden Code</h2><p>Mac and Windows. The Windows app is a beta and isn’t signed yet.</p></div><div class="cta" style="margin:0"><a class="btn white" href="#">Download for Mac</a><a class="btn white" href="#">Download for Windows</a></div></div>
+<footer><span>© Harrat Global Holdings, Inc.</span><span><a href="#">Part of Eden</a> · <a href="#">Eden Secretary</a> · <a href="#">Eden for Education</a> · <a href="#">Privacy</a> · <a href="#">Terms</a></span></footer>
+</div></body></html>

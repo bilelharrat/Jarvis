@@ -86,7 +86,7 @@ test('signed out, / is Eden\'s front page (its own CSP, only the language script
   const home = await hit('/');
   assert.equal(home.status, 200);
   assert.deepEqual(env.assets, ['/home/']);
-  assert.match(home.headers.get('content-security-policy'), /^default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;/);
+  assert.match(home.headers.get('content-security-policy'), /^default-src 'none'; script-src 'self'; style-src 'self' https:\/\/fonts\.googleapis\.com; font-src https:\/\/fonts\.gstatic\.com; img-src 'self' data:;/);
   assert.equal(home.headers.get('cache-control'), 'no-store');
   assert.equal(home.headers.get('vary'), 'cookie');
   assert.equal(home.headers.get('x-frame-options'), 'DENY');
@@ -330,6 +330,79 @@ test('Eden Code\'s site: /eden-code serves it (fonts allowed, no inline script);
   assert.match(read('public/jarvis/index.html'), /<a href="\/eden-code">Eden Code<\/a>/);
 });
 
+test('Eden Secretary and Eden Daredevil at their own names: SECRETARY_HOST and DAREDEVIL_HOST make edensecretary.com and edendaredevil.com the fronts; askedensecretary.com forwards; unset, the names are doorways to askeden.com', async () => {
+  // unset: doorways
+  for (const host of ['edensecretary.com', 'www.edensecretary.com', 'askedensecretary.com', 'www.askedensecretary.com']) {
+    const door = await worker.fetch(new Request(`https://${host}/x`), env, {});
+    assert.equal(door.status, 301, host);
+    assert.equal(door.headers.get('location'), 'https://askeden.com/eden-secretary', host);
+  }
+  for (const host of ['edendaredevil.com', 'www.edendaredevil.com']) {
+    const door = await worker.fetch(new Request(`https://${host}/x`), env, {});
+    assert.equal(door.status, 301, host);
+    assert.equal(door.headers.get('location'), 'https://askeden.com/daredevil', host);
+  }
+  const page = await worker.fetch(new Request(`${ORIGIN}/eden-secretary`), env, {});
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), 'asset /eden-secretary-home/');
+  assert.doesNotMatch(page.headers.get('content-security-policy'), /unsafe-inline/);
+  // set
+  const on = { ...env, SECRETARY_HOST: 'edensecretary.com', DAREDEVIL_HOST: 'edendaredevil.com' };
+  const front = await worker.fetch(new Request('https://edensecretary.com/'), on, {});
+  assert.equal(front.status, 200);
+  assert.equal(await front.text(), 'asset /eden-secretary-home/');
+  const cases = [
+    ['https://askedensecretary.com/', 'https://edensecretary.com/'], ['https://www.askedensecretary.com/x?y=1', 'https://edensecretary.com/x?y=1'],
+    ['https://www.edensecretary.com/', 'https://edensecretary.com/'], ['https://askeden.com/eden-secretary', 'https://edensecretary.com/'],
+    ['https://askeden.com/daredevil', 'https://edendaredevil.com/'], ['https://www.edendaredevil.com/', 'https://edendaredevil.com/'],
+  ];
+  for (const [from, to] of cases) {
+    const fwd = await worker.fetch(new Request(from), on, {});
+    assert.equal(fwd.status, 301, from);
+    assert.equal(fwd.headers.get('location'), to, from);
+  }
+  const dare = await worker.fetch(new Request('https://edendaredevil.com/'), on, {});
+  assert.equal(dare.status, 200);
+  assert.equal(await dare.text(), 'asset /daredevil/');
+  for (const [host, p] of [['edensecretary.com', '/jarvis/windows'], ['edendaredevil.com', '/daredevil/windows']]) {
+    const dl = await worker.fetch(new Request(`https://${host}${p}`), on, {});
+    assert.notEqual(dl.status, 301, p);
+  }
+  const html = read('public/eden-secretary-home/index.html');
+  assert.doesNotMatch(html, /<script|style=|onclick=/);
+  assert.match(html, /href="\/jarvis\/download"/);
+  assert.match(html, /href="\/jarvis\/windows"/);
+  assert.doesNotMatch(html, /J\.A\.R\.V\.I\.S/);   // only the download paths (/jarvis/download, /jarvis/windows) keep the old word
+  assert.match(read('public/jarvis/index.html'), /<a href="\/eden-secretary">Eden Secretary<\/a>/);
+});
+
+test('EVES has its own site: /eves serves it; EVES_HOST makes evesverification.com its front and edenverification.com forwards; unset, the names are doorways to the accuracy page', async () => {
+  const go = async (u, e) => {
+    const r = await worker.fetch(new Request(u, { redirect: 'manual' }), e, {});
+    return [r.status, r.headers.get('location')];
+  };
+  for (const host of ['evesverification.com', 'www.evesverification.com', 'edenverification.com', 'www.edenverification.com']) assert.deepEqual(await go(`https://${host}/`, env), [301, 'https://askeden.com/accuracy'], host);
+  const pg = await worker.fetch(new Request(`${ORIGIN}/eves`), env, {});
+  assert.equal(pg.status, 200);
+  assert.equal(await pg.text(), 'asset /eves-home/');
+  assert.match(pg.headers.get('content-security-policy'), /media-src 'self'/);
+  assert.doesNotMatch(pg.headers.get('content-security-policy'), /unsafe-inline/);
+  const on = { ...env, EVES_HOST: 'evesverification.com' };
+  const front = await worker.fetch(new Request('https://evesverification.com/'), on, {});
+  assert.equal(await front.text(), 'asset /eves-home/');
+  for (const [from, to] of [['https://edenverification.com/x?y=1', 'https://evesverification.com/x?y=1'], ['https://www.evesverification.com/', 'https://evesverification.com/'], ['https://askeden.com/eves', 'https://evesverification.com/']]) assert.deepEqual(await go(from, on), [301, to], from);
+  const html = read('public/eves-home/index.html');
+  assert.doesNotMatch(html, OTHER_SCRIPT);
+  assert.doesNotMatch(html, /style=|onclick=|\$\d/);
+  // the numbers are the accuracy page's (the same 432 questions), with the limits next to them
+  const acc = read('public/accuracy/index.html');
+  for (const n of ['9.7%', '18.3%', '21.8%', '24.5%', '7.3%–12.9%', '14.9%–22.2%', '18.1%–25.9%', '20.7%–28.8%', '20.6%', '69.7%']) { assert.ok(html.includes(n), n); }
+  assert.ok(acc.includes('9.7%') && acc.includes('24.5%'));
+  assert.match(html, /EVES declines more often/);
+  assert.match(html, /doesn’t show that EVES beats one/);
+  assert.match(html, /answered from memory/);
+});
+
 test('askeden.ai and www.askeden.ai forward to askeden.com, keeping path and query', async () => {
   for (const host of ['askeden.ai', 'www.askeden.ai']) {
     const out = await worker.fetch(new Request(`https://${host}/edu?x=1`), env, {});
@@ -479,4 +552,92 @@ test('the front page\'s accuracy section: the chart is a film (walk-7) with the 
     assert.match(read(f), /<polyline[^>]*stroke="#fff"/, f);
   }
   assert.match(read('public/accuracy/accuracy.css'), /\.row\.eden \.name::before\{[^}]*url\(\/jarvis\/eves-pill\.svg\)/);
+});
+
+test('the protective names are doorways: askeden.net/.org and the router names to askeden.com, the Eden Code names to Eden Code, evesverification.com to the accuracy page', async () => {
+  const go = async (u, e = env) => {
+    const r = await worker.fetch(new Request(u, { redirect: 'manual' }), e, {});
+    return [r.status, r.headers.get('location')];
+  };
+  for (const [from, to] of [
+    ['https://askeden.net/', 'https://askeden.com/'], ['https://www.askeden.org/x?y=1', 'https://askeden.com/x?y=1'],
+    ['https://edencode.dev/?q=1', 'https://askeden.com/eden-code?q=1'], ['https://www.edencode.app/', 'https://askeden.com/eden-code'],
+    ['https://codewitheden.com/', 'https://askeden.com/eden-code'],
+    ['https://evesverification.com/', 'https://askeden.com/accuracy'], ['https://www.evesverification.com/x', 'https://askeden.com/accuracy'],
+  ]) assert.deepEqual(await go(from, { ...env, CODE_HOST: '' }), [301, to], from);
+  assert.deepEqual(await go('https://edencode.dev/?q=1', { ...env, CODE_HOST: 'askedencode.com' }), [301, 'https://askedencode.com/?q=1']);
+});
+
+test('Eden Router has its own site: ROUTER_HOST makes edenrouter.com the front, askedenrouter.com forwards, /router is public, and unset the names are doorways', async () => {
+  const go = async (u, e) => {
+    const r = await worker.fetch(new Request(u, { redirect: 'manual' }), e, {});
+    return [r.status, r.headers.get('location')];
+  };
+  for (const host of ['edenrouter.com', 'www.edenrouter.com', 'askedenrouter.com', 'www.askedenrouter.com']) assert.deepEqual(await go(`https://${host}/`, env), [301, 'https://askeden.com/'], host);
+  const on = { ...env, ROUTER_HOST: 'edenrouter.com' };
+  assert.deepEqual(await go('https://askedenrouter.com/x?y=1', on), [301, 'https://edenrouter.com/x?y=1']);
+  assert.deepEqual(await go('https://www.edenrouter.com/', on), [301, 'https://edenrouter.com/']);
+  for (const [u, e] of [['https://edenrouter.com/', on], [`${ORIGIN}/router`, on]]) {
+    const r = await worker.fetch(new Request(u), e, {});
+    assert.equal(r.status, 200, u);
+    assert.equal(env.assets.at(-1), '/router/', u);
+  }
+  const html = read('public/router/index.html'); // the page itself: no script, no inline style (HOME_CSP)
+  assert.match(html, /Eden Router/);
+  assert.match(html, /href="\/router\/router\.css"/);
+  assert.doesNotMatch(html, /<script(?![^>]*src="\/(router\/router|home\/features)\.js")|style="/);   // the page's own script and the films' player
+  assert.match(html, /src="\/router\/film\.mp4" poster="\/router\/film\.jpg" width="1280" height="720" controls muted loop playsinline preload="none"/);
+  assert.doesNotMatch(html, / autoplay/);
+  for (const f of ['film.mp4', 'film.jpg']) assert.ok(fs.statSync(path.join(SITE, `public/router/${f}`)).size > 10_000 && fs.statSync(path.join(SITE, `public/router/${f}`)).size < 25 * 1024 * 1024, f);
+  assert.ok(fs.readFileSync(path.join(SITE, 'public/router/film.mp4')).subarray(0, 262144).includes('moov'), 'film.mp4: the index must be at the start');
+  const range = await worker.fetch(new Request(`${ORIGIN}/router/film.mp4`, { headers: { range: 'bytes=0-4' } }), on, {});
+  assert.equal(range.status, 206);
+  const css = await worker.fetch(new Request(`${ORIGIN}/router/router.css`), on, {});
+  assert.equal(css.status, 200);
+});
+
+test('Eden Router\'s page is held: without ROUTER_HOST /router is not served', async () => {
+  const r = await worker.fetch(new Request(`${ORIGIN}/router`), env, {});
+  assert.notEqual(env.assets.at(-1), '/router/');
+  assert.notEqual(r.status, 200);
+});
+
+test('Eden Mail: /mail is its page signed out and the app signed in; MAIL_HOST puts the page at askedenmail.com and forwards the rest', async () => {
+  const out = await worker.fetch(new Request(`${ORIGIN}/mail`), env, {});
+  assert.equal(out.status, 200);
+  assert.equal(await out.text(), 'asset /mail-home/');
+  assert.match(out.headers.get('content-security-policy'), /script-src 'self'/);
+  const cookie = await signedIn();
+  const app = await worker.fetch(new Request(`${ORIGIN}/mail`, { headers: { cookie: `__Host-eden=${cookie}` } }), env, {});
+  assert.equal(await app.text(), 'asset /eden/');
+  for (const f of ['mail-home.css', 'icon.png', 'mail-logo.svg']) assert.equal((await worker.fetch(new Request(`${ORIGIN}/mail-home/${f}`), env, {})).status, 200, f);
+  // unset: askedenmail.com is a doorway to askeden.com/mail
+  const door = await worker.fetch(new Request('https://www.askedenmail.com/anything'), env, {});
+  assert.equal(door.status, 301);
+  assert.equal(door.headers.get('location'), 'https://askeden.com/mail');
+  const on = { ...env, MAIL_HOST: 'askedenmail.com' };
+  const front = await worker.fetch(new Request('https://askedenmail.com/'), on, {});
+  assert.equal(front.status, 200);
+  assert.equal(await front.text(), 'asset /mail-home/');
+  // signed in or not, askedenmail.com's front is the page (its cookie is askeden.com's)
+  assert.equal(await (await worker.fetch(new Request('https://askedenmail.com/', { headers: { cookie: `__Host-eden=${cookie}` } }), on, {})).text(), 'asset /mail-home/');
+  assert.equal((await worker.fetch(new Request('https://askedenmail.com/mail-home/mail-home.css'), on, {})).status, 200);
+  const cases = [['https://www.askedenmail.com/', 'https://askedenmail.com/'], ['https://askedenmail.com/signin?return=%2Fmail', 'https://askeden.com/signin?return=%2Fmail'], ['https://askedenmail.com/privacy', 'https://askeden.com/privacy']];
+  for (const [from, to] of cases) {
+    const res = await worker.fetch(new Request(from), on, {});
+    assert.equal(res.status, 301, from);
+    assert.equal(res.headers.get('location'), to, from);
+  }
+  const page = read('public/mail-home/index.html');
+  assert.match(page, /href="https:\/\/askeden\.com\/signin\?return=%2Fmail"/);
+  assert.doesNotMatch(page, /<script/);
+  // signed in, /mail is Mail alone: no chat, sidebar or inspector around it, and it can't be closed (askeden web/chat)
+  assert.match(read('public/eden/util.js'), /export const MAIL_ONLY = [^\n]*location\.pathname === '\/mail'/);
+  assert.match(read('public/eden/mail.css'), /html\.mail-only #app[^{]*\{display:none!important\}/);
+  assert.match(read('public/eden/panels.js'), /if \(mailOnly && openKey === 'mail'\) return false;/);
+  // and at /mail its API is the site's (/api/chat/…), not /mail/api/… (which answers with a page: "Unexpected token '<'")
+  const root = (p) => p.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '').replace(/^\/mail$/, '').replace(/\/$/, '');
+  assert.ok(read('public/eden/api.js').includes(".replace(/^\\/mail$/, '')"));
+  assert.equal(root('/mail'), '');
+  assert.equal(root('/'), '');
 });

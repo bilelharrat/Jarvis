@@ -2,7 +2,7 @@
 // in each tab) against a local test page, in a real Chromium: snapshots across frames and
 // shadow DOM, acting by ref with real input, waits, stale refs, a covered button, a tab
 // behind the one on show. No window is ever shown (a hidden one holds the tabs, which is
-// also how a covered J.A.R.V.I.S. window looks to Chromium); nothing leaves 127.0.0.1.
+// also how a covered Eden Secretary window looks to Chromium); nothing leaves 127.0.0.1.
 //
 //   app/node_modules/.bin/electron tests/web/browser.e2e.cjs      (about 20 s; exit 1 on a failure)
 'use strict';

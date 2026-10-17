@@ -9,6 +9,7 @@ import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { CLAUDE_NEEDS_KEY, DEFAULT_MODEL, KEYS_SETTINGS, defaultModel, devProviderBase, modelOf, providerKey, testOnlyServiceClaude, usageUSD } from '../src/eden/providers.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, readEvents, sseBody } from './fakes.js';
+import { DEFAULTS } from '../src/eden/chat.js';
 
 const PROVIDER_URLS = [
   ['anthropic', /^https:\/\/api\.anthropic\.com\/v1\/messages$/],
@@ -158,8 +159,8 @@ test('the candidate set follows the keys: meta lists every keyed provider’s mo
   assert.deepEqual(meta.providers.map((p) => [p.id, p.available]), [['anthropic', true], ['openai', true], ['gemini', true], ['kimi', true]]);
   assert.deepEqual(new Set(meta.models.map((m) => m.provider)), new Set(['anthropic', 'openai', 'gemini', 'kimi']));
   assert.ok(meta.models.every((m) => m.keySource === 'service' && !m.efforts.includes('xhigh')));
-  assert.equal(meta.models.find((m) => m.id === 'kimi-k2.7-code').vision, false);
-  assert.equal(meta.models.find((m) => m.id === 'gpt-6-sol').vision, true);
+  assert.equal(meta.models.find((m) => m.id === 'gpt-6.1-sol').vision, true);
+  assert.ok(!meta.models.some((m) => ['claude-haiku-4-5', 'kimi-k2.7-code', 'gemini-3.1-pro-preview', 'gpt-6-sol', 'gpt-6-luna'].includes(m.id)), 'retired models aren\'t offered');
   assert.equal(meta.classifier.available, true);
   assert.equal(meta.search.via, 'gemini');
   delete env.OPENAI_API_KEY;
@@ -177,7 +178,7 @@ test('each provider streams with the Mac’s code and is billed at its list pric
   const owner = await phone();
   const value = await signedInBrowser(owner);
   let spent = 0;
-  for (const [model, label] of [['gpt-6-sol', 'OpenAI cloud'], ['gemini-3.8-flash', 'Google cloud'], ['kimi-k3', 'Moonshot cloud'], ['claude-sonnet-5-5', 'Anthropic cloud']]) {
+  for (const [model, label] of [['gpt-6.1-sol', 'OpenAI cloud'], ['gemini-3.8-flash', 'Google cloud'], ['kimi-k3', 'Moonshot cloud'], ['claude-sonnet-5-5', 'Anthropic cloud']]) {
     const events = await readEvents(await turn(value, { override: { model, effort: 'max' }, settings: { level: 3, classifier: 'off' } }));
     const route = events.find((e) => e.type === 'route').data;
     assert.equal(route.where.label, label, model);
@@ -191,10 +192,10 @@ test('each provider streams with the Mac’s code and is billed at its list pric
     spent += usage.costUSD;
   }
   const [openai, gemini, kimi, claude] = calls;
-  assert.ok(openai.body.max_completion_tokens <= 16000 && openai.body.stream_options.include_usage && openai.headers.authorization === 'Bearer sk-openai-test');
-  assert.ok(gemini.body.generationConfig.maxOutputTokens <= 16000 && gemini.headers['x-goog-api-key'] === 'gm-test');
-  assert.ok(kimi.body.max_completion_tokens <= 16000 && kimi.body.reasoning_effort === 'high');
-  assert.ok(claude.body.max_tokens <= 16000);
+  assert.ok(openai.body.max_completion_tokens <= DEFAULTS.maxTokens && openai.body.stream_options.include_usage && openai.headers.authorization === 'Bearer sk-openai-test');
+  assert.ok(gemini.body.generationConfig.maxOutputTokens <= 65536 && gemini.headers['x-goog-api-key'] === 'gm-test');
+  assert.ok(kimi.body.max_completion_tokens <= 32768 && kimi.body.reasoning_effort === 'high');
+  assert.ok(claude.body.max_tokens <= DEFAULTS.maxTokens);
   assert.ok(Math.abs((await trialLeft(owner)) - (1 - spent)) < 1e-5);
   assert.equal(accountOf(owner).holds.size, 0);
 });
@@ -204,7 +205,7 @@ test('a stopped stream is held up front and billed for what it used (estimated w
   const value = await signedInBrowser(owner);
   let body;
   fake = () => sse((body = rawSse(lines([{ choices: [{ delta: { content: 'x'.repeat(300) } }] }]), { hold: true })));
-  const response = await turn(value, { override: { model: 'gpt-6-sol', effort: 'none' }, settings: { classifier: 'off' } }, { raw: true });
+  const response = await turn(value, { override: { model: 'gpt-6.1-sol', effort: 'none' }, settings: { classifier: 'off' } }, { raw: true });
   assert.equal(response.status, 200);
   assert.equal(accountOf(owner).holds.size, 1, 'the worst case is held');
   const reader = response.body.getReader();
@@ -215,7 +216,7 @@ test('a stopped stream is held up front and billed for what it used (estimated w
   assert.ok(body.wasCancelled(), 'the request to OpenAI is cancelled');
   assert.equal(accountOf(owner).holds.size, 0);
   const left = await trialLeft(owner);
-  const m = modelOf('gpt-6-sol');
+  const m = modelOf('gpt-6.1-sol');
   const floor = (100 * m.pricing.outputPer1M) / 1e6; // 300 characters → 100 tokens at least
   assert.ok(1 - left >= floor, `charged ${1 - left}`);
 });
@@ -235,11 +236,11 @@ test('a provider error before any text falls back to the router’s next choice 
 test('compare mixes providers: Claude, GPT and Gemini lanes under one hold, the cheapest summary, every stream counted', async () => {
   const owner = await phone();
   const value = await signedInBrowser(owner);
-  const lanes = [{ model: 'claude-sonnet-5-5', effort: 'low' }, { model: 'gpt-6-sol', effort: 'low' }, { model: 'gemini-3.8-flash', effort: 'low' }];
+  const lanes = [{ model: 'claude-sonnet-5-5', effort: 'low' }, { model: 'gpt-6.1-sol', effort: 'low' }, { model: 'gemini-3.8-flash', effort: 'low' }];
   const events = await readEvents(await chat('/api/chat/compare', value, { method: 'POST', body: { messages: [{ role: 'user', content: 'Is a tomato a fruit?' }], settings: { level: 3 }, models: lanes } }));
   const head = events[0].data;
   assert.deepEqual(head.lanes.map((l) => l.provider), ['anthropic', 'openai', 'gemini']);
-  assert.equal(head.synthesis.model, 'gpt-6-luna', 'the cheapest model writes the summary');
+  assert.equal(head.synthesis.model, 'gemini-3.8-flash', 'the cheapest model at or above the reasoning floor writes the summary (Luna retired 2026-10-13)');
   for (const lane of [0, 1, 2]) assert.deepEqual([...new Set(events.filter((e) => e.data.lane === lane).map((e) => e.type).filter((t) => t !== 'thinking'))], ['text', 'usage', 'done'], `lane ${lane}`);
   assert.equal(events.at(-1).type, 'end');
   const spent = events.filter((e) => e.type === 'usage').reduce((n, e) => n + e.data.costUSD, 0);
@@ -250,8 +251,14 @@ test('compare mixes providers: Claude, GPT and Gemini lanes under one hold, the 
 test('vision: images go only to vision models; a non-vision pick or provider set is refused', async () => {
   const value = await signedInBrowser(await phone());
   const image = { role: 'user', content: 'What is this?', attachments: [{ kind: 'image', mime: 'image/png', data: 'iVBORw0KGgo=' }] };
-  const kimiOnly = await turn(value, { messages: [image], override: { model: 'kimi-k2.7-code' } });
-  assert.equal(kimiOnly.status, 422);
+  // Kimi K2.7 Code, the one text-only model, was retired 2026-10-14: every model offered now reads images, and a saved
+  // pick of the retired one is routed automatically (so the image still reaches a vision model, never a 422 or a 500).
+  const meta = await (await chat('/api/chat/meta', value)).json();
+  assert.ok(meta.models.every((m) => m.vision), meta.models.filter((m) => !m.vision).map((m) => m.id).join(','));
+  const retiredPick = await turn(value, { messages: [image], override: { model: 'kimi-k2.7-code' } });
+  assert.equal(retiredPick.status, 200);
+  const picked = (await readEvents(retiredPick)).find((e) => e.type === 'route').data;
+  assert.ok(modelOf(picked.model).vision !== false, picked.model);
   const events = await readEvents(await turn(value, { messages: [image], settings: { level: 1, providers: ['kimi', 'openai'], classifier: 'off' } }));
   const route = events.find((e) => e.type === 'route').data;
   assert.ok(route.model !== 'kimi-k2.7-code' && route.model !== 'kimi-k2.7-code-highspeed', route.model);
@@ -318,4 +325,35 @@ test('With a service Anthropic key, Claude is on the included AI for everyone (u
     testOnlyServiceClaude(true);
     env.ANTHROPIC_API_KEY = keep;
   }
+});
+
+test('GPT-6 Luna is retired from askeden.com: not offered, and a saved pick of it is routed automatically instead of refused', async () => {
+  const { hostedConfig, parseSend, RETIRED_MODELS } = await import('../src/eden/chat.js');
+  const cfg = hostedConfig({});
+  assert.ok(!cfg.models.some((m) => m.id === 'gpt-6-luna'));
+  assert.ok(RETIRED_MODELS.has('gpt-6-luna'));
+  for (const f of ['wrangler.toml', 'wrangler.nor2.toml', 'wrangler.preview.toml']) {
+    const vars = (await import('node:fs')).readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').match(/^EDEN_MODELS = "([^"]*)"/m);
+    assert.ok(!vars || !vars[1].split(',').includes('gpt-6-luna'), `${f} still lists gpt-6-luna`);
+  }
+});
+
+test('Meta, Mistral and DeepSeek (added 2026-10-14) are invisible until switched on; DeepSeek is only ever used when picked', async () => {
+  const { hostedConfig } = await import('../src/eden/chat.js');
+  const { providerStates, autoModels, OPT_IN_PROVIDERS, LATER_PROVIDERS, KEY_VARS } = await import('../src/eden/providers.js');
+  const { checkModels } = await import('../src/eden/checks.js');
+  // Off (the live list): the page never names them, even with keys set.
+  const live = hostedConfig({});
+  assert.ok(!live.models.some((m) => LATER_PROVIDERS.includes(m.provider)));
+  const keys = { anthropic: null, openai: { source: 'service' }, gemini: { source: 'service' }, kimi: { source: 'service' }, meta: { source: 'service' }, mistral: { source: 'service' }, deepseek: { source: 'service' } };
+  assert.deepEqual(providerStates(keys, live).map((p) => p.id), ['anthropic', 'openai', 'gemini', 'kimi']);
+  assert.deepEqual([KEY_VARS.meta, KEY_VARS.mistral, KEY_VARS.deepseek], ['META_API_KEY', 'MISTRAL_API_KEY', 'DEEPSEEK_API_KEY']);
+  // On (after App Review): listed, and DeepSeek only when the person picks it.
+  const on = hostedConfig({ EDEN_MODELS: 'gpt-6.1-sol,gemini-3.8-flash,muse-spark-1.3,mistral-large-4,deepseek-v4.1-flash' });
+  assert.deepEqual(providerStates(keys, on).map((p) => p.id), ['anthropic', 'openai', 'gemini', 'kimi', 'meta', 'mistral', 'deepseek']);
+  assert.deepEqual(OPT_IN_PROVIDERS, ['deepseek']);
+  assert.ok(!autoModels(on.models).some((m) => m.provider === 'deepseek'));
+  assert.notEqual(modelOf(defaultModel(on)).provider, 'deepseek');
+  assert.notEqual(checkModels(autoModels(on.models)).cheap.model.provider, 'deepseek');
+  assert.ok(on.models.every((m) => !/contributor/i.test(m.id) && !/contributor/i.test(m.apiId || '')), 'never Meta\'s training mode');
 });

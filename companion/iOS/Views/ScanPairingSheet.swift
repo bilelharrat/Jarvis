@@ -1,7 +1,7 @@
 import AVFoundation
 import SwiftUI
 
-/// Scan the pairing code the Mac shows in Jarvis Settings › iPhone & Watch. The code
+/// Scan the pairing code the Mac shows in Eden Secretary Settings › iPhone & Watch. The code
 /// carries the Mac's address, a one-time code and its certificate fingerprint.
 struct ScanPairingSheet: View {
     let onScan: (PairingLink) -> Void
@@ -24,7 +24,7 @@ struct ScanPairingSheet: View {
                     ProgressView().tint(Palette.ink2)
                 case .denied:
                     unavailable(
-                        "Camera is off for J.A.R.V.I.S.",
+                        "Camera is off for Eden Secretary.",
                         "Turn it on in Settings to scan the code, or pair by typing the Mac’s address and code.",
                         settings: true
                     )
@@ -35,7 +35,7 @@ struct ScanPairingSheet: View {
             .safeAreaInset(edge: .bottom) {
                 if access == .granted {
                     VStack(spacing: Space.xs) {
-                        Text(notJarvis ? "That isn’t a Jarvis pairing code." : "Point at the code in Jarvis Settings › iPhone & Watch on your Mac.")
+                        Text(notJarvis ? "That isn’t a Eden Secretary pairing code." : "Point at the code in Eden Secretary Settings › iPhone & Watch on your Mac.")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(notJarvis ? Palette.amber : Palette.ink)
                             .multilineTextAlignment(.center)

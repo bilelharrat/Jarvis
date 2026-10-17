@@ -1,4 +1,4 @@
-// One Jarvis account: a Durable Object named by the account id (docs/accounts.md). It keeps
+// One Eden Secretary account: a Durable Object named by the account id (docs/accounts.md). It keeps
 // the account's devices (each with the SHA-256 of its secret, never the secret), its plan,
 // what it has spent, its sealed sync items, and, for a moment, the relay's sockets.
 //
@@ -33,6 +33,7 @@ import { publishedOp } from './published.js';
 import { sharedChatsOp, sharedIds } from './shared-chats.js';
 import { edenSyncOp } from './eden-sync.js';
 import { chatMergeOp, chatSyncOp } from './chat-sync.js';
+import { essaySyncOp } from './essay-sync.js';
 import { memoryOp } from '../eden/memory.js';
 import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './delegates.js';
 import { eduAccountOp } from '../edu/budget.js';
@@ -43,7 +44,9 @@ import { taskDue, taskOp } from './tasks.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
+import { playCap, playOp, withPlayPlan } from './play-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
+import { aiSpend } from '../stats/stats.js';
 
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
@@ -51,7 +54,9 @@ export const WEB_SESSION_DAYS = 30; // a browser's sign-in at askeden.com ends a
 // A browser may approve linking a Mac only this soon after it signed in (docs/web-auth.md).
 export const WEB_LINK_MAC_MS = 10 * 60_000;
 export const WEB_LINK_MAC_STALE = 'To link a Mac here, sign in again first: a browser approves a Mac only within 10 minutes of signing in.';
-const WEB_DEVICES = 5; // browsers signed in at once; a sixth signs out the oldest
+// Browsers signed in at once; the next signs out the one used longest ago. (It was 5, with the
+// oldest sign-in signed out: on the sixth the owner's everyday browser went, and its sync stopped.)
+const WEB_DEVICES = 10;
 // Hosted Eden's turns in flight per account, and how long a hold on the allowance lasts at most.
 export const EDEN_TURNS = 2;
 // The apps' raw proxy (/api/anthropic, index.js): its requests in flight per account. Each holds
@@ -60,7 +65,7 @@ export const PROXY_TURNS = 8;
 const HOLD_MS = 15 * 60_000;
 // A browser signed in at askeden.com (a `web` device) uses the included AI and its own
 // artifacts, and signs itself out. It can't delete the account, change devices, send
-// pushes, buy, read or write sync, use the relay, or approve any link. It may use the JARVIS
+// pushes, buy, read or write sync, use the relay, or approve any link. It may use the Eden Secretary
 // voice only through hosted Eden (Read aloud, talk mode: eden: true), on the account's daily
 // voice allowance like the apps.
 const WEB_FORBIDDEN = new Set(['delete', 'device-update', 'push-check', 'subscription', 'sync-get', 'sync-put', 'sync-delete', 'sync-wipe']);
@@ -77,7 +82,7 @@ const RELAY = { frame: 64 * 1024, held: 256 * 1024, streams: 16 };
 
 // Dollars: a month of Plus (today's price), a month of Plus at the old $20 price (grandfathered:
 // its Stripe price in STRIPE_PRICE_PLUS_LEGACY, and the App Store's), and the trial.
-export const LIMITS = { plus: 6, legacy: 20, trial: 1, sandbox: 0.5 };
+export const LIMITS = { plus: 6, legacy: 20, trial: 1, sandbox: 0.5, daredevil: 6 };
 const REVOKED_KEPT = 50; // refunded transaction ids kept per original transaction
 
 function allowances(env = {}) {
@@ -87,8 +92,11 @@ function allowances(env = {}) {
     legacy: n(env.PLUS_LEGACY_BUDGET_USD, LIMITS.legacy),
     trial: n(env.TRIAL_BUDGET_USD, LIMITS.trial),
     sandbox: n(env.SANDBOX_BUDGET_USD, LIMITS.sandbox),
+    daredevil: n(env.DAREDEVIL_BUDGET_USD, LIMITS.daredevil), // J.A.R.V.I.S. Daredevil's AI is free: a month's allowance for any account that linked it
     voiceFree: n(env.VOICE_DAILY_FREE, VOICE.free),
     voicePlus: n(env.VOICE_DAILY_PLUS, VOICE.plus),
+    // UNLIMITED_EMAILS's accounts (the owner's family): no allowance worth the name, only a safety stop a month.
+    unlimited: n(env.UNLIMITED_BUDGET_USD, 1000),
   };
 }
 
@@ -128,9 +136,11 @@ export class Account {
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
       if (op.startsWith('cmerge-')) return await chatMergeOp(this, op, request); // another sign-in's chats copied into the account that proved it (chat-sync.js)
       if (op.startsWith('csync-')) return await chatSyncOp(this, op, request); // chat history on every device, sealed server-side (chat-sync.js)
+      if (op.startsWith('essay-')) return await essaySyncOp(this, op, request); // essays on every device, sealed the same way (essay-sync.js, askeden T11)
       if (op.startsWith('deleg-')) return await delegateOp(this, op, request); // delegates and grants, H14/G8 (delegates.js)
       if (op.startsWith('edu-')) return await eduAccountOp(this, op, request); // course budgets and students' free study AI, askeden L9 (edu/budget.js)
       if (op.startsWith('stripe-')) return await stripeOp(this, op, request); // Plus bought on the web, F15 (stripe-plan.js)
+      if (op.startsWith('play-')) return await playOp(this, op, request); // Plus bought in Eden for Android, Google Play (play-plan.js)
       if (op.startsWith('mailup-')) return await mailUploadOp(this, op, request); // hosted Gmail's attachments uploaded ahead (mail-uploads.js)
       if (op.startsWith('ukeys-')) return await userKeysOp(this, op, request); // the owner's own API keys, sealed (user-keys.js)
       if (op.startsWith('mem-')) return await memoryOp(this, op, request); // Eden's memory across chats, sealed (eden/memory.js)
@@ -149,7 +159,7 @@ export class Account {
       // A browser may delete the account only when the person typed DELETE (the account page).
       const webDelete = op === 'delete' && body.confirm === 'DELETE' && !device.grant;
       if (device.kind === 'web' && WEB_FORBIDDEN.has(op) && !webDelete) {
-        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
+        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the Eden Secretary app on your iPhone or Mac.");
       }
       if (op.startsWith('approve-')) return json(await approvalOp(this, op, body, device)); // one-click approvals for Gmail/Calendar writes (approvals.js)
       if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
@@ -226,21 +236,24 @@ export class Account {
     return [...(await this.storage.list({ prefix: 'dev:' })).values()];
   }
 
-  async makeDevice(accountId, { name, kind, app_version }) {
-    // Browsers' sign-ins that ran out go first, then (past WEB_DEVICES of them) the oldest
-    // browser: abandoned ones never use up the room the apps need.
+  async makeDevice(accountId, { name, kind, app_version }, { grant = false } = {}) {
+    // Browsers' sign-ins that ran out go first, then (past WEB_DEVICES of them, or with the account
+    // full) the browser used longest ago: `last_seen`, which authenticate saves at most hourly, not
+    // when it signed in. Abandoned ones never use up the room the apps need, and the browser the
+    // owner uses every day isn't the one signed out. A delegate's or team member's session (`grant`,
+    // delegates.js grantSession) never signs out the owner's browsers: on a full account it gets the 409.
     const now0 = this.now();
     let live = [];
     for (const d of await this.devices()) {
       if (d.expires && d.expires <= now0) await this.storage.delete(`dev:${d.id}`);
       else live.push(d);
     }
-    if (deviceKind(kind) === 'web') {
-      const browsers = live.filter((d) => d.kind === 'web' && !d.grant).sort((a, b) => a.created - b.created); // grants' sessions aren't the owner's browsers
-      for (const d of browsers.slice(0, Math.max(0, browsers.length - (WEB_DEVICES - 1)))) {
-        await this.storage.delete(`dev:${d.id}`);
-        live = live.filter((x) => x !== d);
-      }
+    const used = (d) => d.last_seen || d.created || 0;
+    const browsers = live.filter((d) => d.kind === 'web' && !d.grant).sort((a, b) => used(a) - used(b) || (a.created || 0) - (b.created || 0)); // grants' sessions aren't the owner's browsers
+    const over = grant ? 0 : Math.max(deviceKind(kind) === 'web' ? browsers.length - (WEB_DEVICES - 1) : 0, live.length - (MAX_DEVICES - 1));
+    for (const d of browsers.slice(0, Math.max(0, over))) {
+      await this.storage.delete(`dev:${d.id}`);
+      live = live.filter((x) => x !== d);
     }
     if (live.length >= MAX_DEVICES) {
       throw new ApiError(409, 'too_many_devices', `An account has at most ${MAX_DEVICES} devices. Remove one in Settings › Account first.`);
@@ -279,16 +292,18 @@ export class Account {
   // A Mac's link: approved from an iPhone (or iPad, watch), or from the owner's browser just
   // after it signed in (askeden.com/link, docs/web-auth.md "Linking a Mac from the browser"). A
   // browser's sign-in at askeden.com (kind `web`): from an iPhone or a linked Mac.
-  async addLinkedDevice(approver, { name, kind, app_version }) {
+  async addLinkedDevice(approver, { name, kind, app_version, edition }) {
     const web = kind === 'web';
     if (approver.kind === 'web') {
       // A browser approves a Mac only: as the account's owner (never a delegate's or a space
       // member's session), and only within WEB_LINK_MAC_MS of signing in.
-      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the Eden Secretary app on your iPhone or Mac.');
       if (!(this.now() - (approver.created || 0) <= WEB_LINK_MAC_MS)) throw new ApiError(403, 'sign_in_again', WEB_LINK_MAC_STALE);
     } else if (!web && !isPhone(approver.kind)) throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
     const account = await this.storage.get('account');
     const made = await this.makeDevice(account.id, { name, kind, app_version });
+    // Daredevil (screen-reader mode) is free: linking it gives the account a month's AI through the apps' proxy (allowAi, proxy: true).
+    if (kind === 'mac' && edition === 'daredevil' && !(await this.storage.get('daredevil'))) await this.storage.put('daredevil', { since: this.now() });
     return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name, kind: made.device.kind };
   }
 
@@ -313,7 +328,7 @@ export class Account {
 
   // An Eden app's Sign in with Apple grant (eden/session.js nativeApple): its refresh token, kept by the
   // client id it was issued to, so deleting the account revokes it with that id (accounts/index.js).
-  // The J.A.R.V.I.S. app's own grant stays in `apple_grant` (signIn).
+  // The Eden Secretary app's own grant stays in `apple_grant` (signIn).
   async keepAppleGrant(grant) {
     if (!grant || typeof grant.token !== 'string' || !grant.token || !GRANT_CLIENTS.includes(grant.client_id)) return;
     const grants = (await this.storage.get('apple_grants')) || {};
@@ -388,14 +403,14 @@ export class Account {
     if (!entry) throw new ApiError(404, 'not_linked', 'That sign-in isn’t on this account.');
     if (list.length <= 1) throw new ApiError(409, 'last_method', 'This is the only way to sign in to this account. Link another one first.');
     if (!entry.sub_hash) {
-      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the J.A.R.V.I.S. app), then unlink it.');
+      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the Eden Secretary app), then unlink it.');
     }
     await this.storage.put('identities', list.filter((i) => i !== entry));
     return { provider, sub_hash: entry.sub_hash };
   }
 
   // A browser signs out browsers: one (`id`) or every one (`all`), itself included. The apps'
-  // devices are removed only from the J.A.R.V.I.S. app.
+  // devices are removed only from the Eden Secretary app.
   async webSignOut(caller, { id, all = false }) {
     const removed = [];
     for (const d of await this.devices()) {
@@ -406,7 +421,7 @@ export class Account {
     }
     if (!all && !removed.length) {
       if (validDeviceId(id) && (await this.storage.get(`dev:${id}`))) {
-        throw new ApiError(403, 'forbidden', 'Remove the apps in the J.A.R.V.I.S. app on your iPhone.');
+        throw new ApiError(403, 'forbidden', 'Remove the apps in the Eden Secretary app on your iPhone.');
       }
       throw new ApiError(404, 'not_found', 'That browser is already signed out.');
     }
@@ -439,7 +454,7 @@ export class Account {
   async deleteDevice(caller, id) {
     const target = id === 'me' || !id ? caller.id : String(id);
     if (caller.kind === 'web' && target !== caller.id) {
-      throw new ApiError(403, 'forbidden', 'Remove devices in the J.A.R.V.I.S. app on your iPhone.');
+      throw new ApiError(403, 'forbidden', 'Remove devices in the Eden Secretary app on your iPhone.');
     }
     if (!(await this.storage.get(`dev:${target}`))) throw new ApiError(404, 'not_found', 'That device is already gone.');
     await this.storage.delete(`dev:${target}`);
@@ -454,11 +469,12 @@ export class Account {
     const identities = (await this.identities()).filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
     const published = [...(await this.storage.list({ prefix: 'pubh:' })).keys()].map((k) => k.slice(5)); // the Worker drops their /p/ links
     const shared = await sharedIds(this.storage); // and their /s/ links (shared-chats.js)
+    const playClaims = (await this.storage.get('play_claims')) || []; // read before deleteAll (play-plan.js)
     this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
-    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared, appstore_claims: (await this.storage.get('appstore_claims')) || [] };
+    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared, appstore_claims: (await this.storage.get('appstore_claims')) || [], play_claims: playClaims };
   }
 
   publicDevice(device, me) {
@@ -526,7 +542,20 @@ export class Account {
   // active, until the later one ends (stripe-plan.js combinePlans).
   async planNow() {
     const plan = (await this.storage.get('plan')) || {};
-    return combinePlans(plan, await this.storage.get('stripe_plan'), this.now(), await this.storage.get('promo_plan'));
+    // Google Play's (Eden for Android) on top (play-plan.js withPlayPlan).
+    const combined = withPlayPlan(combinePlans(plan, await this.storage.get('stripe_plan'), this.now(), await this.storage.get('promo_plan')), await this.storage.get('play_plan'), this.now());
+    // UNLIMITED_EMAILS: an account with one of them among its sign-ins has Plus for good, and plusCap's unlimited allowance.
+    if (await this.unlimitedEmail()) {
+      combined.unlimited = true;
+      if (!combined.active) Object.assign(combined, { active: true, source: 'unlimited', expires: null, renews: false, environment: null });
+    }
+    return combined;
+  }
+
+  async unlimitedEmail() {
+    const allowed = String(this.env.UNLIMITED_EMAILS || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+    if (!allowed.length) return false;
+    return (await this.identities()).some((i) => i.email && allowed.includes(String(i.email).toLowerCase()));
   }
 
   // A transaction already checked against Apple's chain (storekit.js), for this account.
@@ -539,7 +568,7 @@ export class Account {
     if (!isPlusPurchase(tx)) throw new ApiError(400, 'bad_transaction', "That isn't a Plus purchase.");
     const token = String(tx.appAccountToken || '').toLowerCase();
     if (token ? token !== account.id : !claimed) {
-      throw new ApiError(403, 'forbidden', 'That purchase belongs to another Jarvis account.');
+      throw new ApiError(403, 'forbidden', 'That purchase belongs to another Eden Secretary account.');
     }
     const plan = (await this.storage.get('plan')) || {};
     const expires = Number(tx.expiresDate) || 0;
@@ -635,16 +664,18 @@ export class Account {
   async plusCap(plan) {
     const caps = allowances(this.env);
     if (!plan.active) return 0;
+    if (plan.play) return playCap(plan, caps, (base) => this.plusCap(base)); // Google Play's Plus beside the others (play-plan.js)
     const stripe = (await this.storage.get('stripe_plan')) || {};
     const apple = plan.source === 'app_store' || plan.source === 'both';
     const web = plan.source === 'stripe' || plan.source === 'both';
-    // Eden for iPhone's App Store Plus is sold at today's price: today's allowance (Jarvis's, the old one).
+    // Eden for iPhone's App Store Plus is sold at today's price: today's allowance (Eden Secretary's, the old one).
     const store = apple ? (await this.storage.get('plan')) || {} : {};
     // A Sandbox purchase (TestFlight, App Review: free, and signed with Apple's own chain) is Plus,
     // with a trial-size allowance only (R3C-3).
     const sandbox = apple && /^sandbox$/i.test(String(store.environment || ''));
     let cap = apple ? (sandbox ? caps.sandbox : EDEN_PLUS_PRODUCTS.includes(store.product_id) ? caps.plus : caps.legacy) : plan.promo ? caps.plus : 0;
     if (web) cap = Math.max(cap, legacyPrice(this.env, stripe.price) ? caps.legacy : caps.plus);
+    if (plan.unlimited) cap = Math.max(cap, caps.unlimited);
     return cap;
   }
 
@@ -654,13 +685,14 @@ export class Account {
   // counts the credits after the allowance (less hosted Eden's turns in flight: Eden fits a
   // reply's size to it); `allowance_left` the allowance alone. `credits: false` (a grant's pool)
   // never reaches the owner's credits.
-  async allowAi(device = null, { credits = true } = {}) {
+  async allowAi(device = null, { credits = true, proxy = false } = {}) {
     const plan = await this.planNow();
     // A grant (a delegate, a space member): the owner's allowance, narrowed to its own pool.
     if (device && device.grant) return grantAllow(this, device, await this.allowAi(null, { credits: false }), plan);
     const usage = await this.usageNow();
     const caps = allowances(this.env);
-    const cap = await this.plusCap(plan);
+    const dare = proxy && !plan.active && Boolean(await this.storage.get('daredevil')); // Daredevil's free allowance: the apps' proxy only
+    const cap = dare ? caps.daredevil : await this.plusCap(plan);
     const markup = markupFor(plan);
     const creditUSD = credits ? balanceOf(await creditsOf(this), this.now()) : 0;
     const creditLeft = creditUSD / markup - this.held('credits');
@@ -673,12 +705,14 @@ export class Account {
       markup: 1,
       credits_usd: creditUSD,
     });
-    if (plan.active && usage.spent < cap) return withCredits('plus', cap - usage.spent - this.held('plus'));
+    if ((plan.active || dare) && usage.spent < cap) return withCredits('plus', cap - usage.spent - this.held('plus'));
     if (usage.trial_spent < caps.trial) return withCredits('trial', caps.trial - usage.trial_spent - this.held('trial'));
     if (creditLeft > 0) return { ok: true, bucket: 'credits', left: round(creditLeft), allowance_left: 0, budget: 0, markup, credits_usd: creditUSD };
     return {
       ok: false,
-      why: plan.active
+      why: dare
+        ? "This month's free Daredevil AI is used up. It starts again on the 1st, or add credits in Settings › Account."
+        : plan.active
         ? "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
         : 'The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account).',
     };
@@ -712,7 +746,7 @@ export class Account {
     this.held(''); // drop expired holds
     const busy = () => new ApiError(429, 'slow_down', 'Your other AI requests are still running; try again in a moment.', { 'retry-after': '10' });
     if ([...this.holds.values()].filter((h) => h.proxy).length >= PROXY_TURNS) throw busy();
-    const allow = await this.allowAi(device);
+    const allow = await this.allowAi(device, { proxy: true });
     if (!allow.ok) return allow;
     if (!(allow.left > 0)) throw busy();
     const id = crypto.randomUUID();
@@ -728,9 +762,13 @@ export class Account {
   // `usd`: provider cost. The allowance takes what it still holds; the rest (the account has
   // credits, and it's not a grant's turn) comes off the credits at the user's price. Without
   // credits, the allowance takes all of it, as before. → { charged_usd }: the user's price.
-  async spend({ usd, bucket }) {
+  async spend({ usd, bucket, meta = null }) {
     const cost = Number(usd);
     if (!(cost > 0)) return { charged_usd: 0 };
+    // For the owner's dashboard (stats/stats.js): what it cost, on what, never what was said.
+    const me = await this.storage.get('account');
+    const noted = aiSpend(this.env, { accountId: me && me.id, usd: cost, bucket, meta: meta && typeof meta === 'object' ? meta : {} });
+    if (this.ctx && this.ctx.waitUntil) this.ctx.waitUntil(noted);
     const usage = await this.usageNow();
     // "plus|dlg:<id>|<by>": a grant's turn, also counted on its pool (delegates.js grantAllow).
     const [base, pool, by] = String(bucket || '').split('|');
@@ -741,7 +779,8 @@ export class Account {
     if (base === 'credits' && !pool) fromCredits = round(cost * markup);
     else {
       const trial = base === 'trial';
-      const cap = trial ? allowances(this.env).trial : await this.plusCap(plan);
+      const dare = !trial && !plan.active && Boolean(await this.storage.get('daredevil'));
+      const cap = trial ? allowances(this.env).trial : dare ? allowances(this.env).daredevil : await this.plusCap(plan);
       const room = Math.max(0, cap - (trial ? usage.trial_spent : usage.spent));
       let inAllowance = cost;
       if (!pool && cost > room && balanceOf(await creditsOf(this), this.now()) > 0) {
@@ -771,7 +810,7 @@ export class Account {
     }
   }
 
-  // ── the JARVIS voice, counted per account ──
+  // ── the Eden Secretary voice, counted per account ──
 
   async voice({ chars }) {
     const plan = await this.planNow();
@@ -785,8 +824,8 @@ export class Account {
       return {
         ok: false,
         why: plan.active
-          ? "Today's JARVIS voice allowance is used up; it resets at midnight UTC."
-          : "Today's JARVIS voice allowance is used up; it resets at midnight UTC. Jarvis Plus has five times as much.",
+          ? "Today's Eden Secretary voice allowance is used up; it resets at midnight UTC."
+          : "Today's Eden Secretary voice allowance is used up; it resets at midnight UTC. Eden Plus has five times as much.",
       };
     }
     await this.storage.put('voice', { day, chars: used + n });

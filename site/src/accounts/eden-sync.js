@@ -85,7 +85,7 @@ const checkMac = (mac) => {
 };
 
 const epochOf = (record) => (record && Number.isInteger(record.epoch) && record.epoch > 0 ? record.epoch : 1);
-const STALE = 'This device has Eden’s key from before a device was removed. Open Eden sync on it once to pick up the new key (an older J.A.R.V.I.S. app: update it, or stop holding the key there and ask a browser again).';
+const STALE = 'This device has Eden’s key from before a device was removed. Open Eden sync on it once to pick up the new key (an older Eden Secretary app: update it, or stop holding the key there and ask a browser again).';
 
 // ── the Durable Object's side ──
 

@@ -4,7 +4,7 @@ import Foundation
 import MapKit
 import UserNotifications
 
-/// Something Jarvis noticed before being asked: when to leave, two things at once, a day
+/// Something Eden Secretary noticed before being asked: when to leave, two things at once, a day
 /// with no break, an early start, reminders slipping. Worked out on the iPhone from the
 /// calendar, reminders and Maps (no model calls). Only what's worth an interruption (leaving
 /// now, a clash about to happen) becomes a notification; the rest waits on Today.

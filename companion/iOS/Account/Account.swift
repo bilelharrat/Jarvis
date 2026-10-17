@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// The owner's optional Jarvis account at askeden.com (docs/accounts.md): the plan, what's
+/// The owner's optional Eden Secretary account at askeden.com (docs/accounts.md): the plan, what's
 /// been used this month, the devices on it, and how much is synced. Read forgivingly, like
 /// the Mac's API: a field that goes missing never breaks the screen.
 struct Account: Decodable, Equatable, Sendable {
@@ -42,7 +42,7 @@ struct Account: Decodable, Equatable, Sendable {
         var budgetUSD: Double = 0
         var leftUSD: Double = 0
         var trialLeftUSD: Double = 0
-        /// Characters of JARVIS voice today, of the daily allowance.
+        /// Characters of Eden Secretary voice today, of the daily allowance.
         var voiceToday = 0
         var voiceDaily = 0
 

@@ -146,7 +146,8 @@ function checkClient(raw, { type, challenge, origin }) {
   }
   if (!client || client.type !== type) throw refuse('That passkey answer is for something else.');
   if (typeof client.challenge !== 'string' || client.challenge !== challenge) throw refuse('That passkey answer is for another sign-in. Try again.');
-  if (client.origin !== origin) throw refuse('That passkey answer came from another site.');
+  // origin: one, or a list (the Eden Android app's passkey sheet writes android:apk-key-hash:…, eden/android.js).
+  if (Array.isArray(origin) ? !origin.includes(client.origin) : client.origin !== origin) throw refuse('That passkey answer came from another site.');
   if (client.crossOrigin === true) throw refuse('Passkeys can’t be used from inside another site’s frame.');
   return client;
 }

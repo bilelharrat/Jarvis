@@ -1,7 +1,7 @@
 // Acting for someone at askeden.com (ROADMAP H14 delegates, G8 team spaces): while this browser
 // uses a delegate's grant or a space, askeden.com answers only the routes the grant allows
 // (site/src/accounts/delegates.js grantAllows: chat, compare, artifacts, and Gmail / Google
-// Calendar when the delegate was given them). Everything else (the Mac through Jarvis, Code,
+// Calendar when the delegate was given them). Everything else (the Mac through Eden Secretary, Code,
 // background tasks, the brief, voice…) would be a 403. So the page knows it is acting from the
 // first moment (kept in localStorage by account.js, which checks it against
 // GET /api/web/account once that loads), hides those panels (app.js renderSidebar), and api.js
@@ -68,7 +68,7 @@ export function actingWhy() {
 
 /**
  * api.js's answer for a request the grant can't make: a 403 like the server's, made here, so
- * nothing is sent and nothing fails in the console. Jarvis's status says "not here" instead
+ * nothing is sent and nothing fails in the console. Eden Secretary's status says "not here" instead
  * (the owner's Mac is theirs: a delegate never reaches it), so the page treats the Mac as off.
  */
 export function actingAnswer(method, path) {

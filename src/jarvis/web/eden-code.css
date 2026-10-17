@@ -1,11 +1,11 @@
 /* Eden Code in Ask Eden's look, wherever it opens: its own window (app/flavor.js;
-   server.eden_code_page marks the body .eden-code) and the Code panel inside J.A.R.V.I.S. and
-   Ask Eden (J.A.R.V.I.S.'s Obsidian and Stark Glass looks keep their own). Ask Eden's look (askeden web/chat/app.css): its page and washes, a
+   server.eden_code_page marks the body .eden-code) and the Code panel inside Eden Secretary and
+   Ask Eden (Eden Secretary's Obsidian and Stark Glass looks keep their own). Ask Eden's look (askeden web/chat/app.css): its page and washes, a
    floating glass sidebar and title bar, blue bubbles for what you say, white cards for what it
    answers, the clear composer with the model pill's green dot, and Eden's mark in place of
-   the reactor orb. Only this window: J.A.R.V.I.S.'s own looks are untouched. */
+   the reactor orb. Only this window: Eden Secretary's own looks are untouched. */
 
-/* ── the Jarvis around it is gone: Eden Code is the whole window ── */
+/* ── the Eden Secretary around it is gone: Eden Code is the whole window ── */
 body.eden-code #galaxy-canvas, body.eden-code > .top, body.eden-code > .layout, body.eden-code > .bottom,
 body.eden-code #code-pill, body.eden-code #meeting-pill, body.eden-code #activity, body.eden-code #galaxy,
 body.eden-code #hand-panel, body.eden-code #hand-cursor, body.eden-code .wx-layer, body.eden-code #browser { display: none !important; }

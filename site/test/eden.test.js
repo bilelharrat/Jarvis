@@ -444,7 +444,7 @@ test('the Eden copy is web/chat plus the hosted script, and stays inside the pag
 test('meta: with only an Anthropic key, Claude on the account; the other providers name the missing key; Mac-only routes say so', async () => {
   const value = await signedInBrowser(await phone());
   const meta = await (await chat('/api/chat/meta', value)).json();
-  assert.deepEqual(meta.models.map((m) => m.id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5']);
+  assert.deepEqual(meta.models.map((m) => m.id), ['claude-opus-5-5', 'claude-sonnet-5-5']); // Haiku 4.5 retired 2026-10-14
   assert.ok(meta.models.every((m) => m.available && !m.efforts.includes('xhigh') && !m.efforts.includes('max')), 'effort capped at high');
   assert.deepEqual(meta.providers.map((p) => [p.id, p.available]), [['anthropic', true], ['openai', false], ['gemini', false], ['kimi', false]]);
   assert.match(meta.providers[1].reason, /No OpenAI API key/);
@@ -672,20 +672,80 @@ test('turns at once hold their worst case on the allowance: at most two, and nev
   await settle();
 });
 
-test('a browser sign-in that ran out, or a sixth one, makes room instead of filling the account', async () => {
+test('a browser sign-in that ran out, or an eleventh one, makes room: the browser used longest ago goes, not the first signed in', async () => {
   const owner = await phone();
-  const sessions = [];
-  for (let i = 0; i < 6; i++) sessions.push(await signedInBrowser(owner));
   const account = env.ACCOUNTS.objects.get(owner.account.id);
+  let clock = Date.now();
+  account.now = () => clock;
+  const sessions = [];
+  for (let i = 0; i < 10; i++) { clock += 1000; sessions.push(await signedInBrowser(owner)); }
   const kinds = async () => (await account.devices()).map((d) => d.kind).sort();
-  assert.deepEqual(await kinds(), ['iphone', 'web', 'web', 'web', 'web', 'web']);
-  forgetSessions();
-  assert.equal((await hit('/api/web/session', { session: sessions[0] })).status, 401, 'the oldest browser was signed out');
-  assert.equal((await hit('/api/web/session', { session: sessions[5] })).status, 200);
+  const status = async (s) => { forgetSessions(); return (await hit('/api/web/session', { session: s })).status; };
+  // Two hours on, the first browser signed in (the owner's everyday one) is used again; the others aren't.
+  clock += 2 * 3600_000;
+  assert.equal(await status(sessions[0]), 200);
+  sessions.push(await signedInBrowser(owner));
+  assert.deepEqual(await kinds(), ['iphone', ...Array(10).fill('web')]);
+  assert.equal(await status(sessions[1]), 401, 'the browser used longest ago was signed out');
+  for (const i of [0, 2, 9, 10]) assert.equal(await status(sessions[i]), 200, `browser ${i} is still signed in`);
   // Thirty days on, the next device made clears the browsers that ran out.
-  account.now = () => Date.now() + 31 * 86400_000;
+  clock += 31 * 86400_000;
   await phone('apple-user-1', 'iPad');
   assert.deepEqual(await kinds(), ['iphone', 'iphone']);
+});
+
+test('an account full of devices: the browser used longest ago makes room for one more app, never an app', async () => {
+  const owner = await phone();
+  const account = env.ACCOUNTS.objects.get(owner.account.id);
+  let clock = Date.now();
+  account.now = () => clock;
+  const sessions = [];
+  for (let i = 0; i < 10; i++) { clock += 1000; sessions.push(await signedInBrowser(owner)); }
+  for (let i = 0; i < 9; i++) { clock += 1000; await phone('apple-user-1', `iPad ${i}`); }
+  assert.equal((await account.devices()).length, 20);
+  await phone('apple-user-1', 'One more iPad'); // was 409 too_many_devices with any browsers signed in
+  const devices = await account.devices();
+  assert.equal(devices.length, 20);
+  assert.equal(devices.filter((d) => d.kind === 'web').length, 9);
+  assert.equal(devices.filter((d) => d.kind !== 'web').length, 11);
+  forgetSessions();
+  assert.equal((await hit('/api/web/session', { session: sessions[0] })).status, 401);
+  assert.equal((await hit('/api/web/session', { session: sessions[1] })).status, 200);
+});
+
+test('a team member’s or delegate’s session never signs out the owner’s browsers; on a full account it is refused', async () => {
+  const owner = await phone();
+  const account = env.ACCOUNTS.objects.get(owner.account.id);
+  let clock = Date.now();
+  account.now = () => clock;
+  const sessions = [];
+  for (let i = 0; i < 10; i++) { clock += 1000; sessions.push(await signedInBrowser(owner)); }
+  const { ask } = await import('../src/accounts/delegates.js');
+  const member = (n) => ask(env, owner.account.id, 'deleg-session', { type: 'space', id: 'A'.repeat(22), account: crypto.randomUUID(), member: `m${n}`, label: 'Team', cap: 5 });
+  // Ten browsers already (WEB_DEVICES): a member's session is one more, and no browser of the owner's goes.
+  for (let i = 0; i < 9; i++) { clock += 1000; await member(i); }
+  assert.equal((await account.devices()).length, 20);
+  // Full: the next member is refused, as before; the owner's browser used longest ago stays.
+  await assert.rejects(member(9), (error) => error.code === 'too_many_devices');
+  forgetSessions();
+  for (const s of sessions) assert.equal((await hit('/api/web/session', { session: s })).status, 200);
+});
+
+test('the signed-in page’s ETag carries the build: a deploy that changed only cloud-sync.js reaches pages left open', async () => {
+  const { buildStamp } = await import('../src/eden/pages.js');
+  const { EDEN_HASHES } = await import('../src/eden/manifest.js');
+  const value = await signedInBrowser(await phone());
+  const stamp = `"a1-b${buildStamp(EDEN_HASHES)}"`; // the page's own ETag ("a1" here), then the build
+  for (const [p, method] of [['/', 'GET'], ['/', 'HEAD'], ['/mail', 'HEAD'], ['/edu', 'HEAD']]) {
+    const res = await hit(p, { method, session: value });
+    assert.equal(res.status, 200, p);
+    assert.equal(res.headers.get('etag'), stamp, `${method} ${p}`);
+  }
+  // any one file changed (page-update.js never looks at most of them) is a new stamp; the same files, the same stamp
+  assert.notEqual(buildStamp({ ...EDEN_HASHES, 'cloud-sync.js': 'changed' }), buildStamp(EDEN_HASHES));
+  assert.equal(buildStamp(Object.fromEntries(Object.entries(EDEN_HASHES).reverse())), buildStamp(EDEN_HASHES));
+  // signed out, the front page keeps its own ETag
+  assert.equal((await hit('/', { method: 'HEAD' })).headers.get('etag'), '"a1"');
 });
 
 test('a Mac link can’t be named like a browser sign-in; an Anthropic error mid-stream is still counted', async () => {
@@ -707,7 +767,7 @@ test('a Mac link can’t be named like a browser sign-in; an Anthropic error mid
 
 test('overrides only among the hosted models; a failure before any text falls back once', async () => {
   const value = await signedInBrowser(await phone());
-  const elsewhere = await turn(value, { override: { model: 'gpt-6-sol' } });
+  const elsewhere = await turn(value, { override: { model: 'gpt-6.1-sol' } }); // hosted, but no OpenAI key here (a retired model would be routed instead)
   assert.equal(elsewhere.status, 422);
   assert.match((await elsewhere.json()).error, /needs your Mac/);
   const models = [];
@@ -787,8 +847,8 @@ test('artifacts: kept for the account a few hours, served under the sandbox CSP,
 test('hosted settings come from Worker vars, with safe defaults', () => {
   const cfg = hostedConfig({});
   assert.deepEqual(cfg.models.map((m) => m.id), DEFAULTS.models.split(','));
-  assert.equal(cfg.maxTokens, 16000);
-  assert.equal(hostedConfig({ EDEN_MAX_TOKENS: 'lots' }).maxTokens, 16000);
+  assert.equal(cfg.maxTokens, 131072); // no output limit of Eden's own: the models' maximums (2026-10-13)
+  assert.equal(hostedConfig({ EDEN_MAX_TOKENS: 'lots' }).maxTokens, 131072);
   assert.equal(hostedConfig({ EDEN_MAX_EFFORT: 'ultra' }).maxEffort, 'high');
   const opus48 = hostedConfig({ EDEN_MODELS: 'claude-opus-4-8' }).models[0];
   assert.deepEqual(effortsFor(opus48, 'high'), ['none', 'low', 'medium', 'high']);
@@ -851,7 +911,7 @@ test('Eden’s page may ask for the microphone; the landing and sign-in pages ma
   assert.match((await hit('/download')).headers.get('permissions-policy'), /microphone=\(\)/);
 });
 
-test('Slides (Q14): a turn with `deck: true` gets room for a whole deck; the same turn without it keeps the router\'s size', async () => {
+test('Slides (Q14): a turn with `deck: true` gets room for a whole deck; every chat turn asks for the model\'s full room (no output limit of Eden\'s own)', async () => {
   const owner = await phone();
   const value = await signedInBrowser(owner);
   const caps = [];
@@ -863,6 +923,13 @@ test('Slides (Q14): a turn with `deck: true` gets room for a whole deck; the sam
   await readEvents(await turn(value, ask));
   await readEvents(await turn(value, { ...ask, deck: true }));
   assert.equal(caps.length, 2);
-  assert.ok(caps[0] < DECK_REPLY_TOKENS, `a chat reply's size (${caps[0]})`);
-  assert.equal(caps[1], Math.min(DECK_REPLY_TOKENS, DEFAULTS.maxTokens));
+  assert.ok(caps[0] > 16000, `a chat reply's size (${caps[0]}): far past the old 16,000 cap`);
+  assert.ok(caps[1] >= Math.min(DECK_REPLY_TOKENS, DEFAULTS.maxTokens), `a deck's size (${caps[1]})`);
+});
+
+test('a long attachment never hits a small cap: up to the largest model\'s context; past it, the oldest turns are left out, not the turn', async () => {
+  const { DEFAULTS } = await import('../src/eden/chat.js');
+  assert.ok(DEFAULTS.maxInputTokens >= 1_000_000, 'not 150,000 (a novel PDF was refused, 2026-10-15)');
+  const src = (await import('node:fs')).readFileSync(new URL('../src/eden/chat.js', import.meta.url), 'utf8');
+  assert.match(src, /while \(textTokens > roomTokens && body\.messages\.length > 1\)/);
 });

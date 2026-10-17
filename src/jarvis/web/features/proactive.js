@@ -53,7 +53,7 @@
       if (!q.follow) return ['', ''];
       const focus = q.focus || {};
       if (focus.state === 'on') return ['A Focus is on now: I’m keeping to cards.', focus.name || ''];
-      if (focus.state === 'no_access') return ['I can’t see your Focus: allow Full Disk Access for J.A.R.V.I.S. in System Settings › Privacy & Security.', ''];
+      if (focus.state === 'no_access') return ['I can’t see your Focus: allow Full Disk Access for Eden Secretary in System Settings › Privacy & Security.', ''];
       if (focus.state === 'unavailable') return ['This Mac doesn’t show me its Focus.', ''];
       if (focus.state === 'off') return ['No Focus is on.', ''];
       return ['', ''];

@@ -1,4 +1,4 @@
-// Widgets Jarvis makes (the backend is jarvis.features.widgets): each on a card, and the ones
+// Widgets Eden Secretary makes (the backend is jarvis.features.widgets): each on a card, and the ones
 // pinned on the dashboard.
 //
 // A widget is untrusted: it's shown only in an iframe with sandbox (never allow-same-origin,

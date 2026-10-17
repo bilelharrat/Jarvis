@@ -13,6 +13,46 @@ routes = [
   { pattern = "askeden.com/*", zone_name = "askeden.com" },
   { pattern = "www.askeden.com/*", zone_name = "askeden.com" },
   { pattern = "edu.askeden.com", custom_domain = true }, # Eden for Education: forwards to askeden.com/edu (worker.js)
+  # Eden for Education's home:
+  { pattern = "askedenedu.com/*", zone_name = "askedenedu.com" }, # Eden for Education's home (EDU_HOST)
+  { pattern = "www.askedenedu.com/*", zone_name = "askedenedu.com" }, # forwards to askedenedu.com (worker.js)
+  # Eden Code's home:
+  { pattern = "askedencode.com/*", zone_name = "askedencode.com" }, # Eden Code's home (CODE_HOST)
+  { pattern = "www.askedencode.com/*", zone_name = "askedencode.com" }, # forwards to askedencode.com (worker.js)
+  { pattern = "askedennews.com", custom_domain = true }, # Eden News' home (NEWS_HOST); the deploy makes its DNS record
+  { pattern = "www.askedennews.com", custom_domain = true }, # forwards to askedennews.com (worker.js)
+  # Their DNS records are made by the deploy itself (custom_domain), as for edu.askeden.com. Secretary and Daredevil have homes
+  # (SECRETARY_HOST, DAREDEVIL_HOST); the rest are doorways (worker.js).
+  { pattern = "askeden.net", custom_domain = true },
+  { pattern = "www.askeden.net", custom_domain = true },
+  { pattern = "askeden.org", custom_domain = true },
+  { pattern = "www.askeden.org", custom_domain = true },
+  { pattern = "askedenrouter.com", custom_domain = true },
+  { pattern = "www.askedenrouter.com", custom_domain = true },
+  { pattern = "edenrouter.com", custom_domain = true },
+  { pattern = "www.edenrouter.com", custom_domain = true },
+  { pattern = "edencode.app", custom_domain = true },
+  { pattern = "www.edencode.app", custom_domain = true },
+  { pattern = "edencode.dev", custom_domain = true },
+  { pattern = "www.edencode.dev", custom_domain = true },
+  { pattern = "codewitheden.com", custom_domain = true },
+  { pattern = "www.codewitheden.com", custom_domain = true },
+  { pattern = "evesverification.com", custom_domain = true },
+  { pattern = "www.evesverification.com", custom_domain = true },
+  { pattern = "edenverification.com", custom_domain = true },
+  { pattern = "www.edenverification.com", custom_domain = true },
+  { pattern = "edensecretary.com", custom_domain = true },
+  { pattern = "www.edensecretary.com", custom_domain = true },
+  { pattern = "askedensecretary.com", custom_domain = true },
+  { pattern = "www.askedensecretary.com", custom_domain = true },
+  { pattern = "edendaredevil.com", custom_domain = true },
+  { pattern = "www.edendaredevil.com", custom_domain = true },
+  # Eden Mail's home (MAIL_HOST), once askedenmail.com is a site on this Cloudflare account (TODO.md):
+  { pattern = "askedenmail.com", custom_domain = true },
+  { pattern = "www.askedenmail.com", custom_domain = true },
+  # And once askeden.ai is a zone here too (forwards to askeden.com, worker.js):
+  # { pattern = "askeden.ai/*", zone_name = "askeden.ai" },
+  # { pattern = "www.askeden.ai/*", zone_name = "askeden.ai" },
 ]
 
 [assets]
@@ -24,6 +64,32 @@ run_worker_first = true
 #   npx wrangler secret put FISH_API_KEY
 # and these are the daily allowances in characters (src/worker.js LIMITS has the defaults).
 [vars]
+# Eden for Education at its own address (src/worker.js route): "askedenedu.com", with its routes above;
+# askeden.com/edu and edu.askeden.com then forward to it.
+EDU_HOST = "askedenedu.com"
+# Eden Code at its own address (src/worker.js route): "askedencode.com", with its routes above; askeden.com/eden-code then forwards to it.
+CODE_HOST = "askedencode.com"
+# Eden News (src/news/): on, at askedennews.com (askeden.com/news forwards), from the live sources (src/news/sources.js:
+# Yahoo Finance search as BSH Research Center does, Google News RSS, publisher RSS). NEWS_PROVIDER = "sample" for made-up stories.
+EDEN_NEWS = "on"
+# EDEN_NEWS_IN_APP = "on" # the News button and panel inside the chat app (web/chat/news-panel.js); off until the owner says ship it
+# EDEN_IMAGES = "on" # pictures in chat: GPT Image (src/eden/image.js); held until Eden for iPhone 1.0 passes App Review. EDEN_IMAGE_MODEL picks the model.
+# EDEN_SIGNIN_CHOICE = "on" # /signin's "You last signed in here with…" and the question before a second account (src/eden/session.js); held until App Review passes.
+NEWS_HOST = "askedennews.com"
+NEWS_PROVIDER = "live"
+# Eden Secretary and Eden Daredevil at their own addresses (src/worker.js route), with their routes above; askeden.com/eden-secretary,
+# askedensecretary.com and askeden.com/daredevil then forward to them.
+# On: the deploy makes their DNS records (custom_domain routes above).
+SECRETARY_HOST = "edensecretary.com"
+DAREDEVIL_HOST = "edendaredevil.com"
+# Eden Mail's page at its own address (src/worker.js route): "askedenmail.com"; the app stays at askeden.com/mail.
+# On (2026-10-14): askedenmail.com is a site on this Cloudflare account.
+MAIL_HOST = "askedenmail.com"
+# Eden Router at its own address (src/worker.js route): "edenrouter.com", with its routes above; askedenrouter.com forwards to it.
+# The owner approved the page and its numbers on 2026-10-14.
+ROUTER_HOST = "edenrouter.com"
+# EVES at its own address (src/worker.js route): "evesverification.com"; edenverification.com, www and askeden.com/eves forward to it.
+EVES_HOST = "evesverification.com"
 FISH_MODEL = "s2.1-pro-free"  # what the owner's own JARVIS voice uses
 VOICE_DAILY_PER_INSTALL = "20000"
 VOICE_DAILY_PER_NETWORK = "40000"
@@ -57,10 +123,10 @@ MESSENGER_IPHONE_URL = ""
 # EDEN_KIMI = "off" switch one off with its key in place. EDEN_MODELS = "all": every registry
 # model not deprecated. Then the highest effort, the longest reply and conversation, web searches
 # a search turn may make (twice that for research). Model ids are the Model Router's.
-EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gpt-6-sol,gpt-6-luna,gemini-3.1-pro-preview,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3,kimi-k2.7-code"
+EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,gpt-6.1-sol,gemini-4-argon,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3"
 EDEN_MAX_EFFORT = "high"
-EDEN_MAX_TOKENS = "16000"
-EDEN_MAX_INPUT_TOKENS = "150000"
+EDEN_MAX_TOKENS = "131072"
+EDEN_MAX_INPUT_TOKENS = "1000000"
 EDEN_SEARCH_USES = "5"
 # Account ids (commas) that may sign in to Eden on the web; empty: every Jarvis account.
 EDEN_ACCOUNTS = ""
@@ -190,6 +256,25 @@ class_name = "Promo"
 tag = "v7"
 new_sqlite_classes = ["Promo"]
 
+# Eden News: readers' profiles and the shared story cache (src/news/store.js)
+[[durable_objects.bindings]]
+name = "NEWS"
+class_name = "NewsDesk"
+
+[[migrations]]
+tag = "v8"
+new_sqlite_classes = ["NewsDesk"]
+
+# Eden Router API, private beta (src/router-api/): its clients (keys kept hashed), limits and usage log, one object.
+# Admin calls need the secret ROUTER_ADMIN_TOKEN (npx wrangler secret put ROUTER_ADMIN_TOKEN); unset, the API answers 503.
+[[durable_objects.bindings]]
+name = "ROUTER_API"
+class_name = "RouterApi"
+
+[[migrations]]
+tag = "v9"
+new_sqlite_classes = ["RouterApi"]
+
 # Browser Rendering (Workers Paid: 10 browser hours and 10 concurrent browsers a month included).
 [browser]
 binding = "BROWSER"
@@ -241,6 +326,15 @@ simple = { limit = 20, period = 60 }
 name = "RUN_RATE"
 namespace_id = "1007"
 simple = { limit = 20, period = 60 }
+
+# The owner's dashboard (askeden.com/admin, src/stats/): visits, downloads, sign-ups, AI use, errors.
+# ADMIN_EMAILS (who may open it) and UNLIMITED_EMAILS (Plus with no real allowance, the owner's family)
+# are secrets, so the addresses stay out of this public repo: npx wrangler secret put ADMIN_EMAILS
+# HELD until Eden for iPhone 1.0 passes App Review (owner, 2026-10-13): uncomment to turn the dashboard on.
+# [[d1_databases]]
+# binding = "STATS"
+# database_name = "askeden-stats"
+# database_id = "7a373e9a-c92f-4c7e-8e53-45de84aff9b5"
 
 # Keep the R2 bucket last: wrangler.nor2.toml is this file up to here (deploys before R2).
 [[r2_buckets]]

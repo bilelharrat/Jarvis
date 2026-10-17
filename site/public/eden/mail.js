@@ -1,4 +1,4 @@
-// Mail: two sources — Gmail (direct, Google sign-in) and Mail on your Mac (the Jarvis app,
+// Mail: two sources — Gmail (direct, Google sign-in) and Mail on your Mac (the Eden Secretary app,
 // POST /api/chat/jarvis mail_accounts / mail_search / mail_read / mail_draft / mail_send).
 // Inbox, Sent, Drafts (and, for Gmail, Scheduled) with search; a message view (plain text)
 // with Reply, Reply all, Forward, Draft reply with Eden and Summarize. Writing happens in the
@@ -9,7 +9,7 @@
 // pane on a phone). Eden's card tops the inbox: Summarize (a digest card) and Rank by priority,
 // as Eden Messenger has them (mail-model.js holds the logic; answers are cached per message).
 
-import { el, ico, toast, debounce, placePopup } from './util.js';
+import { el, ico, toast, debounce, placePopup, MAIL_ONLY } from './util.js';
 import { api, getJSON, postJSON, isMock } from './api.js';
 const isMockMail = () => isMock;
 import { openCalendar } from './calendar-entry.js';
@@ -46,7 +46,7 @@ const own = (tag, cls, text) => el(tag, { class: cls, 'data-no-i18n': '' }, PLAC
 const DONE = isFr ? 'Terminé' : 'Done'; // Mail's Done (archive), not the dialogs' "OK"
 
 let H = {};
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 
 async function call(tool, args = {}) {
@@ -161,7 +161,7 @@ const rankPill = (r) => (r ? el('span', { class: `rk rk-${r.level}`, title: r.re
 
 /**
  * Keyboard focus into the panel: the selected source tab. It's drawn at once, before Gmail or
- * your Mac answers (which can take seconds, or wait on Jarvis's card), so focus never waits on
+ * your Mac answers (which can take seconds, or wait on Eden Secretary's card), so focus never waits on
  * the network; re-rendering (another source, ‹ Back) would otherwise drop it on the page.
  */
 export function focusMail(body = panelBody) {
@@ -749,7 +749,10 @@ export function emailText(m) {
 export async function connectGmail() {
   try {
     const r = await api.googleConnect('gmail');
-    if (r && r.url) location.assign(r.url); // top level: Google comes back to /#gmail=…
+    if (r && r.url) {
+      if (MAIL_ONLY) try { sessionStorage.setItem('eden:mail-only-return', '1'); } catch { /* blocked */ } // back to /mail after (app.js)
+      location.assign(r.url); // top level: Google comes back to /#gmail=…
+    }
     else toast('Couldn’t start the Google sign-in');
   } catch (e) { toast(`Couldn’t connect Gmail: ${e.message}`); }
 }
@@ -823,7 +826,7 @@ function splitter(root, main, list, handle) {
 
 /* ================= Superhuman-style triage (mailkit.js holds the state, mail-voice.js the logic) ================= */
 
-/** How to read the owner's sent mail for learning their style: Gmail (up to 8 pages of 40: 320) or Mail on your Mac (through Jarvis: 50). */
+/** How to read the owner's sent mail for learning their style: Gmail (up to 8 pages of 40: 320) or Mail on your Mac (through Eden Secretary: 50). */
 function samplesFrom(source) {
   if (source === 'gmail') return async (onCount) => {
     const out = [];
@@ -956,7 +959,7 @@ async function doneRows(ms, { snoozing = false, quiet = false } = {}) {
     try { await modify(ms.map((m) => m.id), [], ['INBOX']); archived = true; } catch { /* kept in Eden */ }
   }
   if (archived) { mail.rows = mail.rows.filter((r) => !ms.includes(r)); if (!snoozing) markDone(keys, false); mail.redraw(); }
-  // Mail on your Mac: Jarvis archives it in Mail once the Undo has had its moment (Mail has no "unarchive" script)
+  // Mail on your Mac: Eden Secretary archives it in Mail once the Undo has had its moment (Mail has no "unarchive" script)
   if (mail.source === 'mac' && !snoozing) setTimeout(async () => {
     if (!keys.every((k) => isDone(k))) return; // undone meanwhile
     try { await call('mail_triage', { action: 'archive', message_ids: ms.map((m) => m.id), confirm: true }); mail.rows = mail.rows.filter((r) => !ms.includes(r)); markDone(keys, false); }
@@ -1521,7 +1524,7 @@ function shieldBanner(msg) {
 
 const PROMISE_KEY = isMock ? 'eden:mail:promises:mock' : 'eden:mail:promises';
 let promisesBusy = false;
-/** The last two weeks' promises, sent and received (Gmail), read again at most every 2 hours; on the Mac, Jarvis's commitments too. */
+/** The last two weeks' promises, sent and received (Gmail), read again at most every 2 hours; on the Mac, Eden Secretary's commitments too. */
 async function loadPromises() {
   if (promisesBusy || mail.source !== 'gmail') return;
   let cached = null;

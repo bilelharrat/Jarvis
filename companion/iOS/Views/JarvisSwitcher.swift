@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Jarvises this iPhone is paired with (a Mac, the cloud Jarvis on the owner's server),
+/// The Jarvises this iPhone is paired with (a Mac, the cloud Eden Secretary on the owner's server),
 /// and a switch between them: Code, chats and approvals go to the one in use. The cloud one
 /// keeps working while the Mac is shut or off.
 struct JarvisSwitcherSection: View {
@@ -42,18 +42,18 @@ struct JarvisSwitcherSection: View {
             } label: {
                 HStack(spacing: Space.s) {
                     IconTile(symbol: "plus", tint: .blue)
-                    Text("Pair Another Jarvis")
+                    Text("Pair Another Eden Secretary")
                 }
             }
         } header: {
-            Text("Your Jarvises")
+            Text("Your Eden Secretaries")
         } footer: {
-            Text("Pair your Mac and your cloud Jarvis, and switch here: the cloud one keeps Eden Code working while your Mac is shut or off.")
+            Text("Pair your Mac and your cloud Eden Secretary, and switch here: the cloud one keeps Eden Code working while your Mac is shut or off.")
         }
     }
 }
 
-/// The Code tab's switch: which Jarvis its sessions are on.
+/// The Code tab's switch: which Eden Secretary its sessions are on.
 struct JarvisSwitcherMenu: View {
     @Environment(AppModel.self) private var model
 
@@ -71,13 +71,13 @@ struct JarvisSwitcherMenu: View {
                     .labelStyle(.titleAndIcon)
                     .font(.footnote.weight(.semibold))
             }
-            .accessibilityLabel("Jarvis in use: \(current.macLabel). Switch")
+            .accessibilityLabel("Eden Secretary in use: \(current.macLabel). Switch")
         }
     }
 }
 
 enum JarvisSwitcher {
-    /// A cloud for a Jarvis named as one (or on a public address), a Mac otherwise.
+    /// A cloud for a Eden Secretary named as one (or on a public address), a Mac otherwise.
     static func symbol(for pairing: Pairing) -> String {
         let name = pairing.macLabel.lowercased()
         if name.contains("cloud") || name.contains("server") { return "cloud.fill" }

@@ -36,12 +36,12 @@ const SPLIT_PANE_QUIET = new Set([
 // this page with Eden Code alone and always open, in Ask Eden's look (eden-code.css). Voice
 // coding works when asked for (its buttons); what's only the assistant's (the galaxy, hands on
 // the whole Mac, typing into other apps, the window's panels by voice) isn't its own. It does a
-// window's jobs for the hub (the built-in browser, PDFs, page checks) while no J.A.R.V.I.S.
+// window's jobs for the hub (the built-in browser, PDFs, page checks) while no Eden Secretary.
 // window is open on the same backend (hub.window_joined); with one open, that window does them.
 const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
 const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture']);
-let jarvisWindows = 0;  // J.A.R.V.I.S. windows on this backend (hello.app_windows, app_windows)
+let jarvisWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
 const edenDefers = () => inEdenCode && jarvisWindows > 0;
 
 // The keys that talk and ask what's on screen, as this computer writes them (the app's shell feature
@@ -106,7 +106,7 @@ function heard(ev) {
   if (inEdenCode && ev && (ev.type === 'hello' || ev.type === 'app_windows')) {
     const before = jarvisWindows;
     jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
-    // J.A.R.V.I.S. closed: this window takes its jobs back, and says what it can do.
+    // Eden Secretary closed: this window takes its jobs back, and says what it can do.
     if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
   }
   if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
@@ -135,7 +135,7 @@ function connect() {
     return;
   }
   const resume = hubId ? `&since=${lastSeq}&hub=${encodeURIComponent(hubId)}` : '';
-  // Which app's window this is (server.APPS): a J.A.R.V.I.S. one wakes the voice of a backend
+  // Which app's window this is (server.APPS): a Eden Secretary one wakes the voice of a backend
   // Eden Code started (hub.window_joined). A pane of a split names none: its window has.
   const appName = app && !inSplitPane ? `&app=${inEdenCode ? 'eden-code' : 'jarvis'}` : '';
   ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}${resume}${appName}`);
@@ -143,7 +143,7 @@ function connect() {
   ws.onmessage = (e) => heard(JSON.parse(e.data));
   ws.onclose = (e) => {
     $('offline').hidden = false;
-    if (e.code === 1009) notice('Jarvis', '', 'A message was too big for the connection and didn’t go.', 8000);
+    if (e.code === 1009) notice('Eden Secretary', '', 'A message was too big for the connection and didn’t go.', 8000);
     setTimeout(connect, Math.min(5000, 500 * 2 ** retry++));
   };
 }
@@ -403,7 +403,7 @@ function onEvent(ev) {
       if (galaxyMode === 'ambient') scheduleAmbientEnd();
       break;
     case 'heard': if (!ev.text && state !== 'listening') $('state-line').textContent = 'I didn’t catch that. Tap to try again.'; break;
-    case 'voice_typing':  // "Jarvis, start typing": what's said is typed at the focus
+    case 'voice_typing':  // "Eden Secretary, start typing": what's said is typed at the focus
       $('vt-indicator').hidden = !ev.on;
       document.body.classList.toggle('voice-typing', !!ev.on);
       $('state-line').textContent = ev.on ? 'Typing what you say · “stop typing” to finish' : (STATE_LINES[state] || '');
@@ -477,7 +477,7 @@ function onEvent(ev) {
         const openBtn = el('button', 'btn primary', 'Open Location settings');
         openBtn.type = 'button';
         openBtn.addEventListener('click', () => send({ type: 'open_privacy', pane: 'location' }));
-        notice('Location', 'Turn on location for J.A.R.V.I.S.', 'For local weather and live traffic: switch on J.A.R.V.I.S. under Location Services.', 0, openBtn);
+        notice('Location', 'Turn on location for Eden Secretary', 'For local weather and live traffic: switch on Eden Secretary under Location Services.', 0, openBtn);
       }
       break;
     case 'claude_sessions':
@@ -515,10 +515,10 @@ function setState(next) {
   const look = document.body.dataset.look;
   if (look === 'console') line = { idle: prefs && prefs.hands_free ? '● Listening for wake word…' : '● Ready', listening: '● Listening…', transcribing: '● Transcribing…', thinking: '● Thinking…', speaking: '● Speaking…' }[next] || line;
   if (next === 'thinking' && runningTools > 0) line = 'Working on it…';
-  if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Jarvis”, or tap the orb';
+  if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Eden”, or tap the orb';
   // (Only when it changed: every step of a turn asks again, and new words lay the page out.)
   setText($('state-line'), line);
-  $('orb').setAttribute('aria-label', next === 'idle' ? 'Talk to Jarvis' : 'Stop');
+  $('orb').setAttribute('aria-label', next === 'idle' ? 'Talk to Eden Secretary' : 'Stop');
 }
 
 function showHeard(text) {
@@ -541,7 +541,7 @@ function ask(text, images = []) {
 // What a request box sends: its words and the pictures waiting by it. false when it
 // couldn't be sent (not connected): the words and the pictures stay for another try.
 function askFromBox(input) {
-  if (picsReading.size) { notice('Jarvis', '', 'Still reading the picture. Send it again in a moment.', 4000); return null; }
+  if (picsReading.size) { notice('Eden Secretary', '', 'Still reading the picture. Send it again in a moment.', 4000); return null; }
   const images = askPics.map((p) => ({ media_type: p.type, data: p.data, name: p.name }));
   if (!ask(input.value, images)) return false;
   input.value = '';
@@ -557,7 +557,7 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
 $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const sent = askFromBox($('ask-input'));
-  if (sent === false) notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
+  if (sent === false) notice('Eden Secretary', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
   if (sent && !srMode()) $('ask-input').blur();
 });
 
@@ -620,7 +620,7 @@ function onSources(ev) {
   sources.set(ev.rid, list);
   forgetOldTurns(sources);
   if (ev.rid === currentRid) renderSources();
-  // The galaxy flies to the note Jarvis is drawing on.
+  // The galaxy flies to the note Eden Secretary is drawing on.
   if (galaxyData && galaxyData.nodes.length) {
     if (galaxyMode === 'off') setGalaxyMode('ambient');
     galaxy.highlight(list.map((s) => s.id));
@@ -1030,7 +1030,7 @@ function lookIsLight(skin, tone) {
   return skin === 'glass' && (tone === 'light' || (tone === 'auto' && macLight.matches));
 }
 function applyLook(look, tone = 'auto') {
-  if (inEdenCode) look = 'orb';  // Eden Code has one look, Ask Eden's (eden-code.css), whatever Jarvis wears
+  if (inEdenCode) look = 'orb';  // Eden Code has one look, Ask Eden's (eden-code.css), whatever Eden Secretary wears
   const skin = SKINS.includes(look) ? look : '';
   document.body.dataset.look = skin ? 'orb' : look;
   if (skin) document.body.dataset.skin = skin;
@@ -1057,13 +1057,15 @@ function renderPrefs(p) {
   const modelName = (p.models || []).find((m) => m.id === p.model);
   if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
-  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Jarvis');
+  // The built-in default persona (id 'jarvis', named JARVIS by the backend) shows as the product's name.
+  const homeName = () => (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Eden Secretary');
+  $('wordmark').textContent = persona && persona.id !== 'jarvis' ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : homeName();
   const model = (p.models || []).find((m) => m.id === p.model);
   $('model-chip').textContent = model ? model.name : p.model;
   $('hf-indicator').hidden = !p.hands_free;
   // What to say or press, plus the What's-this key.
   $('hint').replaceChildren(...(p.hands_free
-    ? [document.createTextNode('Say “Hey Jarvis” · '), el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]
+    ? [document.createTextNode('Say “Hey Eden” · '), el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]
     : [el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]));
   setSwitch('sw-effect', p.voice_effect);
   $('mic-select').value = p.mic || 'builtin';
@@ -1107,7 +1109,7 @@ function renderPrefs(p) {
     return o;
   }));
   $('persona-group').replaceChildren(...(p.personas || []).map((x) => {
-    const b = el('button', '', x.name);
+    const b = el('button', '', x.id === 'jarvis' ? 'Eden Secretary' : x.name);
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(x.id === p.persona));
@@ -1453,7 +1455,7 @@ function renderDelegations(items) {
         const go = el('button', 'btn', 'Continue…');
         go.type = 'button';
         go.addEventListener('click', () => {
-          const guidance = prompt(tr('What should Jarvis tell them, or do next?'));
+          const guidance = prompt(tr('What should Eden Secretary tell them, or do next?'));
           if (guidance !== null) send({ type: 'delegation_continue', id: d.id, guidance });
         });
         li.append(go);
@@ -1669,7 +1671,7 @@ function serviceForm(svc) {
     form.append(label, input);
   };
   if (svc.auth === 'oauth') {
-    form.append(el('p', '', `Jarvis opens ${svc.name}’s sign-in page in your browser. Approve access there and you’re done.`));
+    form.append(el('p', '', `Eden Secretary opens ${svc.name}’s sign-in page in your browser. Approve access there and you’re done.`));
     if (svc.help) form.append(el('p', '', svc.help));  // a way round, when the sign-in can fail
     if (svc.help_url) form.append(link(svc.help_url, 'Setup guide'));
   } else if (svc.auth === 'token') {
@@ -2057,7 +2059,7 @@ $('p-weather').addEventListener('keydown', (e) => {
 });
 $('wx-close').addEventListener('click', () => closeWeather());
 $('wx-scrim').addEventListener('click', () => closeWeather());
-// Escape closes it, and only it: not also the window behind or Jarvis mid-sentence.
+// Escape closes it, and only it: not also the window behind or Eden Secretary mid-sentence.
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && wxIsOpen()) { e.preventDefault(); e.stopPropagation(); closeWeather(); }
 }, true);
@@ -2179,7 +2181,7 @@ function renderUsagePop(u) {
   });
   days.append(chart);
   parts.push(days);
-  // Where it went: JARVIS, Eden Code, research; and which models.
+  // Where it went: Eden Secretary, Eden Code, research; and which models.
   const split = el('div', 'usage-split');
   const where = el('section');
   where.append(el('h3', '', 'Where it went · 30 days'));
@@ -2490,7 +2492,7 @@ $('vt-indicator').addEventListener('click', () => send({ type: 'voice_typing', o
 $('clear-history').addEventListener('click', () => send({ type: 'clear_history' }));
 $('export-history').addEventListener('click', () => send({ type: 'export_history' }));
 
-// Requests typed or said while JARVIS is still answering wait here, in order; ✕ takes one
+// Requests typed or said while Eden Secretary is still answering wait here, in order; ✕ takes one
 // back before it's sent.
 function renderAskQueue(items) {
   const list = $('ask-queue');
@@ -2523,7 +2525,7 @@ function onSaved(ev) {
   notice('Saved', ev.title, ev.text, 12000, reveal);
 }
 
-// "Jarvis, open Eden Code / close the browser / turn on hand control."
+// "Eden Secretary, open Eden Code / close the browser / turn on hand control."
 // A part of Settings, brought into view and given the focus (its heading), for a screen reader
 // to start reading there.
 function focusSection(id) {
@@ -3409,7 +3411,7 @@ function onStream(ev) {
 // An approval, as a sheet in the conversation: capsule answers, number keys, and a
 // "tell Claude what to do instead" box for no. Only a new approval gets a sheet and only an
 // answered one loses it: rebuilding every sheet on each approval event (from any session,
-// or JARVIS itself) wiped a reason being typed and dropped the focus to the page, where the
+// or Eden Secretary itself) wiped a reason being typed and dropped the focus to the page, where the
 // next digit typed answered the approval.
 function renderInlineApprovals() {
   const tl = $('deck-timeline');
@@ -4748,7 +4750,7 @@ function renderJcGeneral() {
   const mine = modelList.filter((m) => !m.builtin);
   const claude = el('optgroup');
   claude.label = 'Claude';
-  claude.append(option('', `Same as J.A.R.V.I.S. (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
+  claude.append(option('', `Same as Eden Secretary (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
     ...modelList.filter((m) => m.builtin).map((m) => option(m.ref, m.label, codeDefaults.model === m.ref)));
   const yours = el('optgroup');
   yours.label = 'Your models';
@@ -5389,12 +5391,12 @@ function onJarvisCodeEvent(ev) {
   }
 }
 
-// ── built-in browser (in the J.A.R.V.I.S. app only) ──
+// ── built-in browser (in the Eden Secretary app only) ──
 
 // ── The browser: a dock at the side, resizable, where the BSH Research Center opens ──
 // The page is a native view over #browser-slot. Hands steer whatever it shows (a "page"
 // target: aim with the hand, pinch to open, pinch and move to scroll, swipe to go back,
-// fist to close); on the Research Center's own pages only Jarvis can drive it.
+// fist to close); on the Research Center's own pages only Eden Secretary can drive it.
 
 const BD_MIN = 380;
 // What the header calls each Research Center page (its own titles don't say).
@@ -5567,7 +5569,7 @@ function renderTabs(list) {
 // ── Chrome's everyday features: shortcuts, find, bookmarks and history, suggestions,
 // downloads (each asks first) and full screen ──
 
-// The same shortcuts as Chrome, whether the page or Jarvis's window has the keyboard (the
+// The same shortcuts as Chrome, whether the page or Eden Secretary's window has the keyboard (the
 // page's come from the main process as 'browser:shortcut').
 function browserKey(action) {
   switch (action) {
@@ -5595,7 +5597,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement !== $('br-url');
-  if (typing && !['t', 'w'].includes(key)) return; // Jarvis's own fields keep their keys
+  if (typing && !['t', 'w'].includes(key)) return; // Eden Secretary's own fields keep their keys
   if (key === 't') return act(() => { app.browser.tab('new'); setTimeout(() => $('br-url').focus(), 120); });
   if (key === 'w') return act(() => ((browserState.tabs || []).length > 1 ? app.browser.tab('close') : toggleBrowser(false)));
   if (key === 'l') return act(() => browserKey('address'));
@@ -5733,7 +5735,7 @@ function renderLibrary() {
   $('bd-lib-list').replaceChildren(...rows);
 }
 
-// Downloads: each waits for Save (Jarvis can click in this browser; a file never lands on
+// Downloads: each waits for Save (Eden Secretary can click in this browser; a file never lands on
 // the Mac without you), then shows its progress and Show in Finder.
 function fileSize(n) {
   if (!n) return '';
@@ -5885,7 +5887,7 @@ async function runResearchCmd(ev) {
   const args = ev.args || {};
   let result;
   try {
-    if (!app || !app.browser) result = { error: 'The Research Center only opens in the J.A.R.V.I.S. app window.' };
+    if (!app || !app.browser) result = { error: 'The Research Center only opens in the Eden Secretary app window.' };
     else if (ev.action === 'open') result = await openResearch(args.path || '/markets');
     else if (ev.action === 'close') { toggleBrowser(false); result = { ok: true }; }
     else if (ev.action === 'lock') result = { ok: true, locked: await app.browser.researchLock(!!args.on) };
@@ -5915,7 +5917,7 @@ if (app && app.browser) {
   $('br-forward').addEventListener('click', () => app.browser.nav('forward'));
   $('br-reload').addEventListener('click', () => app.browser.nav('reload'));
   $('br-research').addEventListener('click', () => openResearch(lastResearchPath));
-  // The lock badge: J.A.R.V.I.S. only on the Research Center, or your mouse and keyboard too.
+  // The lock badge: Eden Secretary only on the Research Center, or your mouse and keyboard too.
   $('br-lock').addEventListener('click', () => app.browser.researchLock(!browserState.lockWanted));
   $('br-retry').addEventListener('click', () => {
     $('br-message').hidden = true;
@@ -5928,8 +5930,8 @@ if (app && app.browser) {
     app.browser.nav('go', $('br-url').value);
     $('br-url').blur();
   });
-  // Three states: J.A.R.V.I.S. only (locked), its sign-in page while locked (the user signs
-  // in themselves), or shared (the default: the mouse and keyboard work, and so does Jarvis).
+  // Three states: Eden Secretary only (locked), its sign-in page while locked (the user signs
+  // in themselves), or shared (the default: the mouse and keyboard work, and so does Eden Secretary).
   function renderResearchLock(st) {
     const badge = $('br-lock');
     badge.hidden = !st.research;
@@ -5938,10 +5940,10 @@ if (app && app.browser) {
     badge.classList.toggle('open', !!st.research && !shared && !st.locked);
     badge.setAttribute('aria-pressed', String(!shared));
     $('br-lock-shackle').setAttribute('d', shared ? 'M4 5.5V4a2 2 0 014 0' : 'M4 5.5V4a2 2 0 014 0v1.5');
-    $('br-lock-text').textContent = shared ? 'You and J.A.R.V.I.S.' : st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
+    $('br-lock-text').textContent = shared ? 'You and Eden Secretary' : st.locked ? 'Eden Secretary only' : 'Sign in yourself, then I take over';
     badge.title = shared
-      ? 'Your mouse and keyboard work here, and J.A.R.V.I.S. can drive it too. Click to make it J.A.R.V.I.S. only.'
-      : 'Only J.A.R.V.I.S. drives the Research Center: your voice and your hands. Click to use your mouse and keyboard too.';
+      ? 'Your mouse and keyboard work here, and Eden Secretary can drive it too. Click to make it Eden Secretary only.'
+      : 'Only Eden Secretary drives the Research Center: your voice and your hands. Click to use your mouse and keyboard too.';
   }
   app.browser.onState((st) => {
     browserState = st;
@@ -6020,7 +6022,7 @@ function sendLocation() {
   if (!navigator.geolocation) { send({ type: 'location_fix', error: 'No location services in this window.' }); return; }
   navigator.geolocation.getCurrentPosition(
     (pos) => send({ type: 'location_fix', lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-    (err) => send({ type: 'location_fix', error: err.code === 1 ? 'Location access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Location Services).' : `No location fix: ${err.message}` }),
+    (err) => send({ type: 'location_fix', error: err.code === 1 ? 'Location access is off for Eden Secretary (System Settings > Privacy & Security > Location Services).' : `No location fix: ${err.message}` }),
     { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60 * 1000 },
   );
 }
@@ -6123,11 +6125,11 @@ function renderRoutines(items) {
   }));
 }
 
-// The calls to the Jarvis number, newest first: who, when, what they said (theirs, never
+// The calls to the Eden Secretary number, newest first: who, when, what they said (theirs, never
 // translated), and for a time a caller asked for, Book and Let go.
 const LINE_KINDS = {
   message: 'Left a message', booking: 'Wants to meet', schedule: 'Wants a time', missed: 'Missed call',
-  talk: 'Talked with Jarvis', errand: 'Called for you',
+  talk: 'Talked with Eden Secretary', errand: 'Called for you',
 };
 const LINE_STATUS = {
   booked: 'Booked', declined: 'Let go', replaced: 'Asked again',
@@ -6196,7 +6198,7 @@ $('memory-form').addEventListener('submit', (e) => {
   $('memory-input').value = '';
 });
 
-// ── what JARVIS has learned: your words, who's worth an interruption; your documents ──
+// ── what Eden Secretary has learned: your words, who's worth an interruption; your documents ──
 
 function renderHearing(h) {
   const rows = (h.corrections || []).map((c) => {
@@ -6313,7 +6315,7 @@ document.addEventListener('drop', (e) => {
   send({ type: 'video_summarize', path });
 });
 
-// ── pictures: drop or paste a screenshot to ask Jarvis about it ──
+// ── pictures: drop or paste a screenshot to ask Eden Secretary about it ──
 // They wait as thumbnails by the request box (the one the look shows) and go with what's
 // typed there next. With Eden Code open they join its composer instead.
 
@@ -6360,16 +6362,16 @@ function addPictures(files) {
 }
 
 async function addAskPicture(file) {
-  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Jarvis', '', 'Up to six pictures per request.', 5000); return; }
+  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Eden Secretary', '', 'Up to six pictures per request.', 5000); return; }
   const slot = { kind: 'image', size: 0 };
   const order = picsOrder++;
   picsReading.add(slot);
   try {
     const fitted = await fitPicture(file);
-    if (!fitted) { notice('Jarvis', '', `${file.name} isn’t a picture Jarvis can read.`, 5000); return; }
+    if (!fitted) { notice('Eden Secretary', '', `${file.name} isn’t a picture Eden Secretary can read.`, 5000); return; }
     slot.size = fitted.size;
     const held = [...askPics].map((p) => ({ kind: 'image', size: p.size }));
-    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Jarvis', '', `${file.name} would make this request too big to send.`, 5000); return; }
+    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Eden Secretary', '', `${file.name} would make this request too big to send.`, 5000); return; }
     const url = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -6379,7 +6381,7 @@ async function addAskPicture(file) {
     const pic = { type: fitted.type, data: url.split(',', 2)[1], url, name: file.name, size: fitted.size, order };
     setAskPics([...askPics, pic].sort((a, b) => a.order - b.order));
   } catch {
-    notice('Jarvis', '', `${file.name} couldn’t be read.`, 5000);
+    notice('Eden Secretary', '', `${file.name} couldn’t be read.`, 5000);
   } finally {
     picsReading.delete(slot);
   }
@@ -6587,7 +6589,7 @@ function syncDismissAll() {
 
 const ALERT_KICKERS = { leave: 'Time to go', soon: 'Coming up', battery: 'Power', rain: 'Weather', mail: 'Email', message: 'Message', delegate: 'Conversation', files: 'For your meeting', task: 'Background work', learned: 'Learned', call: 'Phone call', voicemail: 'Voicemail' };
 
-// A heads-up JARVIS raised on its own. Claude Code already has its own cards; everything
+// A heads-up Eden Secretary raised on its own. Claude Code already has its own cards; everything
 // else gets one, plus a macOS notification when the window isn't in front.
 function onAlert(ev) {
   const kicker = ALERT_KICKERS[ev.alert_kind] || 'Heads-up';
@@ -6601,13 +6603,13 @@ function onAlert(ev) {
     card.dataset.alert = key;
     open.addEventListener('click', () => { send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'opened' }); card.remove(); syncDismissAll(); });
   } else if (!['task', 'meeting'].includes(ev.alert_kind)) {
-    // Dismissed, or clicked into (read): how Jarvis learns which kinds are worth it.
+    // Dismissed, or clicked into (read): how Eden Secretary learns which kinds are worth it.
     const card = notice(kicker, ev.title, ev.text, 60000, null, () => send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'dismissed' }));
     card.dataset.alert = key;
     card.addEventListener('click', (e) => { if (!e.target.closest('button')) send({ type: 'alert_reaction', key, kind: ev.alert_kind, action: 'opened' }); }, { once: true });
   }
   if (document.hidden || !document.hasFocus()) {
-    // A feature can raise it instead (the app's shell: clicking it opens JARVIS on this card).
+    // A feature can raise it instead (the app's shell: clicking it opens Eden Secretary on this card).
     const taken = !window.dispatchEvent(new CustomEvent('jarvis-notify', { cancelable: true, detail: ev }));
     if (!taken) {
       try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }

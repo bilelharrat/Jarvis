@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 /// Chooses how the iPhone reaches its Mac (MacRoute): straight to its address while that
-/// answers, else, when the owner is signed in to their Jarvis account and the Mac is linked
+/// answers, else, when the owner is signed in to their Eden Secretary account and the Mac is linked
 /// to it, through the encrypted relay. Whether the address answers is a quick TCP knock
 /// (1.5 s at most), remembered for 30 seconds and forgotten whenever the network changes.
 actor MacRouter: MacRoute.Router {

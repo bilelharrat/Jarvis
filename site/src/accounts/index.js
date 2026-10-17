@@ -1,4 +1,4 @@
-// askeden.com/api/…: Jarvis accounts (docs/accounts.md). The Worker's side: it reads the
+// askeden.com/api/…: Eden Secretary accounts (docs/accounts.md). The Worker's side: it reads the
 // device token, finds the account's Durable Object, and does the parts that talk to the
 // world (Apple's sign-in keys, Apple's push service, Anthropic) itself, so an account's
 // object is never kept busy by a stream.
@@ -9,10 +9,13 @@ import { takenWords } from './identity.js';
 import { cleanCode, newCode } from './link.js';
 import { edenSyncApi } from './eden-sync.js';
 import { chatSyncApi } from './chat-sync.js';
+import { essaySyncApi } from './essay-sync.js';
 import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
+import { playNotification } from './google-play.js';
 import { checkSignups } from './turnstile.js';
 import { redeemPromo } from './promo.js';
+import { signup, where } from '../stats/stats.js';
 import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
@@ -100,7 +103,7 @@ export async function api(request, env, ctx) {
   const path = url.pathname.replace(/^\/api/, '').replace(/\/+$/, '');
   const method = request.method;
   try {
-    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
+    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     if (path.startsWith('/anthropic/')) return await anthropic(request, env, ctx, path.slice('/anthropic'.length));
     if (path.startsWith('/relay/')) return await relay(request, env, path.slice('/relay/'.length));
     if (path === '/account/apple' && method === 'POST') return json(await signIn(request, env));
@@ -129,11 +132,17 @@ export async function api(request, env, ctx) {
     }
     if (path === '/subscription' && method === 'POST') return json(await subscription(request, env));
     if (path === '/appstore/notifications' && method === 'POST') return await appStoreNotification(request, env);
+    if (path === '/googleplay/notifications' && method === 'POST') return await playNotification(request, env); // Google Play's RTDN (google-play.js)
     // Eden sync for the apps (docs/accounts.md "Eden sync"): the same ops a browser has, by token.
     const esync = /^\/esync(?:\/([a-z]+))?$/.exec(path);
     if (esync) {
       const token = auth(request);
       return await edenSyncApi(request, env, { account: token.account, token }, esync[1] || '');
+    }
+    const essays = /^\/essays\/([a-z]+)$/.exec(path); // essays, as chats (essay-sync.js)
+    if (essays) {
+      const token = auth(request);
+      return await essaySyncApi(request, env, { account: token.account, token }, essays[1]);
     }
     const csync = /^\/csync\/([a-z]+)$/.exec(path);
     if (csync) {
@@ -166,7 +175,7 @@ export async function api(request, env, ctx) {
 // accounts/tasks.js): the same decision as Eden's Tasks panel, by the app's own device token. Apps
 // send no Origin; a page can't make this call (no cookie counts here, and an Origin is refused).
 async function taskApproval(request, env, id) {
-  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the J.A.R.V.I.S. app answers from a notification.');
+  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the Eden Secretary app answers from a notification.');
   const token = auth(request);
   await limited(env, 'API_RATE', token.account);
   const { decision } = await readJson(request, 4096);
@@ -187,7 +196,7 @@ async function signIn(request, env) {
   const body = await readJson(request);
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { now: Date.now() / 1000 });
   const ip = clientIp(request);
-  const { account_id: accountId } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip) });
+  const { account_id: accountId } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip), geo: where(request) });
   const refreshToken = await exchangeCode(env, body.authorization_code, fetch, undefined, { sub: claims.sub }); // same user and app (R2C-12)
   const device = body.device && typeof body.device === 'object' ? body.device : {};
   return call(env, accountId, 'signin', {
@@ -213,8 +222,8 @@ async function deleteAccount(request, env) {
 export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
   // Team spaces and delegations are read first (the account's own object is about to go), erased after.
   const team = env.ACCOUNTS ? await import('./space.js').then((m) => m.teamSnapshot(env, accountId, auth).then((snap) => ({ m, snap }))).catch(() => null) : null;
-  const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [], appstore_claims: claims = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
-  // Every Apple grant at once (R2C-13): the J.A.R.V.I.S. app's, and the Eden apps' each with the client id it
+  const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [], appstore_claims: claims = [], play_claims: playClaims = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
+  // Every Apple grant at once (R2C-13): the Eden Secretary app's, and the Eden apps' each with the client id it
   // was issued to (eden/session.js nativeApple). Each call is capped at 5 s and logs its own failure (status
   // and client id only); none holds up or stops the deletion.
   await Promise.allSettled([...(grant ? [revoke(env, grant)] : []), ...Object.entries(grants || {}).map(([clientId, token]) => revoke(env, token, fetch, clientId))]);
@@ -236,13 +245,15 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   if (env.IDENTITIES) {
     // The App Store subscriptions it claimed (eden/billing.js appleTransaction) are free to claim again.
     for (const subHash of claims) await callIdentity(env, 'appstore', subHash, 'forget', { account_id: accountId }).catch(() => {});
+    // And the Google Play purchase tokens it claimed (accounts/google-play.js).
+    for (const subHash of playClaims) await callIdentity(env, 'googleplay', subHash, 'forget', { account_id: accountId }).catch(() => {});
     for (const { provider, sub_hash: subHash } of identities) {
       if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
     }
   }
 }
 
-// A new account from an app's own Sign in with Apple (the J.A.R.V.I.S. and Eden iOS apps): no
+// A new account from an app's own Sign in with Apple (the Eden Secretary and Eden iOS apps): no
 // Turnstile there (a native sheet, no page), so it costs NATIVE_NEW_WEIGHT tries of AUTH_RATE
 // on a counter of its own per network: at most 20 / 5 = 4 new accounts a minute from one network,
 // on top of every new account's own `new:` count (docs/web-auth.md "Turnstile").
@@ -262,16 +273,18 @@ const accountExists = async (env, id) => (await call(env, id, 'exists')).exists 
  * else (every account the iPhone app made) the one its id derives from; an Apple ID unlinked
  * since, or a Google account seen for the first time, gets a new account (random UUID v4).
  * A new account counts against AUTH_RATE per network. Never matched by email.
+ * `subHash` and `derived` (instead of `sub`): a sign-in that was kept a few minutes server-side by its hash,
+ * never its raw id (eden/session.js, the new-account choice), worked out from the sub when it was verified.
  */
-export async function accountForIdentity(env, { provider, sub, email = null, ip = 'unknown', cred = null, beforeCreate = null }) {
-  const derived = provider === 'apple' ? await accountIdFor(sub) : null;
+export async function accountForIdentity(env, { provider, sub = null, subHash: knownHash = null, derived: knownDerived, email = null, ip = 'unknown', cred = null, beforeCreate = null, geo = null }) {
+  const derived = knownHash ? knownDerived || null : provider === 'apple' ? await accountIdFor(sub) : null;
   if (!env.IDENTITIES) {
     // Before the IDENTITIES binding is deployed: Apple as it always was, nothing else.
     if (!derived) throw new ApiError(503, 'not_set_up', 'This sign-in is not set up here yet.');
     if (!(await accountExists(env, derived))) checkSignups(env); // sign-ups closed: existing accounts only
     return { account_id: derived };
   }
-  const subHash = await subHashOf(provider, sub);
+  const subHash = knownHash || (await subHashOf(provider, sub));
   const found = await callIdentity(env, provider, subHash, 'get');
   if (found.state === 'linked') return { account_id: found.account_id };
   let proposed = found.state === 'none' ? derived : null;
@@ -283,6 +296,9 @@ export async function accountForIdentity(env, { provider, sub, email = null, ip 
     if (beforeCreate) await beforeCreate();
     await limited(env, 'AUTH_RATE', `new:${ip}`);
     proposed ||= crypto.randomUUID();
+    const { account_id } = await callIdentity(env, provider, subHash, 'resolve', { proposed, email, ...(cred ? { cred } : {}) });
+    if (account_id === proposed) await signup(env, { accountId: account_id, provider, geo }); // a new account, for the owner's dashboard (stats/stats.js)
+    return { account_id };
   }
   const { account_id } = await callIdentity(env, provider, subHash, 'resolve', { proposed, email, ...(cred ? { cred } : {}) });
   return { account_id };
@@ -359,6 +375,7 @@ async function linkStart(request, env) {
         kind: 'mac', // only Macs link; phones sign in with Apple
         public_key: body.public_key,
         app_version: cleanVersion(body.app_version),
+        edition: body.edition === 'daredevil' ? 'daredevil' : '',
         poll,
       });
       return { code, poll, expires_in: started.expires_in };
@@ -385,7 +402,7 @@ async function linkByCode(request, env, rawCode, action, method) {
   if (!code) throw new ApiError(404, 'not_found', "That code isn't one we know. Check it on the Mac.");
   const { device } = await call(env, token.account, 'whoami', {}, token);
   // A browser approves nothing; a Mac approves a browser's sign-in (kind `web`), never a Mac.
-  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the Eden Secretary app on your iPhone or Mac.');
   const link = (await callLink(env, code, 'peek')).body;
   const web = link.kind === 'web';
   if (!web && device.kind === 'mac') throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
@@ -399,7 +416,7 @@ async function linkByCode(request, env, rawCode, action, method) {
     return new Response(null, { status: 204 });
   }
   const body = await readJson(request);
-  const made = await call(env, token.account, 'add-device', { name: link.name, kind: link.kind, app_version: link.app_version }, token);
+  const made = await call(env, token.account, 'add-device', { name: link.name, kind: link.kind, app_version: link.app_version, edition: link.edition }, token);
   // A browser gets no sync key: it has no key pair, and askeden.com keeps nothing it could open.
   const sealed = !web && typeof body.sealed_key === 'string' && body.sealed_key ? body.sealed_key : null;
   const sender = !web && typeof body.sender_key === 'string' && body.sender_key ? body.sender_key : null;
@@ -418,7 +435,7 @@ async function linkByCode(request, env, rawCode, action, method) {
 // ── pushes ──
 
 async function push(request, env) {
-  if (!pushReady(env)) throw new ApiError(503, 'not_set_up', 'Notifications through Jarvis accounts are not set up yet.');
+  if (!pushReady(env)) throw new ApiError(503, 'not_set_up', 'Notifications through Eden Secretary accounts are not set up yet.');
   const token = auth(request);
   const accountId = token.account;
   const body = await readJson(request, 64 * 1024);
@@ -444,7 +461,7 @@ async function push(request, env) {
 async function subscription(request, env) {
   const body = await readJson(request, 64 * 1024);
   const transaction = await verifyAppleJws(body.signed_transaction, { root: env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3 });
-  if (!isStoreApp(transaction.bundleId)) throw new ApiError(400, 'bad_transaction', "That purchase isn't for Jarvis or Eden.");
+  if (!isStoreApp(transaction.bundleId)) throw new ApiError(400, 'bad_transaction', "That purchase isn't for Eden Secretary or Eden.");
   return callAs(env, request, 'subscription', { transaction });
 }
 
@@ -453,7 +470,7 @@ async function appStoreNotification(request, env) {
   const root = env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3;
   const notice = await verifyAppleJws(body.signedPayload, { root });
   const data = notice.data || {};
-  if (data.bundleId && !isStoreApp(data.bundleId)) return new Response(null, { status: 200 }); // J.A.R.V.I.S.'s and Eden's
+  if (data.bundleId && !isStoreApp(data.bundleId)) return new Response(null, { status: 200 }); // Eden Secretary's and Eden's
   if (!data.signedTransactionInfo) return new Response(null, { status: 200 }); // a TEST notification, say
   const transaction = await verifyAppleJws(data.signedTransactionInfo, { root });
   const renewal = data.signedRenewalInfo ? await verifyAppleJws(data.signedRenewalInfo, { root }) : null;
@@ -492,7 +509,7 @@ async function anthropic(request, env, ctx, path) {
     return anthropicError(404, 'not_found_error', 'Only messages are available here.');
   }
   const token = tokenFrom(request, { apiKey: true });
-  if (!token) return anthropicError(401, 'authentication_error', 'Sign in to your Jarvis account on this device.');
+  if (!token) return anthropicError(401, 'authentication_error', 'Sign in to your Eden Secretary account on this device.');
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);
@@ -522,7 +539,7 @@ async function anthropic(request, env, ctx, path) {
   const record = async (model, usage) => {
     try {
       const usd = costOf(model, usage);
-      if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket });
+      if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket, meta: { feature: 'app', product: 'apps', model, tin: (usage && usage.input_tokens) || 0, tout: (usage && usage.output_tokens) || 0 } });
     } finally {
       await release();
     }

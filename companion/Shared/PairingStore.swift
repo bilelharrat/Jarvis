@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// This device's pairing with Jarvis on a Mac. The token is a secret: it lives only in the
+/// This device's pairing with Eden Secretary on a Mac. The token is a secret: it lives only in the
 /// Keychain (and in memory), and is never logged or shown. The fingerprint is the Mac's
 /// certificate, pinned when pairing: nothing is sent to a server that presents another.
 struct Pairing: Codable, Equatable, Sendable {
@@ -13,7 +13,7 @@ struct Pairing: Codable, Equatable, Sendable {
     /// Lowercase hex SHA-256 of the Mac's certificate. Pairings from before the companion
     /// spoke TLS have none, and pair again.
     var fingerprint: String?
-    /// The Mac's device id in the owner's Jarvis account, once it's linked (from the Mac's
+    /// The Mac's device id in the owner's Eden Secretary account, once it's linked (from the Mac's
     /// /api/state): which device the encrypted relay connects to. Missing in older pairings.
     var macDeviceID: String? = nil
 
@@ -45,7 +45,7 @@ enum PairingStore {
 
     // MARK: Other Jarvises
 
-    /// The other Jarvises this device is paired with (a Mac, the cloud Jarvis), kept to switch
+    /// The other Jarvises this device is paired with (a Mac, the cloud Eden Secretary), kept to switch
     /// to: the one in use is always `load()`, which the extensions and the Watch read.
     private static let othersAccount = "pairing.others.v1"
     static let othersMax = 4
@@ -55,7 +55,7 @@ enum PairingStore {
         return (try? JSONDecoder().decode([Pairing].self, from: data)) ?? []
     }
 
-    /// Whether two pairings are the same Jarvis: the same pinned certificate, else the same address.
+    /// Whether two pairings are the same Eden Secretary: the same pinned certificate, else the same address.
     static func same(_ a: Pairing, _ b: Pairing) -> Bool {
         if let fa = a.fingerprint.flatMap(CertificatePin.normalize), let fb = b.fingerprint.flatMap(CertificatePin.normalize) {
             return fa == fb
@@ -63,7 +63,7 @@ enum PairingStore {
         return a.baseURL == b.baseURL
     }
 
-    /// Keeps a pairing to switch back to (the newest first; one for the same Jarvis replaced).
+    /// Keeps a pairing to switch back to (the newest first; one for the same Eden Secretary replaced).
     static func keepOther(_ pairing: Pairing) {
         var list = others().filter { !same($0, pairing) }
         list.insert(pairing, at: 0)

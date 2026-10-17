@@ -38,7 +38,7 @@ struct DigestView: View {
             } header: {
                 ListHeader("The last 24 hours")
             } footer: {
-                ListFooter("Summaries from Jarvis on your Mac. Ask Jarvis to read or answer any of them.")
+                ListFooter("Summaries from Eden Secretary on your Mac. Ask Eden Secretary to read or answer any of them.")
             }
             .glassRow()
         }

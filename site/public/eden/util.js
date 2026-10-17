@@ -106,6 +106,27 @@ export function whileVisible(fn, ms) {
   return () => { clearInterval(t); t = null; document.removeEventListener('visibilitychange', sync); };
 }
 
+/**
+ * Before trying something again that failed (askeden.com didn't answer at startup): a while, longer each try (5 s,
+ * 10 s… a minute at most), or less when the network comes back, the app says it's online again, the page is looked
+ * at again or someone asks (`eden:sync-retry`). Never while the page is hidden. Resolves when it's time.
+ */
+export function retryWait(tries = 0) {
+  return new Promise((resolve) => {
+    let t = null;
+    const done = () => {
+      clearTimeout(t);
+      for (const e of ['online', 'eden:caps', 'eden:sync-retry']) removeEventListener(e, done);
+      document.removeEventListener('visibilitychange', vis);
+      resolve();
+    };
+    const vis = () => { if (!document.hidden) done(); };
+    t = setTimeout(() => { if (!document.hidden) done(); }, Math.min(60_000, 5000 * (tries + 1)));
+    for (const e of ['online', 'eden:caps', 'eden:sync-retry']) addEventListener(e, done);
+    document.addEventListener('visibilitychange', vis);
+  });
+}
+
 /** Says a file loaded after startup (a lazy module, its stylesheet), so page-update.js's deploy check covers it too. */
 export function noteAsset(url) {
   try { dispatchEvent(new CustomEvent('eden:asset', { detail: String(url) })); } catch { /* no window (tests) */ }
@@ -218,6 +239,10 @@ export function relDay(ts) {
 export const isMobile = () => matchMedia('(max-width:640px)').matches;
 /** A touch screen (no hover, or a finger as the main pointer): keyboard hints mean nothing there.
  *  Not while Eden's iPad app has a hardware keyboard attached (the app marks the page .eden-kbd). */
+// Eden Mail on its own (askeden.com/mail, from askedenmail.com): only Mail, full window, no chat around it (panels.js, mail.css).
+// ?mock=1&mailonly=1 shows the same on the sample data.
+export const MAIL_ONLY = typeof location !== 'undefined' && (location.pathname === '/mail' || (/[?&]mock=1\b/.test(location.search) && /[?&]mailonly=1\b/.test(location.search)));
+if (MAIL_ONLY && typeof document !== 'undefined') document.documentElement.classList.add('mail-only');
 export const isTouch = () => !(typeof document !== 'undefined' && document.documentElement.classList.contains('eden-kbd'))
   && matchMedia('(hover:none), (pointer:coarse)').matches;
 const KEY_HINT = /\s*\((?:[^()]*?(?:[⌘⇧⌥⇥⏎↵]|\bEsc\b))[^()]*\)|\s*·?\s*\bEsc stops\b/g;
@@ -227,7 +252,7 @@ export function noKeys(text, touch = isTouch()) {
 }
 export const isNarrow = () => matchMedia('(max-width:1100px)').matches;
 
-/** Position a fixed popup next to an anchor (Jarvis Code's placePopup). */
+/** Position a fixed popup next to an anchor (Eden Code's placePopup). */
 export function placePopup(pop, anchor, side) {
   const r = anchor.getBoundingClientRect();
   const w = pop.offsetWidth, h = pop.offsetHeight;
@@ -329,4 +354,14 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     e.clipboardData.setData('text/html', box.innerHTML);
     e.preventDefault();
   });
+}
+
+/** A file's type for its card: the extension in capitals and a colour family (PDF red, sheets green, docs blue, code grey…). */
+export function fileType(name = '', kind = '') {
+  const ext = (String(name).match(/\.([a-z0-9]{1,6})$/i) || [])[1]?.toLowerCase() || '';
+  if (kind === 'video') return { label: ext ? ext.toUpperCase() : 'Video', tone: 'ft-video', icon: 'play' };
+  const tone = ext === 'pdf' ? 'pdf' : /^(xlsx?|csv|tsv|numbers)$/.test(ext) ? 'sheet' : /^(docx?|pages|rtf|odt)$/.test(ext) ? 'doc'
+    : /^(pptx?|key)$/.test(ext) ? 'slides' : /^(txt|md)$/.test(ext) ? 'text' : /^(js|ts|py|json|html|css|swift|java|c|cpp|go|rs|rb|sh|sql)$/.test(ext) ? 'code' : 'file';
+  const labels = { pdf: 'PDF', sheet: 'Spreadsheet', doc: 'Document', slides: 'Presentation', text: 'Text', code: 'Code' };
+  return { label: labels[tone] || (ext ? ext.toUpperCase() : 'File'), tone: `ft-${tone}`, icon: 'doc' }; // ft-: never a shared class such as .sheet (the bottom sheet)
 }

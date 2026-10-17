@@ -29,7 +29,7 @@ function env({ latest = { version: '0.1.0', size: BYTES.length, file: FILE }, fi
   };
 }
 
-const get = (path, e, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e);
+const get = (path, e, init = {}) => worker.fetch(new Request(`https://askeden.com${path}`, init), e);
 
 test('the apps page is at /jarvis and /download, Eden\'s front page at / signed out; images stay by path', async () => {
   const e = env();
@@ -41,7 +41,61 @@ test('the apps page is at /jarvis and /download, Eden\'s front page at / signed 
   assert.deepEqual(e.assets, ['/home/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
   const old = await get('/features', e); // an old address: home (/pricing is the front page's plans now)
   assert.equal(old.status, 302);
-  assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
+  assert.equal(old.headers.get('location'), 'https://askeden.com/');
+});
+
+test('www.askeden.com moves to askeden.com, path and query kept; the apps’ association files stay on www', async () => {
+  const e = { ...env(), APPLE_TEAM_ID: '8CV4X23Y2T' };
+  const www = (path, init) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e, { waitUntil() {} });
+  for (const [path, init, status] of [
+    ['/', {}, 301],
+    ['/signin?return=%2Fmail', {}, 301],
+    ['/app.js', { method: 'HEAD' }, 301],
+    ['/api/web/session', {}, 301],
+    ['/api/web/csync/list', { method: 'POST', body: '{}', headers: { 'content-type': 'application/json', origin: 'https://www.askeden.com' } }, 308],
+    ['/api/web/apple/callback', { method: 'POST', body: 'code=x' }, 308],
+  ]) {
+    const res = await www(path, init);
+    assert.equal(res.status, status, path);
+    assert.equal(res.headers.get('location'), `https://askeden.com${path}`, path);
+    // never kept by the browser: it depends on the cookie, and a kept 301 would undo a sign-in on www
+    assert.equal(res.headers.get('cache-control'), 'no-store', path);
+  }
+  assert.deepEqual(e.assets, [], 'nothing is served on www');
+  // Apple (universal links) and Android (app links) read these on www itself, and don't follow redirects for them.
+  const aasa = await www('/.well-known/apple-app-site-association');
+  assert.equal(aasa.status, 200);
+  assert.ok((await aasa.json()).applinks.details.some((d) => d.appIDs.includes('8CV4X23Y2T.com.askeden.eden')));
+  const links = await www('/.well-known/assetlinks.json');
+  assert.equal(links.status, 200);
+  assert.equal((await links.json())[0].target.package_name, 'com.askeden.eden');
+  // askeden.com itself is served, not moved
+  assert.equal((await get('/', e)).status, 200);
+});
+
+test('www.askeden.com: a passkey made there still signs in (its sign-in page with ?on=www and its calls stay), and a browser signed in there goes on there', async () => {
+  const e = env();
+  const www = (path, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e, { waitUntil() {} });
+  for (const path of ['/signin?on=www', '/signin/signin.js', '/signin/return.js', '/signin/signin.css', '/lang/site-i18n.js', '/lang/fr-signin.js', '/api/web/config']) {
+    const res = await www(path);
+    assert.ok(![301, 308].includes(res.status), `${path}: ${res.status}`); // (answered on www: this test's env has no sign-in set up)
+    assert.equal(res.headers.get('location'), null, path);
+  }
+  const options = await www('/api/web/passkey/options', { method: 'POST', body: '{"mode":"signin"}', headers: { 'content-type': 'application/json', origin: 'https://www.askeden.com' } });
+  assert.notEqual(options.status, 308, 'the passkey call is answered on www (its RP ID is www)');
+  for (const path of ['/api/web/link', '/api/web/link/poll', '/api/web/passkey/verify']) {
+    const res = await www(path, { method: 'POST', body: '{}', headers: { 'content-type': 'application/json', origin: 'https://www.askeden.com' } });
+    assert.notEqual(res.status, 308, path);
+  }
+  // without ?on=www, and that page's Apple and Google buttons: askeden.com
+  for (const path of ['/signin', '/signin?return=%2Fmail', '/api/web/apple', '/api/web/google', '/signin/../app.js']) assert.equal((await www(path)).status, 301, path);
+  // a browser signed in on www (its own cookie): served there as before, not sent to askeden.com signed out
+  const signedIn = await www('/', { headers: { cookie: '__Host-eden=x.y.z' } });
+  assert.equal(signedIn.status, 200);
+  assert.equal(signedIn.headers.get('location'), null);
+  // askeden.com's sign-in page points a passkey that didn't open to www's
+  const js = await (await import('node:fs/promises')).readFile(new URL('../public/signin/signin.js', import.meta.url), 'utf8');
+  assert.match(js, /https:\/\/www\.askeden\.com\/signin\?on=www/);
 });
 
 test('/messenger is Eden Messenger, at messenger.askeden.com; its download buttons stay here', async () => {

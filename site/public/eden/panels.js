@@ -1,14 +1,14 @@
-// Jarvis spaces through POST /api/chat/jarvis: Second Brain (search_notes → read_note →
+// Eden Secretary spaces through POST /api/chat/jarvis: Second Brain (search_notes → read_note →
 // "Use in chat"), Memory (its own page now: memory.js), Calendar (calendar.js), Routines
-// (heads-up via notify_me), plus the inspector's Memory tab (recall, with a way into the page). Everything Jarvis returns is data: shown as text only.
+// (heads-up via notify_me), plus the inspector's Memory tab (recall, with a way into the page). Everything Eden Secretary returns is data: shown as text only.
 
-import { $, el, ico, toast, debounce, isTouch } from './util.js';
+import { $, el, ico, toast, debounce, isTouch, MAIL_ONLY } from './util.js';
 import { state, ui } from './state.js';
 import { api } from './api.js';
 import { mailPanel, focusMail } from './mail.js';
 
 let H = {};
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 
 export function parseNotes(text) {
@@ -69,7 +69,7 @@ export function openSpace(key, opts = {}) {
   if (!s) return;
   openKey = key;
   returnFocus = document.activeElement;
-  $('spTitle').textContent = s.t;
+  $('spTitle').textContent = mailOnly && key === 'mail' ? 'Eden Mail' : s.t;
   $('spIco').firstElementChild.setAttribute('href', `#i-${s.i}`);
   $('spacePanel').classList.add('open');
   $('spacePanel').classList.toggle('wide', key === 'mail' || !!s.load);
@@ -78,7 +78,7 @@ export function openSpace(key, opts = {}) {
   body.replaceChildren();
   body.classList.toggle('mailx', key === 'mail'); // the Mail panel lays out its own panes (mail.js)
   $('spacePanel').classList.toggle('mailp', key === 'mail');
-  paintFull(key === 'mail' && fullPref());
+  paintFull(key === 'mail' && (mailOnly || opts.full || fullPref()));
   if (key === 'mail') { mailPanel(body).catch((e) => { failed(body, e); focusFirst(); }); requestAnimationFrame(() => focusMail(body) || focusFirst()); return; }
   if (key === 'memory') { memory(body); return; } // the Memory page shows its own needs-your-Mac state
   if (!state.jarvis.available && key !== 'routines' && !s.offMac) { body.append(unavailable(key)); focusFirst(true); return; }
@@ -95,8 +95,18 @@ function focusFirst(sync = false) {
   const go = () => { const f = (isTouch() && !sync ? null : $('spBody').querySelector('input, button, textarea')) || $('btnSpClose'); f.focus(); };
   if (sync && isTouch()) go(); else requestAnimationFrame(go);
 }
+let mailOnly = MAIL_ONLY;
+export const inMailOnly = () => mailOnly;
+/** Out of Eden Mail on its own, into the whole of Eden (an email's "Ask Eden" or "Summarize" goes to a chat). */
+export function leaveMailOnly() {
+  if (!mailOnly) return;
+  mailOnly = false;
+  document.documentElement.classList.remove('mail-only');
+  if (location.pathname === '/mail') history.replaceState(null, '', '/');
+}
 export function closeSpace() {
   if (!$('spacePanel').classList.contains('open')) return false;
+  if (mailOnly && openKey === 'mail') return false; // Eden Mail on its own: Mail is the page (no Esc, close button or click outside)
   // A click outside closes the panel on pointerdown, and that click places focus itself (in
   // the composer, say): handing focus back to what had it before the panel opened stole it,
   // so the next Enter pressed that button ("Toggle inspector"). Only Esc, the close button
@@ -242,14 +252,14 @@ export async function openMemoryPage(opts = {}) {
   try { (await import('./memory.js')).openMemory(opts); } catch (e) { toast(e.message); }
 }
 
-// The Mac is showing "Let Eden use Jarvis?" (api.js): say so in the open panel, where the person is
+// The Mac is showing "Let Eden use Eden Secretary?" (api.js): say so in the open panel, where the person is
 // looking (on a phone the sidebar's status line is out of sight), until it's answered (A1, C2).
 addEventListener('eden:jarvis-approval', (e) => {
   const w = !!(e.detail && e.detail.waiting);
   const body = document.getElementById('spBody');
   const had = document.getElementById('spApproval');
   if (!w || !body || !spaceOpen()) { if (had) had.remove(); return; }
-  if (!had) body.prepend(el('div', { class: 'sp-warn', id: 'spApproval', role: 'status' }, el('b', '', 'Approve Eden on your Mac'), 'Your Mac is asking “Let Eden use Jarvis?”. Choose Allow there and this continues by itself.'));
+  if (!had) body.prepend(el('div', { class: 'sp-warn', id: 'spApproval', role: 'status' }, el('b', '', 'Approve Eden on your Mac'), 'Your Mac is asking “Let Eden use Eden Secretary?”. Choose Allow there and this continues by itself.'));
 });
 
 export function initPanels(handlers) {

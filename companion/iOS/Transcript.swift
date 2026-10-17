@@ -10,7 +10,7 @@ struct TranscriptLine: Identifiable, Equatable {
     var kind: Kind
     var text: String
     var time: Date?
-    /// Jarvis is still working on it (the text grows as it streams).
+    /// Eden Secretary is still working on it (the text grows as it streams).
     var live = false
     /// Sent from here, not yet seen on the Mac.
     var sending = false
@@ -18,15 +18,15 @@ struct TranscriptLine: Identifiable, Equatable {
     var onHold = false
     /// Kept on this iPhone until the Mac can be reached.
     var waiting = false
-    /// Answered by Jarvis on the iPhone.
+    /// Answered by Eden Secretary on the iPhone.
     var onPhone = false
-    /// What Jarvis is doing right now ("Checking your calendar").
+    /// What Eden Secretary is doing right now ("Checking your calendar").
     var activity: String?
     /// Small copies of the pictures sent with a question (JPEG).
     var pictures: [Data] = []
     /// The names of documents sent with a question.
     var files: [String] = []
-    /// A problem upgrading the Jarvis account fixes (the included AI ran out).
+    /// A problem upgrading the Eden Secretary account fixes (the included AI ran out).
     var offersUpgrade = false
     /// Why another service answered than the first one asked ("Gemini: the key wasn't
     /// accepted"), shown small under the reply.
@@ -36,7 +36,7 @@ struct TranscriptLine: Identifiable, Equatable {
 /// What can be done with a line of the conversation (a long press on it).
 enum LineAction: Equatable {
     case readAloud, regenerate, edit, good, bad
-    /// Opens the Jarvis account, to upgrade to Jarvis Plus.
+    /// Opens the Eden Secretary account, to upgrade to Eden Plus.
     case upgrade
 }
 

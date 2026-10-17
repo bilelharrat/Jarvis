@@ -77,7 +77,7 @@ struct ApprovalChoice: Identifiable, Hashable, Sendable, Decodable {
 }
 
 struct Approval: Identifiable, Equatable, Sendable, Decodable {
-    /// Who is asking: JARVIS itself, or an Eden Code session.
+    /// Who is asking: Eden Secretary itself, or an Eden Code session.
     enum Source: String, Equatable, Sendable {
         case jarvis, code
     }
@@ -130,7 +130,7 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
         let taskID = c.integer(.taskID)
         self.init(
             id: id,
-            question: c.text(.question) ?? "Jarvis needs your OK.",
+            question: c.text(.question) ?? "Eden Secretary needs your OK.",
             detail: c.text(.detail) ?? "",
             choices: c.list(ApprovalChoice.self, .choices),
             // An older Mac doesn't say; a card tied to a session is Eden Code's.
@@ -352,7 +352,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
     var features: [String] = []
     /// What the Mac asks of this iPhone's contacts and calendar (only those turned on).
     var phoneAsks: [PhoneAsk] = []
-    /// The Mac's device id in the owner's Jarvis account, once it's linked (for the relay).
+    /// The Mac's device id in the owner's Eden Secretary account, once it's linked (for the relay).
     var accountDeviceID: String?
 
     init() {}

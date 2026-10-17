@@ -7,7 +7,7 @@ export const COMPARE_MAX = 3;
 export const CLI_SECONDS = 3;
 const TIER_RANK = { fast: 0, balanced: 1, frontier: 2 };
 const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-const PROVIDER_ORDER = ['anthropic', 'openai', 'gemini', 'kimi'];
+const PROVIDER_ORDER = ['anthropic', 'openai', 'gemini', 'kimi', 'meta', 'mistral', 'deepseek'];
 const rank = (e) => EFFORTS.indexOf(e);
 
 /** Dollars as the page writes them ($0.004, $0.12, $3), the way util.js's fmtCost does. */

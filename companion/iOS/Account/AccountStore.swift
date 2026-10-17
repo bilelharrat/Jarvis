@@ -3,9 +3,9 @@ import Foundation
 import StoreKit
 import UIKit
 
-/// The owner's optional Jarvis account on this iPhone: signing in with Apple, the account as
+/// The owner's optional Eden Secretary account on this iPhone: signing in with Apple, the account as
 /// askeden.com last described it, this device's push token, linking Macs, and the plan.
-/// Everything in the app works without it; it adds Jarvis Plus (AI included), notifications
+/// Everything in the app works without it; it adds Eden Plus (AI included), notifications
 /// without setup, reaching the Mac from anywhere, and sync.
 @MainActor
 @Observable
@@ -27,7 +27,7 @@ final class AccountStore {
     nonisolated private static let plusKey = "account.plus"
     private static let pushSentKey = "account.push.sent"
 
-    /// Jarvis Plus, as last seen (read from anywhere, without the account).
+    /// Eden Plus, as last seen (read from anywhere, without the account).
     nonisolated static var cachedPlus: Bool { UserDefaults.standard.bool(forKey: plusKey) }
 
     init() {
@@ -73,7 +73,7 @@ final class AccountStore {
             guard let apple = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let identity = apple.identityToken.flatMap({ String(data: $0, encoding: .utf8) }),
                   let nonce else {
-                problem = "Apple didn’t send what Jarvis needs to sign you in. Try again."
+                problem = "Apple didn’t send what Eden Secretary needs to sign you in. Try again."
                 return
             }
             let code = apple.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
@@ -252,7 +252,7 @@ final class AccountStore {
     }
 
     /// The paired Mac's own word on whether it's linked (the companion's GET /api/account):
-    /// nil when the Mac can't say (an older Jarvis, or it can't be reached).
+    /// nil when the Mac can't say (an older Eden Secretary, or it can't be reached).
     func pairedMacLink(_ api: JarvisAPI) async -> (linked: Bool, accountID: String?, deviceID: String?)? {
         guard let json = try? await api.json("api/account", timeout: 8) else { return nil }
         return (json["linked"]?.boolValue ?? false, json["account_id"]?.stringValue, json["device_id"]?.stringValue)
@@ -286,7 +286,7 @@ final class AccountStore {
     var appAccountToken: UUID? { credential.flatMap { UUID(uuidString: $0.accountID) } }
 }
 
-/// Jarvis Plus through the App Store (StoreKit 2): purchases carry the account id as their
+/// Eden Plus through the App Store (StoreKit 2): purchases carry the account id as their
 /// appAccountToken, and every transaction goes to askeden.com, which checks Apple's signature
 /// before it changes the plan.
 @MainActor
@@ -324,7 +324,7 @@ final class Subscriptions {
         }
     }
 
-    /// The newest current Jarvis Plus entitlement, so askeden.com's plan matches Apple's.
+    /// The newest current Eden Plus entitlement, so askeden.com's plan matches Apple's.
     func sendNewestEntitlement() async {
         guard let store, store.isSignedIn else { return }
         var newest: (date: Date, jws: String)?

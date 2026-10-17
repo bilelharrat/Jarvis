@@ -1,5 +1,5 @@
 """Phone calls: the owner's own number through their Twilio account (never anyone else's on
-JARVIS's own say-so), capped so nothing runs up a bill; others ring from the iPhone."""
+Jarvis's own say-so), capped so nothing runs up a bill; others ring from the iPhone."""
 
 import asyncio
 from types import SimpleNamespace
@@ -815,13 +815,13 @@ async def test_the_hub_sets_the_caller_name_from_settings(settings, quiet_speake
 
     async def show_as(name):
         names.append(name)
-        return "Your Twilio number is in Contacts as J.A.R.V.I.S., so your iPhone shows it."
+        return "Your Twilio number is in Contacts as Eden Secretary, so your iPhone shows it."
 
     hub.phone.show_as = show_as
     q = hub.subscribe()
     await hub._handle({"type": "phone_caller_name", "name": ""})
     status = [e for e in drain(q) if e["type"] == "phone_status"][-1]
-    assert names == [phone.CALLER_NAME] and "Contacts as J.A.R.V.I.S." in status["note"]
+    assert names == [phone.CALLER_NAME] and "Contacts as Eden Secretary" in status["note"]
 
 
 def test_placeholder_credentials_in_the_real_keychain_count_as_none():

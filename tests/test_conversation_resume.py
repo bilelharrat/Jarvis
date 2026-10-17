@@ -1,4 +1,4 @@
-"""JARVIS's conversation survives a restart (jarvis.features.conversation): each turn keeps
+"""Jarvis's conversation survives a restart (jarvis.features.conversation): each turn keeps
 the session id, what the conversation has read and what it cost; the next start carries it
 on with a note (a setting, on by default), or starts afresh when it can't; "New conversation"
 still starts afresh. Claude Code's records are fakes: never the owner's ~/.claude."""

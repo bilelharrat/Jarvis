@@ -15,7 +15,7 @@
 // glue: the AskModel on this site's providers (providers.js streamCall, the same metering as a reply), which models it
 // uses, what a check may cost at most (held on the allowance with the turn), and the time caps.
 //
-//   cheap tier   the cheapest model the asker may use (by list price; normally GPT-6 Luna), at its lowest effort
+//   cheap tier   the cheapest model the asker may use with reasoning ≥ 85 (by list price; normally Gemini 3.8 Flash), at its lowest effort
 //   search       Gemini grounding at medium effort (Gemini 3.8 Flash when available): at low effort it answers from
 //                memory without searching (askeden eves-config.ts SEARCH_EFFORT_ATTEMPTS, measured 2026-10-09)
 //
@@ -113,7 +113,10 @@ const lowest = (m, order) => {
  */
 export function checkModels(models, providers) {
   const pool = models.filter((m) => !Array.isArray(providers) || providers.includes(m.provider));
-  const cheapest = [...pool].sort((a, b) => blended(a) - blended(b))[0];
+  // A check that catches mistakes can't run on a model that makes more of them: the cheapest at or above the reasoning
+  // floor (GPT-6 Luna's level, retired 2026-10-13); the cheapest of all only when nothing reaches it.
+  const able = pool.filter(trustworthy);
+  const cheapest = [...(able.length ? able : pool)].sort((a, b) => blended(a) - blended(b))[0];
   const gemini = pool.filter((m) => m.provider === 'gemini' && canSearch(m));
   const search = gemini.find((m) => m.id === SEARCH_MODEL) || [...gemini].sort((a, b) => blended(a) - blended(b))[0];
   return {
@@ -121,6 +124,10 @@ export function checkModels(models, providers) {
     search: search ? { model: search, effort: lowest(search, SEARCH_EFFORTS) } : null,
   };
 }
+
+/** Good enough to check or summarise others' work: reasoning at or above GPT-6 Luna's 85 (retired 2026-10-13). */
+export const MIN_UTILITY_REASONING = 85;
+export const trustworthy = (m) => !m || !m.capabilities || typeof m.capabilities.reasoning !== 'number' || m.capabilities.reasoning >= MIN_UTILITY_REASONING;
 
 /** A check call's request with exactly `cap` output tokens (thinking included, its budget kept under it). */
 const sized = (request, cap) => capRequest(withMaxOutputTokens(request, cap), cap);

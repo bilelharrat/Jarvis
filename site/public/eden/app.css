@@ -1,5 +1,5 @@
-/* Jarvis Chat — design: Kimi K3's "Atelier" (docs/mockups/unified-chat-kimi/option-1.html),
-   with Jarvis Code's composer (Summit Glass, scoped to .jc so its tokens don't fight Atelier's). */
+/* Eden Secretary Chat — design: Kimi K3's "Atelier" (docs/mockups/unified-chat-kimi/option-1.html),
+   with Eden Code's composer (Summit Glass, scoped to .jc so its tokens don't fight Atelier's). */
 
 /* ============ TOKENS (Atelier) ============ */
 :root{
@@ -121,7 +121,7 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 .listen{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
 .listen .ld{width:6px;height:6px;border-radius:50%;background:var(--done)}
 .listen.on .ld{background:var(--run);animation:pulse 2.4s ease-in-out infinite}
-/* waiting on the owner's "Let Eden use Jarvis?" card (was in calendar.css, which now loads with the calendar) */
+/* waiting on the owner's "Let Eden use Eden Secretary?" card (was in calendar.css, which now loads with the calendar) */
 .listen.wait .ld{background:var(--wait);animation:pulse 1.2s ease-in-out infinite}
 .listen.wait{color:var(--text2)}
 @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
@@ -147,7 +147,7 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 
 /* ============ SPLIT / TRANSCRIPT ============ */
 #split{flex:1;min-height:0;display:flex;gap:0;position:relative}
-#scrollcol{flex:1;min-width:0;overflow-y:auto;padding:4px 4px 20px;scroll-padding-bottom:20px}
+#scrollcol{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;padding:4px 4px 20px;scroll-padding-bottom:20px}
 #transcript{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding:4px 8px}
 #divider{width:12px;flex:none;cursor:col-resize;display:none;align-items:center;justify-content:center;touch-action:none}
 #divider::after{content:"";width:4px;height:44px;border-radius:2px;background:rgba(120,120,128,.35);transition:background .15s}
@@ -173,7 +173,7 @@ body.col-resize iframe{pointer-events:none}
 /* messages */
 .msg{display:flex;flex-direction:column;position:relative}
 .msg.user{align-items:flex-end}
-.msg.user .msg-acts{margin:2px 0 -28px;position:relative;z-index:2}
+.msg.user .msg-acts{margin:2px 0 0;position:relative;z-index:2}
 .msg.user .bubble{background:var(--accent);color:#fff;border-radius:19px 19px 5px 19px;padding:9px 14px;max-width:75%;font-size:15px;box-shadow:0 1px 3px rgba(10,132,255,.35);white-space:pre-wrap;overflow-wrap:anywhere}
 .msg.user .bubble .utext{display:block}
 .msg.user .bubble.clamp .utext{max-height:16.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
@@ -181,6 +181,10 @@ body.col-resize iframe{pointer-events:none}
 .msg.user .bubble .more:hover{background:rgba(255,255,255,.3)}
 .msg.user .bubble .more:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .steered{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--accent);margin:0 4px 3px 0;align-self:flex-end}
+.msg.user .u-imgs{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;max-width:75%;margin-bottom:8px}
+.msg.user .u-img{display:block;max-width:min(240px,100%);max-height:192px;width:auto;height:auto;border-radius:18px;object-fit:cover;background:rgba(120,120,128,.18)}
+.msg.user .u-imgs.multi .u-img{width:108px;height:108px;max-width:none}
+.msg.user .u-img.gone{width:108px;height:108px}
 .msg.user .bubble .ctxchip{display:inline-flex;margin:6px 4px 0 0;font-size:11.5px;background:rgba(255,255,255,.18);padding:3px 9px;border-radius:10px;white-space:nowrap}
 .attach{display:flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,.16);border-radius:10px;padding:6px 9px;font-size:12px;white-space:normal}
 .attach .thumb{width:30px;height:22px;border-radius:5px;background:linear-gradient(135deg,#8ec9f2,#3b6ea5 60%,#1d3a5f);box-shadow:inset 0 1px 0 rgba(255,255,255,.4);object-fit:cover;flex:none}
@@ -378,7 +382,10 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 .md blockquote{border-left:3px solid var(--sep);padding:2px 0 2px 12px;color:var(--text2)}
 .md hr{border:0;border-top:.5px solid var(--sep)}
 .md table{border-collapse:collapse;font-size:13px;display:block;overflow-x:auto;max-width:100%}
-.md th,.md td{padding:6px 10px;border-bottom:.5px solid var(--sep);text-align:left;vertical-align:top}
+.md th,.md td{padding:6px 10px;border-bottom:.5px solid var(--sep);text-align:left;vertical-align:top;overflow-wrap:normal;word-break:normal;min-width:4.5em}
+/* a table never breaks inside words (the bubble's overflow-wrap:anywhere made "Year" one letter per line on a phone): headers and short cells stay on one line, long cells wrap at spaces, and the table scrolls sideways in its own box */
+.md th{white-space:nowrap}
+.md td{max-width:22em}
 .md th{font-weight:600;color:var(--text2);font-size:12px;border-bottom:1px solid var(--sep)}
 .cblock{border-radius:10px;background:rgba(120,120,128,.09);box-shadow:inset 0 0 0 .5px var(--hairline);overflow:hidden}
 .cb-head{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;font-size:11px;color:var(--text3);border-bottom:.5px solid var(--sep)}
@@ -675,7 +682,7 @@ a.btn{text-decoration:none}
 #scrim{position:fixed;inset:0;z-index:59;background:rgba(0,0,0,.18);display:none}
 #scrim.on{display:block}
 
-/* ═════════════ Jarvis Code composer (ported from JARVIS V1 web, scoped to .jc) ═════════════ */
+/* ═════════════ Eden Code composer (ported from JARVIS V1 web, scoped to .jc) ═════════════ */
 .jc {
   --c-canvas: 244 244 246; --c-surface: 255 255 255; --c-surface-muted: 248 248 250; --c-raised: 255 255 255;
   --c-border: 228 228 233; --c-border-strong: 208 208 214;
@@ -754,7 +761,7 @@ a.btn{text-decoration:none}
 .jc-composer-top textarea:focus-visible { outline: none; }
 .jc-composer-top textarea::placeholder { color: rgb(var(--c-subtle)); }
 .jc-composer-top .jc-round, .jc-composer-top .jc-steer, .jc-composer-top .jc-send { flex: none; margin-bottom: 1px; }
-/* the reactor toggle — Jarvis blue, fills when the drawer is open */
+/* the reactor toggle — Eden Secretary blue, fills when the drawer is open */
 .jc-orb { width: 30px; height: 30px; flex: none; margin-bottom: 1px; border: 0; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: rgb(var(--c-accent)); background: rgb(var(--c-accent) / 0.13); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.32); transition: background 200ms ease, box-shadow 200ms ease, transform 120ms ease; }
 .jc-orb:hover { background: rgb(var(--c-accent) / 0.2); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.45), 0 0 14px rgb(var(--c-glow) / 0.3); }
 .jc-orb:active { transform: scale(0.9); }
@@ -767,7 +774,7 @@ a.btn{text-decoration:none}
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23000' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
 }
 .jc-orb:focus-visible { outline: 2px solid rgb(var(--c-accent) / 0.7); outline-offset: 1px; }
-.jc-composer.expanded .jc-orb { color: #fff; background: rgb(var(--c-accent)); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 0 16px rgb(var(--c-glow) / 0.45); }
+.jc-composer.expanded .jc-orb { color: #fff; background: rgb(var(--c-accent)); box-shadow: 0 0 16px rgb(var(--c-glow) / 0.45); }
 .jc-composer.pinned .jc-orb::after { content: ""; position: absolute; width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--c-accent)); transform: translate(13px, 13px); box-shadow: 0 0 0 1.5px rgb(var(--c-surface)); }
 /* drawer: unfolds the full control row out of the capsule */
 .jc-composer-drawer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 300ms cubic-bezier(0.32, 0.72, 0.24, 1); width: 100%; }
@@ -777,7 +784,7 @@ a.btn{text-decoration:none}
 .jc-composer .jc-composer-row { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; padding: 10px 0 2px; margin-top: 9px; opacity: 0; transform: translateY(-4px); transition: opacity 200ms ease 60ms, transform 260ms cubic-bezier(0.32, 0.72, 0.24, 1) 60ms; }
 .jc-composer .jc-composer-row::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 0.5px; background: linear-gradient(90deg, transparent, rgb(var(--c-ink) / 0.14), transparent); }
 .jc-composer.expanded .jc-composer-row { opacity: 1; transform: none; }
-/* the drawer's controls as pills: a tinted capsule with a hairline, the mode one in Jarvis blue */
+/* the drawer's controls as pills: a tinted capsule with a hairline, the mode one in Eden Secretary blue */
 .jc-composer-row > :is(.jc-pill, #jc-ctx, #jc-plus) { height: 26px; border: 0; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.11); color: rgb(var(--c-ink-2)); font-size: 12px; font-weight: 550; cursor: pointer; }
 .jc-composer-row > .jc-pill { padding: 0 10px; gap: 6px; }
 .jc-composer-row > #jc-plus { width: 26px; padding: 0; }
@@ -948,7 +955,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 .jc .cx-btn:active { transform: scale(0.97); }
 .jc .cx-btn.danger { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.12); }
 .jc .cx-btn.danger.armed { color: #fff; background: rgb(var(--c-danger)); }
-/* the JARVIS reactor */
+/* the Eden Secretary reactor */
 .jc-reactor { display: block; flex: none; overflow: visible; }
 .jc-reactor .halo { fill: none; stroke: #3fb8f2; stroke-opacity: 0.35; stroke-width: 1.2; }
 .jc-reactor .ring { fill: none; stroke: #6fd0ff; stroke-width: 2.6; stroke-dasharray: 4.1 2.3; transform-origin: 20px 20px; }
@@ -1202,3 +1209,108 @@ body:has(#inspector:not(.closed)) #btnHelp{display:none}
   html.eden-printing body>:not(#edenPrint){display:none!important}
   html.eden-printing #edenPrint{display:block!important}
 }
+/* The ↓ button over the chat's bottom edge while you're scrolled up (app.js, like ChatGPT's) */
+.jump-down{position:absolute;left:50%;bottom:10px;z-index:6;width:40px;height:40px;margin-left:-20px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text);box-shadow:0 2px 10px rgba(0,0,0,.18),inset 0 0 0 .5px var(--hairline);cursor:pointer;opacity:0;transform:translateY(8px) scale(.9);pointer-events:none;transition:opacity .18s,transform .18s}
+.jump-down.on{opacity:1;transform:none;pointer-events:auto}
+.jump-down .ic{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* Which model answered: hidden until the reply is tapped (app.js); a lookup Eden made mid-answer, as one quiet line (render.js) */
+.msg.assistant.meta-hidden>.msg-head{display:none}
+.msg.tool-step{align-items:flex-start;margin:-4px 0 2px}
+.tool-step-line{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text3);padding:2px 4px}
+.tool-step-line .ic{width:13px;height:13px}
+
+/* Pictures Eden makes (image-mode.js) */
+.eden-pics{display:flex;flex-direction:column;gap:10px;margin:6px 0 4px}
+.eden-pic-fig{margin:0;max-width:min(100%,520px);border-radius:14px;overflow:hidden;background:var(--surface-2,rgba(127,127,127,.08));box-shadow:inset 0 0 0 .5px rgba(127,127,127,.25)}
+.eden-pic{display:block;width:100%;height:auto;cursor:zoom-in}
+.eden-pic-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;font-size:12.5px}
+.eden-pic-note{opacity:.7}
+.eden-pic-btn{font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:8px;border:0;cursor:pointer;background:rgba(127,127,127,.16);color:inherit}
+.eden-pic-btn:hover{background:rgba(127,127,127,.26)}
+.eden-pic-missing{padding:18px 14px;font-size:13px;opacity:.75}
+.eden-pic-wait{display:flex;flex-direction:column;gap:8px;margin:6px 0;max-width:min(100%,520px);font-size:13px;opacity:.85}
+.eden-pic-shimmer{aspect-ratio:1/1;max-width:320px;border-radius:14px;background:linear-gradient(110deg,rgba(127,127,127,.10) 30%,rgba(127,127,127,.22) 50%,rgba(127,127,127,.10) 70%);background-size:200% 100%;animation:eden-pic-shimmer 1.4s linear infinite}
+@keyframes eden-pic-shimmer{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.eden-pic-shimmer{animation:none}}
+/* Files in a sent message: cards above the bubble, like ChatGPT's (render.js fileCard); also the composer's chips */
+.msg.user .u-files{display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:75%;margin-bottom:8px}
+.u-file{display:flex;align-items:center;gap:10px;min-width:0;max-width:min(320px,100%);padding:8px 14px 8px 8px;border-radius:16px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline),0 1px 2px rgba(0,0,0,.06)}
+.u-file .f-ic{flex:none;width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;object-fit:cover}
+.u-file .f-ic .ic{width:18px;height:18px}
+.u-file .f-tx{display:flex;flex-direction:column;min-width:0}
+.u-file .f-nm{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u-file .f-ty{font-size:12.5px;color:var(--text3)}
+.jc-file-chip.card{height:52px;max-width:280px;padding:0 8px 0 6px;gap:10px;border-radius:14px;position:relative}
+.jc-file-chip.card .f-ic{flex:none;width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff}
+.f-ic{background:#7d8590}
+.jc-file-chip.card .f-ic .ic{color:#fff;width:16px;height:16px}
+.jc-file-chip.card .f-tx{display:flex;flex-direction:column;min-width:0}
+.jc-file-chip.card .nm{font-weight:600;font-size:13.5px}
+
+span.f-ic.ft-pdf{background:#f2545b}span.f-ic.ft-sheet{background:#22a95e}span.f-ic.ft-doc{background:#3b82f6}span.f-ic.ft-slides{background:#f59e0b}span.f-ic.ft-text{background:#8b5cf6}span.f-ic.ft-code{background:#475569}span.f-ic.ft-video{background:#111}
+/* Attachments in Liquid Glass, like the composer (owner, 2026-10-15): clear fill, blur, rim, edge; the type squares get a sheen */
+.u-file,.jc-file-chip.card{background:var(--clear-fill);backdrop-filter:var(--clear-blur);-webkit-backdrop-filter:var(--clear-blur);box-shadow:var(--clear-rim),var(--clear-edge),0 4px 14px rgb(0 0 0 / .08)}
+.u-file .f-ic,.jc-file-chip.card .f-ic{background-image:linear-gradient(180deg,rgb(255 255 255 / .28),rgb(255 255 255 / 0) 55%);box-shadow:inset 0 1px 0 rgb(255 255 255 / .45),inset 0 0 0 .5px rgb(255 255 255 / .25)}
+.msg.user .u-img{box-shadow:var(--clear-rim),0 4px 14px rgb(0 0 0 / .1)}
+.jc-thumb-img img{box-shadow:var(--clear-rim)}
+
+/* Eden News inside the app (news-panel.js), in News' own look (site public/news/news.css: Apple News idiom) */
+.nw{--nw-bg:#f2f2f7;--nw-card:#fff;--nw-label:#000;--nw-label2:rgba(60,60,67,.78);--nw-label3:rgba(60,60,67,.6);--nw-sep:rgba(60,60,67,.2);--nw-fill:rgba(120,120,128,.12);--nw-blue:#007aff;--nw-green:#248a3d;--nw-glass:rgba(250,250,252,.86);--nw-edge:inset 0 1px 0 rgba(255,255,255,.85),inset 0 0 0 .5px rgba(255,255,255,.5),0 0 0 .5px rgba(0,0,0,.07);--nw-wash:radial-gradient(70% 380px at 0% 0%,rgba(0,122,255,.13),transparent 70%),radial-gradient(60% 340px at 100% 0%,rgba(175,82,222,.10),transparent 70%)}
+[data-theme="dark"] .nw{--nw-bg:#000;--nw-card:#1c1c1e;--nw-label:#fff;--nw-label2:rgba(235,235,245,.78);--nw-label3:rgba(235,235,245,.6);--nw-sep:rgba(84,84,88,.6);--nw-fill:rgba(118,118,128,.24);--nw-blue:#0a84ff;--nw-green:#30d158;--nw-glass:rgba(36,36,38,.86);--nw-edge:inset 0 1px 0 rgba(255,255,255,.14),inset 0 0 0 .5px rgba(255,255,255,.08),0 0 0 .5px rgba(0,0,0,.6);--nw-wash:radial-gradient(70% 380px at 0% 0%,rgba(10,132,255,.22),transparent 70%),radial-gradient(60% 340px at 100% 0%,rgba(191,90,242,.16),transparent 70%)}
+.nw{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;background:var(--nw-wash),var(--nw-bg);background-repeat:no-repeat;color:var(--nw-label);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif}
+.nw[hidden]{display:none}
+@media (min-width:900px){.nw{left:auto;width:min(440px,40vw);border-left:.5px solid var(--nw-sep);box-shadow:-20px 0 50px -20px rgba(0,0,0,.35)}}
+.nw-bar{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 4px}
+.nw-bar-t{flex:1;font-size:15px;font-weight:600;color:var(--nw-label3)}
+.nw-round{width:40px;height:40px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--nw-glass);box-shadow:var(--nw-edge);color:var(--nw-label);cursor:pointer;-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}
+.nw-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px calc(96px + env(safe-area-inset-bottom))}
+.nw-hero{padding:10px 4px 0}
+.nw-eyebrow{margin:0 0 2px;font:600 13px/1.2 -apple-system,sans-serif;letter-spacing:.02em;text-transform:uppercase;color:var(--nw-label3)}
+.nw-title{margin:0;font:700 34px/1.1 -apple-system,"SF Pro Display",sans-serif;letter-spacing:.01em}
+.nw-tabs{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:14px -16px 6px;padding:0 16px 6px}
+.nw-tabs::-webkit-scrollbar{display:none}
+.nw-tab{flex:none;min-height:36px;padding:0 16px;border:0;border-radius:999px;background:var(--nw-fill);color:var(--nw-label);font:500 15px -apple-system,sans-serif;cursor:pointer}
+.nw-tab[aria-selected="true"]{background:var(--nw-label);color:var(--nw-bg);font-weight:600}
+.nw-rail{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;margin:6px -16px 4px;padding:4px 16px 8px}
+.nw-follow{flex:none;display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 8px 6px 14px;border-radius:999px;background:var(--nw-glass);box-shadow:var(--nw-edge)}
+.nw-follow b{font-size:15px;font-weight:600;white-space:nowrap}
+.nw-count{min-width:28px;height:28px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--nw-blue);color:#fff;font:700 13px -apple-system,sans-serif;display:inline-flex;align-items:center;justify-content:center}
+.nw-count.zero{background:var(--nw-fill);color:var(--nw-label3)}
+.nw-sec{margin:16px 4px 10px;font:700 22px/1.2 -apple-system,"SF Pro Display",sans-serif;color:var(--nw-blue);display:flex;align-items:center;gap:4px}
+.nw-sec::after{content:"";width:9px;height:9px;border-right:2.5px solid currentColor;border-top:2.5px solid currentColor;transform:rotate(45deg) translateY(1px);margin-left:4px;border-radius:1px}
+.nw-card{background:var(--nw-card);border-radius:22px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px -8px rgba(0,0,0,.08)}
+[data-theme="dark"] .nw-card{box-shadow:none}
+.nw-lead{display:flex;flex-direction:column;width:100%;padding:0;border:0;overflow:hidden;text-align:left;color:inherit;font:inherit;cursor:pointer;margin-bottom:14px}
+.nw-banner{position:relative;display:flex;align-items:flex-end;padding:14px;aspect-ratio:16/9;background:var(--nw-fill)}
+.nw-banner img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.nw-kicker{position:relative;padding:6px 12px;border-radius:999px;font:600 12px -apple-system,sans-serif;letter-spacing:.02em;color:#fff;background:rgba(0,0,0,.32);-webkit-backdrop-filter:blur(16px) saturate(180%);backdrop-filter:blur(16px) saturate(180%);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 0 0 .5px rgba(255,255,255,.2);text-shadow:0 1px 2px rgba(0,0,0,.35)}
+.nw-body{display:flex;flex-direction:column;gap:7px;padding:14px 18px 16px}
+.nw-h-lead{font:700 22px/1.2 -apple-system,"SF Pro Display",sans-serif}
+.nw-pub{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
+.nw-more{font-weight:600;color:var(--nw-label3)}
+.nw-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.nw-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;color:var(--nw-label3)}
+.nw-check{display:inline-flex;align-items:center;gap:4px;color:var(--nw-green);font-weight:600}
+.nw-check .ic{width:13px;height:13px}
+.nw-list{padding:0 16px}
+.nw-row{display:flex;align-items:flex-start;gap:14px;width:100%;padding:14px 0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.nw-row+.nw-row{box-shadow:0 -.5px 0 var(--nw-sep)}
+.nw-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.nw-h{font:600 17px/1.25 -apple-system,sans-serif;letter-spacing:-.02em}
+.nw-thumb{width:76px;height:76px;flex:none;border-radius:14px;object-fit:cover}
+.nw-empty{padding:28px;text-align:center;color:var(--nw-label3);font-size:15px}
+.nw-foot{margin:18px 4px 0;font-size:13px;line-height:1.4;color:var(--nw-label3);border-top:.5px solid var(--nw-sep);padding-top:12px}
+.nw-story-pic{position:relative;margin:4px -16px 0;aspect-ratio:3/2;background:var(--nw-fill)}
+.nw-story-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.nw-credit{position:absolute;right:14px;bottom:10px;color:rgba(255,255,255,.92);font-size:11px;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+.nw-story-head{display:flex;flex-direction:column;gap:8px;padding:14px 4px}
+.nw-story-title{margin:0;font:700 26px/1.15 -apple-system,"SF Pro Display",sans-serif}
+.nw-summary{padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.nw-summary p{margin:0;font-size:15px;line-height:1.4;color:var(--nw-label2)}
+.nw-src{color:var(--nw-blue);font-weight:600;font-size:15px;text-decoration:none}
+.nw-chips{display:flex;flex-wrap:wrap;gap:8px}
+.nw-chip{min-height:40px;padding:0 16px;border:0;border-radius:999px;background:var(--nw-fill);color:var(--nw-label);font:15px -apple-system,sans-serif;cursor:pointer}
+.nw-dock{position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:2px;padding:5px;border-radius:999px;background:var(--nw-glass);box-shadow:var(--nw-edge),0 12px 34px -10px rgba(0,0,0,.5);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}
+.nw-dock button{min-width:76px;min-height:52px;border:0;border-radius:999px;background:none;color:var(--nw-label2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:600 10.5px -apple-system,sans-serif;cursor:pointer}
+.nw-dock button .ic{width:20px;height:20px}
+.nw-dock button.on{background:var(--nw-fill);color:var(--nw-blue)}

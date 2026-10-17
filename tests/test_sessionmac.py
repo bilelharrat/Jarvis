@@ -1,5 +1,5 @@
 """The Mac for an Eden Code session: the hook before each call (the owner's switch, Plan
-mode, never JARVIS's own window, then the session's permission prompt every time), and the
+mode, never Jarvis's own window, then the session's permission prompt every time), and the
 approval cards' wording. Nothing here touches the real screen, mouse or keyboard."""
 
 import asyncio
@@ -60,11 +60,11 @@ def test_the_jarvis_window_is_never_driven(monkeypatch):
 
     def guard(tool, tool_input, screen):
         seen.append((tool, tool_input))
-        return "That's the J.A.R.V.I.S. window" if tool == "click" else ""
+        return "That's the Jarvis window" if tool == "click" else ""
 
     matcher, _ = hook_of(guard=guard)
     kind, why = decide(matcher, "mcp__jarvis_mac__click", {"x": 10, "y": 10})
-    assert kind == "deny" and why.startswith("That's the J.A.R.V.I.S. window")
+    assert kind == "deny" and why.startswith("That's the Jarvis window")
     assert decide(matcher, "mcp__jarvis_mac__type_text", {"text": "hi"})[0] == "ask"
     assert seen[0] == ("click", {"x": 10, "y": 10})
 
@@ -74,7 +74,7 @@ def test_which_window_a_call_lands_on(monkeypatch):
     screen.scale = 2.0  # screenshot pixels to points
     at = []
     monkeypatch.setattr(
-        sessionmac, "window_owner_at", lambda x, y: at.append((x, y)) or (1, "J.A.R.V.I.S.")
+        sessionmac, "window_owner_at", lambda x, y: at.append((x, y)) or (1, "Jarvis.")
     )
     monkeypatch.setattr(sessionmac, "front_app", lambda: (2, "Safari"))
     assert "J.A.R.V.I.S. window" in sessionmac.refusal("click", {"x": 10, "y": 20}, screen)

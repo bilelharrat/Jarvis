@@ -187,7 +187,7 @@ export const SUMMARY_STYLE = [
   'Keep the markers and the sources block as instructed, citing throughout.',
 ].join(' ');
 
-/** J.A.R.V.I.S. as a live tutor (tutor.js): the course block, spoken like a person. */
+/** Eden Secretary as a live tutor (tutor.js): the course block, spoken like a person. */
 export const TUTOR_STYLE = [
   'You are Eden, the student’s personal tutor for this course, in a live spoken conversation: everything you write is read aloud in your voice, and the student talks back.',
   'The student already knows who you are and you’ve already said hello: never introduce yourself or greet them again; just pick up the conversation.',
@@ -1253,7 +1253,7 @@ export async function ocrPages(env, who, body, { call, fetch: f } = {}) {
     }
     return { parts };
   } finally {
-    if (spent > 0) await call(env, who.account, 'spend', { usd: spent, bucket: hold.bucket }).catch(() => {});
+    if (spent > 0) await call(env, who.account, 'spend', { usd: spent, bucket: hold.bucket, meta: { feature: 'course', product: 'edu' } }).catch(() => {});
     await call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
   }
 }

@@ -60,10 +60,10 @@ export function parseDuration(d) {
   return m ? Number(m[1]) : null;
 }
 
-/** The models that may read a video, cheapest first: Gemini Flash-Lite, then Flash (Pro only when nothing else). */
+/** The models that may read a video, cheapest first: Gemini Flash-Lite, then Flash (Pro and Argon only when nothing else). */
 export function videoModels(models) {
   const g = models.filter((m) => m.provider === 'gemini' && hasVision(m)).sort((a, b) => a.pricing.inputPer1M - b.pricing.inputPer1M);
-  const cheap = g.filter((m) => !/-pro\b/.test(m.id));
+  const cheap = g.filter((m) => !/-pro\b/.test(m.id) && m.tier !== 'frontier');
   return cheap.length ? cheap : g;
 }
 

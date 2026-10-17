@@ -1,4 +1,4 @@
-// Ultracode's shimmer in Jarvis blue (web/features/code-ultracode.css): CSS alone. node --test tests/web/
+// Ultracode's shimmer in Eden Secretary blue (web/features/code-ultracode.css): CSS alone. node --test tests/web/
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -48,7 +48,7 @@ test('it flows right to left, out of the thumb: the fill, the stream, the sweep 
   assert.match(css, /@keyframes uc-letters \{ from \{ background-position: 0 0; \} to \{ background-position: 100% 0; \} \}/);
 });
 
-test('it is Jarvis blue, not violet, the button included', () => {
+test('it is Eden Secretary blue, not violet, the button included', () => {
   assert.match(css, /--uc-c2: #3fb8f2/);
   assert.doesNotMatch(css, /#8f72e0|#6248cf|#9a86ff|purple/);
   assert.match(css, /#jc-effort\.ultra \{ color: rgb\(var\(--uc-tx-1\)\); \}/);

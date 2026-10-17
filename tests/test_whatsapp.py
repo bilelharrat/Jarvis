@@ -1,5 +1,5 @@
 """WhatsApp (jarvis.features.whatsapp): the owner's account linked as a device. Linking shows
-a code and connects; JARVIS reads what the bridge reported and sends only what the owner saw,
+a code and connects; Jarvis reads what the bridge reported and sends only what the owner saw,
 heard and said yes to; a hidden (LID) address becomes its phone number; unlinking, from here
 or the phone, forgets the keys and the messages; two Jarvises never fight over one link."""
 
@@ -340,7 +340,7 @@ async def test_no_node_says_how_to_get_it(tmp_path):
     assert wa.state == "error" and "brew install node" in wa.error and not wa.want
 
 
-# ── JARVIS's tools ──
+# ── Jarvis's tools ──
 
 
 def tools_of(wa):

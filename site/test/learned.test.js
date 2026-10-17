@@ -15,7 +15,9 @@ import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, readEv
 
 const ORIGIN = 'https://askeden.com';
 const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15';
-const cfg = (({ models, ...rest }) => ({ ...rest, models: models.filter((m) => m.provider === 'anthropic') }))(hostedConfig({})); // a Worker with only an Anthropic key
+// The stage logic steps down through three Claude tiers: Haiku 4.5 stays in this list here, though askeden.com retired it 2026-10-14.
+const LEARNED_MODELS = 'claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3';
+const cfg = (({ models, ...rest }) => ({ ...rest, models: models.filter((m) => m.provider === 'anthropic') }))(hostedConfig({ EDEN_MODELS: LEARNED_MODELS })); // a Worker with only an Anthropic key
 const EMAIL = 'Write a short, friendly email declining a meeting.';
 
 // ── the pure parts ──
@@ -102,7 +104,7 @@ beforeEach(() => {
     }
     throw new Error(`unexpected fetch ${url}`);
   };
-  env = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20' };
+  env = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_MODELS: LEARNED_MODELS };
   env.ACCOUNTS = namespace(Account, env);
   env.LINKS = namespace(Link, env);
   env.ASSETS = { fetch: async () => new Response('asset') };

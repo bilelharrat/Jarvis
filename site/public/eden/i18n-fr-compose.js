@@ -70,7 +70,7 @@ const DONE = {
 };
 const DONE_RE = new RegExp(`^(${Object.keys(DONE).map(esc).join('|')})(?: by (.+?))?(, in your style)?\\. Read it over before you send; Undo brings back your version\\.$`);
 
-// Mail on your Mac (Jarvis) send failures
+// Mail on your Mac (Eden Secretary) send failures
 const MAC_FAIL = {
   'you declined it on your Mac': 'vous l’avez refusé sur votre Mac',
   'Eden’s confirmation timed out on your Mac': 'la confirmation de Eden a expiré sur votre Mac',
@@ -400,6 +400,7 @@ export default {
     'Turn off': 'Désactiver',
     'On your Mac': 'Sur votre Mac',
     'On this iPhone': 'Sur cet iPhone',
+    'On this phone': 'Sur ce téléphone',
     'Anthropic cloud': 'Cloud Anthropic',
     'OpenAI cloud': 'Cloud OpenAI',
     'Google cloud': 'Cloud Google',

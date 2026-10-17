@@ -1,4 +1,4 @@
-"""JARVIS's Gemini relay: Anthropic's Messages API in, Google's Gemini API out, with tools,
+"""Jarvis's Gemini relay: Anthropic's Messages API in, Google's Gemini API out, with tools,
 pictures, streaming, thought signatures and errors translated. Google is faked here."""
 
 import json
@@ -427,7 +427,7 @@ def test_a_call_gemini_never_made_carries_googles_stand_in_signature():
 @pytest.mark.parametrize(
     ("model", "extra", "level"),
     [
-        ("gemini-flash-latest", {}, "low"),  # JARVIS's voice turns: thinking off
+        ("gemini-flash-latest", {}, "low"),  # Jarvis's voice turns: thinking off
         ("gemini-3.8-flash", {"thinking": {"type": "disabled"}}, "low"),
         ("gemini-pro-latest", {"thinking": {"type": "enabled", "budget_tokens": 16000}}, None),
         ("gemini-flash-latest", {"output_config": {"effort": "high"}}, None),

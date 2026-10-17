@@ -1,7 +1,7 @@
 """iMessage against a synthetic chat.db and a pretend Messages (nothing is sent, the real
 database is never read): only the chosen conversation's new rows, only the owner's own
-messages; a note to self where the owner's and JARVIS's messages share one handle never
-reads JARVIS's replies (or their echoes) back; a shared conversation needs "Jarvis," in
+messages; a note to self where the owner's and Jarvis's messages share one handle never
+reads Jarvis's replies (or their echoes) back; a shared conversation needs "Jarvis," in
 front; replies go through AppleScript with the text as an argument; cards are answered
 with yes or no; pictures and voice notes come along once they've downloaded."""
 
@@ -27,7 +27,7 @@ def apple(at=None):
 
 
 class ChatDB:
-    """A small Messages database with the tables and columns JARVIS reads."""
+    """A small Messages database with the tables and columns Jarvis reads."""
 
     def __init__(self, path):
         self.path = path

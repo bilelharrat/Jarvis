@@ -9,12 +9,12 @@
 //   while that page is on show until the owner closes it;
 // - "Your turn" over a page that needs the owner (browser_ai_handback: a captcha, a
 //   password, card details, a code, a sign-in), its tab brought forward; Carry on asks
-//   JARVIS to pick up (browser_ai_carry_on), × lets it go (browser_ai_handback_cancel);
+//   Eden Secretary to pick up (browser_ai_carry_on), × lets it go (browser_ai_handback_cancel);
 // - reader mode: the page's article, as a reader view finds it, in place of the page (the
 //   address bar's Reader button, or "reader mode" / "read this to me" said), read aloud in
-//   JARVIS's voice on Listen (browser_ai_read; the hub's reader.py says where it is:
+//   Eden Secretary's voice on Listen (browser_ai_read; the hub's reader.py says where it is:
 //   browser_ai_reading), with pause, back and skip;
-// - Settings › Browser: the sensitive sites (banks, email, health: JARVIS acts there only
+// - Settings › Browser: the sensitive sites (banks, email, health: Eden Secretary acts there only
 //   while the owner can see the tab) and the owner's rule for any site (always, ask first,
 //   never), changed only here (browser_ai_sites, browser_ai_site); and browser memories,
 //   opt-in: a page on show for a minute is told to the hub (browser_ai_dwell), which keeps
@@ -42,8 +42,8 @@
     // The notice's words for a flag (each translated on its own).
     flagWords(flag) {
       const words = [];
-      if ((flag.lines || []).length) words.push('Text on this page is written to AI assistants. Jarvis treats it as the page’s words, never as instructions.');
-      if (flag.hidden) words.push('The page also hides such text from view; Jarvis left it out.');
+      if ((flag.lines || []).length) words.push('Text on this page is written to AI assistants. Eden Secretary treats it as the page’s words, never as instructions.');
+      if (flag.hidden) words.push('The page also hides such text from view; Eden Secretary left it out.');
       return words;
     },
     // The hand backs where the Passwords app helps: a password, or a sign-in wall.
@@ -53,7 +53,7 @@
       if (t.state === 'working') return t.to === 'en' ? 'Translating into English…' : 'Translating into Chinese…';
       if (t.state === 'failed') {
         return t.error === 'cap'
-          ? 'Jarvis has translated as much as it can today. Ask Jarvis › Translate still works.'
+          ? 'Eden Secretary has translated as much as it can today. Ask Eden Secretary › Translate still works.'
           : 'The translation didn’t come back. Try again in a moment.';
       }
       return t.to === 'en' ? 'In English' : 'In Chinese';
@@ -115,9 +115,9 @@
   // ── the hand back: "Your turn" over a page that needs the owner ──
   let turn = null; // { tab, url, host, kind }
   const TURN_WORDS = {
-    captcha: 'This page wants you to prove you’re human. Jarvis never tries those.',
-    password: 'This page wants your password. Jarvis never types it.',
-    card: 'This page wants your card details. Jarvis never types them.',
+    captcha: 'This page wants you to prove you’re human. Eden Secretary never tries those.',
+    password: 'This page wants your password. Eden Secretary never types it.',
+    card: 'This page wants your card details. Eden Secretary never types them.',
     code: 'This page wants a one-time code.',
     login: 'This page wants you to sign in.',
   };
@@ -137,13 +137,13 @@
     close.textContent = '×';
     note.append(el('span', 'bai-note-icon bai-turn-icon'), words);
     // At a password or a sign-in: the Passwords app, for the owner to look it up themselves
-    // (it opens the app; Jarvis never reads, fills or sees a password).
+    // (it opens the app; Eden Secretary never reads, fills or sees a password).
     if (B.wantsPasswords(turn.kind) && passwordsApp === null) checkPasswords();
     if (B.wantsPasswords(turn.kind) && passwordsApp) {
       const pw = button('Open Passwords', 'bai-passwords', () => {
         app.feature.invoke('feature:browser-ai:passwords', 'open').catch(() => {});
       });
-      pw.title = F.t('Opens the Passwords app. Jarvis never sees your passwords.');
+      pw.title = F.t('Opens the Passwords app. Eden Secretary never sees your passwords.');
       note.append(pw);
     }
     note.append(go, close);
@@ -166,7 +166,7 @@
     renderTurn();
   });
 
-  // ── Translate (the page's menu, beside Ask Jarvis): the answer over the page it's for ──
+  // ── Translate (the page's menu, beside Ask Eden Secretary): the answer over the page it's for ──
   let translation = null; // { tab, url, state, to, text, error }
   function renderTranslation() {
     const box = strip();
@@ -229,7 +229,7 @@
     label.htmlFor = input.id;
     const select = el('select');
     select.id = `${id}-choice`;
-    select.setAttribute('aria-label', id === 'bai-site-form' ? 'Kind of site' : 'What Jarvis may do');
+    select.setAttribute('aria-label', id === 'bai-site-form' ? 'Kind of site' : 'What Eden Secretary may do');
     for (const [value, text] of choices) select.append(option(value, text));
     const add = el('button', 'btn', 'Add');
     add.type = 'submit';
@@ -249,7 +249,7 @@
     const group = el('section', 'group');
     group.id = 'bai-settings';
     group.append(el('h3', '', 'Browser'),
-      el('p', 'small-status', 'On banks, email and health sites Jarvis acts only while their tab is on show for you to watch, and what it reads there stays your private data.'));
+      el('p', 'small-status', 'On banks, email and health sites Eden Secretary acts only while their tab is on show for you to watch, and what it reads there stays your private data.'));
     const details = el('details', 'bai-sites');
     const summary = el('summary', '', 'Sensitive sites');
     summary.id = 'bai-sites-summary';
@@ -257,7 +257,7 @@
     kinds.id = 'bai-kinds';
     details.append(summary, kinds,
       siteForm('bai-site-form', 'Add a site, e.g. mybank.com', KIND_CHOICES, (host, kind) => F.send({ type: 'browser_ai_site', op: 'add', host, kind })));
-    const rulesHead = el('p', 'small-status', 'Where Jarvis may act: always (in a tab behind too), only after asking you, or never. Reading a page is still fine.');
+    const rulesHead = el('p', 'small-status', 'Where Eden Secretary may act: always (in a tab behind too), only after asking you, or never. Reading a page is still fine.');
     const rules = el('ul', 'folders bai-rules');
     rules.id = 'bai-rules';
     const error = el('p', 'small-status warn-line');
@@ -301,7 +301,7 @@
       const li = el('li', 'bai-rule');
       const seg = el('div', 'segmented modes compact');
       seg.setAttribute('role', 'radiogroup');
-      seg.setAttribute('aria-label', `What Jarvis may do on ${host}`);
+      seg.setAttribute('aria-label', `What Eden Secretary may do on ${host}`);
       for (const [value, text] of RULES) {
         const b = button(text, '', () => F.send({ type: 'browser_ai_site', op: 'rule', host, rule: value }));
         b.setAttribute('role', 'radio');
@@ -312,7 +312,7 @@
       li.append(mine(el('span', 'bai-rule-host', host)), seg, rm);
       return li;
     });
-    rules.replaceChildren(...(rows.length ? rows : [el('li', 'muted', 'No rules: Jarvis asks as usual everywhere.')]));
+    rules.replaceChildren(...(rows.length ? rows : [el('li', 'muted', 'No rules: Eden Secretary asks as usual everywhere.')]));
   }
   F.on('browser_ai_sites', (ev) => {
     sites = { sites: Array.isArray(ev.sites) ? ev.sites : [], removed: Array.isArray(ev.removed) ? ev.removed : [], rules: ev.rules && typeof ev.rules === 'object' ? ev.rules : {} };
@@ -387,12 +387,12 @@
   F.on('prefs', memoriesPref, { replay: true });
   memoriesRows();
 
-  // Page watches (watchers.py): what Jarvis watches, and Remove.
+  // Page watches (watchers.py): what Eden Secretary watches, and Remove.
   let watches = [];
   function watchesRows() {
     const group = F.$('bai-settings');
     if (!group || F.$('bai-watches')) return;
-    const head = el('p', 'small-status', 'Pages Jarvis watches for you. Say “tell me when this page changes”, “when the price drops below $40” or “when it’s back in stock”.');
+    const head = el('p', 'small-status', 'Pages Eden Secretary watches for you. Say “tell me when this page changes”, “when the price drops below $40” or “when it’s back in stock”.');
     const list = el('ul', 'folders bai-watch-list');
     list.id = 'bai-watches';
     group.insertBefore(head, group.querySelector('.bai-sites'));
@@ -635,7 +635,7 @@
     skip.id = 'bai-read-skip';
     const where = mine(el('span', 'bai-read-where'));
     where.id = 'bai-read-where';
-    const note = el('span', 'bai-read-note', 'Jarvis’s voice is off.');
+    const note = el('span', 'bai-read-note', 'Eden Secretary’s voice is off.');
     note.id = 'bai-read-note';
     note.hidden = true;
     const done = button('Done', 'bd-find-done', () => closeReader());
@@ -826,7 +826,7 @@
   if (app && app.feature && app.feature.on) app.feature.on('feature:browser-ai:event', onPageEvent);
   B.onPageEvent = onPageEvent;
 
-  // ── Ask Jarvis in the page's own menu (app/features/browser-ai.js puts it there) ──
+  // ── Ask Eden Secretary in the page's own menu (app/features/browser-ai.js puts it there) ──
   // What the owner picked goes to the hub (menuask.py); the menu gets its words in the
   // owner's language.
   const ASK_KEYS = ['action', 'save', 'url', 'title', 'tab', 'selection', 'link', 'link_text', 'image', 'png'];
@@ -839,7 +839,7 @@
     });
   }
   const MENU_WORDS = {
-    ask: 'Ask Jarvis', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
+    ask: 'Ask Eden Secretary', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
     save: 'Save to Second Brain', link: 'Summarize the Linked Page', image: 'Explain This Picture',
     translate_zh: 'Translate to Chinese', translate_en: 'Translate to English',
   };
@@ -859,7 +859,7 @@
   // shortcuts through the dock's own handler (the app sends it browser:shortcut).
   async function pageUi(args) {
     const b = app.browser;
-    if (!b) return { ok: false, message: 'The built-in browser is only in the J.A.R.V.I.S. app.' };
+    if (!b) return { ok: false, message: 'The built-in browser is only in the Eden Secretary app.' };
     switch (args.op) {
       case 'scroll': {
         const r = await b.command({ action: 'scroll', args: { direction: String(args.direction || 'down'), amount: Number(args.amount) || 1 } });
@@ -916,7 +916,7 @@
 
   F.on('browser_ai_cmd', async (ev) => {
     let result;
-    if (!app || !app.feature) result = { ok: false, message: 'The built-in browser is only in the J.A.R.V.I.S. app.' };
+    if (!app || !app.feature) result = { ok: false, message: 'The built-in browser is only in the Eden Secretary app.' };
     else {
       try {
         result = ev.action === 'page_ui' ? await pageUi(ev.args || {}) : await call(ev.action, ev.args || {});

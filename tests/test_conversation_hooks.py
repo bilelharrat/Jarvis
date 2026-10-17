@@ -1,4 +1,4 @@
-"""The hub's hooks for JARVIS's own conversation (the feature kit): options at each connect,
+"""The hub's hooks for Jarvis's own conversation (the feature kit): options at each connect,
 each request just before Claude gets it, every message of the stream, and a feature's own
 first connect at startup. A hook that fails never costs the owner a connect or a request."""
 

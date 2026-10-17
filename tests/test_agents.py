@@ -58,7 +58,7 @@ def test_agents_are_tidied_kept_and_read_back(tmp_path):
     again = AgentStore(tmp_path / "agents.json")
     assert [a.id for a in again.items] == ["work", "family"]
     assert again.active == "work" and again.main_persona == "jarvis"
-    again.remove("work")  # the one in use: back to the everyday JARVIS
+    again.remove("work")  # the one in use: back to the everyday Jarvis
     assert AgentStore(tmp_path / "agents.json").active == MAIN
 
 
@@ -112,7 +112,7 @@ def test_a_personas_name_called_picks_its_agent_but_jarvis_never_switches():
     assert agents.called("Jarvis, what's on today?", items, "jarvis") is None
     assert agents.called("What's on Friday, Jarvis?", items, "jarvis") is None  # not a call
     assert agents.called("星期五，今天有什么安排", items, "jarvis") == "work"
-    # The everyday JARVIS on FRIDAY too: the name is shared, so it picks neither.
+    # The everyday Jarvis on FRIDAY too: the name is shared, so it picks neither.
     assert agents.called("Friday, hello", items, "friday") is None
     assert set(agents.wake_words(items, "jarvis")) == {"Friday", "星期五", "TARS", "塔斯"}
 

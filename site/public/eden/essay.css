@@ -1,0 +1,263 @@
+/* The essay writer (essay.js): its own pane in the canvas column, like the spreadsheet's; the
+   paper is letter size at 96 px an inch, laid out by the style's CSS variables (set by essay.js). */
+
+#artifact.essay-on > :not(.es-pane) { display: none !important; }
+#artifact:not(.essay-on) > .es-pane { display: none; }
+.es-pane { container: es / inline-size; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--content); }
+.es-pane [hidden] { display: none !important; }
+.es-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* the Essays list */
+.es-home { overflow-y: auto; padding: 18px 24px 32px; max-width: 860px; width: 100%; margin: 0 auto; }
+.es-home h2 { font-size: 22px; letter-spacing: -.3px; }
+.es-home h3 { font-size: 13px; color: var(--text2); margin: 26px 0 8px; }
+.es-lead { color: var(--text2); font-size: 13.5px; margin: 6px 0 16px; max-width: 620px; }
+.es-new { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.es-new-b { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 14px; border-radius: 12px; background: var(--content); box-shadow: inset 0 0 0 .5px var(--hairline), 0 1px 3px rgba(0, 0, 0, .06); transition: transform .15s var(--spring), box-shadow .15s; }
+.es-new-b:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px var(--accent), 0 4px 14px rgba(0, 0, 0, .08); }
+.es-new-b b { font-size: 13.5px; }
+.es-new-b span { font-size: 12px; color: var(--text2); }
+.es-list { display: flex; flex-direction: column; gap: 6px; }
+.es-card { display: flex; align-items: center; gap: 6px; border-radius: 10px; box-shadow: inset 0 0 0 .5px var(--hairline); padding-right: 6px; }
+.es-card-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; text-align: left; }
+.es-card-t { font-weight: 600; font-size: 13.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.es-card-m { font-size: 12px; color: var(--text3); }
+.es-empty { color: var(--text3); font-size: 13px; margin-top: 20px; }
+
+/* toolbar */
+.es-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 2px 10px 8px; flex: none; border-bottom: .5px solid var(--sep); }
+.es-bar select { flex: none; width: auto; font: inherit; font-size: 12px; height: 28px; padding: 0 6px; border-radius: 7px; border: .5px solid var(--sep); background: var(--content); color: var(--text); max-width: 190px; }
+.es-bar select[aria-label="Style"] { font-weight: 600; }
+.es-tb { min-width: 28px; height: 28px; padding: 0 6px; border-radius: 7px; font-size: 13.5px; color: var(--text2); display: inline-flex; align-items: center; justify-content: center; }
+.es-tb:hover { background: rgba(120, 120, 128, .12); color: var(--text); }
+.es-tb.on { background: rgba(120, 120, 128, .2); color: var(--text); }
+.es-fn-ico { font-size: 12px; }
+.es-sep { width: .5px; height: 18px; background: var(--sep); margin: 0 3px; }
+.es-pb { height: 28px; padding: 0 9px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--text2); display: inline-flex; align-items: center; gap: 5px; }
+.es-pb .ic { display: none; width: 14px; height: 14px; }
+.es-pb:hover { background: rgba(120, 120, 128, .12); }
+.es-pb[aria-pressed="true"] { background: var(--accent-soft, rgba(10, 132, 255, .12)); color: var(--accent); }
+.es-menu-wrap { position: relative; }
+.es-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 230px; display: flex; flex-direction: column; padding: 4px; border-radius: 10px; background: var(--content); box-shadow: 0 0 0 .5px var(--hairline), 0 10px 30px rgba(0, 0, 0, .18); }
+.es-menu button { text-align: left; padding: 7px 10px; border-radius: 6px; font-size: 13px; }
+.es-menu button:hover { background: rgba(120, 120, 128, .12); }
+.cap.es-ask { color: var(--accent); }
+/* More: font, spacing, alignment, lists and footnote sit in the bar when there's room, in a menu when not */
+.es-more-wrap, .es-extra { display: contents; }
+.es-tb.es-more-btn { display: none; }
+.es-extra .es-tb { flex: none; }
+/* one row beside the chat: the extras fold into More, then labels give way to icons (each keeps its name as its tooltip) */
+@container es (max-width: 1240px) {
+  .es-more-wrap { display: block; position: relative; flex: none; }
+  .es-tb.es-more-btn { display: inline-flex; }
+  .es-tb.es-more-btn[aria-expanded="true"] { background: rgba(120, 120, 128, .2); color: var(--text); }
+  .es-extra { display: none; }
+  .es-extra.open { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: 248px; padding: 8px; border-radius: 10px; background: var(--content); box-shadow: 0 0 0 .5px var(--hairline), 0 10px 30px rgba(0, 0, 0, .18); }
+  .es-extra.open.end { left: auto; right: 0; }
+  .es-extra .es-sep { display: none; }
+  .es-bar .es-extra select { max-width: none; }
+  .es-extra select[aria-label="Font"] { flex: 1 1 100%; }
+  .es-extra select[aria-label="Line spacing"], .es-extra select[aria-label="Alignment"] { flex: 1 1 calc(50% - 3px); min-width: 0; }
+}
+@container es (max-width: 860px) {
+  .es-bar { gap: 2px; padding: 2px 8px 8px; }
+  .es-pb { padding: 0 7px; }
+  .es-pb .ic { display: inline-block; }
+  .es-pb .es-l, .es-x .es-l { display: none; }
+  .es-bar .cap { padding-left: 8px; padding-right: 8px; }
+}
+@container es (max-width: 600px) {
+  .es-ask .es-l { display: none; }
+  .es-bar select { max-width: 112px; padding: 0 4px; }
+  .es-sep { margin: 0 1px; }
+  .es-bar .es-tb { min-width: 26px; padding: 0 4px; }
+  .es-bar .es-pb { padding: 0 6px; }
+  .es-bar .cap { padding-left: 6px; padding-right: 6px; }
+}
+/* narrower still (a phone, the pane dragged narrow): two tidy rows, the formatting, then the panels, Export, Feedback */
+@container es (max-width: 520px) {
+  .es-bar > .art-sp { flex-basis: 100%; height: 0; }
+}
+
+/* the paper */
+.es-main { flex: 1; min-height: 0; display: flex; }
+.es-scroll { flex: 1; min-width: 0; overflow: auto; background: rgba(120, 120, 128, .1); padding: 24px 24px 60px; }
+.es-zoom { width: 816px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;
+  font-family: var(--es-font); font-size: var(--es-size); line-height: var(--es-line); color: #111; }
+.es-sheet { position: relative; width: 816px; min-height: 1056px; padding: 96px; background: #fff; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .08), 0 2px 10px rgba(0, 0, 0, .08); }
+.es-tp { cursor: pointer; }
+.es-tp .es-fm-l { line-height: calc(1.15 * 2); }
+.es-hdr { position: absolute; right: 96px; top: 0; height: 96px; display: flex; align-items: center; font-size: var(--es-size); line-height: 1; color: #111; pointer-events: none; }
+.es-guides { position: absolute; inset: 0; pointer-events: none; }
+.es-pgline { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed rgba(10, 132, 255, .35); }
+.es-pgline span { position: absolute; left: 8px; top: 2px; font: 600 10px/1.4 -apple-system, system-ui, sans-serif; color: rgba(10, 132, 255, .7); letter-spacing: .2px; }
+.es-pgline span.r { left: auto; right: 96px; top: -16px; font: var(--es-size)/1 var(--es-font); color: #555; letter-spacing: 0; }
+.es-fm { cursor: pointer; }
+.es-fm-l { line-height: calc(1.15 * 2); }
+.es-fm-l.ph, .es-title.ph { color: #9a9aa0; font-style: italic; }
+.es-title { text-align: center; cursor: pointer; margin-bottom: var(--es-gap); }
+.es-title.bold { font-weight: 700; }
+
+.es-prose { outline: none; min-height: 3em; caret-color: #111; }
+.es-prose p { margin: 0 0 var(--es-gap); text-indent: var(--es-indent); }
+.es-prose h1, .es-prose h2, .es-prose h3 { font-size: 1em; margin: var(--es-gap) 0 calc(var(--es-gap) / 2); line-height: var(--es-line); }
+.es-prose h1 { text-align: var(--es-h1-align); font-weight: var(--es-h1-weight); font-style: var(--es-h1-style); }
+.es-prose h2 { text-align: var(--es-h2-align); font-weight: var(--es-h2-weight); font-style: var(--es-h2-style); }
+.es-prose h3 { text-align: var(--es-h3-align); font-weight: var(--es-h3-weight); font-style: var(--es-h3-style); }
+.es-prose blockquote { margin: var(--es-q-gap) 0 var(--es-q-gap) .5in; line-height: var(--es-q-line); }
+.es-prose blockquote p { text-indent: 0; }
+.es-prose ul, .es-prose ol { margin: 0 0 var(--es-gap); padding-left: .5in; }
+.es-prose li p { text-indent: 0; margin: 0; }
+.es-prose p[style*="text-align: center"], .es-prose p[style*="text-align:center"] { text-indent: 0; }
+.es-prose p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #a0a0a6; float: left; height: 0; pointer-events: none; text-indent: var(--es-indent); }
+.es-prose { counter-reset: es-fn; }
+.es-fn { cursor: pointer; color: #0a64d6; font-size: .7em; line-height: 0; padding: 0 1px; }
+.es-fn::after { counter-increment: es-fn; content: counter(es-fn); }
+.es-cite { border-radius: 3px; }
+.es-cite:not(.es-fn):hover, .es-cite.ProseMirror-selectednode:not(.es-fn) { background: rgba(10, 132, 255, .1); }
+.es-cite.es-fn { vertical-align: super; }
+.es-cite.gone { color: #c0392b; }
+.es-note-cite { display: block; padding: 2px 0; color: #333; }
+.es-prose:focus, .es-prose:focus-visible { outline: none; box-shadow: none; }
+.es-fn.ProseMirror-selectednode { outline: 2px solid rgba(10, 132, 255, .5); border-radius: 3px; }
+
+.es-notes { margin-top: 2em; padding-top: .5em; border-top: 1px solid #ccc; font-size: .85em; line-height: 1.3; }
+.es-notes-t { font-weight: 700; margin-bottom: .3em; }
+.es-notes ol { margin: 0; padding-left: 1.6em; }
+.es-notes li { margin: 2px 0; }
+.es-notes input { width: 100%; font: inherit; color: #111; border: 0; border-bottom: 1px dashed #ccc; background: transparent; padding: 2px 0; outline: none; }
+.es-notes input:focus { border-bottom-color: #0a84ff; }
+
+.es-refs-t { line-height: var(--es-line); }
+.es-ref { margin: 0; }
+.es-ref.hang { padding-left: .5in; text-indent: -.5in; }
+
+/* the side panel */
+.es-side { width: 300px; flex: none; border-left: .5px solid var(--sep); background: var(--content); display: flex; flex-direction: column; min-height: 0; }
+.es-side-h { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 6px 14px; font-size: 13px; }
+.es-side-h .iconbtn { width: 26px; height: 26px; }
+.es-side-b { overflow-y: auto; padding: 4px 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.es-f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text2); }
+.es-f input, .es-f textarea, .es-f select { font: inherit; font-size: 13px; color: var(--text); padding: 6px 8px; border-radius: 8px; border: .5px solid var(--sep); background: rgba(120, 120, 128, .06); }
+.es-f textarea { resize: vertical; min-height: 54px; }
+.es-f input:focus, .es-f textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); background: var(--content); }
+.es-f-n { font-size: 11.5px; color: var(--text3); margin: 0; }
+.es-add { align-self: flex-start; }
+.es-srcform { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; box-shadow: inset 0 0 0 .5px var(--hairline); }
+.es-src { padding: 10px; border-radius: 10px; box-shadow: inset 0 0 0 .5px var(--hairline); display: flex; flex-direction: column; gap: 8px; }
+.es-src-t { font-family: "Times New Roman", Times, serif; font-size: 13.5px; line-height: 1.4; color: var(--text); }
+.es-src-a { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.es-src-a .iconbtn { width: 26px; height: 26px; margin-left: auto; }
+.es-src-p { width: 52px; font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 7px; border: .5px solid var(--sep); background: var(--content); color: var(--text); }
+.cap.primary { background: var(--accent); color: #fff; }
+.es-outline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.es-outline button { text-align: left; width: 100%; padding: 5px 8px; border-radius: 6px; font-size: 13px; }
+.es-outline button:hover { background: rgba(120, 120, 128, .12); }
+.es-outline .l2 button { padding-left: 20px; }
+.es-outline .l3 button { padding-left: 32px; font-size: 12.5px; color: var(--text2); }
+
+.es-rub-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.es-chip { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 12px; background: var(--accent-soft, rgba(10, 132, 255, .12)); color: var(--accent); }
+.es-rub-name { font-weight: 600; font-size: 13px; margin-top: 4px; }
+.es-rub-text { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; color: var(--text2); padding: 10px; border-radius: 10px; background: rgba(120, 120, 128, .07); max-height: 60vh; overflow-y: auto; }
+
+/* footer */
+.es-foot { display: flex; align-items: center; gap: 12px; padding: 7px 14px; font-size: 11.5px; color: var(--text3); border-top: .5px solid var(--sep); flex: none; font-variant-numeric: tabular-nums; }
+.es-wc { color: var(--text2); font-weight: 600; }
+.es-goal { width: 90px; height: 5px; border-radius: 3px; background: rgba(120, 120, 128, .2); overflow: hidden; }
+.es-goal i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+/* On the side (the canvas column), half the window; the expand button (Wide) makes it the whole window. */
+#artifact.essay-on:not(.full) { width: max(50%, min(720px, 64%)); } /* room for the paper at a readable size (essay.js paneLayout: zoom ≥ 0.8), as on the Desk layout */
+@container es (max-width: 900px) {
+  .es-scroll { padding: 16px 12px 48px; }
+}
+@container es (max-width: 1000px) {
+  .es-side { width: 264px; }
+}
+
+/* The text view (essay.js fit(): a pane too narrow for a readable page, or a phone): the text reflowed at its real
+   size on white, no page lines or running heads (Wide shows the pages; the footer still counts them on paper). */
+.es-flow .es-scroll { padding: 0; background: #fff; }
+.es-flow .es-zoom { width: auto; max-width: 816px; gap: 0; }
+.es-flow .es-sheet { width: auto; min-height: 0 !important; padding: 24px clamp(16px, 5cqi, 40px); box-shadow: none; }
+.es-flow .es-main-sheet { padding-bottom: 48px; }
+.es-flow .es-tp { padding-bottom: 40px; border-bottom: 1px solid #e5e5ea; }
+/* the text view: the title page's blank lines (APA's title a few lines down, Chicago's a third of the page) closed up; the paper and Word keep them */
+.es-flow .es-tp .es-fm-l[style*="margin-top"] { margin-top: 1.2em !important; }
+.es-flow .es-refs { border-top: 1px solid #e5e5ea; padding-bottom: 60px; }
+.es-flow .es-hdr, .es-flow .es-guides { display: none; }
+
+/* A panel in a narrow pane: a drawer above the writing (never over it), its fields side by side */
+.es-drawer { flex-direction: column; }
+.es-drawer .es-side { order: -1; width: auto; max-height: 46%; flex: none; border-left: 0; border-bottom: .5px solid var(--sep); box-shadow: 0 6px 16px rgba(0, 0, 0, .07); position: relative; z-index: 1; }
+.es-drawer .es-side-h { padding-top: 8px; }
+.es-drawer .es-side-b { padding-bottom: 14px; }
+.es-drawer .es-details { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; align-items: start; }
+.es-drawer .es-details > .es-f-n { grid-column: 1 / -1; }
+.es-drawer .es-rub-text { max-height: none; overflow: visible; }
+
+/* the footer's ways in: the title (a new essay), the pages (the text view) */
+.es-foot { flex-wrap: wrap; row-gap: 4px; }
+.es-foot-b { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11.5px; font-weight: 500; color: var(--accent); background: var(--accent-soft, rgba(10, 132, 255, .1)); }
+.es-foot-b:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.es-foot-b .ic { width: 11px; height: 11px; }
+@container es (max-width: 600px) {
+  .es-goal-n { display: none; }
+  .es-goal { width: 60px; }
+  .es-foot { gap: 8px; padding: 6px 10px; }
+}
+
+/* a phone: the text view always (essay.js), menus that aren't clipped, fields iOS won't zoom into */
+@media (max-width: 640px) {
+  .es-pane .es-wide { display: none; }
+  .es-drawer .es-side { max-height: 50%; }
+  .es-bar select { max-width: 130px; }
+  .es-f input, .es-f textarea { font-size: 16px; }
+}
+
+/* "Open your essay" (essay-chat.js): above the composer, in a chat whose essay isn't on screen */
+.essay-chip { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; height: 28px; margin: 0 0 6px 4px; padding: 0 12px 0 10px; border-radius: 14px; font-size: 12.5px; font-weight: 500; color: var(--accent); background: var(--content); box-shadow: inset 0 0 0 .5px var(--hairline), 0 1px 3px rgba(0, 0, 0, .06); }
+.essay-chip:hover { background: var(--accent-soft, rgba(10, 132, 255, .1)); }
+.essay-chip .ic { width: 13px; height: 13px; }
+.essay-chip[hidden] { display: none; }
+
+/* Eden's text while it streams in (essay.js essayPreview, T19d): on the page in the essay's own type, lighter until it lands */
+.es-ghost { font-family: var(--es-font); font-size: var(--es-size); line-height: var(--es-line); color: #000; opacity: .55; }
+.es-ghost p { margin: 0 0 var(--es-gap); text-indent: var(--es-indent); }
+.es-ghost h1, .es-ghost h2, .es-ghost h3 { font-size: 1em; margin: 0 0 var(--es-gap); text-align: var(--es-h1-align); font-weight: var(--es-h1-weight); }
+.es-caret { display: inline-block; width: .5em; height: 1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent, #0a84ff); opacity: .7; animation: es-blink 1s steps(2) infinite; }
+@keyframes es-blink { 50% { opacity: 0; } }
+.es-ghost-mark { position: absolute; left: 0.75in; right: 0.75in; border-radius: 6px; box-shadow: 0 0 0 2px var(--accent, #0a84ff); background: rgba(10, 132, 255, .06); pointer-events: none; }
+.es-ghost-mark span { position: absolute; top: -22px; right: 0; font: 600 11px/18px -apple-system, system-ui, sans-serif; color: #fff; background: var(--accent, #0a84ff); border-radius: 5px; padding: 0 7px; }
+@media (prefers-reduced-motion: reduce) { .es-caret { animation: none; } }
+/* an empty essay that Eden is writing: its words, not "Start writing your essay…" */
+.es-sheet:has(.es-ghost.alone) .es-body .is-editor-empty::before, .es-sheet:has(.es-ghost.alone) .es-body p.is-empty::before { content: none; }
+.es-sheet:has(.es-ghost.alone) .es-body .ProseMirror > p:only-child { display: none; }
+
+/* Wide: the canvas over the whole window (artifact.js setWide; the essay writer opens wide) */
+#artifact.full{position:fixed;inset:8px;width:auto!important;max-width:none;margin:0;z-index:60;box-shadow:var(--sh2)}
+#artifact.full #divider{display:none}
+
+/* The essay pane's tab strip (the Desk canvas strip; this tree's canvas has its own header, so scoped to the pane) */
+:where(.es-pane) .art-strip{display:flex;align-items:center;gap:4px;padding:8px 8px 6px;flex:none;min-width:0}
+:where(.es-pane) .art-tab{display:flex;align-items:center;gap:6px;height:30px;min-width:72px;max-width:260px;padding:0 12px 0 11px;border-radius:9px;font-size:12.5px;font-weight:500;color:var(--text);background:var(--content);box-shadow:0 1px 2px rgba(0,0,0,.07),inset 0 0 0 .5px var(--hairline)}
+:where(.es-pane) .art-tab .ic{flex:none;width:13px;height:13px;opacity:.7}
+:where(.es-pane) .art-tab .a-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:where(.es-pane) .art-strip .iconbtn{width:30px;height:30px}
+:where(.es-pane) .art-sp{flex:1;min-width:4px}
+
+/* The essay beside the chat, as on the Desk layout (essay.js placePane): its own full-height column in #app */
+html.es-col #app > #artifact{display:flex;flex:0 1 auto;align-self:stretch}
+html.es-col #center{min-width:440px} /* the essay gives way before the chat, its title bar and composer get cramped */
+/* the chat's title bar narrowed beside the essay: the extras step back first (the Desk layout's container rules) */
+html.es-col #titlebar{container:tb/inline-size}
+@container tb (max-width:700px){
+  #titlebar>.orb,#titlebar #btnHelp,#titlebar #tbCost,#titlebar .ctxl,#titlebar .tbu-l{display:none}
+  #titlebar .tb-plus{padding:0 7px}
+  #titlebar>.iconbtn,#titlebar>.tb-private,#titlebar>.tb-plus{margin:0 -2px}
+}
+@container tb (max-width:520px){
+  #titlebar #btnPalette{display:none}
+}
+html.es-col #tbDots:empty,html.es-col #tbTags:empty{display:none}

@@ -143,7 +143,7 @@ def test_the_feature_installs_its_commands_server_and_loop(hub):
     assert "run_checkup" in hub._feature_prompt()
     assert "做个体检" in hub._feature_prompt()  # the Chinese twin
     assert tool_label("mcp__ops__run_checkup") == "Ran a checkup"
-    assert brain.result_kind("mcp__ops__run_checkup") == "none"  # JARVIS's own words
+    assert brain.result_kind("mcp__ops__run_checkup") == "none"  # Jarvis's own words
     assert any(name == "ops_daily_backup" for name, _f in hub._loops)
     assert hub.prefs.feature("ops_backup_daily") is True
     assert hub.prefs.feature("ops_backup_knowledge") is False
@@ -488,7 +488,7 @@ async def test_a_diagnostics_file_masks_secrets_and_holds_no_data(hub, desk_, tm
     logs = desk_.logs
     logs.mkdir(parents=True)
     (logs / "backend.log").write_text(
-        f"JARVIS listening on http://127.0.0.1:5000/?token=Zx9yabcDEF1234567890abcdef\n"
+        f"Jarvis listening on http://127.0.0.1:5000/?token=Zx9yabcDEF1234567890abcdef\n"
         f"call from +1 510 555 0100 in {desk_.home}/Documents\n"
     )
     (tmp_path / "memory.json").write_text('{"facts": ["my secret plans"]}')

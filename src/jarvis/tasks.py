@@ -1090,7 +1090,7 @@ class TaskManager:
         # the session, the error kind and Claude's words. It says straight away whether it
         # takes the session over (moves it to the fallback model, where it carries on).
         self.on_claude_down: Callable[[ClaudeTask, str, str], bool] | None = None
-        # Words for an error kind in place of Claude Code's own ("" keeps them): Jarvis Plus's
+        # Words for an error kind in place of Claude Code's own ("" keeps them): Eden Plus's
         # allowance used up says so (features.account).
         self.error_words: Callable[[str], str] | None = None
         # Claude's usage-limit status changed (a RateLimitEvent's info): the hub keeps when

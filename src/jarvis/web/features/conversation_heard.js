@@ -1,4 +1,4 @@
-// Click to fix what Jarvis heard (the conversation feature): after a spoken request, the
+// Click to fix what Eden Secretary heard (the conversation feature): after a spoken request, the
 // words under the orb can be clicked and put right. The fix goes to the hub's own heard_edit,
 // so hearing learns it ("Okin", not "oaken") and says so; "Fix and ask again" sends the
 // fixed words as a new request too. Only a spoken request can be fixed this way: a typed one

@@ -26,7 +26,7 @@ function rig({ version = '0.1.12', flavor = 'daredevil', latest = LATEST, got = 
   const u = win.createWinUpdater({
     version,
     flavor,
-    name: flavor === 'daredevil' ? 'J.A.R.V.I.S. Daredevil' : 'J.A.R.V.I.S.',
+    name: flavor === 'daredevil' ? 'Eden Daredevil' : 'Eden Secretary',
     fetchText: async (url) => { seen.fetched.push(url); if (latest instanceof Error) throw latest; return latest; },
     download: async (url, target, opts) => {
       seen.downloads.push({ url, target, size: opts.size, allowed: opts.allowed });
@@ -74,16 +74,16 @@ test('a newer installer of this flavor is offered and the owner told once, and n
   assert.deepEqual(seen.fetched, ['https://askeden.com/windows/latest.json']);
   assert.deepEqual(
     { state: s.state, available: s.available, size: s.size, platform: s.platform, name: s.name },
-    { state: 'available', available: '0.1.14', size: 4096, platform: 'win32', name: 'J.A.R.V.I.S. Daredevil' },
+    { state: 'available', available: '0.1.14', size: 4096, platform: 'win32', name: 'Eden Daredevil' },
   );
-  assert.deepEqual(seen.told, ['J.A.R.V.I.S. Daredevil 0.1.14 is available. Open J.A.R.V.I.S. Daredevil and choose Install now to update.']);
+  assert.deepEqual(seen.told, ['Eden Daredevil 0.1.14 is available. Open Eden Daredevil and choose Install now to update.']);
   await u.check();
   assert.equal(seen.told.length, 1, 'told once a version, not every day');
   assert.deepEqual(seen.downloads, []);
   assert.deepEqual(seen.runs, []);
 });
 
-test('J.A.R.V.I.S. looks at its own entry, not Daredevil’s, and the same version is up to date', async () => {
+test('Eden Secretary looks at its own entry, not Daredevil’s, and the same version is up to date', async () => {
   const { u, seen } = rig({ flavor: 'jarvis', version: '0.1.13' });
   const s = await u.check();
   assert.equal(s.state, 'current');
@@ -213,7 +213,7 @@ test('in the installed app the window can check, and only the window can say Ins
       fromWindow: (event) => event.sender === window,
       send: (channel, state) => sent.push([channel, state.state]),
       getWindow: () => window,
-      flavor: { id: 'daredevil', name: 'J.A.R.V.I.S. Daredevil' },
+      flavor: { id: 'daredevil', name: 'Eden Daredevil' },
       dev: false,
     };
     const updater = updates.installWindows(ctx, { electron: { net: {}, Notification: null }, fs, winUpdate: fakeWin, spawn: () => {} });

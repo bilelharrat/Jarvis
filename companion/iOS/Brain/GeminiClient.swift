@@ -1,6 +1,6 @@
 import Foundation
 
-/// Google's Gemini API (generateContent, streamed) speaking the conversation Jarvis on the
+/// Google's Gemini API (generateContent, streamed) speaking the conversation Eden Secretary on the
 /// iPhone keeps in Claude's content blocks, so one conversation can move between the two.
 ///
 /// Going out, Claude's blocks become Gemini parts: text, images, tool calls (functionCall)
@@ -68,7 +68,7 @@ struct GeminiClient: BrainClient {
 
         var errorDescription: String? {
             switch self {
-            case .badKey: "Your Gemini API key wasn’t accepted. Check it in Settings › Jarvis on iPhone."
+            case .badKey: "Your Gemini API key wasn’t accepted. Check it in Settings › Eden Secretary on iPhone."
             case .rateLimited: "Gemini is rate limiting this key right now. Try again in a minute."
             case .overloaded: "Gemini is busy right now. Try again in a moment."
             case .server(let status, let message): message.isEmpty ? "Gemini couldn’t answer (\(status))." : message

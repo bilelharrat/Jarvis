@@ -25,6 +25,9 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
   since, gets a new account (random UUID v4) on the trial allowance.
 - A brand-new Apple ID on the web gets a new account on the trial allowance (its id is
   `accountIdFor(sub)`, so the iPhone app opens the same account later).
+- So Apple, Google and a passkey are **separate accounts until linked**. A browser that was signed in
+  to an account before is asked before a first-time Apple or Google sign-in makes a second one
+  (below, "Which account this browser was in").
 - Accounts are never matched by email. A Google address that equals an Apple relay address, or
   anything else, links nothing by itself.
 - The Account keeps its identities (`identities`: `{ provider, sub_hash, email, added }`, at most
@@ -87,11 +90,53 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
   subscription cancelled at Stripe (`STRIPE_SECRET_KEY` set). An Apple ID goes back to its derived
   account id (a fresh account, if sign-ups are open), and a Google account gets a new one.
 
+## Which account this browser was in (2026-10-15)
+
+Each way in is its own account until it's added to one, so a person who used Apple on their iPhone and
+picks Google on a laptop used to land, silently, in a second, empty account (findings 19 and 20 of the
+2026-10-15 chat-history investigation). Now:
+
+- **Held.** `/signin`'s hint and the question are off until `EDEN_SIGNIN_CHOICE = "on"` (wrangler.toml),
+  once Eden for iPhone passes App Review: they change sign-in. Off, sign-in is as before; the cookie is
+  still set, and the account code is still shown.
+- **The last way in.** Every sign-in in a browser (Apple or Google's callback, a passkey's sign-in or
+  sign-up, a code the app approved, the new-account choice below) sets `__Host-eden-last` =
+  `<apple|google|passkey|code>.<account code without its dash>`: HttpOnly, Secure, SameSite=Lax, 400
+  days. No email, no account id. Signing out keeps it (that's the point); deleting the account clears
+  it. The apps' handoff (`/api/web/handoff`) never sets it. It is never trusted to open anything: a
+  forged or stale value can only add or skip the question below.
+- **`/signin`** gets it as `/api/web/config`'s `last: { method, code }` (only when the cookie is there)
+  and says "You last signed in here with Apple", ringing that button.
+- **The question.** A provider start (not link mode, not the apps' `?app=1`) reads the cookie (a request
+  from this site, so it comes along; Apple's callback is a cross-site POST, which never brings it) and
+  keeps it for the attempt as `prior:<state>` in `LINKS` (ten minutes). If the callback is about to make
+  a **new** account (accountForIdentity's `beforeCreate`: an identity never seen, or an Apple ID with no
+  account of its own), the person check (Turnstile) runs first as always, then, when there is a
+  `prior`, no account is made: the callback ends on a page "This Google account isn’t connected to an
+  Eden account. You last signed in here with Apple (account K7Q-M4Z)." with **Sign in with Apple
+  instead** (Apple or Google: their start at once; a passkey or a code: `/signin`) and **Create a new
+  Eden account**. The verified sign-in waits as `newacct:<32 random bytes>` in `LINKS` (ten minutes,
+  taken once) by its sub hash and derived Apple id, never the raw sub; the browser holds only that key
+  in `__Host-eden-new` (HttpOnly, SameSite=Strict). Create (`POST /api/web/signin/create`, this site's
+  page only) finishes exactly that sign-in: sign-ups still open, the new-account rate, then the session
+  cookie and the onward page, to the attempt's return address. If the identity was added to an account
+  meanwhile, that account opens. A browser that never signed in here (a new person, App Review) sees no
+  change, nor do the apps' own sign-ins (native Apple, the handoff, `?app=1`), link mode, existing
+  accounts, and the explicit "Create an account with a passkey".
+- **The account code.** `/api/web/account` and `/api/web/session` give `account_code`, like `K7Q-M4Z`:
+  30 bits of SHA-256("eden-account-code:" + account id) in link.js's letters (`accounts/util.js
+  accountCode`), the same on every device of the account. The account page shows it with the ways in
+  (and Google's email); Settings › Sync shows it beside the sync status. The merge preview
+  (`/api/web/merge/preview`) gives the other account's `account_code`, so "Google opens another Eden
+  account" can name both. Eden never moves an identity between accounts: the card says to bring the
+  chats in and then sign in the same way everywhere.
+
 ## Endpoints (all `/api/web/*`; JSON errors `{ error, code }`)
 
 | Method & path | Who | What |
 | --- | --- | --- |
-| `GET /api/web/config` | anyone | `{ apple: bool, google: bool, passkey: bool, turnstile: siteKey \| null, signups: "open" \| "closed", code: true, billing: bool, billing_in_app: bool }` (which buttons to show) |
+| `GET /api/web/config` | anyone | `{ apple: bool, google: bool, passkey: bool, turnstile: siteKey \| null, signups: "open" \| "closed", code: true, billing: bool, billing_in_app: bool, last?: { method, code } }` (which buttons to show; `last`: this browser's last way in) |
+| `POST /api/web/signin/create` | this site's page, the new-account question | finishes the kept first-time sign-in: the onward page with the session cookie, or 303 `/signin?error=…` |
 | `GET /api/web/apple[?link=1]` | anyone / signed in for link | 302 to Apple (form_post) |
 | `POST /api/web/apple/callback` | Apple | see "Where a sign-in ends" |
 | `GET /api/web/google[?link=1]` | anyone / signed in for link | 302 to Google (code + PKCE, `openid email profile` only) |
@@ -100,7 +145,7 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
 | `POST /api/web/native/apple` | Eden iOS app (no Origin) | `{ identity_token, nonce, authorization_code? }` → `{ handoff, expires_in: 60 }` |
 | `GET /api/web/handoff?code=…` | the app's WKWebView | one-time, 60 s: sets `__Host-eden`, 302 to `/` |
 | `GET /api/web/session` | signed in | as before, plus `identities` |
-| `GET /api/web/account` | signed in | `{ account_id, plan, usage, devices, identities, plus }`; `plus` is `{ web_purchase: true, how: "stripe", price_usd: 20 }` with billing on, else `{ web_purchase: false, how: "ios" }` |
+| `GET /api/web/account` | signed in | `{ account_id, account_code, plan, usage, devices, identities, plus }`; `plus` is `{ web_purchase: true, how: "stripe", price_usd: 20 }` with billing on, else `{ web_purchase: false, how: "ios" }` |
 | `POST /api/web/billing/checkout` | signed in, own account | `{ url }` of a Stripe Checkout Session ("Billing on the web") |
 | `POST /api/web/billing/portal` | signed in, own account | `{ url }` of a Stripe Customer Portal session |
 | `GET /api/web/billing/return?to=success\|cancelled\|portal` | Stripe's redirect | an onward page to `/#account[?billing=…]` |
@@ -183,6 +228,9 @@ provider's callback. Error codes:
   minutes, and is cleared on return whatever happened.
   Apple gets SHA-256 hex of the nonce. Google gets the nonce, and the code challenge is S256 of the
   verifier.
+- Last way in: `__Host-eden-last` = `<method>.<account code>` (HttpOnly, Secure, SameSite=Lax, 400 days);
+  a first-time sign-in waiting on the new-account question: `__Host-eden-new` = a random key (HttpOnly,
+  SameSite=Strict, 10 minutes). See "Which account this browser was in".
 - Every `/api` POST from a browser must carry this site's Origin (worker.js `fromElsewhere`).
   The Apple callback is the one exception (Origin `https://appleid.apple.com` or `null`). The
   Google callback and the handoff are GETs. The Eden app sends no Origin, which is allowed.

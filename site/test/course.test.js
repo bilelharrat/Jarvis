@@ -402,7 +402,7 @@ test('a summary’s model by the material’s length: Luna for short, Flash for 
   const { summaryModel, SUMMARY_SHORT_CHARS } = await import('../src/eden/chat.js');
   const m = (id) => ({ id, name: id, efforts: [{ level: 'low' }, { level: 'medium' }, { level: 'high' }] });
   const cfg = { maxEffort: 'high', models: ['gpt-6-luna', 'gemini-3.8-flash', 'gemini-3.1-pro-preview'].map(m) };
-  assert.deepEqual(summaryModel(cfg, 9000).override, { model: 'gpt-6-luna', effort: 'low' });
+  assert.deepEqual(summaryModel(cfg, 9000).override, { model: 'gemini-3.8-flash', effort: 'low' }); // Luna retired 2026-10-13
   assert.deepEqual(summaryModel(cfg, SUMMARY_SHORT_CHARS + 1).override, { model: 'gemini-3.8-flash', effort: 'low' });
   assert.match(summaryModel(cfg, 9000).why, /reads all of it/);
   assert.equal(summaryModel({ maxEffort: 'high', models: [m('gemini-3.1-pro-preview')] }, 9000), null, 'no cheap model: the router decides');

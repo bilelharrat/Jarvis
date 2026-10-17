@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
+<title>Eden Code, mockup B: Clean Studio</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--text2:#55555b;--line:rgba(0,0,0,.06);--accent:#0a7ae0;--green:#16803a;--green-soft:rgba(48,209,88,.14);--wash1:rgba(216,232,250,.9);--wash2:rgba(251,244,236,.9);--glass:rgba(255,255,255,.62);--rim:rgba(255,255,255,.5);--win:#101826}
+@media(prefers-color-scheme:dark){:root{--bg:#161618;--card:#1e1e20;--text:#f5f5f7;--text2:#98989d;--line:rgba(255,255,255,.09);--accent:#3b9bff;--green:#5be07f;--green-soft:rgba(48,209,88,.16);--wash1:rgba(20,42,66,.55);--wash2:rgba(30,26,20,.5);--glass:rgba(32,32,34,.62);--rim:rgba(255,255,255,.16)}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);min-height:100vh;color:var(--text);font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+body:before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(900px 620px at 8% -10%,var(--wash1),transparent 60%),radial-gradient(900px 700px at 105% 115%,var(--wash2),transparent 60%)}
+a{color:var(--accent);text-decoration:none}
+.top{position:sticky;top:12px;z-index:2;margin:12px max(12px,calc((100% - 1064px)/2)) 0;padding:10px 12px 10px 14px;border-radius:20px;background:var(--glass);backdrop-filter:blur(30px) saturate(180%);box-shadow:inset 0 0 0 .5px var(--line),inset 0 1px 0 var(--rim),0 8px 30px rgba(0,0,0,.06);display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text)}.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.top nav{display:flex;align-items:center;gap:20px;font-size:14px;color:var(--text2)}.pill{padding:8px 16px;border-radius:999px;background:var(--text);color:var(--bg);font-weight:600;font-size:14px}
+main{max-width:1040px;margin:0 auto;padding:0 16px}
+.hero{padding:72px 0 40px;max-width:760px}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+h1{margin:10px 0 14px;font-size:clamp(34px,6vw,56px);line-height:1.05;letter-spacing:-.03em}
+.lede{margin:0;font-size:19px;color:var(--text2);max-width:620px}
+.cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+.btn{display:inline-flex;align-items:center;min-height:48px;padding:0 22px;border-radius:13px;font-weight:600;color:var(--text);background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}.btn.primary{background:var(--accent);color:#fff;box-shadow:none}
+.fine{font-size:13px;color:var(--text2);margin-top:14px}
+.demo{max-width:700px;margin:10px 0 64px;padding:22px;border-radius:22px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--line),0 30px 60px -30px rgba(0,0,0,.35)}
+.q{margin-left:auto;width:fit-content;max-width:85%;padding:10px 16px;border-radius:18px 18px 6px 18px;background:var(--accent);color:#fff;font-size:15px}
+.a{margin-top:16px;font-size:15px}.a p{margin:0 0 12px}
+.diff{border-radius:12px;overflow:hidden;font:12.5px/1.8 ui-monospace,Menlo,monospace;background:var(--win);color:#c9d6ee;margin:12px 0}.diff .h{padding:6px 12px;background:rgba(255,255,255,.07);color:#8fa3c7}.diff div{padding:0 12px}.diff .add{background:rgba(80,200,120,.14);color:#8ff0b0}.diff .del{background:rgba(240,120,120,.13);color:#f6a6a6}
+.verified{display:flex;align-items:center;gap:7px;padding:9px 12px;border-radius:12px;background:var(--green-soft);color:var(--green);font-weight:600;font-size:13.5px}
+.feature{margin:0 0 72px}.kicker{margin:0 0 6px;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+h2{margin:0 0 10px;font-size:clamp(26px,4vw,34px);letter-spacing:-.02em}.sub{margin:0 0 20px;color:var(--text2);max-width:620px}
+.fvid{margin:0;position:relative;border-radius:22px;overflow:hidden;aspect-ratio:16/9;background:linear-gradient(160deg,#16253f,#0c1424);box-shadow:inset 0 0 0 .5px var(--line),0 30px 60px -30px rgba(0,0,0,.45)}
+.fvid .win{position:absolute;inset:7% 8% 0;border-radius:14px 14px 0 0;background:var(--win);box-shadow:0 0 0 1px rgba(255,255,255,.1)}
+.fvid .win i{display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.2);margin:12px 0 0 12px}
+.fvid .win p{margin:14px 20px;font:13px/1.9 ui-monospace,Menlo,monospace;color:#9fb4d8}
+.fvid .win p b{color:#8ff0b0;font-weight:400}.fvid .win p s{color:#f6a6a6;text-decoration:none}
+.fvid .pb{position:absolute;right:16px;bottom:16px;width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.18);backdrop-filter:blur(12px);display:grid;place-items:center}.pb:after{content:"";margin-left:3px;border-left:12px solid #fff;border-top:8px solid transparent;border-bottom:8px solid transparent}
+.cols{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:56px}.col{padding:26px;border-radius:20px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--line)}
+ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}li{padding-left:26px;position:relative;color:var(--text2);font-size:15px}li b{color:var(--text)}li:before{content:"";position:absolute;left:0;top:5px;width:16px;height:16px;border-radius:50%;background:var(--accent);opacity:.9;transform:scale(.55)}
+.dl{padding:36px;border-radius:24px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--line);display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:56px}.dl h2{margin:0 0 4px}.dl p{margin:0;color:var(--text2)}
+.foot{display:flex;flex-wrap:wrap;gap:18px;padding:24px max(16px,calc((100% - 1040px)/2)) 40px;border-top:.5px solid var(--line);font-size:13px;color:var(--text2)}.foot a{color:var(--text2)}
+@media(max-width:720px){.cols{grid-template-columns:1fr}.top nav a:not(.pill){display:none}}
+</style></head><body>
+<header class="top"><a class="brand" href="#"><img src="eden-code.png" alt=""><span><b>Eden</b> Code</span></a><nav><a href="#films">Films</a><a href="#get">Download</a><a class="pill" href="#get">Get Eden Code</a></nav></header>
+<main>
+<section class="hero"><span class="eyebrow">For people who build</span><h1>A coding assistant that works in your project.</h1><p class="lede">Describe the change. Eden Code plans it, edits your files, runs your tests and shows every change for you to review.</p>
+<div class="cta"><a class="btn primary" href="#get">Download for Mac</a><a class="btn" href="#get">Download for Windows</a></div><p class="fine">Free to start. Mac and Windows.</p></section>
+<section class="demo" aria-label="An example"><div class="q">Add a rate limit to the signup route, 5 tries a minute.</div>
+<div class="a"><p>Done. I added the limiter to <b>/signup</b> and two tests. All 14 tests pass.</p>
+<div class="diff"><div class="h">server/routes/signup.js</div><div class="del">- app.post("/signup", handler)</div><div class="add">+ app.post("/signup", rateLimit({ max: 5 }), handler)</div></div>
+<div class="verified">✓ Tests passed · checkpoint saved, rewind any time</div></div></section>
+<div id="films">
+<section class="feature"><p class="kicker">Plan first</p><h2>Agree on the plan, then it builds.</h2><p class="sub">Plan mode lays out the steps before a file changes. Approve it, edit it, or send it back.</p><figure class="fvid"><div class="win"><i></i><i></i><i></i><p>Plan<br>1. Add rateLimit middleware<br>2. Wire into /signup<br><b>▸ Approve and build</b></p></div><span class="pb"></span></figure></section>
+<section class="feature"><p class="kicker">Review every change</p><h2>Hunk by hunk, with your comments.</h2><p class="sub">Comment on any line, open a pull request, and let Eden Code watch CI and fix what breaks.</p><figure class="fvid"><div class="win"><i></i><i></i><i></i><p><s>- const limit = 100</s><br><b>+ const limit = 5</b><br>💬 Make this a setting?</p></div><span class="pb"></span></figure></section>
+<section class="feature"><p class="kicker">Sees its own work</p><h2>Runs your app and looks at it.</h2><p class="sub">Starts your dev server and checks the page in its own browser after each change.</p><figure class="fvid"><div class="win"><i></i><i></i><i></i><p>localhost:3000 · sign-up<br><s>429 Too many requests</s> on the 6th try ✓</p></div><span class="pb"></span></figure></section>
+<section class="feature"><p class="kicker">Rewind anything</p><h2>Every step is a checkpoint.</h2><p class="sub">Rewind the code, the conversation, or both, in one click.</p><figure class="fvid"><div class="win"><i></i><i></i><i></i><p>● 4 Added tests<br>● 3 Wired route<br><b>○ 2 Plan approved ◂ rewind here</b></p></div><span class="pb"></span></figure></section>
+</div>
+<section class="cols"><div class="col"><h2>What it does</h2><ul><li><b>Edits and runs.</b> Files, commands and tests, in your project.</li><li><b>Git built in.</b> Branches, diffs, pull requests, CI.</li><li><b>Any model.</b> Eden picks per step, or you choose.</li></ul></div><div class="col"><h2>How it behaves</h2><ul><li><b>Asks before risky steps.</b> You set what it can do alone.</li><li><b>Runs on your machine.</b> Files stay local.</li><li><b>Eden Secretary included.</b> Say “let’s code” and it opens.</li></ul></div></section>
+<section class="dl" id="get"><div><h2>Get Eden Code</h2><p>Mac and Windows. The Windows app is a beta.</p></div><div class="cta" style="margin:0"><a class="btn primary" href="#">Download for Mac</a><a class="btn" href="#">Download for Windows</a></div></section>
+</main>
+<footer class="foot"><a href="#">Eden</a><a href="#">Eden Secretary</a><a href="#">Eden for Education</a><a href="#">Privacy</a><a href="#">Terms</a><span>© Harrat Global Holdings, Inc.</span></footer>
+</body></html>

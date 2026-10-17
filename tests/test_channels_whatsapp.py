@@ -1,6 +1,6 @@
 """WhatsApp as a chat channel (jarvis.channels.whatsapp), on the linked account's bridge
 (a fake here: nothing is sent anywhere): only the owner's note-to-self chat is a request,
-nothing anyone else writes is answered, JARVIS's own messages are never read back, cards are
+nothing anyone else writes is answered, Jarvis's own messages are never read back, cards are
 answered by a reply, /code works, and in a group only the owner's "Jarvis, …" counts."""
 
 import asyncio

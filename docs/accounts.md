@@ -113,8 +113,9 @@ Apple's grant so that deleting the account can revoke it (Apple asks for that).
 
 Device `kind`s: `iphone`, `ipad`, `watch`, `mac`, and `web`: a browser signed in to Eden at
 askeden.com (by Sign in with Apple or Google, the Eden app's handoff, or a code this account's
-iPhone or Mac approved). A `web` device ends after 30 days (`expires`), at most 5 are signed
-in at once (a sixth signs out the oldest), and it may use only hosted Eden: not the raw
+iPhone or Mac approved). A `web` device ends after 30 days (`expires`), at most 10 are signed
+in at once (an eleventh, or an app's sign-in with the account full, signs out the browser with
+the oldest `last_seen`, saved at most hourly), and it may use only hosted Eden: not the raw
 Anthropic proxy, the relay, the apps' sync, pushes, the voice, the plan, other devices, linking
 or deleting the account (403 `forbidden`). It may use Eden's own end-to-end encrypted sync
 (`eden/` items, "Eden sync" below) once it holds the key. A delegate's or team space member's

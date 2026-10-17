@@ -1,6 +1,6 @@
 """Loop detection (jarvis.loopguard, jarvis.features.loops, background.py): the same call
 three times in a row, or a cycle of two or three calls going round three times, stops
-JARVIS's turn politely (said, and offered another way) and a background task (its heads-up
+Jarvis's turn politely (said, and offered another way) and a background task (its heads-up
 says why), and puts a notice with a Stop button in an Eden Code session without stopping
 it. Progress (different calls, different arguments) never trips it. All on fake Claudes."""
 
@@ -98,7 +98,7 @@ def test_what_the_owner_hears_in_english_and_chinese():
     assert lang.has_cjk(lang.tr(loops_feature.CIRCLES, "zh", step="查看了角色"))
 
 
-# ── JARVIS's own turn ──
+# ── Jarvis's own turn ──
 
 
 def tool_use(n, name="mcp__memory__recall", args=None):

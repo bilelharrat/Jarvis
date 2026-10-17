@@ -26,6 +26,9 @@ import { state, ui } from './state.js';
 const tx = (s) => (globalThis.edenI18n ? globalThis.edenI18n.t(s) : s);
 
 export const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '');
+/** The Android app (its user agent adds "EdenAndroid/"): says "phone" where the iPhone app says "iPhone". */
+export const IN_ANDROID = IN_APP && /\bEdenAndroid\//.test(navigator.userAgent || '');
+const PHONE = IN_ANDROID ? 'phone' : 'iPhone';
 /** The model id of Apple's on-device model, as the page knows it. */
 export const ON_DEVICE = 'apple-on-device';
 
@@ -124,7 +127,7 @@ function listed() {
 }
 function onDeviceModel() {
   return {
-    id: ON_DEVICE, name: 'On this iPhone', provider: 'apple', tier: 'fast', efforts: [], defaultEffort: null,
+    id: ON_DEVICE, name: `On this ${PHONE}`, provider: IN_ANDROID ? 'google' : 'apple', tier: 'fast', efforts: [], defaultEffort: null,
     available: !!caps.ondevice.available, vision: false, onDevice: true,
     note: caps.ondevice.available ? 'Private · works offline' : caps.ondevice.words,
   };
@@ -135,7 +138,7 @@ function withOnDevice(models) {
 }
 /** Privacy mode's "local model" on the phone is this one (privacy.js reads meta.local). */
 function withPhoneLocal(meta) {
-  const phone = { available: true, onDevice: true, reason: null, models: [{ id: ON_DEVICE, serverName: 'this iPhone' }], servers: [] };
+  const phone = { available: true, onDevice: true, reason: null, models: [{ id: ON_DEVICE, serverName: `this ${PHONE}` }], servers: [] };
   if (caps.ondevice.available) return { ...meta, local: phone };
   return meta.local && meta.local.onDevice ? { ...meta, local: undefined } : meta;
 }
@@ -144,7 +147,7 @@ function offlineMeta() {
     providers: [], models: withOnDevice([]), levels: [],
     classifier: { mode: 'off', available: false, reason: 'Offline' },
     search: { available: false }, jarvis: { available: false, reason: 'Offline' }, code: { available: false, reason: 'Offline' },
-    scope: 'Offline · answers on this iPhone', offline: true,
+    scope: `Offline · answers on this ${PHONE}`, offline: true,
   });
 }
 const jsonResponse = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -189,14 +192,14 @@ function onDeviceTurn(body, signal, why) {
     signal.addEventListener('abort', () => { if (closed) return; stop(); try { ctrl.error(new DOMException('Aborted', 'AbortError')); } catch { /* closed */ } }, { once: true });
   }
   if (!caps.ondevice.available) {
-    queueMicrotask(() => t.push('error', { message: caps.ondevice.words || 'This iPhone can’t answer on its own right now.' }));
+    queueMicrotask(() => t.push('error', { message: caps.ondevice.words || `This ${PHONE} can’t answer on its own right now.` }));
   } else {
     toApp({
       kind: 'turn', id, why,
       request: { messages: body.messages || [], system: body.system || null, context: body.context || [], mode: body.mode || 'chat' },
     });
     // the app answers at once (a route event); silence means it never got the turn
-    quiet = setTimeout(() => t.push('error', { message: 'This iPhone didn’t answer. Try again.' }), 20000);
+    quiet = setTimeout(() => t.push('error', { message: `This ${PHONE} didn’t answer. Try again.` }), 20000);
   }
   return Promise.resolve(new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
 }

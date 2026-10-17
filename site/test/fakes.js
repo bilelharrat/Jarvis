@@ -31,8 +31,12 @@ export class Storage {
     if (keys.length > 128) throw new Error('at most 128 keys a delete');
     for (const k of keys) this.map.delete(k);
   }
-  async list({ prefix = '' } = {}) {
-    return new Map([...this.map].filter(([k]) => k.startsWith(prefix)).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => [k, structuredClone(v)]));
+  // As a Durable Object's storage.list: prefix, start (inclusive) or startAfter, end (exclusive), reverse, limit.
+  async list({ prefix = '', start, startAfter, end, reverse = false, limit } = {}) {
+    let rows = [...this.map].filter(([k]) => k.startsWith(prefix) && (start === undefined || k >= start) && (startAfter === undefined || k > startAfter) && (end === undefined || k < end)).sort(([a], [b]) => (a < b ? -1 : 1));
+    if (reverse) rows.reverse();
+    if (limit !== undefined) rows = rows.slice(0, limit);
+    return new Map(rows.map(([k, v]) => [k, structuredClone(v)]));
   }
   async deleteAll() {
     this.map.clear();

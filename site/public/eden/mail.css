@@ -125,8 +125,10 @@
 .mx-stats .st.hot b{color:var(--accent)}
 .mx-stats .st.urg b{color:#ff453a}
 .mx-stats .st.rep b{color:#ff9f0a}
-.mx-eden-acts{display:flex;gap:6px;flex-basis:100%}
-.mx-eden-acts .mx-chip{flex:1;justify-content:center}
+/* the chips wrap to a new row when the card is narrow (a narrow list column on a wide screen too, not only a phone), never past its edge */
+.mx-eden-acts{display:flex;flex-wrap:wrap;gap:6px;flex-basis:100%;min-width:0}
+.mx-eden-acts .mx-chip{flex:1 1 auto;justify-content:center;min-width:0;max-width:100%}
+.mx-eden-acts .mx-chip span{overflow:hidden;text-overflow:ellipsis}
 .mx-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--text);background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline),0 1px 2px rgba(0,0,0,.06);transition:transform .2s var(--spring),box-shadow .2s,background .2s,color .2s;white-space:nowrap}
 .mx-chip .ic{width:14px;height:14px;color:var(--accent)}
 .mx-chip:hover{transform:translateY(-1px);box-shadow:inset 0 0 0 .5px var(--hairline),0 4px 12px -4px rgba(0,0,0,.2)}
@@ -493,3 +495,8 @@
 .bf-next{margin:8px 0 0;font-size:13px}
 .bf-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .bf-scam{margin:8px 0 0;padding:7px 10px;border-radius:9px;font-size:12.5px;font-weight:600;background:color-mix(in srgb, var(--danger, #ff3b30) 12%, transparent);color:var(--danger, #d70015)}
+
+/* Eden Mail on its own (askeden.com/mail, util.js MAIL_ONLY): only Mail, the whole window */
+html.mail-only #app,html.mail-only .jc,html.mail-only #palette,html.mail-only #scrim{display:none!important}
+html.mail-only #spacePanel.mailp{left:0;top:0;right:0;bottom:0;width:auto;height:auto;max-height:none;transform:none;border-radius:0;padding-top:env(safe-area-inset-top)}
+html.mail-only #spacePanel.mailp #btnSpClose,html.mail-only #spacePanel.mailp #btnSpFull{display:none!important}

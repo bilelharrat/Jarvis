@@ -168,7 +168,7 @@ body.browser-slim .bd-ask-text { flex-basis: calc(100% - 80px); }
 /* ── Settings › Browser: clearing what sites keep ── */
 .bp-clear .btn { flex: none; min-height: 34px; font-size: 13px; }
 
-/* ── a private tab, and JARVIS's own signed-out profile ── */
+/* ── a private tab, and Eden Secretary's own signed-out profile ── */
 .bp-tab-mark { flex: none; display: inline-flex; align-items: center; color: rgb(var(--c-muted)); }
 .bd-tab.bp-private { color: rgb(var(--c-ink)); background: rgb(88 70 160 / 0.14); }
 .bd-tab.bp-private .bp-tab-mark { color: rgb(120 96 210); }

@@ -1,4 +1,4 @@
-// What Jarvis did (the actions feature, jarvis.features.actions): a History tab in the
+// What Eden Secretary did (the actions feature, jarvis.features.actions): a History tab in the
 // Activity drawer beside what's happening now. Every tool call of the last 90 days, searched,
 // newest first, a day under its own heading, older ones a page at a time. And an Undo button
 // under the reply after a turn that did something undoable. The words beside a call (an
@@ -55,8 +55,8 @@
     const field = el('input', 'act-search');
     field.id = 'act-search';
     field.type = 'search';
-    field.placeholder = 'Search what Jarvis did';
-    field.setAttribute('aria-label', 'Search what Jarvis did');
+    field.placeholder = 'Search what Eden Secretary did';
+    field.setAttribute('aria-label', 'Search what Eden Secretary did');
     field.addEventListener('input', () => {
       clearTimeout(S.timer);
       S.timer = setTimeout(() => ask(field.value.trim(), ''), 250);
@@ -139,7 +139,7 @@
     $('act-more').hidden = !S.more;
     const empty = $('act-empty');
     empty.hidden = S.items.length > 0;
-    empty.textContent = S.q ? 'Nothing Jarvis did matches.' : 'Nothing Jarvis did is kept yet.';
+    empty.textContent = S.q ? 'Nothing Eden Secretary did matches.' : 'Nothing Eden Secretary did is kept yet.';
   }
 
   // ── Undo, under the reply ──

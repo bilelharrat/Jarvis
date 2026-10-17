@@ -10,11 +10,15 @@ import { state, ui, path, nodeText, saveConversation } from './state.js';
 import * as T from './eden-tools.js';
 import { openCalendar } from './calendar-entry.js';
 import { openCompose } from './compose-entry.js';
-import { searchChats } from './recall-model.js';
+import { searchChats, asksBack } from './recall-model.js';
 import { chatVectors, queryVector } from './chat-vectors.js';
 import { privacyOn } from './privacy.js';
 import { locale } from './i18n.js';
 import { singleFlight, DEADLINE } from './resilience.js';
+import { IN_APP } from './native.js';
+// The essay writer (essay.js, loaded on demand): askeden.com in a browser only. In the iPhone/Android app nothing of it
+// runs: no system text, no essay blocks read, no cards, no essay module loaded.
+const ESSAYS = !IN_APP;
 
 /** The chats_search tool: words plus meaning over this browser's chats (never from a temporary or private chat). */
 async function searchPastChats({ query, from, to, limit }) {
@@ -109,11 +113,68 @@ export async function toolsSystemFor(user, base = '') {
   const c = await connection();
   const scope = scopeOf(user && user.context);
   const parts = [base || ''];
-  if (c.calendar || c.mail) parts.push(T.toolsSystem({ calendar: c.calendar, mail: c.mail, now: new Date(), zone: zone(), scope: scope === 'calendar' || scope === 'mail' ? scope : null }));
-  else parts.push(T.connectSystem());
-  parts.push(T.chatsSystem());
+  // Only when the message (or the last two of the person's) is about mail or the calendar, or @mail / @calendar points at it.
+  const recent = state.current ? path(state.current).filter((n) => n.role === 'user' && !n.toolResult && n !== user).slice(-2).map((n) => n.content) : [];
+  const want = user && user.toolResult ? { mail: true, calendar: true } : T.googleIntent(user && user.content, recent);
+  if (scope === 'mail') want.mail = true;
+  if (scope === 'calendar') want.calendar = true;
+  if (c.calendar || c.mail) {
+    const tools = T.toolsSystem({ calendar: c.calendar && want.calendar, mail: c.mail && want.mail, now: new Date(), zone: zone(), scope: scope === 'calendar' || scope === 'mail' ? scope : null });
+    if (tools) parts.push(tools);
+  } else if (want.mail || want.calendar) parts.push(T.connectSystem());
+  // Chat search only when the message points back at an earlier chat ("what did I ask before", "in my other chat").
+  // Offered on every message, a small model searched the person's chats for a plain question about the world
+  // ("Rains" at LMU, 2026-10-12) instead of answering or searching the web.
+  if (asksBack(user && user.content)) parts.push(T.chatsSystem());
+  // the essay writer: Eden knows it exists; an essay open beside the chat is seen and written in (essay.js; loaded only
+  // when one is on screen). The selection and blocks are kept as they are now (Eden's "selection" means what was selected
+  // when this was sent: T19c), the chat remembers its essay (reopened with it), and the send says how much this turn
+  // writes (routing: T18).
+  if (ESSAYS) {
+    parts.push(T.essaySystem());
+    if (essayOnScreen()) {
+      try {
+        const [E, M] = await Promise.all([import('./essay.js'), import('./essay-model.js')]);
+        const ctx = E.essayContext({ turn: user && user.id });
+        if (ctx) {
+          parts.push(T.essayOpenSystem(ctx));
+          const cv = convOf(user);
+          if (cv && cv.essayId !== ctx.id) cv.essayId = ctx.id;
+          if (user) ESSAY_TURN.set(user.id, { essayId: ctx.id, ...M.essayAsk(user.content, ctx) });
+        }
+      } catch { /* no essay */ }
+    }
+  }
   if (scope === 'memory') parts.push('The user pointed at @memory: save the durable facts they state and use what you remember.');
   return parts.filter(Boolean).join('\n\n');
+}
+
+const essayOnScreen = () => ESSAYS && Boolean(document.querySelector('#split.art-open') && document.querySelector('#artifact.essay-on'));
+const convOf = (user) => (user ? [state.current, ...(state.convs || [])].find((c) => c && c.nodes && c.nodes[user.id]) : null);
+/** What each essay turn asked for (essay-model.js essayAsk), by its message's id: the send's `essay`, then the length check. */
+const ESSAY_TURN = new Map();
+/**
+ * The send's `essay` field (T18a/b): { kind, words } on a turn about the open essay, or a feedback/rubric request
+ * from the essay writer's buttons; {} otherwise (always {} in the app). The server routes these as careful writing.
+ */
+export function essayBody(user) {
+  if (!ESSAYS) return {};
+  const a = user && ESSAY_TURN.get(user.id);
+  if (a) return { essay: { kind: a.kind, words: a.words } };
+  if (user && user.origin === 'essay') return { essay: { kind: /rubric/i.test(user.content || '') ? 'rubric' : 'feedback', words: 900 } };
+  return {};
+}
+/** The same for the estimate line while typing (router.js preview): the open essay's size rides along as context. */
+export async function essayPreviewBody(text) {
+  if (!essayOnScreen()) return {};
+  try {
+    const [E, M] = await Promise.all([import('./essay.js'), import('./essay-model.js')]);
+    const ctx = E.essayContext();
+    if (!ctx) return {};
+    const a = M.essayAsk(text, ctx);
+    const chars = ctx.blocks.reduce((n, b) => n + String(b.text).length, 0) + (ctx.rubric ? ctx.rubric.text.length : 0);
+    return { essay: { kind: a.kind, words: a.words }, context: { sessionTokens: Math.ceil(chars / 4) + 2500 } };
+  } catch { return {}; }
 }
 
 /* ---------- after a reply ---------- */
@@ -124,10 +185,13 @@ addEventListener('eden:turn-done', (e) => {
 });
 
 async function afterTurn(c, node) {
-  if (node.tools || node.error || node.finish !== 'stop') return;
+  // on the website, a reply cut off at the model's output limit still puts in the essay text it finished (T19a)
+  const cutOff = ESSAYS && node.finish === 'length';
+  if (node.tools || node.error || (node.finish !== 'stop' && !cutOff)) return;
   const user = path(c).filter((n) => n.role === 'user').at(-1);
   noteRaw(node); // the raw JSON of each call, before the blocks are stripped from the reply
-  const found = T.parseToolCalls(nodeText(node), { zone: zone() });
+  const found = T.parseToolCalls(nodeText(node), { zone: zone(), ...(ESSAYS ? { essays: true, cutOff } : {}) });
+  if (cutOff) { found.calls = found.calls.filter((r) => r.ok && r.call.kind === 'essay'); if (!found.calls.length) return; }
   const parts = node.parts || [];
   const text = parts.filter((p) => p.type === 'text');
   if (text.length && found.text !== nodeText(node)) { text[0].text = found.text; for (const p of text.slice(1)) p.text = ''; }
@@ -135,12 +199,35 @@ async function afterTurn(c, node) {
   const reads = [];
   // the raw call is kept (JSON) so a reloaded chat can rebuild its cards
   const rawCalls = [...nodeTextRaw(node)];
+  const essay = [];
   found.calls.forEach((r, i) => {
-    if (!r.ok) { list.push({ state: 'error', error: r.error, name: 'tool' }); return; }
-    const raw = rawCalls[i];
+    // an essay block that couldn't be read keeps its text, so Eden's words are never lost (T19b)
+    if (!r.ok) { list.push({ state: 'error', error: r.error, name: r.raw ? r.raw.name : 'tool', ...(r.raw ? { raw: r.raw } : {}), ...(r.rawText ? { rawText: r.rawText } : {}) }); return; }
+    const raw = 'raw' in r ? r.raw : rawCalls[i]; // the essay-aware reading (website) carries each call's raw form
     if (r.call.kind === 'read') reads.push({ raw, call: r.call });
+    else if (r.call.kind === 'essay') { const t = { raw, name: r.call.name, state: 'running', ...(r.partial ? { partial: true } : {}) }; list.push(t); essay.push([t, { ...r.call, ...(r.partial ? { partial: true } : {}) }]); }
     else list.push({ raw, name: r.call.name, state: 'pending' });
   });
+  // Eden's writing goes into the open essay at once, in order; each card can undo its change (and the reply's later ones)
+  if (essay.length) {
+    const E = await import('./essay.js');
+    const group = { cards: [], end: null };
+    let added = 0, total = 0;
+    for (const [t, call] of essay) {
+      const before = E.essaySnapshot();
+      const r = await applyEssay(c, node, t, call, { quiet: true, turn: user && user.id });
+      if (t.state === 'done' && before) { group.cards.push(t); UNDO.set(t, { group, before }); }
+      if (r && r.ok) { added += r.added || 0; total = r.total || total; }
+    }
+    group.end = E.essaySnapshot();
+    const ask = user && ESSAY_TURN.get(user.id);
+    const wrote = ask && ask.whole ? total : added;
+    // a length asked for and not met: said plainly, with a way to finish it (T19f)
+    if (ask && ask.min && added && wrote < Math.round(ask.min * 0.92) && !cutOff) list.push({ name: 'essay_note', note: 'short', state: 'pending', wrote, min: ask.min, max: ask.max, said: ask.said, whole: ask.whole });
+    if (cutOff && essay.some(([t]) => t.partial || t.state === 'done')) list.push({ name: 'essay_note', note: 'cutoff', state: 'pending' });
+  }
+  // asked for the essay writer and the model didn't offer it: the button anyway
+  if (ESSAYS && !cutOff && !list.some((t) => t.name === 'open_essay_writer') && user && T.wantsEssayWriter(user.content)) { const style = T.essayStyleIn(user.content); list.push({ raw: { name: 'open_essay_writer', args: style ? { style } : {} }, name: 'open_essay_writer', state: 'pending' }); }
   const cn = await connection();
   if (!list.some((t) => t.name === 'connect_google') && !cn.calendar && !cn.mail && user && T.wantsGoogle(user.content)) list.push({ raw: { name: 'connect_google', args: {} }, name: 'connect_google', state: 'pending' });
   if (list.length) { node.tools = list; saveConversation(c); ui.updateMessage(c, node); }
@@ -200,21 +287,36 @@ export function toolCards(c, node) {
 // rows whose value is the person's own (event title, place, notes, addresses, subject): never translated
 const OWN_ROWS = new Set(['What', 'Where', 'Guests', 'Notes', 'Event', 'To', 'Cc', 'Subject', 'Title', 'Location']);
 function card(c, node, t) {
-  if (t.state === 'error' && !t.raw) return el('div', 'notice warn', `Eden couldn’t use a tool: ${t.error}`);
-  const v = T.validateCall(t.raw || {}, { zone: zone() });
+  if (ESSAYS && t.name === 'essay_note') return essayNote(c, node, t);
+  if (t.state === 'error' && !t.raw) {
+    if (!ESSAYS || !t.rawText) return el('div', 'notice warn', `Eden couldn’t use a tool: ${t.error}`);
+    // a block that couldn't be read: its text, kept, with a way into the essay (T19b)
+    const words = t.rawText.replace(/<[^>]+>/g, ' ').replace(/\{\s*"name"[\s\S]*?"text"\s*:\s*"/, '').replace(/"\s*(,\s*"where"[\s\S]*)?\}+\s*$/, '').replace(/\\n/g, '\n').trim();
+    return el('div', { class: 'toolcard error', role: 'group', 'aria-label': 'Eden’s text' },
+      el('div', 'tc-title', ico('edit', 15), 'Not put in your essay'),
+      el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', `Eden’s change came back garbled (${t.error}), so nothing changed in your essay. Its text is below.`)),
+      el('details', 'tc-raw', el('summary', '', 'Eden’s text'), el('div', { class: 'tc-raw-t', 'data-no-i18n': '' }, words.slice(0, 20_000))),
+      el('div', 'tc-acts',
+        el('button', { type: 'button', class: 'cap primary', onclick: () => applyEssay(c, node, t, { name: 'essay_write', kind: 'essay', args: { text: words, where: 'end' } }) }, 'Put it at the end of the essay'),
+        el('button', { type: 'button', class: 'cap', onclick: () => navigator.clipboard.writeText(words).then(() => toast('Copied'), () => toast('Couldn’t copy')) }, 'Copy')));
+  }
+  const v = T.validateCall(t.raw || {}, { zone: zone(), essays: ESSAYS });
   if (!v.ok) return el('div', 'notice warn', `Eden couldn’t use a tool: ${v.error}`);
   const call = v.call;
   const spec = T.cardFor(call, { zone: zone(), locale: locale() });
   if (!spec) return null;
   const root = el('div', { class: `toolcard ${t.state}${spec.danger ? ' danger' : ''}`, role: 'group', 'aria-label': spec.title, 'data-tool': call.name });
-  root.append(el('div', 'tc-title', ico(call.name.startsWith('mail') ? 'mail' : call.name === 'connect_google' ? 'link' : 'cal', 15), spec.title));
+  root.append(el('div', 'tc-title', ico(call.name.startsWith('mail') ? 'mail' : call.name === 'connect_google' ? 'link' : call.name === 'open_essay_writer' || call.kind === 'essay' ? 'edit' : 'cal', 15), spec.title));
   if (spec.rows.length) root.append(el('dl', 'tc-rows', ...spec.rows.flatMap(([k, val]) => [el('dt', '', k), el('dd', OWN_ROWS.has(k) ? { 'data-no-i18n': '' } : '', String(val))])));
   if (spec.notice && t.state === 'pending') root.append(el('div', { class: `tc-notice${call.draft && call.draft.attendees.length ? ' guests' : ''}` }, spec.notice));
-  if (t.state === 'done') root.append(el('div', 'tc-done', ico('check', 14), t.result || 'Done.'));
-  else if (t.state === 'cancelled') root.append(el('div', 'tc-done muted', 'Cancelled. Nothing was changed.'));
+  if (t.state === 'done') {
+    root.append(el('div', 'tc-done', ico('check', 14), t.result || 'Done.'));
+    for (const n of t.notes || []) root.append(el('div', 'tc-notice', n));
+    if (UNDO.has(t)) root.append(el('div', 'tc-acts', el('button', { type: 'button', class: 'cap', onclick: () => undoEssay(c, node, t) }, 'Undo'))); // an essay change made in this page
+  } else if (t.state === 'cancelled') root.append(el('div', 'tc-done muted', call.kind === 'essay' ? 'Undone: the essay is back as it was.' : 'Cancelled. Nothing was changed.'));
   else if (t.state === 'running') root.append(el('div', 'tc-done muted', 'Working…'));
   else {
-    if (t.state === 'error') root.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', t.error), t.reconnect ? el('button', { type: 'button', class: 'cap', onclick: () => connect('calendar') }, 'Connect Google') : ''));
+    if (t.state === 'error') root.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', call.kind === 'essay' ? `Not put in your essay: ${t.error}` : t.error), t.reconnect ? el('button', { type: 'button', class: 'cap', onclick: () => connect('calendar') }, 'Connect Google') : ''));
     const acts = el('div', 'tc-acts');
     const btn = (label, cls, fn) => acts.append(el('button', { type: 'button', class: `cap ${cls}`, onclick: fn }, label));
     for (const a of spec.actions) {
@@ -222,12 +324,73 @@ function card(c, node, t) {
       if (a === 'edit') btn('Edit', '', () => editCall(call));
       if (a === 'open') btn(spec.approve, 'primary', () => { openCompose({ to: call.args.to, cc: call.args.cc, subject: call.args.subject, body: call.args.body }); t.state = 'done'; t.result = 'Opened in Mail. Review it and press Send there.'; saveConversation(c); ui.updateMessage(c, node); });
       if (a === 'connect') btn(spec.approve, 'primary', () => connect(/mail/i.test(nodeText(node)) ? 'gmail' : 'calendar'));
+      if (a === 'retry') btn('Try again', 'primary', () => retryEssay(c, node, t, call));
+      if (a === 'essay') btn(spec.approve, 'primary', () => import('./essay.js').then((m) => (call.args.style ? m.newEssayIn(call.args.style) : m.openEssays())).then(() => { t.state = 'done'; t.result = 'Opened beside the chat.'; saveConversation(c); ui.updateMessage(c, node); }).catch((err) => toast(`Couldn’t open the essay writer: ${err.message}`)));
       if (a === 'cancel') btn('Cancel', '', () => { t.state = 'cancelled'; saveConversation(c); ui.updateMessage(c, node); });
     }
     root.append(acts);
   }
   return root;
 }
+/** One of Eden's essay changes, applied to the open essay (essay.js); its card then offers Undo. */
+const UNDO = new WeakMap();
+async function applyEssay(c, node, t, call, { quiet = false, turn = null } = {}) {
+  let r;
+  try { r = await (await import('./essay.js')).applyEssayCall(call, { turn: turn || turnOf(c, node) }); } catch (err) { r = { ok: false, error: err.message }; }
+  if (r.ok) { t.state = 'done'; t.result = r.result; t.notes = r.notes && r.notes.length ? r.notes : undefined; t.change = r.change || null; delete t.error; } else { t.state = 'error'; t.error = r.error; }
+  if (!quiet) { saveConversation(c); ui.updateMessage(c, node); }
+  return r;
+}
+const turnOf = (c, node) => (c && node && node.parent && c.nodes && c.nodes[node.parent] ? node.parent : null);
+/** Try again on an essay card: applied as its own step, with its own Undo (T19c). */
+async function retryEssay(c, node, t, call) {
+  const E = await import('./essay.js');
+  const before = E.essaySnapshot();
+  await applyEssay(c, node, t, call, { quiet: true });
+  if (t.state === 'done' && before) { const group = { cards: [t], end: E.essaySnapshot() }; UNDO.set(t, { group, before }); }
+  saveConversation(c); ui.updateMessage(c, node);
+}
+/**
+ * Undo on an essay card: the essay goes back to before that change (the reply's later changes go too). Untouched since,
+ * it's put back exactly; after the person has typed elsewhere, only Eden's changes are taken out (T20f).
+ */
+async function undoEssay(c, node, t) {
+  const u = UNDO.get(t);
+  const E = await import('./essay.js');
+  const now = E.essaySnapshot();
+  if (!now || !u.group.end || now.id !== u.group.end.id) { toast('Open that essay to undo this.'); return; }
+  const k = u.group.cards.indexOf(t);
+  const cards = u.group.cards.slice(k);
+  let why;
+  if (now.doc === u.group.end.doc) {
+    // the title goes back only if this reply set it and it hasn't changed since (a title made afterwards stays)
+    why = E.essayRestore({ ...u.before, title: now.title === u.group.end.title ? u.before.title : now.title });
+  } else {
+    why = E.essayUndoChanges(cards.map((x) => x.change).filter(Boolean));
+    if (!why && cards.some((x) => x.name === 'essay_title') && now.title === u.group.end.title) E.essayRestore({ ...E.essaySnapshot(), title: u.before.title });
+  }
+  if (why) { toast(why); return; }
+  for (const x of u.group.cards.splice(k)) { UNDO.delete(x); x.state = 'cancelled'; }
+  u.group.end = E.essaySnapshot();
+  saveConversation(c); ui.updateMessage(c, node);
+}
+/** The note under an essay reply: a length asked for and not met, or a reply cut off at its limit (T19f, T19a). */
+function essayNote(c, node, t) {
+  const send = async (msg) => { t.state = 'done'; saveConversation(c); ui.updateMessage(c, node); const { sendMessage } = await import('./chat.js'); sendMessage(msg); };
+  if (t.note === 'cutoff') {
+    return el('div', { class: 'toolcard', role: 'group', 'aria-label': 'Cut off' },
+      el('div', 'tc-title', ico('edit', 15), 'Eden stopped at its length limit'),
+      el('div', 'tc-notice', 'What it finished is in your essay. It can carry on from there.'),
+      t.state === 'pending' ? el('div', 'tc-acts', el('button', { type: 'button', class: 'cap primary', onclick: () => send('Continue writing the essay from exactly where you stopped (the text so far is in the essay).') }, 'Continue')) : null);
+  }
+  const range = t.said || (t.max && t.max !== t.min ? `${t.min.toLocaleString()}–${t.max.toLocaleString()}` : t.min.toLocaleString());
+  const more = Math.max(50, Math.round(((t.min + (t.max || t.min)) / 2 - t.wrote) / 10) * 10);
+  return el('div', { class: 'toolcard', role: 'group', 'aria-label': 'Length' },
+    el('div', 'tc-title', ico('edit', 15), 'Shorter than you asked'),
+    el('div', 'tc-notice', `${t.whole ? 'Your essay is' : 'Eden wrote'} ${t.wrote.toLocaleString()} words; you asked for ${range}.`),
+    t.state === 'pending' ? el('div', 'tc-acts', el('button', { type: 'button', class: 'cap primary', onclick: () => send(`Add about ${more} more words to the essay where they help the argument most (more evidence and analysis, not filler), keeping its voice.`) }, `Write about ${more} more`)) : null);
+}
+
 /** "Edit": the calendar's own event editor, prefilled; saving there is its own review step. */
 function editCall(call) {
   if (call.name === 'calendar_create') {
@@ -246,5 +409,9 @@ const CSS = `.toolcard{margin:10px 0 0;padding:12px 14px;border-radius:var(--r-m
 .toolcard .tc-acts{display:flex;gap:8px;flex-wrap:wrap}
 .toolcard .tc-done{display:flex;align-items:center;gap:6px}.toolcard .tc-done.muted{color:var(--text3,#888)}
 .toolcard.done{box-shadow:inset 0 0 0 .5px rgba(48,209,88,.5)}.toolcard.cancelled{opacity:.7}
-.toolcard .cap.danger{color:var(--danger,#ff453a)}`;
+.toolcard .cap.danger{color:var(--danger,#ff453a)}
+.tc-writing{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;color:var(--accent,#0a84ff)}
+.toolcard.error{box-shadow:inset 0 0 0 .5px var(--danger,#ff453a)}
+.toolcard .tc-raw{margin:8px 0}.toolcard .tc-raw summary{cursor:pointer;color:var(--text2,#666)}
+.toolcard .tc-raw-t{white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:6px;padding:8px;border-radius:8px;background:var(--surface,rgba(127,127,127,.06));font-size:12.5px}`;
 if (typeof document !== 'undefined' && !document.getElementById('tools-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'tools-css', textContent: CSS }));

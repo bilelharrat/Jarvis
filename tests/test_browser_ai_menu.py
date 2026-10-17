@@ -278,11 +278,11 @@ async def test_no_tabs_or_no_browser_says_so(settings, quiet_speaker, isolated):
     assert result["is_error"] and "No web pages" in body(result)
 
     async def gone(action, args=None):
-        return {"error": "The built-in browser is only in the J.A.R.V.I.S. app window."}
+        return {"error": "The built-in browser is only in the Jarvis app window."}
 
     hub._browser_raw = gone
     result = await desk.tabs.read()
-    assert result["is_error"] and "only in the J.A.R.V.I.S. app" in body(result)
+    assert result["is_error"] and "only in the Jarvis app" in body(result)
 
 
 # ── Translate, beside Ask Jarvis: over the page, on the utility model, no turn ──

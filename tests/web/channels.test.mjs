@@ -33,7 +33,7 @@ function sentences() {
 test('every sentence Settings › Chats shows has its Chinese', () => {
   const all = sentences();
   assert.ok(all.length > 40, `only ${all.length} found`);
-  const missing = all.filter((s) => !chinese(s));
+  const missing = all.filter((s) => s !== 'Eden Secretary' && !chinese(s)); // the product's name stays as it is
   assert.deepEqual(missing, []);
 });
 

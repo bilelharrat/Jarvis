@@ -2,7 +2,7 @@
 // and https://askeden.com/windows/latest.json says each one's version, size and file name
 // ({ jarvis: {version, size, file}, daredevil: {…}, … }). This checks it (a while after launch,
 // then once a day, and when the owner asks), and when this app's own flavor (flavor.js:
-// J.A.R.V.I.S. or J.A.R.V.I.S. Daredevil) has a newer version it tells the owner, and waits.
+// Eden Secretary or Eden Daredevil) has a newer version it tells the owner, and waits.
 // Only after their yes (the window's Install now) it downloads that installer into Downloads,
 // checks it is the size latest.json said, runs it silently (it closes the app, replaces it and
 // opens it again: electron-builder's NSIS /S with --force-run) and quits so nothing holds the files.
@@ -27,7 +27,7 @@ const CHECK_EVERY = 24 * 60 * 60 * 1000;
 
 const WORDS = {
   offline: 'Couldn’t reach askeden.com to check for updates.',
-  latest: 'The update list on askeden.com isn’t one J.A.R.V.I.S. can read.',
+  latest: 'The update list on askeden.com isn’t one Eden Secretary can read.',
   download: 'The update couldn’t be downloaded.',
   size: 'The download wasn’t the size it should be, so it wasn’t run.',
   run: 'The installer couldn’t be started.',
@@ -60,7 +60,7 @@ function allowedUrl(url) {
 }
 
 function createWinUpdater({
-  version, flavor, name = 'J.A.R.V.I.S.', fetchText, download, runInstaller, downloadsDir,
+  version, flavor, name = 'Eden Secretary', fetchText, download, runInstaller, downloadsDir,
   onChange = () => {}, log = () => {}, tell = () => {}, quit = () => {},
 }) {
   const key = flavor === 'daredevil' ? 'daredevil' : 'jarvis';

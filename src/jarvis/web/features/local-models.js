@@ -1,6 +1,6 @@
 // Settings › Brain, more rows (the backend is jarvis.features.local_models): the utility model
-// Jarvis uses for its own quick jobs, model servers found running on this Mac (Ollama, LM
-// Studio) added in one click, and offline mode: Jarvis thinking with a model on this Mac all
+// Eden Secretary uses for its own quick jobs, model servers found running on this Mac (Ollama, LM
+// Studio) added in one click, and offline mode: Eden Secretary thinking with a model on this Mac all
 // the time. Model names come from the owner's own lists and servers: shown as data.
 (() => {
   const F = window.jarvisFeatures;
@@ -42,7 +42,7 @@
     const utility = el('label', 'row');
     utility.htmlFor = 'utility-model';
     const words = el('span');
-    words.append(el('strong', '', 'Utility model'), el('small', '', 'For Jarvis’s own quick jobs in the background, like deciding whether a long task is worth keeping as a skill. Haiku costs least.'));
+    words.append(el('strong', '', 'Utility model'), el('small', '', 'For Eden Secretary’s own quick jobs in the background, like deciding whether a long task is worth keeping as a skill. Haiku costs least.'));
     const select = el('select');
     select.id = 'utility-model';
     select.addEventListener('change', () => send({ type: 'feature_prefs', changes: { utility_model: select.value } }));
@@ -50,7 +50,7 @@
 
     const local = el('div', 'row stack lm-local');
     const localWords = el('span');
-    localWords.append(el('strong', '', 'Models on this Mac'), el('small', '', 'Ollama or LM Studio, found running here. Added, a model can be the fallback, or run Jarvis all the time with nothing sent to Claude.'));
+    localWords.append(el('strong', '', 'Models on this Mac'), el('small', '', 'Ollama or LM Studio, found running here. Added, a model can be the fallback, or run Eden Secretary all the time with nothing sent to Claude.'));
     const list = el('div', 'lm-servers');
     list.id = 'lm-servers';
     local.append(localWords, list);
@@ -123,7 +123,7 @@
         text.append(names);
         line.append(text);
         if (s.added) line.append(el('span', 'lm-added', 'Added'));
-        else if (s.count) line.append(button('Add to Jarvis', () => { looking = true; renderServers(); send({ type: 'local_models_add', port: s.port }); }, 'btn primary'));
+        else if (s.count) line.append(button('Add to Eden Secretary', () => { looking = true; renderServers(); send({ type: 'local_models_add', port: s.port }); }, 'btn primary'));
         else line.append(el('span', 'lm-added', 'No models yet'));
         parts.push(line);
       }
@@ -148,9 +148,9 @@
     const note = F.$('lm-offline-note');
     note.replaceChildren();
     if (on) {
-      note.append(document.createTextNode(F.t('Jarvis thinks with this model on this Mac instead of Claude:') + ' '), mine(el('b', '', current.name || current.model)), document.createTextNode('. ' + F.t('Web searches and connected accounts still use the internet.')));
+      note.append(document.createTextNode(F.t('Eden Secretary thinks with this model on this Mac instead of Claude:') + ' '), mine(el('b', '', current.name || current.model)), document.createTextNode('. ' + F.t('Web searches and connected accounts still use the internet.')));
     } else {
-      note.textContent = F.t('Run Jarvis on a model on this Mac all the time, instead of Claude. It’s slower, and web searches and connected accounts still use the internet.');
+      note.textContent = F.t('Run Eden Secretary on a model on this Mac all the time, instead of Claude. It’s slower, and web searches and connected accounts still use the internet.');
     }
   }
 

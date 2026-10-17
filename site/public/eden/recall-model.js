@@ -27,7 +27,7 @@ export function findRecall(convs, prompt, { currentId = null, max = 4, isPrivate
   const back = asksBack(prompt);
   const pool = (convs || []).filter((c) => c && c.id !== currentId && !c.temp && !c.course && !isPrivate(c) && c.nodes);
   if (!pool.length || (!q.size && !back)) return [];
-  const docs = pool.map((c) => ({ c, msgs: Object.values(c.nodes).filter((n) => n.role === 'user' || n.role === 'assistant').map((n) => ({ n, w: wordsOf(text(n)), t: text(n) })).filter((m) => m.t.trim()) }));
+  const docs = pool.map((c) => ({ c, msgs: Object.values(c.nodes).filter((n) => (n.role === 'user' && !n.toolResult) || n.role === 'assistant').map((n) => ({ n, w: wordsOf(text(n)), t: text(n) })).filter((m) => m.t.trim()) }));
   const df = new Map();
   for (const d of docs) { const seen = new Set(); for (const m of d.msgs) for (const w of m.w) if (!seen.has(w)) { seen.add(w); df.set(w, (df.get(w) || 0) + 1); } }
   const idf = (w) => Math.log(1 + docs.length / (df.get(w) || 1));
@@ -48,7 +48,7 @@ export function findRecall(convs, prompt, { currentId = null, max = 4, isPrivate
     const minimum = q.size >= 3 ? 2.2 : 1.2;
     if (total >= minimum || (back && total > 0)) {
       hits.sort((a, b) => b.s - a.s);
-      scored.push({ total, c: d.c, snippets: hits.slice(0, 3).map((h) => `${h.m.n.role === 'user' ? 'User' : 'Eden'}: ${h.m.t.replace(/\s+/g, ' ').trim().slice(0, 360)}`) });
+      scored.push({ total, c: d.c, snippets: hits.slice(0, 3).map((h) => `${h.m.n.role === 'user' ? 'You said' : 'Eden replied'}: ${h.m.t.replace(/\s+/g, ' ').trim().slice(0, 360)}`) });
     }
   }
   scored.sort((a, b) => b.total - a.total);
@@ -56,7 +56,7 @@ export function findRecall(convs, prompt, { currentId = null, max = 4, isPrivate
   if (back && !out.length) { // "what did I ask you about ...": nothing matched, so the newest chats' openings
     out = pool.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0)).slice(0, max).map((c) => {
       const first = Object.values(c.nodes).find((n) => n.role === 'user' && (n.content || '').trim());
-      return { total: 0, c, snippets: first ? [`User: ${first.content.replace(/\s+/g, ' ').trim().slice(0, 240)}`] : [] };
+      return { total: 0, c, snippets: first ? [`You said: ${first.content.replace(/\s+/g, ' ').trim().slice(0, 240)}`] : [] };
     }).filter((x) => x.snippets.length);
   }
   return out.map((x) => ({ title: x.c.title || 'Untitled chat', when: x.c.updated || x.c.created || 0, snippets: x.snippets }));
@@ -96,7 +96,7 @@ export function searchChats(convs, query, { from = 0, to = Infinity, limit = 5, 
     let snippets = w ? w.f.snippets : [];
     if (!snippets.length) {
       const first = Object.values(c.nodes).find((n) => n.role === 'user' && (n.content || '').trim());
-      snippets = first ? [`User: ${first.content.replace(/\s+/g, ' ').trim().slice(0, 300)}`] : [];
+      snippets = first ? [`You said: ${first.content.replace(/\s+/g, ' ').trim().slice(0, 300)}`] : [];
     }
     out.push({ score, id: c.id, title: c.title || 'Untitled chat', when: c.updated || c.created || 0, snippets });
   }

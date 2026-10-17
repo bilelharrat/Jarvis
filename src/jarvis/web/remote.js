@@ -1,7 +1,7 @@
 'use strict';
 
-// The phone companion: talk to J.A.R.V.I.S. on the Mac from anywhere on the same network
-// (or tailnet). Voice in is the keyboard's dictation mic; voice out is Jarvis's own voice,
+// The phone companion: talk to Eden Secretary on the Mac from anywhere on the same network
+// (or tailnet). Voice in is the keyboard's dictation mic; voice out is Eden Secretary's own voice,
 // fetched from the Mac and played here.
 
 const $ = (id) => document.getElementById(id);

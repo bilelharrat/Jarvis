@@ -1,6 +1,6 @@
 // Eden Code settings › GitHub (features/code_pr.py and code_issues.py): whether new pull
 // requests fix their failing checks by themselves, and the repositories whose issues,
-// labelled for Jarvis, start a session without the owner. Opting one in sends the scope to
+// labelled for Eden Secretary, start a session without the owner. Opting one in sends the scope to
 // the backend, which puts it on a card first.
 (() => {
   const F = window.jarvisFeatures;
@@ -122,7 +122,7 @@
     const parts = [
       row('Fix failing checks by themselves', 'New pull requests send their failing checks’ logs to the session, at most 3 times. Each has its own switch in its pane.',
         sw('Fix failing checks by themselves', autofix, (on) => send({ type: 'feature_prefs', changes: { code_pr_autofix: on } }))),
-      row('Issues for Jarvis', 'An issue labelled for Jarvis in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.'),
+      row('Issues for Eden Secretary', 'An issue labelled for Eden Secretary in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.'),
     ];
     group.replaceChildren(...parts);
     if (!state.connected) {

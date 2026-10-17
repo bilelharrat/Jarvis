@@ -19,7 +19,7 @@ struct RoutinesView: View {
                     ContentUnavailableView {
                         Label("No routines yet", systemImage: "bolt.slash")
                     } description: {
-                        Text("Ask Jarvis for one, like “brief me every weekday at 7”. Routines show up here, to run or change.")
+                        Text("Ask Eden Secretary for one, like “brief me every weekday at 7”. Routines show up here, to run or change.")
                     }
                 } else {
                     list(routines)
@@ -115,7 +115,7 @@ struct RoutinesView: View {
                     }
                 }
             } footer: {
-                ListFooter("Runs on your Mac, right away. Update Jarvis on your Mac to change routines from here.")
+                ListFooter("Runs on your Mac, right away. Update Eden Secretary on your Mac to change routines from here.")
             }
             .glassRow()
         }
@@ -215,7 +215,7 @@ private struct RoutineEditor: View {
                     ListHeader("When")
                 } footer: {
                     if !edit.editsTime {
-                        ListFooter("Change when it runs in Jarvis on your Mac.")
+                        ListFooter("Change when it runs in Eden Secretary on your Mac.")
                     } else if !routine.scheduleText.isEmpty {
                         ListFooter("Now: \(routine.scheduleText).")
                     }

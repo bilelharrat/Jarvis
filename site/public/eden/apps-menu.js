@@ -1,10 +1,11 @@
 // The Eden apps, from Eden's mark in the sidebar's foot: a click (or Enter/Space) opens a small
 // card above it with the other apps in the portfolio and where to get them. Eden Code (the coding
-// app, Eden's outline mark) comes first, then J.A.R.V.I.S. (the voice assistant, its blue orb).
+// app, Eden's outline mark) comes first, then Eden Secretary (the voice assistant, its blue orb).
 // Eden for Education is its own app: askeden.com/edu (edu-app.js), and Eden Edu on the iPhone.
 // Eden Messenger is left out for now. The downloads are askeden.com's, from Eden on the Mac too.
 import { el } from './util.js';
 import { state } from './state.js';
+import { IN_APP } from './native.js';
 
 const SITE = 'https://askeden.com';
 const APPS = [
@@ -64,6 +65,9 @@ function open() {
 }
 
 export function initAppsMenu() {
+  // Not in the iPhone app: its entries are Mac downloads (a .dmg file), which App Review doesn't want an iPhone app pointing
+  // at, and which crashed the app when tapped. The orb stays a plain mark there.
+  if (IN_APP) return;
   mark = document.querySelector('#sidebar .side-foot .orb');
   if (!mark || mark.dataset.apps) return;
   mark.dataset.apps = '1';

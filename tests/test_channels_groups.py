@@ -1,4 +1,4 @@
-"""Group chats and progress (jarvis.channels): in a group JARVIS answers only the owner, and
+"""Group chats and progress (jarvis.channels): in a group Jarvis answers only the owner, and
 only when they mention it or reply to it; other members' words ride along as quoted data;
 each group's setting decides the tools (read-only by default, never a send or a spend);
 cards from a group's request go to the owner's direct chat; and a long request shows one

@@ -121,7 +121,7 @@ def test_words_and_cjk():
         ("佳维斯，放点音乐", "放点音乐"),
         ("賈維斯，打開瀏覽器", "打开浏览器"),  # Traditional, as Whisper sometimes writes it
         ("Jarvis，打开浏览器", "打开浏览器"),
-        ("JARVIS 打开浏览器", "打开浏览器"),
+        ("Jarvis 打开浏览器", "打开浏览器"),
         ("嘿 Travis，打开浏览器", "打开浏览器"),  # a greeted mishearing, as in English
         ("贾维斯贾维斯，打开浏览器", "打开浏览器"),
         ("贾维斯，打开贾维斯代码", "打开贾维斯代码"),
@@ -194,9 +194,9 @@ def test_english_is_untouched_in_both_modes(said):
 def test_speakable_safely_never_says_the_wake_word():
     assert lang.speakable_safely_zh("贾维斯代码在项目里完成了") == "编程助手在项目里完成了"
     assert lang.speakable_safely_zh("要启动 Jarvis Code 吗？") == "要启动 编程助手 吗？"
-    # Eden Code (Jarvis Code's name now) has no wake word in it: said as it is
+    # Eden Code (Eden Code's name now) has no wake word in it: said as it is
     assert lang.speakable_safely_zh("要启动 Eden Code 吗？") == "要启动 Eden Code 吗？"
-    assert lang.speakable_safely_zh("我是J.A.R.V.I.S.，你好") == "我是助手，你好"
+    assert lang.speakable_safely_zh("我是Jarvis，你好") == "我是助手，你好"
     assert lang.speakable_safely_zh("嘉维斯说好") == "助手说好"
     assert lang.speakable_safely_zh("Jarvis says hi") == "助手 says hi"
     for text in ("贾维斯", "加维斯来了", "賈維斯", "Hey Jarvis", "Jervis 你好"):
@@ -1395,7 +1395,7 @@ def test_weather_line_and_speech():
     assert lang.weather_line_zh({"error": "x"}) == ""
 
 
-# ── what JARVIS says itself ──
+# ── what Jarvis says itself ──
 
 _SLOT = re.compile(r"\{(\w+)\}")
 
@@ -1512,7 +1512,7 @@ def test_translate_cards_paragraph_by_paragraph():
 
 
 def test_the_users_own_words_are_never_translated():
-    # A message that happens to read like one of JARVIS's own lines still goes out as
+    # A message that happens to read like one of Jarvis's own lines still goes out as
     # written: the card and the read-back show exactly what will be sent.
     assert lang.translate("Here's your message to Ben. Done. Do you want this message sent?") == (
         "这是你发给Ben的消息：Done. 要发送这条消息吗？"
@@ -1568,7 +1568,7 @@ def test_tr_formats_templates():
         ("The shortcut Here didn't work: timeout", "快捷指令Here没有成功：timeout"),
         ("Settings starts in 5 minutes.", "Settings还有5分钟开始。"),
         ("Back in Done.. What next?", "回到了Done.。接下来做什么？"),
-        # JARVIS's own stand-ins in a slot are translated.
+        # Jarvis's own stand-ins in a slot are translated.
         ("Already taking notes for Meeting.", "已经在为会议做记录了。"),
         ("Start Eden Code in this assistant's own project?",
          "要在 这个助手自己的项目 中启动 Eden Code 吗？"),

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Jarvis's reactor: a glass sphere of moving light (a mesh of reactor blues under a
+/// Eden Secretary's reactor: a glass sphere of moving light (a mesh of reactor blues under a
 /// highlight) inside a fine-ticked bezel, like a chronograph's, with Stark gold at the
 /// quarters. At rest it barely breathes; listening, it swells with your voice and a comet of
 /// light runs round the bezel; thinking, the light turns faster; speaking, it pulses.

@@ -60,7 +60,7 @@ export class Link {
     }
   }
 
-  async start(existing, { name, kind, public_key, app_version, poll }) {
+  async start(existing, { name, kind, public_key, app_version, poll, edition }) {
     if (existing && existing.expires > this.now()) throw new ApiError(409, 'conflict', 'That code is taken.');
     const expires = this.now() + LINK_SECONDS * 1000;
     await this.storage.put('link', {
@@ -68,6 +68,7 @@ export class Link {
       kind,
       public_key,
       app_version,
+      edition: edition === 'daredevil' ? 'daredevil' : '',
       poll_hash: await sha256Hex(poll),
       expires,
       status: 'waiting',
@@ -84,6 +85,7 @@ export class Link {
       kind: link.kind,
       public_key: link.public_key,
       app_version: link.app_version || '',
+      edition: link.edition || '',
       expires_in: Math.max(0, Math.round((link.expires - this.now()) / 1000)),
     };
   }

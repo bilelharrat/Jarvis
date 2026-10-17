@@ -50,6 +50,7 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["tests"]
+markers = ["eden_default: runs with the real default wake word (Eden), not the legacy Jarvis one"]
 
 [tool.ruff]
 line-length = 100

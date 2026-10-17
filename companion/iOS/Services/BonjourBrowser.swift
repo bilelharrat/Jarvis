@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// Finds Macs running Jarvis on the local network: Bonjour service `_jarvis._tcp`.
+/// Finds Macs running Eden Secretary on the local network: Bonjour service `_jarvis._tcp`.
 /// Nothing may be advertising yet; then the list just stays empty and the address field
 /// does the job.
 @MainActor
@@ -99,7 +99,7 @@ final class BonjourBrowser {
 
     nonisolated private static func describe(_ error: NWError) -> String {
         if case let .dns(code) = error, code == -65570 {  // kDNSServiceErr_PolicyDenied
-            return "Local Network access is off for J.A.R.V.I.S. Turn it on in Settings › Privacy & Security › Local Network, or type the address."
+            return "Local Network access is off for Eden Secretary. Turn it on in Settings › Privacy & Security › Local Network, or type the address."
         }
         return "Can’t look for Macs right now. Type the address instead."
     }

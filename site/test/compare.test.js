@@ -23,7 +23,8 @@ const ctx = { waitUntil: (p) => waits.push(p) };
 const realFetch = globalThis.fetch;
 
 function makeEnv() {
-  const e = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20' };
+  // Compare's mechanics around three Claude lanes: Haiku 4.5 stays in this site's list here, though askeden.com retired it 2026-10-14.
+  const e = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_MODELS: 'claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3' };
   e.ACCOUNTS = namespace(Account, e);
   e.LINKS = namespace(Link, e);
   e.ASSETS = { fetch: async () => new Response('asset') };
@@ -125,7 +126,7 @@ test('the estimate: up to three hosted Claude models, the summary on the cheapes
   assert.equal(est.lanes.length, 3);
   assert.deepEqual(new Set(est.lanes.map((l) => l.model)), new Set(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5']));
   assert.ok(est.lanes.every((l) => l.provider === 'anthropic' && l.via === 'api' && l.costUSD > 0 && !['xhigh', 'max'].includes(l.effort)));
-  assert.equal(est.synthesis.model, 'claude-haiku-4-5');
+  assert.equal(est.synthesis.model, 'claude-sonnet-5-5'); // not Haiku 4.5: below the reasoning floor (Luna retired 2026-10-13)
   assert.ok(Math.abs(est.totalUSD - [...est.lanes, est.synthesis].reduce((n, l) => n + l.costUSD, 0)) < 1e-6);
   const priv = await chat('/api/chat/compare/estimate', value, { method: 'POST', body: { prompt: 'hi there', privacy: true } });
   assert.equal(priv.status, 503);
@@ -142,7 +143,7 @@ test('a compare streams three lanes and then the summary; one hold for all of it
   assert.equal(head.type, 'compare');
   assert.match(head.data.id, /^[0-9a-f]{24}$/);
   assert.deepEqual(head.data.lanes.map((l) => [l.lane, l.model, l.effort]), LANES.map((l, i) => [i, l.model, l.effort]));
-  assert.equal(head.data.synthesis.model, 'claude-haiku-4-5');
+  assert.equal(head.data.synthesis.model, 'claude-sonnet-5-5'); // not Haiku 4.5: below the reasoning floor (Luna retired 2026-10-13)
   for (const lane of [0, 1, 2]) assert.deepEqual(events.filter((e) => e.data.lane === lane).map((e) => e.type), ['text', 'text', 'usage', 'done'], `lane ${lane}`);
   assert.deepEqual(events.filter((e) => e.data.lane === 'synthesis').map((e) => e.type), ['text', 'text', 'usage', 'done']);
   assert.equal(events.at(-1).type, 'end');
@@ -151,7 +152,7 @@ test('a compare streams three lanes and then the summary; one hold for all of it
   assert.ok(calls.every((c) => c.max_tokens <= 16000 && c.stream === true && !c.tools));
   assert.match(calls[0].system, /Be brief\./);
   const summary = calls[3];
-  assert.equal(summary.model, 'claude-haiku-4-5');
+  assert.equal(summary.model, 'claude-sonnet-5-5'); // not Haiku 4.5: below the reasoning floor (Luna retired 2026-10-13)
   assert.ok(summary.max_tokens <= 1200);
   assert.match(summary.system, /Where they agree/);
   assert.match(summary.messages[0].content, /Answer A — Claude Opus 5\.5:[\s\S]*Answer C — Claude Haiku 4\.5:/);
@@ -209,11 +210,11 @@ test('the combined worst case is held up front as one hold; Stop ends one lane, 
 test('a lane that fails shows its error in its place; the cap of three; privacy needs the Mac; no allowance, no compare', async () => {
   const owner = await phone();
   const value = await signedInBrowser(owner);
-  anthropic = (body) => (body.model === 'claude-sonnet-5-5'
+  anthropic = (body) => (body.model === 'claude-opus-5-5' // lane 0 (Sonnet writes the summary)
     ? new Response('{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', { status: 529 })
     : new Response(sseBody(claudeAnswer({ model: body.model, input: 500, output: 200 })), { headers: { 'content-type': 'text/event-stream' } }));
   const events = await readEvents(await compare(value, { models: LANES }));
-  assert.deepEqual(events.filter((e) => e.data.lane === 1).map((e) => e.type), ['error']);
+  assert.deepEqual(events.filter((e) => e.data.lane === 0).map((e) => e.type), ['error']);
   assert.match(events.find((e) => e.type === 'error').data.message, /busy/);
   assert.equal(events.filter((e) => e.type === 'done' && typeof e.data.lane === 'number').length, 2);
   assert.ok(events.some((e) => e.data.lane === 'synthesis' && e.type === 'done'));
@@ -234,4 +235,11 @@ test('a lane that fails shows its error in its place; the cap of three; privacy 
   assert.equal(poor.status, 402);
   assert.match((await poor.json()).error, /ask 3 models at once|left/);
   assert.equal(calls.length, 0, 'nothing went to Anthropic');
+});
+
+test('a retired model as a compare lane is refused in words, never a server error', async () => {
+  const value = await signedInBrowser(await phone());
+  const r = await compare(value, { models: [{ model: 'claude-opus-5-5' }, { model: 'gpt-6-luna' }] });
+  assert.equal(r.status, 422);
+  assert.match((await r.json()).error, /retired from askeden\.com/);
 });

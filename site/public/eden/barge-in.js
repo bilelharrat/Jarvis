@@ -1,4 +1,4 @@
-// Interrupting J.A.R.V.I.S. by talking over him (voice.js Talk, tutor.js). The mic's level alone
+// Interrupting Eden Secretary by talking over him (voice.js Talk, tutor.js). The mic's level alone
 // rarely works: while the voice plays, the browser's echo cancelling turns the mic right down, your
 // voice included. So while he speaks, speech recognition listens too, and words that aren't his
 // (the echo that gets through is his own words) stop him; what you said starts your turn.
@@ -19,7 +19,7 @@ export function heardYou(heard, spoken) {
 }
 
 /**
- * Listens while J.A.R.V.I.S. speaks; `spoken()` is what he's saying, `onInterrupt(heard)` runs once
+ * Listens while Eden Secretary speaks; `spoken()` is what he's saying, `onInterrupt(heard)` runs once
  * when you talk over him. Returns stop(). No recognition here: a no-op (the mic level still works).
  */
 export function watchForInterrupt({ spoken, onInterrupt, lang }) {

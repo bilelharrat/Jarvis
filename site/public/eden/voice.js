@@ -1,14 +1,14 @@
-// J.A.R.V.I.S.'s voice in Eden (ROADMAP G7; the owner asked for it on 2026-10-06, which
-// supersedes "voice stays in Jarvis"):
-//  - Dictate: the mic inside the input bar, next to send, as in Jarvis Code. The browser's own
+// Eden Secretary's voice in Eden (ROADMAP G7; the owner asked for it on 2026-10-06, which
+// supersedes "voice stays in Eden Secretary"):
+//  - Dictate: the mic inside the input bar, next to send, as in Eden Code. The browser's own
 //    speech recognition (SpeechRecognition / webkitSpeechRecognition) with live interim text;
 //    the microphone is asked for only on a click. No recognition (Firefox): the mic records
 //    instead (MediaRecorder, two minutes at most) and POST /api/chat/transcribe turns the
-//    recording into words (G7.2): on the Mac J.A.R.V.I.S.'s own Whisper, on askeden.com Workers
+//    recording into words (G7.2): on the Mac Eden Secretary's own Whisper, on askeden.com Workers
 //    AI's Whisper on the account's allowance. Talk mode still needs recognition.
 //  - Read aloud: a button on each reply, and Settings › Appearance › Read replies aloud, which
 //    starts as the reply streams in. POST /api/chat/voice: on the Mac, src/chat/voice.ts (the
-//    JARVIS voice on J.A.R.V.I.S.'s allowance for this Mac, else the Mac's own voice); on
+//    Eden Secretary voice on Eden Secretary's allowance for this Mac, else the Mac's own voice); on
 //    askeden.com the Worker, on the account's daily voice allowance. One sentence-sized WAV
 //    per request, the next ones fetched while one plays, played with Web Audio (no media
 //    element: the page CSP stays as it is). Code blocks are never read (voice-text.js).
@@ -21,11 +21,15 @@ import { $, el, ico, toast, store, isTouch } from './util.js';
 import { state, ui, nodeText } from './state.js';
 import { rawFetch, addSendExtra } from './api.js';
 import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
-import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S } from './voice-text.js';
+import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S, punctuateSpeech } from './voice-text.js';
 import { speechLang } from './i18n.js';
+import { IN_APP } from './native.js';
 import { deadline, talkStep, talkText, talkCapped, talkShouldPause, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
 
 const prefs = { autoRead: false, ...store.get('jchat:voice', {}) };
+// The iPhone app crashed when a reply was read aloud (owner's screen recording, 2026-10-13; not reproduced in the simulator), so
+// there it makes no sound and has no microphone: no AudioContext, no Read aloud button, no Read replies aloud, no Talk, no dictation.
+if (IN_APP) prefs.autoRead = false;
 const savePrefs = () => store.set('jchat:voice', prefs);
 const Recognition = () => window.SpeechRecognition || window.webkitSpeechRecognition || null;
 // Recording for the server to transcribe, where there's no recognition (Firefox).
@@ -37,6 +41,7 @@ const MIC_BLOCKED = 'Eden can’t use the microphone. Allow it for this site in 
 let actx = null;
 let outLevel = null; // what's playing, for the talk meter
 function audio() {
+  if (IN_APP) return null;
   if (!actx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
@@ -242,11 +247,14 @@ function startDictation() {
   dict.said = '';
   rec.onresult = (e) => {
     if (dict.rec !== rec) return;
-    let fin = '';
+    // Browsers' speech recognition gives words without punctuation; each final segment ends at a pause, so each one is
+    // a sentence (punctuated, voice-text.js), and the words still being heard follow it as they are (owner's user, 2026-10-15).
+    const finals = [];
     let mid = '';
-    for (const r of e.results) { if (r.isFinal) fin += r[0].transcript; else mid += r[0].transcript; }
+    for (const r of e.results) { if (r.isFinal) finals.push(r[0].transcript); else mid += r[0].transcript; }
+    const fin = punctuateSpeech(finals);
     dict.said = fin;
-    writeDictation(fin + mid);
+    writeDictation(mid.trim() ? `${fin}${fin ? ' ' : ''}${mid.trim()}` : fin);
   };
   rec.onerror = (e) => {
     if (dict.rec !== rec) return;
@@ -659,6 +667,7 @@ function meter() {
 
 /* ---------- Settings › Appearance ---------- */
 export function voiceSettings() {
+  if (IN_APP) return null; // no reading aloud in the iPhone app (see the note at the top of this file)
   const sw = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Read replies aloud' });
   sw.checked = !!prefs.autoRead;
   sw.addEventListener('change', () => {
@@ -701,6 +710,7 @@ export function initVoice() {
   const mic = $('jc-dictate');
   const talkBtn = $('jc-talk');
   if (!Recognition()) { if (mic && !Recorder()) mic.hidden = true; if (talkBtn) talkBtn.hidden = true; }
+  if (IN_APP) { if (talkBtn) talkBtn.hidden = true; if (mic) mic.hidden = true; } // and no dictation: the app has no microphone button for now
   if (mic) mic.addEventListener('click', () => (dict.rec ? stopDictation() : startDictation()));
   if (talkBtn) talkBtn.addEventListener('click', openTalk);
   const ta = $('deck-input');

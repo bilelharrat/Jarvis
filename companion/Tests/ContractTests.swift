@@ -328,7 +328,7 @@ final class RequestBodyTests: XCTestCase {
 final class PushPayloadTests: XCTestCase {
     func testReadsTheJarvisKey() throws {
         let info: [AnyHashable: Any] = [
-            "aps": ["alert": ["title": "Jarvis needs your OK", "body": "Email Pepper?"], "category": "JARVIS_APPROVAL"],
+            "aps": ["alert": ["title": "Eden Secretary needs your OK", "body": "Email Pepper?"], "category": "JARVIS_APPROVAL"],
             "jarvis": [
                 "kind": "approval", "id": "a1b2", "task_id": NSNull(), "at": 1_790_000_000,
                 "choices": [["id": "allow", "label": "Send"], ["id": "deny", "label": "Don't send"], ["label": "no id"]],
@@ -341,7 +341,7 @@ final class PushPayloadTests: XCTestCase {
         XCTAssertNil(push.taskID)
         XCTAssertEqual(push.choices.map(\.id), ["allow", "deny"])
         XCTAssertEqual(push.at, Date(timeIntervalSince1970: 1_790_000_000))
-        XCTAssertEqual(push.title, "Jarvis needs your OK")
+        XCTAssertEqual(push.title, "Eden Secretary needs your OK")
         XCTAssertEqual(push.body, "Email Pepper?")
 
         let code = try XCTUnwrap(JarvisPush(userInfo: ["jarvis": ["kind": "code_needs_you", "id": 17, "task_id": "4"], "aps": ["alert": "Eden Code needs you"]]))

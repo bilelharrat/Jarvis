@@ -1,5 +1,5 @@
-// Settings › Jarvis in other apps (the backend is jarvis.features.jarvis_mcp): let Claude Code,
-// Claude Desktop and Eden use Jarvis as an MCP server (`jarvis mcp`): a Connect button for
+// Settings › Eden Secretary in other apps (the backend is jarvis.features.jarvis_mcp): let Claude Code,
+// Claude Desktop and Eden use Eden Secretary as an MCP server (`jarvis mcp`): a Connect button for
 // each app (the setup lines stay under "Set up by hand"), whether each app session asks first,
 // the apps the owner always allows, and what they've done lately. Paths, app names, commands
 // and what the apps' own tools said are this Mac's and the apps' own: shown as data.
@@ -62,7 +62,7 @@
   ];
   const STATUS_WORDS = {
     connected: 'Connected',
-    other: 'Set up for another copy of Jarvis: Connect points it at this one.',
+    other: 'Set up for another copy of Eden Secretary: Connect points it at this one.',
     off: 'Not connected',
   };
   const busy = new Set();  // apps with a connect or disconnect on its way
@@ -106,8 +106,8 @@
     if (!settings) return null;
     section = el('section', 'group mcp-group');
     section.id = 'mcp-group';
-    const enable = toggle('sw-mcp', 'Let Claude Code, Claude Desktop and Eden use Jarvis', 'They can search your second brain and read a note, recall what Jarvis remembers, read your calendar and send you heads-ups. Only apps on this Mac, through a private connection.');
-    const ask = toggle('sw-mcp-ask', 'Ask when an app starts using Jarvis', 'A card, said aloud, the first time each app session reaches in, unless you chose Always allow for that app. What it reads goes to that app and the model behind it.');
+    const enable = toggle('sw-mcp', 'Let Claude Code, Claude Desktop and Eden use Eden Secretary', 'They can search your second brain and read a note, recall what Eden Secretary remembers, read your calendar and send you heads-ups. Only apps on this Mac, through a private connection.');
+    const ask = toggle('sw-mcp-ask', 'Ask when an app starts using Eden Secretary', 'A card, said aloud, the first time each app session reaches in, unless you chose Always allow for that app. What it reads goes to that app and the model behind it.');
     enable.querySelector('.switch').addEventListener('click', () => send({ type: 'mcp_enable', on: !(state && state.enabled) }));
     ask.querySelector('.switch').addEventListener('click', () => send({ type: 'mcp_ask', on: !(state && state.ask) }));
     const status = el('p', 'small-status mcp-status');
@@ -119,10 +119,10 @@
     trusted.id = 'mcp-trusted';
     const trustedList = el('ul', 'mcp-trusted-list');
     trustedList.id = 'mcp-trusted-list';
-    trusted.append(el('strong', '', 'Always allowed'), el('small', '', 'These apps use Jarvis without asking. Forget one and it asks again.'), trustedList);
+    trusted.append(el('strong', '', 'Always allowed'), el('small', '', 'These apps use Eden Secretary without asking. Forget one and it asks again.'), trustedList);
     const recent = el('ul', 'mcp-recent');
     recent.id = 'mcp-recent';
-    section.append(el('h3', '', 'Jarvis in other apps'), enable, ask, status, setup, trusted, recent);
+    section.append(el('h3', '', 'Eden Secretary in other apps'), enable, ask, status, setup, trusted, recent);
     const last = settings.querySelector('#open-accounts');
     const before = last ? last.closest('section.group') : null;
     if (before) settings.insertBefore(section, before); else settings.append(section);
@@ -132,7 +132,7 @@
   const TOOL_WORDS = {
     search_notes: 'Searched your second brain',
     read_note: 'Read a note',
-    recall: 'Recalled what Jarvis remembers',
+    recall: 'Recalled what Eden Secretary remembers',
     calendar: 'Read your calendar',
     notify_me: 'Sent you a heads-up',
   };
@@ -148,9 +148,9 @@
     const status = F.$('mcp-status');
     status.classList.toggle('bad', !!state.error);
     if (state.error) status.textContent = state.error;
-    else if (state.enabled && state.running) status.textContent = F.t('On: apps you set up below can reach Jarvis while it runs.');
+    else if (state.enabled && state.running) status.textContent = F.t('On: apps you set up below can reach Eden Secretary while it runs.');
     else if (state.enabled) status.textContent = F.t('Starting…');
-    else status.textContent = F.t('Off: no app can reach Jarvis.');
+    else status.textContent = F.t('Off: no app can reach Eden Secretary.');
     F.$('mcp-setup').hidden = !state.enabled;
     F.$('mcp-code-cli').textContent = state.code_command || '';
     F.$('mcp-code-desktop').textContent = state.desktop_json || '';
@@ -196,14 +196,14 @@
   F.on('hello', () => { group(); send({ type: 'mcp_state' }); }, { replay: true });
   F.on('jarvis_mcp', (ev) => { busy.clear(); state = ev; render(); });
 
-  // An app asking to use Jarvis while the window is behind: a notification, so the card
+  // An app asking to use Eden Secretary while the window is behind: a notification, so the card
   // isn't left to run out unseen. The Mac app (window.jarvisApp) raises one for every card
-  // itself, with its buttons; this is for Jarvis open in a browser.
+  // itself, with its buttons; this is for Eden Secretary open in a browser.
   F.on('approval', (ev) => {
     if (!ev || !ev.mcp_app || window.jarvisApp) return;
     if (!document.hidden && document.hasFocus()) return;
     try {
-      const note = new Notification(F.t('Jarvis needs your OK'), { body: ev.question || '', tag: `mcp-${ev.id}` });
+      const note = new Notification(F.t('Eden Secretary needs your OK'), { body: ev.question || '', tag: `mcp-${ev.id}` });
       note.onclick = () => { window.focus(); note.close(); };
     } catch (_) { /* notifications off */ }
   });

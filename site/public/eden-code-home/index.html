@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fbf7ee">
+<title>Eden Code: say what to build</title>
+<meta name="description" content="Eden Code plans, edits, runs and tests inside your own project. You review every change and can rewind any step. For Mac and Windows.">
+<meta property="og:title" content="Eden Code: say what to build.">
+<meta property="og:description" content="Plans, edits, runs and tests inside your own project. You review every change and can rewind any step.">
+<meta property="og:image" content="https://askedencode.com/eden-code-home/eden-code.png">
+<link rel="icon" type="image/png" href="/eden-code-home/eden-code.png">
+<link rel="apple-touch-icon" href="/eden-code-home/eden-code.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/eden-code-home/eden-code-home.css">
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#get">Skip to the downloads</a>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/" aria-label="Eden Code"><img src="/eden-code-home/eden-code.png" alt="" width="36" height="36">Eden Code</a>
+    <nav aria-label="Site"><a href="#films">Films</a><a href="#how">How it works</a><a href="#get">Download</a><a class="pill" href="#get">Get Eden Code</a></nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <p class="eyebrow">Eden Code · Mac and Windows</p>
+        <h1>Say what to build<u aria-hidden="true"></u></h1>
+        <p class="lede">Eden Code plans, edits, runs and tests inside your own project. You review every change, and you can rewind any step.</p>
+        <div class="cta">
+          <a class="btn navy" href="/eden-code/download">Download for Mac<span class="sr">: Eden Code</span></a>
+          <a class="btn line" href="/eden-code/windows">Download for Windows<span class="sr">: Eden Code</span></a>
+        </div>
+        <p class="fine">Eden Secretary comes with it.</p>
+      </div>
+
+      <!-- Five chapters, one player: the radio buttons pick the film (eden-code-home.css, no script for that); /home/features.js plays the one on screen and adds its pause button, as on the front page. The films are public/eden-code-home/film-N.mp4 + film-N.jpg (1280x720, silent), made by walkthroughs/capture/code/ (Eden Desk Layout). -->
+      <div class="player" id="films" role="group" aria-label="Eden Code in five chapters">
+        <input type="radio" name="chapter" id="c1" checked><input type="radio" name="chapter" id="c2"><input type="radio" name="chapter" id="c3"><input type="radio" name="chapter" id="c4"><input type="radio" name="chapter" id="c5">
+        <div class="screen s1"><figure class="fvid"><video class="fv" src="/eden-code-home/film-1.mp4" poster="/eden-code-home/film-1.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Plan mode in Eden Code: choosing Plan, typing a request to add a rate limit to the signup route, the plan it writes before changing any file, and the approval that starts the work. A 22-second film."></video><div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div></figure></div>
+        <div class="screen s2"><figure class="fvid"><video class="fv" src="/eden-code-home/film-2.mp4" poster="/eden-code-home/film-2.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden Code editing a test and the signup route, asking before it runs npm test, showing a real failing test, fixing the route and running the tests again until they pass. A 22-second film."></video><div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div></figure></div>
+        <div class="screen s3"><figure class="fvid"><video class="fv" src="/eden-code-home/film-3.mp4" poster="/eden-code-home/film-3.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Reviewing changes in Eden Code: the changes by hunk, a comment on a line sent to the session, staging and committing in the Git panel, and opening a pull request with its checks. A 27-second film."></video><div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div></figure></div>
+        <div class="screen s4"><figure class="fvid"><video class="fv" src="/eden-code-home/film-4.mp4" poster="/eden-code-home/film-4.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden Code starting a dev server after asking, then checking the page after the turn and showing a picture of what it built. A 22-second film."></video><div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div></figure></div>
+        <div class="screen s5"><figure class="fvid"><video class="fv" src="/eden-code-home/film-5.mp4" poster="/eden-code-home/film-5.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden Code rewinding: hovering a step to rewind its files, the changed files going back, then editing the first message and rewinding the chat too. A 22-second film."></video><div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div></figure></div>
+        <div class="chap">
+          <label for="c1"><b>Plan</b><small>agree the steps first</small></label>
+          <label for="c2"><b>Build</b><small>edits, runs, tests</small></label>
+          <label for="c3"><b>Review</b><small>every change, by hunk</small></label>
+          <label for="c4"><b>See it</b><small>checks the page</small></label>
+          <label for="c5"><b>Rewind</b><small>a checkpoint each step</small></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="strip"><span>$</span>“Describe the work. It does it in your project.” <em>Plan mode · checkpoints · Git panel · page checks</em></div>
+
+    <section id="how" aria-labelledby="howH">
+      <h2 id="howH">Plan, build, review.</h2>
+      <div class="steps">
+        <div class="step"><small>01 · PLAN</small><h3>Agree first</h3><p>Plan mode lays out the steps before a file changes, when you want it. Approve, change or reject them.</p></div>
+        <div class="step"><small>02 · BUILD</small><h3>It does the work</h3><p>Edits files, runs commands and tests, starts your dev server and checks the page after each change.</p></div>
+        <div class="step"><small>03 · REVIEW</small><h3>You stay in charge</h3><p>Every change by hunk with line comments, a Git panel, pull requests with CI watched and fixed.</p></div>
+      </div>
+    </section>
+
+    <div class="quote"><p>Eden Code works inside your projects and <i>asks before it runs anything</i>. Every step is a checkpoint you can rewind.</p></div>
+
+    <section class="get" id="get" aria-labelledby="getH">
+      <div><h2 id="getH">Get Eden Code</h2><p>For Mac and Windows. Eden Secretary, which runs your computer by voice, comes with it.</p></div>
+      <div class="cta">
+        <a class="btn navy" href="/eden-code/download">Download for Mac<span class="sr">: Eden Code</span></a>
+        <a class="btn line" href="/eden-code/windows">Download for Windows<span class="sr">: Eden Code</span></a>
+      </div>
+    </section>
+    <p class="fineprint">Mac: Apple silicon, macOS 14 or later. Windows: 10 or 11, 64-bit. The Windows app is a beta and isn’t signed yet: Edge may say the file “isn’t commonly downloaded” (three dots, Keep, Keep anyway), and Windows may say “Windows protected your PC” (More info, Run anyway).</p>
+  </main>
+
+  <footer>
+    <span>© Harrat Global Holdings, Inc.</span>
+    <span class="links"><a href="https://askeden.com/">Part of Eden</a><a href="/eden-secretary">Eden Secretary</a><a href="https://askedenedu.com/">Eden for Education</a><a href="https://askeden.com/privacy">Privacy</a><a href="https://askeden.com/terms">Terms</a></span>
+  </footer>
+</div>
+</body>
+</html>

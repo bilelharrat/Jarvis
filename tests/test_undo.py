@@ -1,4 +1,4 @@
-"""Undo for JARVIS's own actions (undo.py, run by jarvis.features.actions): every call is
+"""Undo for Jarvis's own actions (undo.py, run by jarvis.features.actions): every call is
 weighed as it runs (the hooks the feature adds at each connect, played here by a fake Claude
 Code that calls them around each tool), and "undo that" puts back what the last one changed,
 for half an hour: calendar events, memory, routines, documents (to the Trash), shortcuts

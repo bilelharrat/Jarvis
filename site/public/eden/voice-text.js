@@ -1,4 +1,4 @@
-// What "Read aloud" says: a reply's markdown turned into plain sentences, the way J.A.R.V.I.S.
+// What "Read aloud" says: a reply's markdown turned into plain sentences, the way Eden Secretary.
 // cleans a reply for speech (src/jarvis/speech.py clean_for_speech), then cut into pieces the
 // voice takes one at a time. Pure (no DOM), so the tests load it as it is served.
 
@@ -99,4 +99,20 @@ export const RECORDING_TYPES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus
 export const MAX_RECORDING_S = 120; // the server's limit too (POST /api/chat/transcribe)
 export function recordingType(supported) {
   return RECORDING_TYPES.find((t) => { try { return !!supported(t); } catch { return false; } }) || '';
+}
+
+// Dictation without punctuation (browsers' speech recognition): each final segment ended at a pause, so it ends a
+// sentence. A segment that already ends in punctuation (Safari adds some) is kept as it is; one that opens like a
+// question gets "?"; the next one starts with a capital. Pure, so the tests load it as it is served.
+const QUESTION_START = /^(?:who|what|when|where|why|how|which|whose|whom|is|are|was|were|do|does|did|can|could|will|would|should|shall|may|might|have|has|had|am|isn't|aren't|don't|doesn't|didn't|can't|won't|qui|que|quoi|quand|où|pourquoi|comment|est-ce)\b/i;
+export function punctuateSpeech(segments) {
+  const out = [];
+  for (const raw of segments || []) {
+    let s = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!s) continue;
+    s = s.charAt(0).toUpperCase() + s.slice(1);
+    if (!/[.!?…:;,]$/.test(s)) s += QUESTION_START.test(s) ? '?' : '.';
+    out.push(s);
+  }
+  return out.join(' ').replace(/\bi\b/g, 'I');
 }

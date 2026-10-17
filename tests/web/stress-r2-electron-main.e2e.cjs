@@ -37,7 +37,7 @@ fs.mkdirSync(app.getPath('downloads'), { recursive: true });
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1');
 app.commandLine.appendSwitch('renderer-process-limit', '6'); // a popup storm can't take the Mac's memory
 // Never the Keychain: cookies and the like are encrypted with a stand-in key, and the app keeps
-// a name of its own (main.js's 'J.A.R.V.I.S.' would name the installed app's Keychain item).
+// a name of its own (main.js's 'Eden Secretary' would name the installed app's Keychain item).
 app.commandLine.appendSwitch('use-mock-keychain');
 app.setName('jarvis-stress-r2');
 app.setName = () => {};

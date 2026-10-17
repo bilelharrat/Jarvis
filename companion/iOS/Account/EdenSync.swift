@@ -2,7 +2,7 @@ import CommonCrypto
 import CryptoKit
 import Foundation
 
-// Eden sync (docs/accounts.md "Eden sync", "The J.A.R.V.I.S. apps"; ROADMAP H1): Eden at
+// Eden sync (docs/accounts.md "Eden sync", "The Eden Secretary apps"; ROADMAP H1): Eden at
 // askeden.com keeps the owner's chat history sealed with Eden's own key (32 bytes, not the
 // apps' sync key). A new browser gets it only sealed to its own key pair, from a device that
 // already has it, after both screens show the same six digits. This iPhone can be that device:

@@ -1,4 +1,4 @@
-"""The second brain's newer sources (jarvis.brain_sources): JARVIS's own conversations,
+"""The second brain's newer sources (jarvis.brain_sources): Jarvis's own conversations,
 Safari and other browsers' bookmarks, Reminders and Voice Memos. Every one is read from temp
 folders and fakes here, never the real Messages, Safari, Reminders or Voice Memos data."""
 
