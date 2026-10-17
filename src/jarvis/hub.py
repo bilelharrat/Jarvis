@@ -11,6 +11,7 @@ import base64
 import contextlib
 import dataclasses
 import functools
+import inspect
 import itertools
 import json
 import logging
@@ -734,11 +735,85 @@ def _text(text: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}]}
 
 
+class LazyConnect:
+    """Claude Code's client whose process starts at its first real use, not at connect().
+
+    Eden Code's own sessions each have a client of their own; the hub's conversation is
+    Eden Secretary's, so on Eden Code alone its Claude Code process (200+ MB, and a second
+    of startup) waits for the first question. Everything else reads through to the client."""
+
+    _NEEDS_NO_PROCESS = {"disconnect", "connect"}
+    _ASKS_IF_UP = {"get_context_usage", "get_mcp_status", "get_server_info"}
+    # Nothing to stop or change in a process that isn't running (a new one is built from the
+    # settings as they are then), so these never start one.
+    _NOTHING_IF_DOWN = {"interrupt", "set_model", "set_permission_mode", "stop_task"}
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self._up = False
+        self._starting: asyncio.Lock | None = None
+
+    async def _start(self) -> None:
+        if self._up:
+            return
+        if self._starting is None:
+            self._starting = asyncio.Lock()
+        async with self._starting:
+            if not self._up:
+                await self._client.connect()
+                self._up = True
+
+    async def connect(self) -> None:
+        """Deferred: the first query, interrupt or model change starts the process."""
+
+    async def disconnect(self) -> None:
+        if self._up:
+            self._up = False
+            await self._client.disconnect()
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._client, name)
+        if name.startswith("_") or not callable(attr):
+            return attr
+        if name in self._ASKS_IF_UP:
+
+            async def if_up(*args: Any, **kwargs: Any) -> Any:
+                if not self._up:
+                    raise RuntimeError("Claude Code isn't running yet")
+                return await attr(*args, **kwargs)
+
+            return if_up
+        if name in self._NOTHING_IF_DOWN:
+
+            async def if_up_else_nothing(*args: Any, **kwargs: Any) -> Any:
+                if self._up:
+                    return await attr(*args, **kwargs)
+
+            return if_up_else_nothing
+        if inspect.isasyncgenfunction(attr):
+
+            async def stream(*args: Any, **kwargs: Any):
+                await self._start()
+                async for item in attr(*args, **kwargs):
+                    yield item
+
+            return stream
+        if inspect.iscoroutinefunction(attr):
+
+            async def call(*args: Any, **kwargs: Any) -> Any:
+                await self._start()
+                return await attr(*args, **kwargs)
+
+            return call
+        return attr
+
+
 class Hub:
     def __init__(
         self,
         settings: Settings,
         *,
+        lazy_connect: bool | None = None,
         client_factory: Callable[..., Any] = ClaudeSDKClient,
         speaker: Speaker | None = None,
         transcriber: Any = None,
@@ -770,6 +845,7 @@ class Hub:
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
+        self._lazy_connect = lazy_connect
         self.prefs_store = prefs_store or PrefsStore()
         self.prefs = self.prefs_store.prefs
         self._prefs_unsaved = False  # a settings save failed (a full disk): tried again
@@ -832,6 +908,7 @@ class Hub:
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
+        self._watched = asyncio.Event()  # set while a window is open (the polls below wait on it)
         # Every event is numbered (seq): a window that reconnects says the last it had, and
         # gets the snapshot and then the session events it missed (REPLAYED), from these.
         self.seq = 0
@@ -1804,6 +1881,14 @@ class Hub:
             except Exception:
                 log.exception("a feature's connect hook failed")
         self.client = self.client_factory(options=options)
+        if self._lazy_connect is None:  # Eden Code alone, on the real Claude Code
+            self._lazy_connect = (
+                self.profile == "code"
+                and self.client_factory is ClaudeSDKClient
+                and os.environ.get("JARVIS_LAZY_CLAUDE") != "0"  # (the way back, should it bite)
+            )
+        if self._lazy_connect and self.profile == "code":
+            self.client = LazyConnect(self.client)
         self._conn_cost = None  # a new connection's running total starts again
         await self.client.connect()
 
@@ -2818,7 +2903,17 @@ class Hub:
     def subscribe(self) -> WindowQueue:
         queue = WindowQueue()
         self._subscribers.add(queue)
+        self._watched.set()
         return queue
+
+    async def _watched_sleep(self, seconds: float) -> None:
+        """The pause between a poll's rounds; with no window open, no timer at all: it waits
+        for one to open (and then goes straight round, so the numbers are there at once)."""
+        if self._subscribers:
+            await asyncio.sleep(seconds)
+            return
+        self._watched.clear()
+        await self._watched.wait()
 
     def unsubscribe(self, queue: WindowQueue) -> None:
         self._subscribers.discard(queue)
@@ -2826,6 +2921,7 @@ class Hub:
             self.desktop_hands.disconnect()
             self.workbench.watch_simulator(None)
             self.simulator.stop()
+            self._watched.clear()
             self._window_gone()
 
     def _window_gone(self) -> None:
@@ -5374,7 +5470,9 @@ class Hub:
         """The address an Eden Code session's next browser action lands on: the tab it
         names (tab), else its own tab's page, or the tab on show while it has none (where
         such a session acts)."""
-        tab = tab or self.browser_tabs.acting_tab(task_id)  # (the pane's tab on show while it's open)
+        tab = tab or self.browser_tabs.acting_tab(
+            task_id
+        )  # (the pane's tab on show while it's open)
         where = {"tab": tab} if tab else {}
 
         async def read(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -6316,7 +6414,7 @@ class Hub:
                         await self._sysmon_send()
                 except Exception:  # a process gone mid-read, a tool missing: next time
                     log.exception("system monitor failed")
-            await asyncio.sleep(SYSMON_EVERY)
+            await self._watched_sleep(SYSMON_EVERY)
 
     async def _sysmon_send(self) -> None:
         tab = self._sysmon_tab
@@ -6338,7 +6436,7 @@ class Hub:
                 if plan:
                     self.usage.plan(plan)
                     self._usage_changed()
-            await asyncio.sleep(2)
+            await self._watched_sleep(2)
 
     def _usage_provider(self, ref: str | None, cost: float) -> tuple[str, float]:
         """Which added API provider an answer went to ("" for Claude on the subscription),
@@ -7633,13 +7731,13 @@ class Hub:
                     checked = time.monotonic()
                 self.defense["latency"] = await defense.latency_ms()
                 self.emit("defense", **self.defense)
-            await asyncio.sleep(30)
+            await self._watched_sleep(30)
 
     async def _vitals_loop(self) -> None:
         while True:
             if self._subscribers:
                 self.emit("vitals", **self.vitals())
-            await asyncio.sleep(3)
+            await self._watched_sleep(3)
 
     async def _refresh_location(self) -> None:
         if not self.prefs.use_location:

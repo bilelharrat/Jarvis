@@ -30,6 +30,7 @@ log = logging.getLogger("jarvis")
 
 LIVE_MIN_SECONDS = 15  # progress pushed at most this often (needing you, and the end, at once)
 TICK_SECONDS = 5.0  # a look at what's followed, unless something says to look sooner
+IDLE_SECONDS = 60.0  # with nothing followed there's nothing to look at (follow() pokes)
 CALL_SECONDS = 3600  # a call's activity with no outcome by then ends
 TRIES = 3  # pushes to one activity that fail (other than a gone token) before it's let go
 
@@ -360,7 +361,13 @@ class Live:
             except Exception:
                 log.exception("companion: Live Activity updates failed")
             try:
-                await asyncio.wait_for(self._wake.wait(), TICK_SECONDS)
+                followed = bool(self.companion.store.following())
+            except Exception:
+                followed = True
+            try:
+                await asyncio.wait_for(
+                    self._wake.wait(), TICK_SECONDS if followed else IDLE_SECONDS
+                )
             except TimeoutError:
                 pass
             self._wake.clear()

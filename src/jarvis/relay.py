@@ -292,7 +292,9 @@ class Keeper:
             while True:
                 await self.check()
                 with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(self._poked.wait(), self.every)
+                    await asyncio.wait_for(
+                        self._poked.wait(), self.every if self.running else self.every * 5
+                    )  # (not running: nothing to watch over, a change pokes)
                 self._poked.clear()
         finally:
             await self.stop()
