@@ -952,6 +952,7 @@
     const look = composerLook(on, on ? problem() : '', s.label);
     if (!look) {
       if (chip) chip.hidden = true;
+      F.$('jc-effort').hidden = false;  // a model picked by hand: its effort is the person's to choose again
       // Shadow mode: the tooltip (never the button's look) says what the router would pick.
       const words = passive() && s.t ? shadowWords(shadows.get(s.t.id)) : '';
       if (words) F.$('jc-model').title = `${F.$('jc-model').title} · ${words} Choose Model Router to route live.`;

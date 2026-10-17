@@ -490,6 +490,15 @@ test('the model button says what messages really go to: Model Router, or the ses
   assert.deepEqual(bad.reg.send(bad.task, 'refactor the scheduler to use a heap'), {});  // (unrouted, as it says)
 });
 
+test('a model picked by hand after Model Router: the effort button comes back (owner, 2026-10-16)', async () => {
+  const w = windowWith();
+  await w.ready();
+  assert.equal(w.els['jc-effort'].hidden, true);  // (Model Router picks the effort)
+  w.reg.choice.picked('opus', { t: w.task });
+  w.reg.render({ t: w.task, label: 'Opus 5.5' });
+  assert.equal(w.els['jc-effort'].hidden, false);
+});
+
 test('a to-do card’s pick: the rules’ at once, never a Gemini rating; none while the router is off', async () => {
   const w = windowWith();
   assert.equal(w.F.codeRouter.pick('refactor the scheduler to use a heap'), null);  // (not loaded yet)
