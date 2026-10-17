@@ -11,11 +11,22 @@
 //
 //   node scripts/release/publish.js [--notes "What's new"] [--prerelease]
 //   node scripts/release/publish.js --preview
+//   node scripts/release/publish.js --eden-code [--notes "What's new"]
 //
 // --preview publishes the ad hoc build (npm run dist -- --adhoc) as a pre-release,
 // "v<version>-preview", for trying J.A.R.V.I.S. before it's notarized: macOS won't open it
 // until the person allows it once in System Settings › Privacy & Security, the notes say
 // how, and it never updates itself (the notarized release replaces it).
+//
+// --eden-code publishes what `npm run dist:eden-code` built (app/dist/release-eden-code): the
+// disk image, update zip and checksums as the pre-release eden-code-v<version> (a pre-release
+// so it never becomes the repo's "latest", which J.A.R.V.I.S.'s feed and askeden.com read),
+// then release.json into the one release that never moves, eden-code-mac-feed, where Eden
+// Code's update feed is:
+//
+//   EDEN_CODE_UPDATE_URL=https://github.com/bilelharrat/Jarvis/releases/download/eden-code-mac-feed/release.json
+//
+// (the feed points at the zip in eden-code-v<version>; dist.js zipFolder). Same refusals.
 'use strict';
 
 const fs = require('fs');
@@ -23,10 +34,15 @@ const path = require('path');
 const { run, say, BuildError } = require('./util');
 
 const APP = path.resolve(__dirname, '..', '..');
-const OUT = path.join(APP, 'dist', 'release');
+const { APPS, dmgName, updateZipName, EDEN_CODE_TAG, EDEN_CODE_FEED_TAG } = require('./dist');
+
+const EDEN_CODE = process.argv.includes('--eden-code');
+const SPEC = EDEN_CODE ? APPS['eden-code'] : APPS.jarvis;
+const OUT = SPEC.out;
 const REPO = process.env.JARVIS_RELEASE_REPO || 'bilelharrat/Jarvis';
 const PKG = JSON.parse(fs.readFileSync(path.join(APP, 'package.json'), 'utf8'));
-const DISPLAY = 'J.A.R.V.I.S.';
+const NAME = SPEC.display; // what people read: Eden Secretary, Eden Code
+const FILE = SPEC.file; // what the files are called (dist.js)
 
 function flag(name) {
   const at = process.argv.indexOf(name);
@@ -34,11 +50,11 @@ function flag(name) {
 }
 
 const PREVIEW_NOTES = (version) => [
-  `A preview of J.A.R.V.I.S. ${version} for Apple-silicon Macs (M1 or later) on macOS 14 or later.`,
+  `A preview of ${NAME} ${version} for Apple-silicon Macs (M1 or later) on macOS 14 or later.`,
   '',
   "It isn't notarized by Apple yet, so macOS asks you to allow it once:",
-  '1. Open the disk image and drag J.A.R.V.I.S. onto Applications.',
-  '2. Open J.A.R.V.I.S. from Applications. macOS says it can\'t check it: click Done.',
+  `1. Open the disk image and drag ${NAME} onto Applications.`,
+  `2. Open ${NAME} from Applications. macOS says it can't check it: click Done.`,
   '3. Open System Settings › Privacy & Security, scroll to Security and click Open Anyway, then Open.',
   '',
   "You'll need your own Anthropic API key (console.anthropic.com › API keys) for Setup's Claude step.",
@@ -46,9 +62,10 @@ const PREVIEW_NOTES = (version) => [
 ].join('\n');
 
 function preview() {
+  if (EDEN_CODE) throw new BuildError('--preview is for J.A.R.V.I.S. only: Eden Code goes out notarized.');
   const version = PKG.version;
   const tag = `v${version}-preview`;
-  const dmg = path.join(OUT, `${DISPLAY}-${version}-adhoc.dmg`);
+  const dmg = path.join(OUT, dmgName(version, true, FILE));
   const sums = path.join(OUT, 'SHA256SUMS.txt');
   for (const file of [dmg, sums]) {
     if (!fs.existsSync(file)) throw new BuildError(`Missing ${path.relative(APP, file)}: run npm run dist -- --adhoc first.`);
@@ -61,7 +78,7 @@ function preview() {
     throw new BuildError(`${tag} is already released.`);
   }
   say(`publishing the preview ${tag} to ${REPO}`);
-  run('gh', ['release', 'create', tag, dmg, sums, '--repo', REPO, '--prerelease', '--title', `J.A.R.V.I.S. ${version} preview (not notarized)`, '--notes', flag('--notes') || PREVIEW_NOTES(version)]);
+  run('gh', ['release', 'create', tag, dmg, sums, '--repo', REPO, '--prerelease', '--title', `${NAME} ${version} preview (not notarized)`, '--notes', flag('--notes') || PREVIEW_NOTES(version)]);
   say(`  published: https://github.com/${REPO}/releases/tag/${tag}`);
   say(`  download:  https://github.com/${REPO}/releases/download/${tag}/${encodeURIComponent(path.basename(dmg))}`);
 }
@@ -69,16 +86,17 @@ function preview() {
 function main() {
   if (process.argv.includes('--preview')) return preview();
   const version = PKG.version;
-  const tag = `v${version}`;
-  const dmg = path.join(OUT, `${DISPLAY}-${version}.dmg`);
-  const zip = path.join(OUT, `${DISPLAY}-${version}-mac.zip`);
+  const tag = EDEN_CODE ? EDEN_CODE_TAG(version) : `v${version}`;
+  const dmg = path.join(OUT, dmgName(version, false, FILE));
+  const zip = path.join(OUT, updateZipName(version, FILE));
   const feed = path.join(OUT, 'release.json');
   const sums = path.join(OUT, 'SHA256SUMS.txt');
-  if (fs.existsSync(path.join(OUT, `${DISPLAY}-${version}-adhoc.dmg`)) && !fs.existsSync(dmg)) {
-    throw new BuildError('Only an ad hoc build is here: build the signed, notarized one (npm run dist) first.');
+  const build = EDEN_CODE ? 'npm run dist:eden-code' : 'npm run dist';
+  if (!fs.existsSync(dmg) && ['adhoc', 'unnotarized'].some((kind) => fs.existsSync(path.join(OUT, dmgName(version, kind, FILE))))) {
+    throw new BuildError(`Only a build for checking (ad hoc or unnotarized) is here: build the signed, notarized one (${build}) first.`);
   }
   for (const file of [dmg, zip, feed, sums]) {
-    if (!fs.existsSync(file)) throw new BuildError(`Missing ${path.relative(APP, file)}: run npm run dist with JARVIS_UPDATE_URL set.`);
+    if (!fs.existsSync(file)) throw new BuildError(`Missing ${path.relative(APP, file)}: run ${build} with ${SPEC.feedEnv} set.`);
   }
   const stapled = run('/usr/bin/xcrun', ['stapler', 'validate', dmg], { allowFail: true });
   if (stapled.status !== 0) throw new BuildError(`The disk image has no notarization ticket: ${stapled.stdout}${stapled.stderr}`);
@@ -92,15 +110,34 @@ function main() {
   if (run('gh', ['release', 'view', tag, '--repo', REPO], { allowFail: true, quiet: true }).status === 0) {
     throw new BuildError(`${tag} is already released: bump "version" in app/package.json and build again.`);
   }
-  const notes = flag('--notes') || process.env.JARVIS_RELEASE_NOTES || `J.A.R.V.I.S. ${version} for Apple-silicon Macs (macOS 14 or later). Open the disk image and drag J.A.R.V.I.S. onto Applications.`;
+  const notes = flag('--notes') || process.env.JARVIS_RELEASE_NOTES || `${NAME} ${version} for Apple-silicon Macs (macOS 14 or later). Open the disk image and drag ${NAME} onto Applications.`;
   say(`publishing ${tag} to ${REPO}`);
-  const create = ['release', 'create', tag, dmg, zip, sums, '--repo', REPO, '--draft', '--title', `J.A.R.V.I.S. ${version}`, '--notes', notes];
+  if (EDEN_CODE) return publishEdenCode({ tag, dmg, zip, feed, sums, notes, version });
+  const create = ['release', 'create', tag, dmg, zip, sums, '--repo', REPO, '--draft', '--title', `${NAME} ${version}`, '--notes', notes];
   if (process.argv.includes('--prerelease')) create.push('--prerelease');
   run('gh', create);
   run('gh', ['release', 'upload', tag, feed, '--repo', REPO]);
   run('gh', ['release', 'edit', tag, '--repo', REPO, '--draft=false', ...(process.argv.includes('--prerelease') ? [] : ['--latest'])]);
   say(`  published: https://github.com/${REPO}/releases/tag/${tag}`);
   say(`  download:  https://github.com/${REPO}/releases/latest/download/${encodeURIComponent(path.basename(dmg))}`);
+}
+
+// Eden Code: its version as a pre-release that is never "latest", then the feed (release.json,
+// replaced in the one feed release) last, so the feed never points at a zip that isn't up.
+function publishEdenCode({ tag, dmg, zip, feed, sums, notes, version }) {
+  const pointed = JSON.parse(fs.readFileSync(feed, 'utf8')).releases[0].updateTo.url;
+  if (!pointed.includes(`/releases/download/${tag}/`)) {
+    throw new BuildError(`release.json points at ${pointed}, not at ${tag}: build with EDEN_CODE_UPDATE_URL=https://github.com/${REPO}/releases/download/${EDEN_CODE_FEED_TAG}/release.json`);
+  }
+  run('gh', ['release', 'create', tag, dmg, zip, sums, '--repo', REPO, '--draft', '--prerelease', '--latest=false', '--title', `${NAME} ${version} for Mac`, '--notes', notes]);
+  run('gh', ['release', 'edit', tag, '--repo', REPO, '--draft=false', '--latest=false']);
+  if (run('gh', ['release', 'view', EDEN_CODE_FEED_TAG, '--repo', REPO], { allowFail: true, quiet: true }).status !== 0) {
+    run('gh', ['release', 'create', EDEN_CODE_FEED_TAG, '--repo', REPO, '--prerelease', '--latest=false', '--title', `${NAME} for Mac: update feed`, '--notes', `Eden Code's update feed (release.json). Downloads are in the eden-code-v… releases.`]);
+  }
+  run('gh', ['release', 'upload', EDEN_CODE_FEED_TAG, feed, '--clobber', '--repo', REPO]);
+  say(`  published: https://github.com/${REPO}/releases/tag/${tag}`);
+  say(`  download:  https://github.com/${REPO}/releases/download/${tag}/${encodeURIComponent(path.basename(dmg))}`);
+  say(`  feed:      https://github.com/${REPO}/releases/download/${EDEN_CODE_FEED_TAG}/release.json`);
 }
 
 try {

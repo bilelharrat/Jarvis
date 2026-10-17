@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 const notarize = require('../../app/scripts/release/notarize.js');
 const dmg = require('../../app/scripts/release/dmg.js');
 const dist = require('../../app/scripts/release/dist.js');
+const { releaseFeed } = require('../../app/update-feed.js');
 
 test("notarytool's answer is read from its output", () => {
   assert.deepEqual(notarize.parseSubmission('Conducting pre-submission checks…\n{"id":"abc","status":"Accepted","message":"Processing complete"}\n'),
@@ -65,7 +66,31 @@ test('stapling staples, then validates', () => {
 test("the disk image is named for its version, and an ad hoc one can't pass for a release", () => {
   assert.equal(dist.dmgName('0.2.0', false), 'J.A.R.V.I.S.-0.2.0.dmg');
   assert.equal(dist.dmgName('0.2.0', true), 'J.A.R.V.I.S.-0.2.0-adhoc.dmg');
-  assert.equal(dist.dmgName('0.2.0', false, 'Eden Code'), 'Eden Code-0.2.0.dmg');
+  assert.equal(dist.dmgName('0.2.0', 'unnotarized'), 'J.A.R.V.I.S.-0.2.0-unnotarized.dmg');
+  // Eden Code's files have no spaces: GitHub turns a space in an uploaded name into a dot.
+  assert.equal(dist.dmgName('0.2.0', false, dist.APPS['eden-code'].file), 'Eden-Code-0.2.0.dmg');
+  assert.equal(dist.updateZipName('0.2.0', dist.APPS['eden-code'].file), 'Eden-Code-0.2.0-mac.zip');
+  // The Finder name is Eden Secretary; the files keep J.A.R.V.I.S.'s (askeden.com builds the link).
+  assert.equal(dist.APPS.jarvis.display, 'Eden Secretary');
+  for (const spec of Object.values(dist.APPS)) assert.doesNotMatch(spec.file, /\s/);
+});
+
+test('--sign-only signs with the Developer ID but needs no notary profile, and never with --adhoc', () => {
+  assert.deepEqual(dist.parseArgs(['--sign-only', '--eden-code']), { adhoc: false, signOnly: true, edenCode: true, withEdenCode: true });
+  assert.throws(() => dist.parseArgs(['--adhoc', '--sign-only']), /pick one/);
+  assert.deepEqual(dist.credentials({ JARVIS_SIGN_IDENTITY: 'X' }, { adhoc: false, signOnly: true }), { identity: 'X', profile: '' });
+  assert.throws(() => dist.credentials({ JARVIS_SIGN_IDENTITY: 'X' }, { adhoc: false }), /JARVIS_NOTARY_PROFILE/);
+});
+
+test("Eden Code's feed stays at one address; each version's zip is in its own release", () => {
+  const code = dist.APPS['eden-code'];
+  const feed = `https://github.com/bilelharrat/Jarvis/releases/download/${dist.EDEN_CODE_FEED_TAG}/release.json`;
+  assert.equal(dist.zipFolder(code, feed, '0.2.0'), 'https://github.com/bilelharrat/Jarvis/releases/download/eden-code-v0.2.0/');
+  assert.equal(dist.zipFolder(code, 'https://downloads.example.com/code/release.json', '0.2.0'), '');
+  assert.equal(dist.zipFolder(dist.APPS.jarvis, feed, '0.2.0'), '');
+  const release = releaseFeed({ version: '0.2.0', zipName: 'Eden-Code-0.2.0-mac.zip', feedUrl: feed, zipBase: dist.zipFolder(code, feed, '0.2.0'), appName: 'Eden Code', date: new Date(0) });
+  assert.equal(release.releases[0].updateTo.url, 'https://github.com/bilelharrat/Jarvis/releases/download/eden-code-v0.2.0/Eden-Code-0.2.0-mac.zip');
+  assert.equal(release.releases[0].updateTo.name, 'Eden Code 0.2.0');
 });
 
 test('the checksums are as shasum -a 256 -c reads them', () => {

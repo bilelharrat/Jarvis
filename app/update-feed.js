@@ -82,17 +82,22 @@ function newerRelease(release, running) {
   return compareVersions(release.version, running) > 0 ? release : null;
 }
 
-// release.json for the dist build: the zip's address is the feed's own folder plus its name.
-function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() }) {
+// release.json for the dist build: the zip's address is the feed's own folder plus its name,
+// or zipBase plus its name when the zip lives elsewhere (Eden Code's feed stays at one fixed
+// address while each version's zip is in that version's own GitHub release). appName is the
+// app the update is for, as the window says it ("Eden Code 0.2.0", not Eden Secretary's).
+function releaseFeed({ version, zipName, feedUrl, zipBase = '', appName = 'Eden Secretary', notes = '', date = new Date() }) {
   if (!parseVersion(version)) throw new Error(`package.json's version ${version} isn't x.y.z`);
   const base = cleanFeedUrl(feedUrl);
   if (!base) throw new Error(`the update feed's address must be https (JARVIS_UPDATE_URL is ${JSON.stringify(String(feedUrl || ''))})`);
-  const url = new URL(encodeURIComponent(zipName), base).toString();
+  const folder = zipBase ? cleanFeedUrl(zipBase) : base;
+  if (!folder) throw new Error(`the update zip's folder must be https, not ${JSON.stringify(String(zipBase))}`);
+  const url = new URL(encodeURIComponent(zipName), folder.endsWith('/') || !zipBase ? folder : `${folder}/`).toString();
   return {
     currentRelease: version,
     releases: [{
       version,
-      updateTo: { version, name: `Eden Secretary ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
+      updateTo: { version, name: `${String(appName).slice(0, 60)} ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
     }],
   };
 }

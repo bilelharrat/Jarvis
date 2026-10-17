@@ -15,7 +15,16 @@
 // and release.json beside the disk image (app/update-feed.js; app/features/updates.js).
 // `npm run dist -- --adhoc` does 1-4 and 6 (and the checksum) signed ad hoc, with no
 // credentials: for checking the build on this Mac, never for giving to anyone; its disk image
-// says so in its name. Logs go to app/dist/logs, everything else to app/dist/release.
+// says so in its name. `--sign-only` does the same with the real Developer ID (so the hardened
+// runtime, entitlements and team are checked exactly as Apple will see them) but sends nothing
+// to Apple: its disk image says "-unnotarized" and it can't be published either.
+// Logs go to app/dist/logs, everything else to app/dist/release.
+//
+// File names: J.A.R.V.I.S.'s disk image and update zip keep the J.A.R.V.I.S.-<version> names
+// (askeden.com's /jarvis/download builds "J.A.R.V.I.S.-<version>.dmg" from the feed, and the
+// app's Finder name, Eden Secretary, is only CFBundleDisplayName and the volume name). Eden
+// Code's are Eden-Code-<version>: no spaces, because GitHub renames a space in an uploaded
+// file's name to a dot, and the feed's zip address would then point at nothing.
 //
 // Eden Code, the coding app split out of J.A.R.V.I.S. (flavor.js), comes with it: the build
 // makes Eden Code.app too (the same app folder and backend, under Eden Code's name, bundle id,
@@ -55,6 +64,7 @@ const APPS = {
     flavor: 'jarvis',
     name: 'J.A.R.V.I.S',
     display: 'Eden Secretary',
+    file: 'J.A.R.V.I.S.', // the disk image's and update zip's names (see the top)
     // The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App
     // ID for it, so it stays (renaming it would also move the wake agent's label, the Quick
     // Action's and the helpers' identifiers).
@@ -68,6 +78,7 @@ const APPS = {
     flavor: 'eden-code',
     name: 'Eden Code',
     display: 'Eden Code',
+    file: 'Eden-Code',
     bundleId: 'com.bshventures.edencode',
     icon: path.join(APP_DIR, 'build', 'eden-code', 'icon.icns'),
     extendInfo: path.join(APP_DIR, 'build', 'eden-code', 'extend-info.plist'),
@@ -75,27 +86,34 @@ const APPS = {
     out: path.join(DIST, 'release-eden-code'),
   },
 };
-const DISPLAY = APPS.jarvis.display;
+const FILE = APPS.jarvis.file;
+// Where Eden Code's versions are published (scripts/release/publish.js --eden-code): each in
+// its own GitHub pre-release, eden-code-v<version>, with the feed in one release that never
+// moves (EDEN_CODE_FEED_TAG), so the address baked into the app always finds the newest.
+const EDEN_CODE_TAG = (version) => `eden-code-v${version}`;
+const EDEN_CODE_FEED_TAG = 'eden-code-mac-feed';
 
 function parseArgs(argv) {
-  const args = { adhoc: false, edenCode: false, withEdenCode: true };
+  const args = { adhoc: false, signOnly: false, edenCode: false, withEdenCode: true };
   for (const a of argv) {
     if (a === '--adhoc') args.adhoc = true;
+    else if (a === '--sign-only') args.signOnly = true;
     else if (a === '--eden-code') args.edenCode = true;
     else if (a === '--no-eden-code') args.withEdenCode = false;
-    else throw new BuildError(`unknown option ${a} (only --adhoc, --eden-code, --no-eden-code)`);
+    else throw new BuildError(`unknown option ${a} (only --adhoc, --sign-only, --eden-code, --no-eden-code)`);
   }
+  if (args.adhoc && args.signOnly) throw new BuildError('--adhoc and --sign-only: pick one');
   return args;
 }
 
 // What signing needs, from the environment; fails before any work when it's missing.
-function credentials(env, { adhoc }) {
+function credentials(env, { adhoc, signOnly = false }) {
   if (adhoc) return { identity: '-', profile: '' };
   const identity = (env.JARVIS_SIGN_IDENTITY || '').trim();
-  const profile = (env.JARVIS_NOTARY_PROFILE || '').trim();
+  const profile = signOnly ? '' : (env.JARVIS_NOTARY_PROFILE || '').trim();
   const missing = [];
   if (!identity) missing.push('JARVIS_SIGN_IDENTITY: your "Developer ID Application: Bilel Harrat (8CV4X23Y2T)" certificate, by name or SHA-1 hash (security find-identity -v -p codesigning lists them)');
-  if (!profile) missing.push('JARVIS_NOTARY_PROFILE: the name you gave `xcrun notarytool store-credentials`');
+  if (!profile && !signOnly) missing.push('JARVIS_NOTARY_PROFILE: the name you gave `xcrun notarytool store-credentials`');
   if (missing.length) throw new BuildError(`Can't sign for other Macs without:\n  ${missing.join('\n  ')}\nOr run npm run dist -- --adhoc to check the build on this Mac only.`);
   return { identity, profile };
 }
@@ -112,13 +130,24 @@ function checkIdentity(identity) {
   if (!line.includes(`(${TEAM})"`)) throw new BuildError(`"${identity}" isn't team ${TEAM}'s certificate (${line.trim()}). Releases are signed by Bilel Harrat (${TEAM}) only.`);
 }
 
-// What the build writes, by name (the ad hoc one can't be mistaken for a release).
-function dmgName(version, adhoc, display = DISPLAY) {
-  return `${display}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
+// What the build writes, by name (the ad hoc and the unnotarized one can't be mistaken for a
+// release). kind: false (a release), true or 'adhoc', or 'unnotarized'.
+function dmgName(version, kind, file = FILE) {
+  const suffix = kind === true ? 'adhoc' : (kind || '');
+  return `${file}-${version}${suffix ? `-${suffix}` : ''}.dmg`;
 }
 
-function updateZipName(version, display = DISPLAY) {
-  return `${display}-${version}-mac.zip`;
+function updateZipName(version, file = FILE) {
+  return `${file}-${version}-mac.zip`;
+}
+
+// Where the update zip sits, when not beside release.json: Eden Code's feed is one fixed
+// GitHub release (EDEN_CODE_FEED_TAG) and each version's zip is in that version's own
+// release, so the zip's folder is the feed's with the tag swapped. '' = beside the feed.
+function zipFolder(spec, feed, version) {
+  if (spec.flavor !== 'eden-code' || !feed) return '';
+  const m = /^(https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/)([^/]+)\/[^/]+$/.exec(feed);
+  return m && m[2] === EDEN_CODE_FEED_TAG ? `${m[1]}${EDEN_CODE_TAG(version)}/` : '';
 }
 
 // The update feed's address from JARVIS_UPDATE_URL (or the app's own variable: Eden Code's is
@@ -227,12 +256,13 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   setLog(path.join(DIST, 'logs', `dist-${stamp}.log`));
   if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new BuildError('The app is built on an Apple-silicon Mac');
   const { identity, profile } = credentials(env, args);
+  const notarizing = !args.adhoc && !args.signOnly;
   const primary = args.edenCode ? APPS['eden-code'] : APPS.jarvis;
   const specs = args.edenCode || !args.withEdenCode ? [primary] : [APPS.jarvis, APPS['eden-code']];
   const feeds = new Map(specs.map((spec) => [spec, updateFeed(env, spec.feedEnv)]));
   if (!args.adhoc) checkIdentity(identity);
   const OUT_DIR = primary.out;
-  say(`${specs.map((spec) => spec.display).join(' + ')} ${PKG.version}${args.adhoc ? ' (ad hoc: this Mac only)' : ''}`);
+  say(`${specs.map((spec) => spec.display).join(' + ')} ${PKG.version}${args.adhoc ? ' (ad hoc: this Mac only)' : ''}${args.signOnly ? ' (Developer ID, not notarized: for checking, never for giving away)' : ''}`);
   // What an earlier build left that this one might not make again (a feed without its zip).
   if (fs.existsSync(OUT_DIR)) {
     for (const name of fs.readdirSync(OUT_DIR).filter((n) => /(^|-)release\.json$/.test(n) || n === 'SHA256SUMS.txt' || n.endsWith('-mac.zip'))) {
@@ -249,9 +279,10 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   for (const spec of specs) apps.push(await buildApp(spec, { args, identity, profile, backend, minimum, helpers, feed: feeds.get(spec), out: OUT_DIR }));
 
   say('6. the disk image');
-  const dmg = makeDmg(apps, path.join(OUT_DIR, dmgName(PKG.version, args.adhoc, primary.display)), primary.display);
+  const dmg = makeDmg(apps, path.join(OUT_DIR, dmgName(PKG.version, args.adhoc || (args.signOnly && 'unnotarized'), primary.file)), primary.display);
 
-  if (!args.adhoc) {
+  if (args.signOnly) signDmg(dmg, identity);
+  if (notarizing) {
     say('7. signing and notarizing the disk image');
     signDmg(dmg, identity);
     notarize(dmg, profile);
@@ -259,14 +290,14 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   }
 
   const published = [dmg];
-  if (!args.adhoc) {
+  if (notarizing) {
     specs.forEach((spec, i) => {
       const feed = feeds.get(spec);
       if (!feed) return;
       // The update Squirrel downloads: the notarized, stapled app, and the feed pointing at it.
-      const zipName = updateZipName(PKG.version, spec.display);
+      const zipName = updateZipName(PKG.version, spec.file);
       published.push(zipApp(apps[i], path.join(OUT_DIR, zipName)));
-      const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '' });
+      const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, zipBase: zipFolder(spec, feed, PKG.version), appName: spec.display, notes: env.JARVIS_RELEASE_NOTES || '' });
       const feedFile = spec === primary ? 'release.json' : `${spec.flavor}-release.json`;
       fs.writeFileSync(path.join(OUT_DIR, feedFile), `${JSON.stringify(release, null, 2)}\n`);
       say(`  ${spec.display}'s update: ${zipName} and ${feedFile}, for ${feed}`);
@@ -276,7 +307,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   say('8. checksums');
   const sums = writeChecksums(published, path.join(OUT_DIR, 'SHA256SUMS.txt'));
   for (const line of sums) say(`  ${line}`);
-  if (!args.adhoc) apps.forEach((app, i) => gatekeeper(app, i === 0 ? dmg : null));
+  if (notarizing) apps.forEach((app, i) => gatekeeper(app, i === 0 ? dmg : null));
   return { app: apps[0], apps, dmg, minimum, helpers, backend };
 }
 
@@ -313,7 +344,7 @@ async function buildApp(spec, { args, identity, profile, backend, minimum, helpe
   if (checked.problems.length) throw new BuildError(`The signed app didn't verify:\n  ${checked.problems.join('\n  ')}`);
   say(`  ${checked.machos} Mach-O files signed and verified; needs macOS ${checked.needed}, declares ${checked.declared}`);
 
-  if (!args.adhoc) {
+  if (!args.adhoc && !args.signOnly) {
     say(`5. notarizing ${spec.display}`);
     const zip = zipApp(app, path.join(STAGE, `${spec.name}.zip`));
     notarize(zip, profile);
@@ -323,7 +354,7 @@ async function buildApp(spec, { args, identity, profile, backend, minimum, helpe
   return app;
 }
 
-module.exports = { main, APPS, credentials, parseArgs, electronZipDir, minimumFor, dmgName, updateZipName, updateFeed };
+module.exports = { main, APPS, credentials, parseArgs, electronZipDir, minimumFor, dmgName, updateZipName, updateFeed, zipFolder, EDEN_CODE_TAG, EDEN_CODE_FEED_TAG };
 
 if (require.main === module) {
   main().then(({ app, dmg }) => {
