@@ -57,7 +57,6 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from . import code_changes
 from .code_changes import NO_HOOKS, git
 
 FORMAT = "eden-code-evals/1"

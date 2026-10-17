@@ -91,6 +91,15 @@
   const t = (text) => F.t(text);
   const M = { queues: [], attention: 0, copies: [], prs: [] };
   const own = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
+  // A word that means something of its own here: one dictionary serves the whole window and
+  // the last file's Chinese wins, so the button "Queue" (a verb, 加入队列) and the inbox's kind
+  // "Queue" (a noun, 队列, code-attention.js) can't share a key. Its Chinese is under
+  // "Merge queue · <word>" (i18n/code-merge-queue.json), else the window's for the word.
+  const word = (text) => {
+    const key = `Merge queue · ${text}`;
+    const zh = t(key);
+    return zh !== key ? zh : t(text);
+  };
   const lane = F.el('section', 'cs-lane mq-lane');
   lane.setAttribute('aria-label', 'Merge queue');
 
@@ -126,8 +135,8 @@
         card.setAttribute('role', 'listitem');
         card.append(own(F.el('h3', 'cs-card-title', c.title)), own(F.el('p', 'cs-card-project', `${c.project} · ${c.where}`)));
         const acts = F.el('div', 'cs-card-acts');
-        acts.append(button('Queue', 'tinted', () => F.send(c.kind === 'copy' ? { type: 'code_mq_add', kind: 'copy', slug: c.ref } : { type: 'code_mq_add', kind: 'pr', key: c.ref }),
-          `add:${c.kind}:${c.ref}`, `${t('Queue')}: ${c.title}`));
+        acts.append(own(button(word('Queue'), 'tinted', () => F.send(c.kind === 'copy' ? { type: 'code_mq_add', kind: 'copy', slug: c.ref } : { type: 'code_mq_add', kind: 'pr', key: c.ref }),
+          `add:${c.kind}:${c.ref}`, `${word('Queue')}: ${c.title}`)));
         card.append(acts);
         list.append(card);
       }

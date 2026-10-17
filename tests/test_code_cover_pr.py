@@ -287,8 +287,12 @@ async def test_push_from_the_pane_pushes_the_sessions_commits_behind_the_card(
     task = session(hub, repo)
     git(repo, "push", "-q", "-u", "origin", "feature/login")
     rec = watched(hub, repo, awaiting_push=True)
+    published = len(events(hub, "code_pr"))
     hub.code_pr.cmd_push({"id": task.id})
     assert await until(lambda: not rec.awaiting_push)
+    # The command ends with the pane's refresh (git reading the repository): let it end before
+    # the test commits there, or the two git processes can meet on the repository's lock.
+    assert await until(lambda: len(events(hub, "code_pr")) > published)
     assert hub.cards == [] and captions(hub) == []  # already there: no card, no words
     (repo / "b.py").write_text("y = 2\n")
     git(repo, "commit", "-qam", "Fix the failing test")

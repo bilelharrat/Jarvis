@@ -16,6 +16,7 @@ from test_code_share import AWS, KEY, hub, latest, projects, session  # noqa: F4
 
 from jarvis import share_seal
 from jarvis.account import AccountError
+from jarvis.companion_api import session_status
 from jarvis.features import code_share, code_share_live
 from jarvis.features.code_share_drive import PREF_DRIVERS
 from jarvis.relay import Relay
@@ -140,6 +141,9 @@ def test_big_blobs_split_and_join_and_a_lost_part_holds_nothing_up():
 
 async def test_a_share_is_registered_and_pushed_sealed(hub, projects, line):
     task, _ = await session(hub, projects)
+    # The session's own start-up settles first (working, then done): a share pushes that change
+    # too, so it has to be over before "nothing changed: nothing pushed" can be asked below.
+    await until(lambda: session_status(task, False) == "done")
     hub.code_share.cmd_start({"id": task.id, "minutes": 15})
     share = next(iter(hub.code_share.shares.values()))
     link = share.live_link

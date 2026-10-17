@@ -61,9 +61,9 @@ import time
 from typing import Any
 
 from .. import codesupervisor as cs
+from ..codeplatform import other_agent
 from .code_security import receipt_words as security_words
 from .code_security import risk_of as security_risk
-from ..codeplatform import other_agent
 
 log = logging.getLogger("jarvis")
 

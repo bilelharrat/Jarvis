@@ -617,7 +617,7 @@ def _legacy_jarvis_wake_word(request, monkeypatch):
     monkeypatch.setattr(
         wakewords,
         "effective",
-        lambda p, l, pref, _e=wakewords.effective: _e(p, l, pref) or ["Jarvis"],
+        lambda p, lang, pref, _e=wakewords.effective: _e(p, lang, pref) or ["Jarvis"],
     )
     original = wake.wake_names
 

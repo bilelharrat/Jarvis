@@ -63,8 +63,10 @@ test('stapling staples, then validates', () => {
 });
 
 test("the disk image is named for its version, and an ad hoc one can't pass for a release", () => {
-  assert.equal(dist.dmgName('0.2.0', false), 'J.A.R.V.I.S.-0.2.0.dmg');
-  assert.equal(dist.dmgName('0.2.0', true), 'J.A.R.V.I.S.-0.2.0-adhoc.dmg');
+  // Eden Secretary's installed app, DMG and update zip carry its user-visible name since the
+  // rename (9ca60def); only its bundle id, executable and data folder keep J.A.R.V.I.S.'s.
+  assert.equal(dist.dmgName('0.2.0', false), 'Eden Secretary-0.2.0.dmg');
+  assert.equal(dist.dmgName('0.2.0', true), 'Eden Secretary-0.2.0-adhoc.dmg');
   assert.equal(dist.dmgName('0.2.0', false, 'Eden Code'), 'Eden Code-0.2.0.dmg');
 });
 
@@ -81,5 +83,5 @@ test('the update feed is https or nothing; the update zip is named for its versi
   assert.equal(dist.updateFeed({}), '');
   assert.equal(dist.updateFeed({ JARVIS_UPDATE_URL: ' https://downloads.example.com/jarvis/release.json ' }), 'https://downloads.example.com/jarvis/release.json');
   assert.throws(() => dist.updateFeed({ JARVIS_UPDATE_URL: 'http://downloads.example.com/release.json' }), /must be an https address/);
-  assert.equal(dist.updateZipName('0.2.0'), 'J.A.R.V.I.S.-0.2.0-mac.zip');
+  assert.equal(dist.updateZipName('0.2.0'), 'Eden Secretary-0.2.0-mac.zip');
 });

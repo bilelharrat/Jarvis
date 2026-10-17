@@ -23,7 +23,9 @@ def test_eden_wakes_when_called_and_jarvis_does_not():
 
 
 def test_the_owner_can_add_jarvis_back():
-    names = lambda: wakewords.effective("jarvis", "en", {"added": ["Jarvis"], "removed": []})
+    def names():
+        return wakewords.effective("jarvis", "en", {"added": ["Jarvis"], "removed": []})
+
     wake.configure(names)
     try:
         assert wake.find_wake("What's the weather, Jarvis?") == (True, "What's the weather")
