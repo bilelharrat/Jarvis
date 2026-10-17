@@ -6,7 +6,7 @@
 // code_*, and loops' entries) run there, and only their stylesheets and those of features
 // with no script of their own (a module that doesn't run there has nothing there to style).
 (function loadFeatures() {
-  const PANE_SCRIPTS = /\/features\/(code[-_][\w-]*|loops)\.js(\?|$)/;
+  const PANE_SCRIPTS = /\/features\/(code[-_][\w-]*)\.js(\?|$)/;
   const paneOnly = typeof inSplitPane !== 'undefined' && inSplitPane;
   const stem = (href) => (/\/features\/([\w-]+)\.(?:js|css)(\?|$)/.exec(href) || [])[1] || '';
   // Eden Code's own window asks for its modules only (server.EDEN_ONLY_FEATURES stay out).

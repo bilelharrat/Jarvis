@@ -6,10 +6,9 @@
   three calls goes round three times, the turn is stopped politely: the reply says what
   happened and offers to try another way (said aloud unless the turn is silent), and Claude
   hears it in a note with the next request, so "yes, try again" gets a different approach.
-- An Eden Code session: each step of its timeline (hub.add_task_sink: task_log entries of
-  role "tool") goes to the session's own guard, which starts over when the owner writes to
-  it. A loop puts a notice in the session's timeline (role "loop") with a Stop button: the
-  owner decides; the session is never stopped by this.
+- Eden Code sessions are never flagged as stuck: the owner asked that no "seems stuck"
+  card ever show there (2026-10-16). A session repeats a step as part of real work often
+  enough that the card cried wolf.
 - Background tasks have the same guard in background.py: one that loops stops and says so
   in its heads-up.
 
@@ -18,7 +17,6 @@ Claude cost policy: no model is called here (a stopped turn spends less, never m
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -46,7 +44,6 @@ CIRCLES_PLAIN = (
     "I stopped there: I was going round in circles without getting anywhere. "
     "Shall I try a different way?"
 )
-CODE_NOTICE = "Eden Code seems stuck: {what}. Stop it, or let it carry on."
 lang.add_texts(
     {
         REPEATED: "我先停下了：我一直在重复同一步（{step}），却没有进展。要我换个办法再试吗？",
@@ -83,7 +80,6 @@ class Loops:
         self.hub = hub
         self.turn = LoopGuard()
         self.tripped = False  # this turn was stopped for a loop: the rest of it isn't weighed
-        self.code: dict[int, LoopGuard] = {}  # Eden Code session id -> its guard
 
     # ── JARVIS's own turn ──
 
@@ -129,57 +125,11 @@ class Loops:
         await hub.stop()
         hub.say(words)
 
-    # ── Eden Code sessions ──
-
-    def on_task_event(self, kind: str, data: dict[str, Any]) -> None:
-        if kind == "task_finished":
-            self.code.pop(int(data.get("id") or 0), None)
-            return
-        if kind != "task_log":
-            return
-        entry = data.get("entry")
-        task_id = int(data.get("id") or 0)
-        if not isinstance(entry, dict) or not task_id:
-            return
-        role = entry.get("role")
-        if role == "user":  # the owner wrote to it: a fresh start
-            self.code.pop(task_id, None)
-            return
-        if role != "tool":
-            return
-        guard = self.code.setdefault(task_id, LoopGuard())
-        loop = guard.note(
-            str(entry.get("tool") or ""), [entry.get("text") or "", entry.get("detail") or ""]
-        )
-        if loop is not None:
-            asyncio.get_running_loop().call_soon(self._code_notice, task_id, loop)
-
-    def _code_notice(self, task_id: int, loop: Loop) -> None:
-        tasks = getattr(self.hub, "tasks", None)
-        task = tasks.tasks.get(task_id) if tasks is not None else None
-        if task is None or task.status != "running":
-            return
-        steps = [
-            str(e.get("text") or "")
-            for e in task.transcript[-len(loop.tools) * loop.times :]
-            if e.get("role") == "tool"
-        ][-len(loop.tools) :]
-        tasks._log(
-            task,
-            "loop",
-            CODE_NOTICE.format(what=loop.describe()),
-            task_id=task_id,
-            kind=loop.kind,
-            times=loop.times,
-            steps=steps,
-        )
-
     def install(self) -> None:
         hub = self.hub
         hub.loops = self
         hub.add_query_hook(self.on_query)
         hub.add_message_sink(self.on_message)
-        hub.add_task_sink(self.on_task_event)
 
 
 def install(hub: Any) -> None:
