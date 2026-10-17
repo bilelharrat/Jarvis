@@ -8078,20 +8078,6 @@ test('Agents: made in Settings under Personality with their persona, tools and c
   assert(await js(`$('agent-badge').hidden`), 'the everyday Eden Secretary still showed a badge');
 });
 
-// ── An Eden Code session that seems stuck (web/features/loops.js) ──
-
-test('Loops: a stuck Eden Code session gets a notice with Stop, and the session is only stopped by it', async () => {
-  await loadFeatures('loops.js', 'loops.css');
-  await js(`window.__loop = featureEntries.get('loop')({ role: 'loop', task_id: 7, kind: 'repeat', times: 3, steps: ['Running <b>tests</b>'] }); document.body.append(__loop); __sent.length = 0; true`);
-  const shown = await js(`({ text: __loop.querySelector('.jc-loop-head').textContent, step: __loop.querySelector('.jc-loop-steps li').textContent, mine: __loop.querySelector('.jc-loop-steps li').hasAttribute('data-no-i18n'), bold: __loop.querySelectorAll('b').length, buttons: [...__loop.querySelectorAll('.btn')].map((b) => b.textContent) })`);
-  assert(/did the same step three times in a row/.test(shown.text) && shown.step === 'Running <b>tests</b>' && shown.mine && shown.bold === 0 && shown.buttons.join() === 'Stop,Let it carry on', JSON.stringify(shown));
-  assert((await js('__sent.length')) === 0, 'the notice sent something by itself');
-  await js(`[...__loop.querySelectorAll('.btn')].find((b) => b.textContent === 'Stop').click(); true`);
-  assert(JSON.stringify(await sentOf('task_interrupt')) === '[{"type":"task_interrupt","id":7}]', 'Stop did not interrupt the session');
-  assert(await js(`__loop.querySelector('.jc-loop-done').textContent === 'Stopped.'`), 'Stop left the buttons up');
-  await js(`window.__loop2 = featureEntries.get('loop')({ role: 'loop', task_id: 8, kind: 'cycle', steps: [] }); __sent.length = 0; [...__loop2.querySelectorAll('.btn')].find((b) => b.textContent === 'Let it carry on').click(); true`);
-  assert(/went round the same few steps/.test(await js(`__loop2.querySelector('.jc-loop-head').textContent`)) && (await js('__sent.length')) === 0, 'carrying on sent something');
-});
 
 // ── Videos (web/features/video_gen.js) ──
 

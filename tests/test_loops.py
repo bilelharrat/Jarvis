@@ -14,7 +14,6 @@ from jarvis import background, lang, loopguard
 from jarvis.features import loops as loops_feature
 from jarvis.hub import Hub
 from jarvis.loopguard import Loop, LoopGuard
-from jarvis.tasks import ClaudeTask
 
 
 def calls(guard: LoopGuard, *items):
@@ -225,45 +224,3 @@ async def test_a_background_task_that_loops_stops_and_its_heads_up_says_why(make
         "anywhere, so it stopped itself"
     )
     assert lang.translate(background.LOOPED, "zh").startswith("它一直在重复同样的步骤")
-
-
-# ── Eden Code ──
-
-
-async def test_a_jarvis_code_session_gets_a_notice_with_stop_never_a_stop(make_hub, tmp_path):
-    hub = make_hub()
-    events = []
-    hub.emit = lambda kind, **data: events.append((kind, data))
-    tasks = hub.tasks
-    task = ClaudeTask(id=7, prompt="fix it", cwd=tmp_path)
-    tasks.tasks[7] = task
-
-    def step(text, detail):
-        tasks._log(task, "tool", text, tool="Bash", tool_id=text, detail=detail, status="running")
-
-    for _ in range(3):
-        step("Running the tests", "pytest -q")
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    notices = [e for e in task.transcript if e["role"] == "loop"]
-    assert len(notices) == 1
-    [notice] = notices
-    assert notice["task_id"] == 7 and notice["kind"] == "repeat" and notice["times"] == 3
-    assert notice["steps"] == ["Running the tests"] and task.status == "running"
-    assert ("task_log", {"id": 7, "entry": notice}) in events
-    # The owner writes to it: a fresh start, and different steps are progress.
-    tasks._log(task, "user", "try the other test")
-    step("Running the tests", "pytest -q")
-    step("Running the tests", "pytest -q")
-    step("Reading app.py", "app.py")
-    for n in range(4):
-        step("Editing app.py", f"change {n}")
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    assert len([e for e in task.transcript if e["role"] == "loop"]) == 1
-    task.status = "done"  # a notice due after the session finished isn't shown
-    for _ in range(3):
-        step("Reading app.py", "app.py")
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    assert len([e for e in task.transcript if e["role"] == "loop"]) == 1

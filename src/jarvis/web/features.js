@@ -3,9 +3,9 @@
 // app.js's functions and window.jarvisFeatures (on, send, registerPane, registerMoreItem…).
 // Without a backend (the window's own tests) there's simply nothing to load. Split view's
 // right pane (app.js: inSplitPane) shows one Eden Code session: only Eden Code's modules
-// (code-*, code_*, and loops' entries) run there; every stylesheet loads.
+// (code-*, code_*) run there; every stylesheet loads.
 (function loadFeatures() {
-  const PANE_SCRIPTS = /\/features\/(code[-_][\w-]*|loops)\.js(\?|$)/;
+  const PANE_SCRIPTS = /\/features\/(code[-_][\w-]*)\.js(\?|$)/;
   const paneOnly = typeof inSplitPane !== 'undefined' && inSplitPane;
   fetch('/features.json', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : {}))
