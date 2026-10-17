@@ -168,7 +168,10 @@ fun safeTop(): Dp = maxOf(
     WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
     WindowInsets.displayCutout.asPaddingValues().calculateTopPadding(),
     62.dp,
-)
+) + LocalTopExtra.current
+
+/** Room the screens leave above their headers for the demo's strip (zero otherwise). */
+val LocalTopExtra = androidx.compose.runtime.compositionLocalOf { 0.dp }
 
 @Composable
 fun safeBottom(): Dp = maxOf(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(), 34.dp)

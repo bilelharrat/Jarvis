@@ -165,6 +165,11 @@ def free_port() -> int:
         return int(s.getsockname()[1])
 
 
+# These cards make, delete or run things at a provider, or send a project to a machine off this
+# Mac: marked for Touch ID, and only a tap on the Mac answers them (code_touchid.mac_only).
+GATED_CARD = {"tool": "code_provision", "touchid": True, "tap_only": True}
+
+
 class Provisioner:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
@@ -484,7 +489,7 @@ class Provisioner:
             question,
             self.tr(self.plan_text(plan)),
             [("go", self.tr("Create it")), ("deny", self.tr("Not now"))],
-            context={"tool": "code_provision"},
+            context=GATED_CARD,
         )
         if choice != "go":
             return "Nothing was made."
@@ -762,7 +767,7 @@ class Provisioner:
                 self.tr(f"Delete {alias}?"),
                 self.tr(detail),
                 [("go", self.tr("Delete it")), ("deny", self.tr("Keep it"))],
-                context={"tool": "code_provision"},
+                context=GATED_CARD,
             )
             if choice != "go":
                 return f"Kept {alias}."
@@ -845,7 +850,7 @@ class Provisioner:
             self.tr(f"Save {alias} as the warm image for {project}?"),
             self.tr("\n".join(detail)),
             [("go", self.tr("Save it")), ("deny", self.tr("Not now"))],
-            context={"tool": "code_provision"},
+            context=GATED_CARD,
         )
         if choice != "go":
             return "Nothing was saved."
@@ -908,7 +913,7 @@ class Provisioner:
             self.tr(f"Delete the warm image for {project}?"),
             self.tr("\n".join(["Deletes, with your own login:", *(s.shown() for s in steps)])),
             [("go", self.tr("Delete it")), ("deny", self.tr("Keep it"))],
-            context={"tool": "code_provision"},
+            context=GATED_CARD,
         )
         if choice != "go":
             return "Kept it."

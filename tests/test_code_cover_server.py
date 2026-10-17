@@ -460,8 +460,8 @@ def faked_serve(monkeypatch, tmp_path):
 
     import uvicorn
 
-    from jarvis import features, jsonstore, launcher_watch
     from jarvis import config as config_module
+    from jarvis import features, jsonstore, launcher_watch
 
     seen = {"ran": [], "closed": 0, "limits": []}
 

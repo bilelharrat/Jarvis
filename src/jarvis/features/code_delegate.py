@@ -79,7 +79,7 @@ import contextlib
 import logging
 import re
 import time
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 

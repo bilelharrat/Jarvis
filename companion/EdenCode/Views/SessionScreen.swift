@@ -131,14 +131,14 @@ struct SessionScreen: View {
         } label: {
             VStack(spacing: 0) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.eden(size: 15, weight: .semibold))
                     .foregroundStyle(EdenTheme.ink)
                     .lineLimit(1)
                     .frame(maxWidth: 200)
                 HStack(spacing: 5) {
                     Circle().fill(EdenTheme.dot(status)).frame(width: 6, height: 6)
                     Text([GStatus.word(status), project].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.system(size: 11))
+                        .font(.eden(size: 11))
                         .lineLimit(1)
                 }
                 .foregroundStyle(GStatus.ink(status))
@@ -159,7 +159,7 @@ struct SessionScreen: View {
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: pendingCard == nil ? 18 : 16) {
-                    if let problem = model.problem ?? store.problem { ProblemBanner(text: problem) }
+                    if store.issue == nil, let problem = model.problem { ProblemBanner(text: problem) } else { StoreProblemBanner() }
                     ForEach(rows(model)) { row in
                         rowView(row, model: model, inner: inner).id(row.id)
                     }
@@ -172,8 +172,8 @@ struct SessionScreen: View {
                         Button { store.path.append(.changes(id)) } label: {
                             HStack(spacing: 8) {
                                 DiffGlyph().stroke(EdenTheme.ink, lineWidth: 1.6).frame(width: 16, height: 16)
-                                Text("\(filesChanged) file\(filesChanged == 1 ? "" : "s") changed").font(.system(size: 14)).foregroundStyle(EdenTheme.ink)
-                                Text("›").font(.system(size: 14)).foregroundStyle(EdenTheme.chevron)
+                                Text("\(filesChanged) file\(filesChanged == 1 ? "" : "s") changed").font(.eden(size: 14)).foregroundStyle(EdenTheme.ink)
+                                Text("›").font(.eden(size: 14)).foregroundStyle(EdenTheme.chevron)
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
@@ -189,7 +189,7 @@ struct SessionScreen: View {
                         HStack(spacing: 10) {
                             Spinner(size: 14)
                             Text(model.view.doing.isEmpty ? "Working" : model.view.doing.replacingOccurrences(of: "…", with: ""))
-                                .font(.system(size: 14))
+                                .font(.eden(size: 14))
                                 .foregroundStyle(EdenTheme.muted)
                                 .lineLimit(1)
                         }
@@ -251,7 +251,7 @@ struct SessionScreen: View {
                 }
         case .note(let entry):
             Text(entry.text)
-                .font(.system(size: 13))
+                .font(.eden(size: 13))
                 .foregroundStyle(EdenTheme.muted)
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -267,24 +267,24 @@ struct SessionScreen: View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.branch").foregroundStyle(EdenTheme.accent)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Isolated copy").font(.system(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.ink)
-                Text("\(copy.branch) → \(copy.into)").font(.system(size: 12)).foregroundStyle(EdenTheme.muted).lineLimit(1)
+                Text("Isolated copy").font(.eden(size: 14, weight: .semibold)).foregroundStyle(EdenTheme.ink)
+                Text("\(copy.branch) → \(copy.into)").font(.eden(size: 12)).foregroundStyle(EdenTheme.muted).lineLimit(1)
             }
             Spacer()
             Button("Discard") { confirmCopy = "discard" }.buttonStyle(.glass).disabled(copy.busy)
             Button("Land") { confirmCopy = "land" }.buttonStyle(.glassProminent).disabled(copy.busy)
         }
-        .font(.system(size: 13, weight: .semibold))
+        .font(.eden(size: 13, weight: .semibold))
         .padding(12)
         .gGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func todoList(_ todos: [PhoneView.Todo]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Plan").font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.muted)
+            Text("Plan").font(.eden(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.muted)
             ForEach(todos, id: \.self) { todo in
                 Label(todo.text, systemImage: todo.done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
+                    .font(.eden(size: 14))
                     .foregroundStyle(todo.done ? EdenTheme.muted : EdenTheme.ink)
             }
         }
@@ -326,11 +326,11 @@ struct SessionScreen: View {
             if let card = replyCard {
                 Button { replyingTo = nil } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrowshape.turn.up.left.fill").font(.system(size: 11))
+                        Image(systemName: "arrowshape.turn.up.left.fill").font(.eden(size: 11))
                         Text("Replying to: \(card.approval.question)").lineLimit(1)
-                        Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                        Image(systemName: "xmark").font(.eden(size: 10, weight: .bold))
                     }
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(EdenTheme.ink2)
+                    .font(.eden(size: 12, weight: .medium)).foregroundStyle(EdenTheme.ink2)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .gGlass(Capsule())
                 }
@@ -338,17 +338,17 @@ struct SessionScreen: View {
                 .accessibilityLabel("Replying to \(card.approval.question). Back to the question")
             }
             if let said = model?.said {
-                Text(said).font(.system(size: 12)).foregroundStyle(EdenTheme.muted)
+                Text(said).font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
             }
             if let problem = dictation.problem {
-                Text(problem).font(.system(size: 12)).foregroundStyle(EdenTheme.failInk)
+                Text(problem).font(.eden(size: 12)).foregroundStyle(EdenTheme.failInk)
             }
             if !pictures.isEmpty {
                 HStack {
                     Label("\(pictures.count) picture\(pictures.count == 1 ? "" : "s")", systemImage: "photo")
                     Button { pictures = [] } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Remove pictures")
                 }
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(EdenTheme.ink2)
+                .font(.eden(size: 12, weight: .medium)).foregroundStyle(EdenTheme.ink2)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .gGlass(Capsule())
             }
@@ -429,7 +429,7 @@ struct UserBubble: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 16))
+            .font(.eden(size: 16))
             .lineSpacing(2.5)
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
@@ -462,7 +462,7 @@ struct ReplyBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(LocalizedStringKey(text))
-                .font(.system(size: 16))
+                .font(.eden(size: 16))
                 .lineSpacing(5)
                 .foregroundStyle(EdenTheme.ink)
             if typing {
@@ -488,7 +488,7 @@ struct StepsPanel: View {
             ForEach(steps) { step in
                 (Text(step.stepFailed ? "✗" : "✓").foregroundStyle(step.stepFailed ? EdenTheme.red : EdenTheme.green)
                  + Text(" " + step.stepLine.replacingOccurrences(of: "…", with: "")).foregroundStyle(EdenTheme.ink2))
-                    .font(.system(size: 14))
+                    .font(.eden(size: 14))
                     .lineLimit(2)
                     .accessibilityLabel((step.stepFailed ? "Failed: " : "Done: ") + step.stepLine)
             }

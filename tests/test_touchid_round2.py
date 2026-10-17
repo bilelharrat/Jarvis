@@ -436,7 +436,10 @@ GATED = {
     "code_run_start": ("none", "unattended runs are Accept edits or Auto only (its MODES)"),
     "code_run_stop": ("none", "stops a run"),
     "code_api_turn": ("none", "its card is marked touchid and tap_only: approve's gate"),
-    "code_api_port": ("none", "the API's port; the API never starts past Accept edits (SAFE_MODES)"),
+    "code_api_port": (
+        "none",
+        "the API's port; the API never starts past Accept edits (SAFE_MODES)",
+    ),
     "code_automate_turn": ("none", "its card is marked touchid and tap_only: approve's gate"),
     "code_watch_add": ("none", "a watch's run is an unattended run, always Accept edits"),
     "code_watch_remove": ("none", "removes a watch"),
@@ -453,6 +456,28 @@ GATED = {
     "voicecode_start": ("start", "a session in the composer's default mode"),
     "voicecode_enter": ("none", "focuses a session as it is"),
     "automation_scripts": ("none", "a script's allow/deny on this Mac, not Eden Code's"),
+    "cev_run": ("test", "test_the_cards_that_run_code_or_make_machines_are_marked_for_touch_id"),
+    "code_deps_upgrade": (
+        "test",
+        "test_the_cards_that_run_code_or_make_machines_are_marked_for_touch_id",
+    ),
+    "code_provision_create": (
+        "test",
+        "test_the_cards_that_run_code_or_make_machines_are_marked_for_touch_id",
+    ),
+    "code_provision_delete": (
+        "test",
+        "test_the_cards_that_run_code_or_make_machines_are_marked_for_touch_id",
+    ),
+    "code_provision_plan": ("none", "shows a plan; an AWS dry run makes nothing"),
+    "code_provision_start": ("none", "powers on a machine Eden made, no session, no card"),
+    "code_rollout_fix": (
+        "none",
+        "a fix session starts in Manual (mode ask), its release notes untrusted",
+    ),
+    "code_rollout_revert": ("none", "a revert session starts in Manual (mode ask)"),
+    "lean_set": ("none", "lean mode shortens the prompt; the permission mode is untouched"),
+    "lean_state": ("none", "reads lean mode"),
     "signin_forget": ("none", "the sign-in mode (key or account)"),
     "signin_key": ("none", "the sign-in mode (key or account)"),
     "signin_state": ("none", "the sign-in mode (key or account)"),
@@ -528,11 +553,44 @@ def test_every_window_command_with_a_mode_or_an_allow_is_gated():
     assert not missing, missing
 
 
+async def test_the_cards_that_run_code_or_make_machines_are_marked_for_touch_id():
+    """An eval run, a dependency upgrade (unattended, with the network), and a cloud machine's
+    create, delete, warm image and its removal: each card is marked for Touch ID and only a
+    tap on the Mac answers it (a chat, the phone or a spoken yes can't)."""
+    from types import SimpleNamespace
+
+    from jarvis.features import code_provision, code_touchid
+    from jarvis.features.code_unattended import Runs
+
+    assert code_touchid.mac_only(code_provision.GATED_CARD)
+    source = (ROOT / "src/jarvis/features/code_provision.py").read_text()
+    asks = source.count("request_approval(")
+    assert asks == 4 and source.count("context=GATED_CARD") == asks, "a provisioning card is bare"
+    evals = (ROOT / "src/jarvis/features/code_repo_evals.py").read_text()
+    assert '"touchid": True, "tap_only": True, "tool": "cev_run"' in evals
+    seen = []
+
+    async def request_approval(question, detail, choices, context=None):
+        seen.append(context)
+        return "start"
+
+    fake = SimpleNamespace(
+        tr=lambda text: text, hub=SimpleNamespace(request_approval=request_approval)
+    )
+    assert await Runs.ask(fake, "Q", "D", "Upgrade it", False, touchid="code_deps_upgrade")
+    assert code_touchid.mac_only(seen[-1]) and seen[-1]["tool"] == "code_deps_upgrade"
+    assert await Runs.ask(fake, "Q", "D", "Start", False)  # (a run's own card: not this gate)
+    assert seen[-1] is None
+    deps = (ROOT / "src/jarvis/features/code_deps.py").read_text()
+    assert 'touchid="code_deps_upgrade"' in deps
+
+
 def test_every_start_goes_through_the_one_gate():
     """Nothing but TaskManager.start and set_mode puts a session into Bypass: no module
     assigns a mode "auto" itself or makes an Eden Code session with a mode from a message,
     and what's vouched for (tasks.bypass_vouched) is only the few that carry one on."""
-    allowed_vouch = {"tasks.py", "voicecode.py", "hub.py", "code_bestof.py"}
+    # (code_repo_evals: like best of N, one may_bypass proof, then every attempt is vouched for)
+    allowed_vouch = {"tasks.py", "voicecode.py", "hub.py", "code_bestof.py", "code_repo_evals.py"}
     for path in sorted((ROOT / "src/jarvis").rglob("*.py")):
         text = path.read_text()
         assert not re.search(r"""\.mode\s*=\s*["']auto["']""", text), path.name

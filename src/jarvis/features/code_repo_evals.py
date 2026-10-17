@@ -720,7 +720,10 @@ class CodeEvals:
             "Run {n} attempts on {k} configurations?", n=found["attempts"], k=len(configs)
         )
         answer = await self.hub.request_approval(
-            question, detail, [("run", self.tr("Run")), ("deny", self.tr("Not now"))]
+            question,
+            detail,
+            [("run", self.tr("Run")), ("deny", self.tr("Not now"))],
+            context={"touchid": True, "tap_only": True, "tool": "cev_run"},
         )
         if answer != "run":
             return "Not run."
@@ -766,9 +769,11 @@ class CodeEvals:
         finally:
             run.record["status"] = "stopped" if run.stopping else "done"
             run.record["finished"] = time.time()
-            self.runs.pop(run.id, None)
+            # (the run stays in self.runs, its record already done, until its file says so
+            # too: results() never reads a stale "running" in the gap)
             await asyncio.to_thread(shutil.rmtree, self.checkout_root() / run.id, True)
             self.save_run(run)
+            self.runs.pop(run.id, None)
             self.emit_run(run)
             self.publish(run.project)
             summary = ", ".join(

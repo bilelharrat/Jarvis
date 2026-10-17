@@ -69,6 +69,7 @@
     "Browser to import from": "要从中导入的浏览器",
     "Import": "导入",
     "No other browser here": "这里没有其他浏览器",
+    "Choose a browser…": "选择浏览器…",
     "Safari keeps its bookmarks and history private. Allow Eden Secretary in System Settings › Privacy & Security › Full Disk Access, then import again.": "Safari 会将书签和历史记录设为私密。请在“系统设置 › 隐私与安全性 › 完全磁盘访问权限”中允许 Eden Secretary，然后再次导入。",
     "Safari keeps its bookmarks and history private. Allow Jarvis in System Settings › Privacy & Security › Full Disk Access, then import again.": "Safari 会将书签和历史记录设为私密。请在“系统设置 › 隐私与安全性 › 完全磁盘访问权限”中允许 Eden Secretary，然后再次导入。",
     "Safari keeps its bookmarks and history private. Allow JARVIS in System Settings › Privacy & Security › Full Disk Access, then import again.": "Safari 会将书签和历史记录设为私密。请在“系统设置 › 隐私与安全性 › 完全磁盘访问权限”中允许 Eden Secretary，然后再次导入。",

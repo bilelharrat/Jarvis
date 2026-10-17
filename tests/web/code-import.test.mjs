@@ -42,6 +42,10 @@ test('the card shows while a found tool wasn’t brought over, and stops once an
   assert.equal(I.offer([{ ...s[0], imported: { at: 1 } }], {}), null);
   assert.equal(I.offerTitle([s[0]]), 'Bring over from Claude Code');
   assert.equal(I.offerTitle([s[0], { name: 'Cursor' }]), 'Bring over from Claude Code and more');
+  // Before the owner has looked (sources null): a plain offer that names no tool.
+  assert.deepEqual(I.offer(null, {}), []);
+  assert.equal(I.offer(null, { code_import_offered: true }), null);
+  assert.equal(I.offerTitle([]), 'Coming from another coding tool?');
   assert.match(I.imported({ imported: { at: 1760000000, projects: 2, mcp: 1 } }), /^Brought over .* \(3\)$/);
 });
 
@@ -84,11 +88,23 @@ const SOURCES = [
   { id: 'cursor', name: 'Cursor', blurb: 'c', found: false, paths: [], imported: {} },
 ];
 
+test('nothing looks through other apps’ folders until the owner opens the sheet', () => {
+  // (macOS: "Eden Code tried to read data from other apps", Data Access Blocked)
+  const w = stand();
+  w.fire('hello', { prefs: { features: {} } });
+  assert.deepEqual(w.sent, []);
+  const card = w.document.getElementById('cimp-card');
+  assert.ok(!card.hidden);  // a plain offer, naming no tool
+  assert.match(card.textContent, /Coming from another coding tool\?/);
+  assert.doesNotMatch(card.textContent, /Found on this computer/);
+  card.querySelectorAll('button').find((b) => b.textContent === 'Have a look').click();
+  assert.deepEqual(w.sent, [{ type: 'cimp_sources' }]);  // the owner asked: now it looks
+});
+
 test('the welcome card offers a look, and Not now stops it asking', () => {
   const w = stand();
-  assert.deepEqual(w.sent, [{ type: 'cimp_sources' }]);  // (looking only: nothing changes)
+  assert.deepEqual(w.sent, []);  // (no looking on its own)
   const card = w.document.getElementById('cimp-card');
-  assert.ok(card.hidden);
   w.fire('cimp_sources', { sources: SOURCES });
   assert.ok(!card.hidden);
   assert.match(card.textContent, /Bring over from Claude Code/);

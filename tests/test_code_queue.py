@@ -383,13 +383,14 @@ async def test_a_card_whose_session_comes_late_keeps_its_place_and_is_taken_up(
     first, second = await add(hub, "first job", "second job")
     real = hub._handle
     held = []
+    release = asyncio.Event()  # the late session comes when the test says, not after a delay
 
     async def hold(msg):
         if msg.get("type") == "task_new" and not held:
             held.append(msg)
 
             async def later():
-                await asyncio.sleep(0.8)
+                await release.wait()
                 await real(msg)
 
             hub._spawn(later())
@@ -400,10 +401,13 @@ async def test_a_card_whose_session_comes_late_keeps_its_place_and_is_taken_up(
     queue = hub.code_queue
     queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
     assert await until(lambda: first["id"] in queue.waiting, 2000)
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.3)  # (it can't come meanwhile: the queue gets this long to misjudge)
     assert first["state"] == "running", "a late session isn't a failed card"
     assert second["state"] != "running", "one at a time: the late card holds its place"
-    assert await until(lambda: first.get("task"), 3000)
+    release.set()
+    # (bound to the card, then taken up by the queue: the two are one step in the backend but a
+    # poll can land between them, so wait for the second)
+    assert await until(lambda: first.get("task") in queue.by_task, 3000)
     task = hub.tasks.tasks[first["task"]]
     assert queue.by_task.get(task.id) == first["id"] and first["id"] not in queue.waiting
     assert first["attempts"] and first["attempts"][-1]["why"] == "default"

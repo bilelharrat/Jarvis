@@ -6,12 +6,18 @@ import SwiftUI
 /// Settings open from the drawer as sheets; pairing shows until a Mac is paired.
 struct RootView: View {
     @Environment(EdenCodeStore.self) private var store
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         @Bindable var store = store
         Group {
             if store.paired {
-                GHome()
+                VStack(spacing: 0) {
+                    // Above the screen, not over it: the session's glass header ignores insets.
+                    if store.demo { DemoBar() }
+                    GHome()
+                }
+                .background(EdenBackground())
             } else {
                 PairingView(first: true)
             }
@@ -19,6 +25,37 @@ struct RootView: View {
         .sheet(isPresented: $store.showPairing) {
             NavigationStack { PairingView(first: false) }
         }
+        // Font.eden scales with Dynamic Type: a new text size redraws everything with it. Past
+        // AX3 the glass bars and the drawer can't hold the words, so it stops there.
+        .id(typeSize)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+    }
+}
+
+/// The demo's strip over every screen: it's sample data, nothing reaches a Mac, and the way out.
+struct DemoBar: View {
+    @Environment(EdenCodeStore.self) private var store
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "play.rectangle.on.rectangle").accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Demo").font(.eden(size: 13, weight: .bold))
+                Text("Sample sessions. Nothing reaches a Mac.").font(.eden(size: 12)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 6)
+            Button("Exit demo") { store.endDemo() }
+                .font(.eden(size: 13, weight: .semibold))
+                .buttonStyle(.glass)
+                .accessibilityHint("Goes back to pairing with your Mac")
+        }
+        .foregroundStyle(EdenTheme.ink)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(EdenTheme.orange.opacity(0.18))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Demo mode")
     }
 }
 
@@ -50,6 +87,9 @@ struct GHome: View {
     @Environment(EdenCodeStore.self) private var store
     /// The finger's travel while it drags the drawer open or shut.
     @State private var drag: CGFloat = 0
+    /// What the finger on the screen is doing, decided once per touch: only a mostly-horizontal
+    /// one moves the drawer; a vertical one is the transcript's to scroll.
+    @State private var axis: Axis?
 
     static let drawerWidth: CGFloat = 320
     static let push: CGFloat = 300
@@ -84,7 +124,6 @@ struct GHome: View {
                     .ignoresSafeArea()
                     .contentShape(.rect)
                     .onTapGesture { store.drawerOpen = false }
-                    .gesture(closing)
                     .accessibilityLabel("Close your sessions")
                     .accessibilityAddTraits(.isButton)
             }
@@ -92,7 +131,6 @@ struct GHome: View {
             SessionDrawer()
                 .frame(width: Self.drawerWidth)
                 .offset(x: -(Self.drawerWidth + 50) * (1 - progress))
-                .gesture(closing)
                 .accessibilityHidden(progress == 0)
 
             if !store.drawerOpen && store.path.isEmpty {
@@ -109,8 +147,12 @@ struct GHome: View {
             ApprovalOverlay()
         }
         .animation(.spring(response: 0.36, dampingFraction: 0.88), value: store.drawerOpen)
+        // A mostly-horizontal swipe anywhere on the session opens the drawer, and one to the left
+        // (or a tap on the dimmed screen) shuts it; simultaneous, so the transcript still scrolls.
+        .simultaneousGesture(pan)
         .onChange(of: store.drawerOpen) { _, open in
             drag = 0
+            axis = nil
             if open { Keyboard.dismiss() }
         }
         .sheet(item: $store.panel) { panel in
@@ -122,27 +164,43 @@ struct GHome: View {
         DragGesture(minimumDistance: 8)
             .onChanged {
                 if drag == 0 { Keyboard.dismiss() }  // (as the finger starts pulling it open)
-                drag = max(0, $0.translation.width)
+                drag = max(0, min(Self.drawerWidth, $0.translation.width))
+            }
+            .onEnded { settle($0) }
+    }
+
+    /// The whole screen's swipe: follows the finger, and on release the speed decides (a flick
+    /// settles the way it was thrown even from a short pull) with the same spring as the button.
+    private var pan: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                if axis == nil {
+                    let dx = value.translation.width, dy = value.translation.height
+                    // Right opens, left shuts; the other way, or anything steeper than about
+                    // 27 degrees, isn't for the drawer. (No pull while a pushed page is open.)
+                    let wanted = store.drawerOpen ? dx < 0 : (dx > 0 && store.path.isEmpty && store.panel == nil)
+                    axis = wanted && abs(dx) > abs(dy) * 2 ? .horizontal : .vertical
+                    if axis == .horizontal && !store.drawerOpen { Keyboard.dismiss() }
+                }
+                guard axis == .horizontal else { return }
+                let dx = value.translation.width
+                drag = store.drawerOpen ? max(-Self.drawerWidth, min(0, dx)) : max(0, min(Self.drawerWidth, dx))
             }
             .onEnded { value in
-                let open = value.translation.width > 80 || value.predictedEndTranslation.width > 180
-                withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
-                    drag = 0
-                    store.drawerOpen = open
-                }
+                defer { axis = nil }
+                guard axis == .horizontal else { return }
+                settle(value)
             }
     }
 
-    private var closing: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { drag = min(0, $0.translation.width) }
-            .onEnded { value in
-                let close = value.translation.width < -80 || value.predictedEndTranslation.width < -180
-                withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
-                    drag = 0
-                    if close { store.drawerOpen = false }
-                }
-            }
+    private func settle(_ value: DragGesture.Value) {
+        let opens = store.drawerOpen
+            ? !(value.translation.width < -80 || value.predictedEndTranslation.width < -160)
+            : (value.translation.width > 80 || value.predictedEndTranslation.width > 180)
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
+            drag = 0
+            store.drawerOpen = opens
+        }
     }
 }
 

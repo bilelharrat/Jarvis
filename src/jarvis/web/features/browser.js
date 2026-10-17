@@ -868,6 +868,7 @@
 
   // Bookmarks and history from another browser on this Mac (features/browser_import.py reads
   // them; the app files them).
+  let sourcesAsked = false;
   function importRow() {
     const wrap = F.el('div', 'bp-import');
     const row = F.el('div', 'row');
@@ -877,6 +878,15 @@
     const select = F.el('select');
     select.id = 'bp-import-from';
     select.setAttribute('aria-label', 'Browser to import from');
+    // Which browsers are here is asked when the owner reaches for the list, never when Settings
+    // merely opens: looking in another app's folders unasked makes macOS say the app "tried to
+    // read data from other apps" (Data Access Blocked).
+    const placeholder = F.el('option', '', 'Choose a browser…');
+    placeholder.value = '';
+    select.append(placeholder);
+    const look = () => { if (sourcesAsked) return; sourcesAsked = true; F.send({ type: 'browser_import_sources' }); };
+    select.addEventListener('pointerdown', look);
+    select.addEventListener('focus', look);
     const go = button('Import', 'btn bp-import-go', () => {
       if (!select.value) return;
       const name = select.selectedOptions[0] ? select.selectedOptions[0].textContent : select.value;
@@ -1091,7 +1101,7 @@
   new MutationObserver(() => {
     if (F.$('settings').hidden) return;
     refresh();
-    F.send({ type: 'browser_import_sources' });
+    sourcesAsked = false; // (asked afresh when the owner next reaches for the import list)
   }).observe(F.$('settings'), { attributes: true, attributeFilter: ['hidden'] });
   F.on('browser_import_sources', (ev) => renderSources(ev.sources));
   F.on('browser_import', (ev) => imported(ev));

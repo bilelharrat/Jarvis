@@ -69,6 +69,12 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     var current by mutableStateOf<Pairing?>(null); private set
     var backend by mutableStateOf<CodeBackend?>(null); private set
     var usingFixtures by mutableStateOf(false); private set
+    /**
+     * "Try a demo": DemoBackend's sample data stands in for a Mac (a Play reviewer, anyone without a
+     * Mac yet). While it's on nothing reaches the network (no relay, no push, no widget or ongoing
+     * notification) and its Macs are never saved. Exit demo or pairing a real Mac ends it.
+     */
+    var demo by mutableStateOf(false); private set
 
     var home by mutableStateOf(PhoneHome())
     var options by mutableStateOf(PhoneOptions())
@@ -141,6 +147,27 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
         scope.launch { refreshAll() }
     }
 
+    /** "Try a demo" on the pairing screen. */
+    fun startDemo() {
+        demo = true
+        panel = null
+        drawerOpen = false
+        sheetCard = null
+        showPairing = false
+        useFixtures(com.askeden.edencode.net.DemoBackend.fixtures())
+    }
+
+    /** Back to the pairing screen (or the Macs this phone really is paired with). */
+    fun endDemo() {
+        demo = false
+        usingFixtures = false
+        panel = null
+        drawerOpen = false
+        sheetCard = null
+        macs = MacStore.decode(secure.read(MacStore.ACCOUNT))
+        select(MacStore.current(macs, prefs.getString("currentMac", null)))
+    }
+
     /** Forgets every paired Mac (debug: EDENCODEReset). */
     fun forgetAll() {
         macs = emptyList()
@@ -156,12 +183,22 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     fun changeLiveOn(on: Boolean) {
         liveOn = on
         prefs.edit().putBoolean("liveActivities", on).apply()
-        platform.homeChanged(home, home, current?.macLabel ?: "", liveOn, platform.inFront)
+        if (!demo) platform.homeChanged(home, home, current?.macLabel ?: "", liveOn, platform.inFront)
     }
 
     // ── Macs ──
 
     fun select(pairing: Pairing?) {
+        if (demo) {
+            // The demo's Macs are only labels: switching between them never makes a connection.
+            if (pairing != null && com.askeden.edencode.net.DemoBackend.macs.any { Pairing.same(it, pairing) }) {
+                current = pairing
+                return
+            }
+            demo = false
+            usingFixtures = false
+            macs = MacStore.decode(secure.read(MacStore.ACCOUNT))
+        }
         current = pairing
         prefs.edit().putString("currentMac", pairing?.key).apply()
         backend = pairing?.let { LiveBackend(MacApi(it.baseURL, it.token, it.fingerprint)) }
@@ -185,6 +222,12 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     }
 
     fun added(pairing: Pairing) {
+        if (demo) {
+            // A real Mac ends the demo: its sample Macs must not be saved with it.
+            demo = false
+            usingFixtures = false
+            macs = MacStore.decode(secure.read(MacStore.ACCOUNT))
+        }
         macs = MacStore.adding(pairing, macs)
         secure.write(MacStore.ACCOUNT, MacStore.encode(macs))
         select(pairing)
@@ -192,6 +235,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
     }
 
     fun remove(pairing: Pairing) {
+        if (demo) { endDemo(); return }
         val api = MacApi(pairing.baseURL, pairing.token, pairing.fingerprint)
         scope.launch {
             try {
@@ -240,7 +284,7 @@ class EdenCodeStore(context: Context, private val platform: Platform, fixtures: 
             problem = null
             switchedOff = false
             openPinIfNew(found.pinned)
-            platform.homeChanged(previous, found, current?.macLabel ?: "", liveOn, platform.inFront)
+            if (!demo) platform.homeChanged(previous, found, current?.macLabel ?: "", liveOn, platform.inFront)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -13,7 +13,7 @@ struct QueueView: View {
                 if let problem { ProblemBanner(text: problem) }
                 if store.todos.cards.isEmpty {
                     VStack(spacing: 8) {
-                        Image(systemName: "list.bullet.rectangle").font(.system(size: 30)).foregroundStyle(EdenTheme.accent)
+                        Image(systemName: "list.bullet.rectangle").font(.eden(size: 30)).foregroundStyle(EdenTheme.accent)
                         Text("No to-dos").font(.headline).foregroundStyle(EdenTheme.ink)
                         Text("Write work ahead on your Mac’s agent board; it waits here to start.")
                             .font(.subheadline).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
@@ -22,7 +22,7 @@ struct QueueView: View {
                 }
                 ForEach(store.todos.byProject, id: \.project) { group in
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(group.project.uppercased()).font(.system(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 6)
+                        Text(group.project.uppercased()).font(.eden(size: 13, weight: .semibold)).foregroundStyle(EdenTheme.muted).padding(.horizontal, 6)
                         VStack(spacing: 0) {
                             ForEach(Array(group.cards.enumerated()), id: \.element.id) { index, card in
                                 row(card)
@@ -47,17 +47,17 @@ struct QueueView: View {
     private func row(_ card: PhoneTodoCard) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(card.title.isEmpty ? card.prompt : card.title).font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(2)
+                Text(card.title.isEmpty ? card.prompt : card.title).font(.eden(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink).lineLimit(2)
                 Text([card.stateLabel, card.mode.isEmpty ? nil : CodeModes.name(card.mode), card.model.isEmpty ? nil : store.options.modelName(card.model)]
                         .compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: 13)).foregroundStyle(EdenTheme.muted)
+                    .font(.eden(size: 13)).foregroundStyle(EdenTheme.muted)
             }
             Spacer(minLength: 8)
             if let task = card.taskID, !card.waiting {
-                Button("Open") { store.open(session: task) }.buttonStyle(.glass).font(.system(size: 13, weight: .semibold))
+                Button("Open") { store.open(session: task) }.buttonStyle(.glass).font(.eden(size: 13, weight: .semibold))
             } else if card.waiting {
                 if card.startsOnMacOnly {
-                    Text("On your Mac").font(.system(size: 12)).foregroundStyle(EdenTheme.muted)
+                    Text("On your Mac").font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
                         .accessibilityLabel("Starts on your Mac: its mode is \(CodeModes.name(card.mode))")
                 } else {
                     Button {
@@ -70,7 +70,7 @@ struct QueueView: View {
                         if starting == card.id { ProgressView() } else { Text("Start") }
                     }
                     .buttonStyle(.glassProminent)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.eden(size: 13, weight: .semibold))
                     .disabled(starting != nil)
                 }
             }

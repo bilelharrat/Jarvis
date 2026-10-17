@@ -165,7 +165,7 @@ final class PairPayloadTests: XCTestCase {
     @MainActor
     func testOtherEdenCodeLinksStillGoWhereTheyDid() throws {
         let store = EdenCodeStore()
-        store.useFixtures()
+        store.startDemo()
         store.open(url: try XCTUnwrap(URL(string: "edencode://pair?v=1&code=123456&host=mac.local&fp=\(fp)")))
         XCTAssertTrue(store.showPairing)  // (a Mac is paired: the sheet opens)
         store.showPairing = false

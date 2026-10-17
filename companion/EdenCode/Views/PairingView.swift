@@ -31,9 +31,9 @@ struct PairingView: View {
                         .frame(width: 84, height: 84)
                         .background(LinearGradient(colors: [Color(UIColor(hex: 0x1F3B73)), Color(UIColor(hex: 0x0F1E3D))], startPoint: .top, endPoint: .bottom), in: .rect(cornerRadius: 22))
                         .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
-                    Text(first ? "Eden Code" : "Pair a Mac").font(.system(size: 34, weight: .bold)).foregroundStyle(EdenTheme.ink)
+                    Text(first ? "Eden Code" : "Pair a Mac").font(.eden(size: 34, weight: .bold)).foregroundStyle(EdenTheme.ink)
                     Text("Carry on from your iPhone: your sessions, their changes and what waits on you, from Eden Code on your Mac.")
-                        .font(.system(size: 15)).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
+                        .font(.eden(size: 15)).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
                 }
                 .padding(.top, first ? 40 : 10)
 
@@ -41,7 +41,7 @@ struct PairingView: View {
 
                 if let pairedWith {
                     Label("Paired with \(pairedWith)", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.eden(size: 17, weight: .semibold))
                         .foregroundStyle(EdenTheme.checkGreen)
                         .frame(maxWidth: .infinity, minHeight: 50)
                         .edenCard(radius: 20)
@@ -50,7 +50,7 @@ struct PairingView: View {
                 } else if let pairingWith {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Pairing with \(pairingWith)…").font(.system(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink)
+                        Text("Pairing with \(pairingWith)…").font(.eden(size: 15, weight: .medium)).foregroundStyle(EdenTheme.ink)
                     }
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .edenCard(radius: 20)
@@ -58,13 +58,13 @@ struct PairingView: View {
                     VStack(spacing: 10) {
                         Button { scanning = true } label: {
                             Label("Scan QR code", systemImage: "qrcode.viewfinder")
-                                .font(.system(size: 17, weight: .semibold))
+                                .font(.eden(size: 17, weight: .semibold))
                                 .frame(maxWidth: .infinity, minHeight: 50)
                         }
                         .buttonStyle(.glassProminent)
                         .accessibilityHint("Scans the code in Eden Code › On your phone on your Mac")
                         Text("On your Mac, open Eden Code › On your phone (or Settings › iPhone › Pair the Eden Code app) and scan its code. Or type it below.")
-                            .font(.system(size: 13)).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
+                            .font(.eden(size: 13)).foregroundStyle(EdenTheme.muted).multilineTextAlignment(.center)
                     }
                 }
 
@@ -74,20 +74,20 @@ struct PairingView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
-                        .font(.system(size: 16))
+                        .font(.eden(size: 16))
                         .padding(12)
                         .background(EdenTheme.fill, in: .rect(cornerRadius: 12))
                         .onChange(of: address) { _, _ in probed = nil }
                     if let probed {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Compare with your Mac’s Settings › iPhone & Watch:").font(.system(size: 13)).foregroundStyle(EdenTheme.muted)
-                            Text(CertificatePin.short(probed.fingerprint)).font(.system(size: 17, weight: .semibold, design: .monospaced)).foregroundStyle(EdenTheme.ink)
+                            Text("Compare with your Mac’s Settings › iPhone & Watch:").font(.eden(size: 13)).foregroundStyle(EdenTheme.muted)
+                            Text(CertificatePin.short(probed.fingerprint)).font(.eden(size: 17, weight: .semibold, design: .monospaced)).foregroundStyle(EdenTheme.ink)
                         }
                         step(2, "Click Pair a phone on the Mac and type its six-digit code.")
                         TextField("123456", text: $code)
                             .keyboardType(.numberPad)
                             .textContentType(.oneTimeCode)
-                            .font(.system(size: 28, weight: .semibold, design: .monospaced))
+                            .font(.eden(size: 28, weight: .semibold, design: .monospaced))
                             .multilineTextAlignment(.center)
                             .padding(12)
                             .background(EdenTheme.fill, in: .rect(cornerRadius: 12))
@@ -107,17 +107,23 @@ struct PairingView: View {
                     Group {
                         if working { ProgressView().tint(.white) } else { Text(probed == nil ? "Find my Mac" : "Pair") }
                     }
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.eden(size: 17, weight: .semibold))
                     .frame(maxWidth: .infinity, minHeight: 50)
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(working || address.trimmed.isEmpty || (probed != nil && code.count != 6))
-                #if DEBUG
                 if first {
-                    Button("Look around with sample sessions") { store.useFixtures() }
-                        .font(.system(size: 14))
+                    // For App Review and anyone without a Mac yet: sample sessions, clearly a demo,
+                    // and nothing in it can reach a Mac.
+                    VStack(spacing: 4) {
+                        Button("Try a demo") { store.startDemo() }
+                            .font(.eden(size: 16, weight: .semibold))
+                            .accessibilityHint("Looks around with sample sessions. Nothing is sent to a Mac.")
+                        Text("Sample sessions only. It never connects to a Mac.")
+                            .font(.eden(size: 12)).foregroundStyle(EdenTheme.muted)
+                    }
+                    .padding(.top, 4)
                 }
-                #endif
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 30)
@@ -146,9 +152,9 @@ struct PairingView: View {
 
     private func step(_ n: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Text("\(n)").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+            Text("\(n)").font(.eden(size: 13, weight: .bold)).foregroundStyle(.white)
                 .frame(width: 22, height: 22).background(EdenTheme.accent, in: .circle)
-            Text(text).font(.system(size: 14)).foregroundStyle(EdenTheme.ink2)
+            Text(text).font(.eden(size: 14)).foregroundStyle(EdenTheme.ink2)
         }
     }
 
@@ -199,7 +205,7 @@ struct PairingView: View {
             "Something other than your Mac answered at its address, so the code wasn’t sent. Check you’re on the same Wi-Fi and scan again."
         case .unreachable, .timedOut, .connectionLost:
             "Can’t reach your Mac. Use the same Wi-Fi, or turn on Tailscale or sign in to your Eden account, then scan again."
-        default: (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+        default: EdenCodeProblem.describe(error) ?? "Something went wrong."
         }
     }
 
@@ -219,7 +225,7 @@ struct PairingView: View {
                 #endif
             } catch {
                 working = false
-                problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+                problem = EdenCodeProblem.describe(error)
             }
         }
     }
@@ -238,7 +244,7 @@ struct PairingView: View {
             } catch {
                 code = ""
                 print("Eden Code pairing failed: \(error)")
-                problem = (error as? JarvisError)?.errorDescription ?? error.localizedDescription
+                problem = EdenCodeProblem.describe(error)
             }
         }
     }

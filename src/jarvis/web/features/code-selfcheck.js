@@ -40,6 +40,13 @@
   if (!F) return;
   const { el, t } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
+  // A word with a Chinese of its own here, under "Check it yourself · <word>"
+  // (i18n/code-selfcheck.json), else the window's for the word.
+  const ownWord = (word) => {
+    const key = `Check it yourself · ${word}`;
+    const zh = t(key);
+    return zh !== key ? zh : t(word);
+  };
 
   // ── the app does the checking, asked through this window ──
 
@@ -144,7 +151,9 @@
     const steps = Array.isArray(c.actions) ? c.actions : [];
     if (steps.length) {
       const list = el('ol', 'sc-steps');
-      list.setAttribute('aria-label', t('What it did'));
+      // Its own key: the steps it took (做过的步骤), where a pull request's "What it did" is
+      // the things it did (做过的事, code_pr.js); one window dictionary can't hold both.
+      list.setAttribute('aria-label', ownWord('What it did'));
       for (const s of steps) list.append(mine(el('li', '', String(s))));
       body.append(list);
     }

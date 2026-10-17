@@ -36,10 +36,22 @@ test('a script, data or a file Eden Secretary asks for is never opened', () => {
 });
 
 test('a long run of input is read at once', () => {
-  const started = performance.now();
-  toUrl(`a${'.a'.repeat(50_000)}!`);
-  toUrl(`${'a-'.repeat(50_000)}:`);
-  assert.ok(performance.now() - started < 100);
+  // A backtracking pattern would need seconds to minutes here (quadratic or worse on 100k characters);
+  // linear reading is a few milliseconds. CPU time, not the clock, so a busy machine can't fail it,
+  // and the best of three, so one slice lost to a GC pause can't either.
+  const cpu = () => {
+    const { user, system } = process.cpuUsage();
+    return (user + system) / 1000;
+  };
+  const best = Math.min(
+    ...[0, 1, 2].map(() => {
+      const started = cpu();
+      toUrl(`a${'.a'.repeat(50_000)}!`);
+      toUrl(`${'a-'.repeat(50_000)}:`);
+      return cpu() - started;
+    }),
+  );
+  assert.ok(best < 250, `read in ${best.toFixed(1)}ms of CPU`);
 });
 
 test('words go to the search engine picked in Settings, and only a known one is picked', () => {
