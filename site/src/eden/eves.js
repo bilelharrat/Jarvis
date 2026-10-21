@@ -1127,6 +1127,8 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       const repaired = fixed.struck.length || fixed.flagged.length || fixed.fixed.length ? { struck: [...fixed.struck, ...fixed.fixed.map((f) => f.from), ...fixed.flagged], regenerated: false } : undefined;
       write('verification', verification(label, allFindings, win, repaired));
       write('end', {});
+      // timings only (no text): EVES's added latency over lane 0, the answer a turn with EVES off would have given
+      console.log(JSON.stringify({ evt: 'eves_timing', lane0Ms: results[0]?.ms ?? null, anchorMs: anchorRes?.ms ?? null, totalMs: Date.now() - started, quorum: quorum ? quorum.how : null, kind: outcome.kind, label: label.kind, lanes: results.map((r) => [r.finish, r.ms]) }));
     } catch (error) {
       write('error', { message: error instanceof ApiError ? error.message : 'Something went wrong on the server.' });
       write('end', {});
