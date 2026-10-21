@@ -35,6 +35,7 @@ import {
   assessRisk,
   auditPresuppositions,
   buildVerification,
+  checkInspector,
   falsifyAnswer,
   hasFactualPremise,
   isFactualLookup,
@@ -56,7 +57,7 @@ export const AFTER_REPLY_MS = 45_000;
 export const SEARCH_MODEL = 'gemini-3.8-flash';
 export const SEARCH_EFFORTS = ['medium', 'low', 'minimal', 'none'];
 /** A check call's output cap, thinking included: the cheap steps write a short JSON, a search a paragraph and a JSON line. */
-export const CALL_CAP = { cheap: 1_500, search: 4_000, answer: 6_000 };
+export const CALL_CAP = { cheap: 1_500, strong: 4_000, search: 4_000, answer: 6_000 };
 /** Gemini 3 grounding bills per query: a search call's worst case counts this many. */
 export const QUERIES_HELD = 2;
 /** The question and the answer as the checks read them, at most (the prompts clip at 6,000 characters each). */
@@ -108,7 +109,8 @@ const lowest = (m, order) => {
 };
 
 /**
- * The checks' models for this asker: `cheap` the cheapest model they may use, `search` a Gemini that grounds, each
+ * The checks' models for this asker: `cheap` the cheapest model they may use, `strong` the strongest/judge model
+ * (prefers Argon 4 / highest reasoning at medium effort), `search` a Gemini that grounds, each
  * { model, effort }; null where there is none. `providers`: the page's provider switches (settings.providers).
  */
 export function checkModels(models, providers) {
@@ -117,10 +119,14 @@ export function checkModels(models, providers) {
   // floor (GPT-6 Luna's level, retired 2026-10-13); the cheapest of all only when nothing reaches it.
   const able = pool.filter(trustworthy);
   const cheapest = [...(able.length ? able : pool)].sort((a, b) => blended(a) - blended(b))[0];
+  const strongest =
+    pool.find((m) => m.id === 'gemini-4-argon') ||
+    [...(able.length ? able : pool)].sort((a, b) => ((b.capabilities && b.capabilities.reasoning) || 0) - ((a.capabilities && a.capabilities.reasoning) || 0) || blended(a) - blended(b))[0];
   const gemini = pool.filter((m) => m.provider === 'gemini' && canSearch(m));
   const search = gemini.find((m) => m.id === SEARCH_MODEL) || [...gemini].sort((a, b) => blended(a) - blended(b))[0];
   return {
     cheap: cheapest ? { model: cheapest, effort: lowest(cheapest, ['none', 'minimal', 'low', 'medium']) } : null,
+    strong: strongest ? { model: strongest, effort: lowest(strongest, ['medium', 'high', 'low', 'minimal', 'none']) } : null,
     search: search ? { model: search, effort: lowest(search, SEARCH_EFFORTS) } : null,
   };
 }
@@ -165,12 +171,12 @@ export function checksWorst({ picks, keys, question, premise, answer, requestFor
  */
 export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally, factor = () => 1 }) {
   return async (req) => {
-    const pick = req.search ? picks.search : picks.cheap;
+    const pick = req.search ? picks.search : req.tier === 'strong' && picks.strong ? picks.strong : picks.cheap;
     if (!pick) throw new Error(req.search ? 'No model here can search the web for this check.' : 'No model for this check.');
     const model = pick.model;
     const k = keys[model.provider];
     if (!k) throw new Error(`No ${model.provider} key for this check.`);
-    const cap = req.search ? (req.purpose === 'web answer' ? CALL_CAP.answer : CALL_CAP.search) : CALL_CAP.cheap;
+    const cap = req.search ? (req.purpose === 'web answer' || req.purpose === 'anchor' ? CALL_CAP.answer : CALL_CAP.search) : req.tier === 'strong' ? CALL_CAP.strong : CALL_CAP.cheap;
     const prompt = `${req.system}\n\n${req.user}`;
     const request = sized(requestFor(pick, prompt), cap);
     const signal = req.signal || new AbortController().signal;
@@ -297,7 +303,15 @@ export async function answerCheck(ask, question, answer, signal, { budgetMs = AF
  * nothing to say. `added.costUSD` is at the user's price, like the turn's `usage`.
  */
 export function verificationFor({ risk, searched, citations, premise, after, costUSD, latencyMs }) {
-  const findings = after ? after.findings : [];
+  const findings = after ? [...after.findings] : [];
+  if (citations && citations.length && typeof checkInspector === 'function') {
+    try {
+      const inspFindings = checkInspector(after && after.repaired ? after.repaired.text : '', { sources: citations });
+      if (Array.isArray(inspFindings)) findings.push(...inspFindings);
+    } catch {
+      // non-blocking deterministic inspector
+    }
+  }
   const calls = (premise ? premise.calls : 0) + (after ? after.calls : 0);
   const ev = buildVerification({
     risk: { level: risk.level, reasons: risk.reasons, action: risk.action },

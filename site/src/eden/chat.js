@@ -49,6 +49,7 @@ import { SUMMARY_STYLE, summaryIntent, checkGrounding, checkQuiz, checkSet, cour
 import { HINT_LABEL, hintStream } from '../edu/hints.js'; // Q10: graded work gets hints, never a final answer
 import { browserTurn, pickBrowserModel, wantsBrowser } from './browser-turn.js';
 import { editsLast, imageTurn, imagesOn, wantsImage } from './image.js';
+import { picturesFor, webImageApi } from './web-images.js'; // pictures with a search answer, ChatGPT-style (askeden U1)
 import { call as accountCall } from '../accounts/index.js';
 import { coursePayer, shapeFreeTurn } from '../edu/budget.js'; // who pays for a student's course turn (askeden L9)
 import { requestMaxOutputTokens, withMaxOutputTokens } from './vendor/providers.js';
@@ -62,8 +63,9 @@ import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, autoModels, capRequest, 
 import { refusalPlan } from './refusal.js';
 // Essay turns (askeden T18): a floor of strong writers, task hints, room for the reply, no fact checks (essay-route.js).
 import { ESSAY_MIN_REPLY_TOKENS, cheapestWriter, essayHints, essayOf, essayPool, essayRoom, withoutToolBlocks } from './essay-route.js';
-// Eden's two fact checks (askeden ROADMAP N19: the assumption check before an answer, the web check after one; checks.js).
+// Eden's two fact checks (askeden ROADMAP N19: the assumption check before an answer, the web check after one; checks.js) and EVES (eves.js).
 import { CHECKS_SKIPPED, answerCheck, checkModels, checksFor, checksWorst, hostedAsk, premiseAudit, premiseRoute, premiseRouteNote, riskOfTurn, trustworthy, verificationFor } from './checks.js';
+import { hostedEves, hostedEvesEstimate, stopHostedEves } from './eves.js';
 import { capabilityOverrides, cleanAdjustments, taskClass } from '../../public/eden/learned-model.js';
 import { STAGES, TOP_MODEL, autopilotStage, autopilotState, monthBounds, stageExclusions, steppedLevel } from '../../public/eden/autopilot-model.js';
 import {
@@ -120,7 +122,7 @@ export const SUMMARY_REPLY_TOKENS = 12_000; // thinking included: room for a ful
 export const GROUNDED_REPLY_TOKENS = 4_000;
 /** Summaries, by length: short material on Luna, long on Flash (each list in order of preference). */
 export const SUMMARY_SHORT_CHARS = 25_000;
-export const SUMMARY_MODELS = { short: ['gemini-3.8-flash', 'gpt-6.1-sol', 'kimi-k3'], long: ['gemini-3.8-flash', 'gpt-6.1-sol', 'claude-sonnet-5-5'] };
+export const SUMMARY_MODELS = { short: ['gemini-3.8-flash', 'gpt-6.1-sol', 'kimi-k3'], long: ['gemini-3.8-flash', 'gemini-4-argon', 'gpt-6.1-sol'] };
 export function summaryModel(cfg, chars) {
   const list = chars > SUMMARY_SHORT_CHARS ? SUMMARY_MODELS.long : SUMMARY_MODELS.short;
   const m = list.map((id) => cfg.models.find((x) => x.id === id)).find(Boolean);
@@ -283,6 +285,10 @@ export function parseSend(body, cfg) {
     if (s[k] === undefined || s[k] === null) continue;
     if (typeof s[k] !== 'boolean') bad(`settings.${k} must be true or false`);
     settings[k] = s[k];
+  }
+  if (s.eves !== undefined && s.eves !== null && s.eves !== '') {
+    if (!['off', 'on', 'auto'].includes(s.eves)) bad('settings.eves must be "off", "on" or "auto"');
+    settings.eves = s.eves;
   }
   const mode = body.mode ?? 'chat';
   if (!['chat', 'search', 'research'].includes(mode)) bad('mode must be "chat", "search" or "research"');
@@ -450,10 +456,10 @@ function meta(cfg, env = {}) {
       ? `${names.map((p) => providerStates(keys, cfg).find((x) => x.id === p).name).join(', ')} on askeden.com (${models.map((m) => m.name).join(', ')})`
       : 'No models are set up on askeden.com',
     hosted: { site: 'askeden.com', maxEffort: cfg.maxEffort, maxTokens: cfg.maxTokens },
-    // What this server runs of Eden's checks (docs/chat-api.md): the assumption check and the web check of unsearched
-    // answers (checks.js) when the asker has a model to search with; never EVES (the page hides its switch).
+    // What this server runs of Eden's checks (docs/chat-api.md): the assumption check, the web check of unsearched
+    // answers (checks.js), and EVES (eves.js) when at least two models are available.
     ...checksMeta(cfg),
-    eves: false,
+    eves: models.length >= 2,
   };
 }
 
@@ -603,6 +609,8 @@ export async function chatApi(request, env, ctx, path) {
     if (GOOGLE_DATA_ROUTES.has(`${request.method} ${path}`) && googleDataReady(env)) return await googleData(request, env, ctx, path, { gate, readBody, maxBody: MAX_BODY });
     // Dictation by recording, where the browser has no speech recognition: the audio is the body (transcribe.js).
     if (path === '/api/chat/transcribe') return await transcribeApi(request, env, await gate(request, env, { audio: true }), { call, limited });
+    // A search answer's pictures load as <img> (no X-Jarvis-Chat): one Wikimedia picture, signed in (web-images.js).
+    if (path === '/api/chat/webimage') return await webImageApi(request, await gate(request, env, { header: false }));
     // A video for the next turn: streamed on to Gemini's Files API (video.js).
     if (path === '/api/chat/video') {
       const vw = await gate(request, env, { video: true });
@@ -682,6 +690,19 @@ export async function chatApi(request, env, ctx, path) {
         return json(await steerBrowser(await readBody(request, 8192), env, who));
       case 'POST /api/chat/compare/stop':
         return json(stopCompare(await readBody(request, 4096), who));
+      // EVES (N7/N13): up to three models answer in parallel, deterministic + INSPECTOR checks, judge and web evidence (eves.js)
+      case 'POST /api/chat/eves':
+        await limited(env, 'API_RATE', who.account);
+        await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+        if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
+        return await hostedEves(request, env, ctx, who, cfg, { readBody, MAX_BODY, compareModels, parseSend, narrowFor, systemPrompt, inputEstimate, messageText, routeSettings, compareLanes, creditFactor, routed });
+      case 'POST /api/chat/eves/estimate':
+        await limited(env, 'API_RATE', who.account);
+        if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
+        return json(hostedEvesEstimate(await readBody(request, 1 << 20), cfg, { narrowFor, compareLanes, routeSettings, compareModels }));
+      case 'POST /api/chat/eves/stop':
+        if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
+        return json(stopHostedEves(await readBody(request, 4096), who));
       case 'POST /api/chat/artifact': {
         await limited(env, 'API_RATE', who.account);
         const body = await readBody(request, 3 * 1024 * 1024);
@@ -1052,7 +1073,8 @@ async function send(request, env, ctx, who, cfg) {
   if (grounding && grounding.hint) body.mode = 'chat'; // Q10: graded work: no web search (it could fetch a posted solution)
   const risk = !grounding && body.mode === 'chat' && !raw.override ? riskOf(question) : null;
   if (risk && cfg.models.some((m) => m.provider === searchProvider(cfg))) body.mode = 'search';
-  let system = [systemPrompt({ ...body, memory: mem ? mem.block : '' }), grounding && grounding.block, risk && riskBlock(risk), summary && !(grounding && grounding.summary) ? SUMMARY_STYLE : ''].filter(Boolean).join('\n\n');
+  const pictures = picturesFor(raw, body, { grounding }); // a search turn from a page that shows pictures (web-images.js)
+  let system = [systemPrompt({ ...body, memory: mem ? mem.block : '' }), grounding && grounding.block, risk && riskBlock(risk), summary && !(grounding && grounding.summary) ? SUMMARY_STYLE : '', pictures && pictures.prompt].filter(Boolean).join('\n\n');
   const videos = videosOf(body.messages[body.messages.length - 1]);
   let textTokens = inputEstimate(body.messages, system);
   let trimmedNote = '';
@@ -1315,11 +1337,14 @@ async function send(request, env, ctx, who, cfg) {
     // Q10 hint mode (edu/hints.js): the reply goes out a paragraph at a time, each checked and any final answer
     // struck first; no thinking is shown (it could hold the solution)
     const hinting = grounding && grounding.hint ? hintStream((text) => write('text', { text })) : null;
-    const emit = hinting ? (type, data) => { if (type === 'text') hinting.push(data && data.text); else if (type !== 'thinking') write(type, data); } : write;
+    const shown = hinting ? (type, data) => { if (type === 'text') hinting.push(data && data.text); else if (type !== 'thinking') write(type, data); } : write;
+    const pics = pictures && pictures.attempt(shown, write, abort.signal); // the `[images: …]` line taken out, its pictures looked up
+    const emit = pics ? pics.emit : shown;
     const r = await streamCall(
       { model, request: req, messages: body.messages, system, search: body.mode !== 'chat', uses, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens, videos },
       { signal: abort.signal, emit },
     );
+    if (pics) { pics.end(); r.text = pics.strip(r.text); }
     if (r.usage) charge(model.provider, r.costUSD, { feature: 'chat', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens }); // counted however it ended: in full, or (stopped, failed) as far as it got
     if (r.stopped || abort.signal.aborted) return { finish: 'aborted' };
     if (r.failure) throw new TurnFailed(r.failure, Boolean(hinting ? hinting.text : r.text));
@@ -1443,6 +1468,7 @@ async function send(request, env, ctx, who, cfg) {
             console.log(JSON.stringify({ kind: 'refusal', reason: plan.kind, action: plan.action, model: (outcome.choice || first).model, to: plan.model || null }));
           }
         }
+        if (pictures) await pictures.settle(); // a search answer's pictures, when they're still on their way (capped)
         write('done', { finish: outcome.finish });
         // N19: after `done` (the reply is with the person): the web check of a factual answer that came without
         // search, then ONE `verification` event when a check ran (checks.js; the page reads on for it).

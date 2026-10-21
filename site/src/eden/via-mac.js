@@ -164,6 +164,7 @@ function cleanMacMeta(body) {
     search: { available: search.available === true, via: textOr(search.via, 40) },
     jarvis: flag(body.jarvis),
     code: { ...flag(body.code), via: 'your Mac' },
+    eves: body.eves === true,
   };
 }
 

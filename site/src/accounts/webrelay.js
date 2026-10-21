@@ -86,6 +86,9 @@ export const MAC_ROUTES = new Set([
   // (refused here in `forward`, in eden/chat.js, and again on the Mac).
   'POST /api/route',
   'GET /api/chat/meta',
+  'POST /api/chat/eves',
+  'POST /api/chat/eves/estimate',
+  'POST /api/chat/eves/stop',
 ]);
 
 export const MAC_OFFLINE =

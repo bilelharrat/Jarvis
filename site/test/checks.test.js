@@ -171,17 +171,17 @@ test('the most the checks may cost (held with the turn): about 9¢ each on the i
 
 // ── meta ──
 
-test('meta: the hosted server runs both checks (with Gemini to search) and never EVES', async () => {
+test('meta: the hosted server runs both checks (with Gemini to search) and EVES when >= 2 models are available', async () => {
   const session = await signedIn();
   const m = await (await hit('/api/chat/meta', { session, headers: { 'x-jarvis-chat': '1' } })).json();
   assert.equal(m.premiseCheck, true);
   assert.equal(m.answerCheck, true);
-  assert.equal(m.eves, false);
+  assert.equal(m.eves, true);
   env.EDEN_GEMINI = 'off';
   const off = await (await hit('/api/chat/meta', { session, headers: { 'x-jarvis-chat': '1' } })).json();
   assert.equal(off.premiseCheck, false, 'no Gemini: nothing searches, so no switch');
   assert.equal(off.answerCheck, false);
-  assert.equal(off.eves, false);
+  assert.equal(off.eves, true);
 });
 
 // ── the turn ──
@@ -383,4 +383,55 @@ test('the web check gets 18 s for its counter-claim and search (not the old 14 s
   assert.equal(r2.unfinished, true);
   // 3. the whole phase never passes the budget: a counter-claim and search that take 18 s leave 27 s, the answer again gets 25
   assert.ok(ANSWER_CHECK_MS + REANSWER_MS <= AFTER_REPLY_MS);
+});
+
+test('EVES on askeden.com: /api/chat/eves/estimate and /api/chat/eves stream lanes, anchor, agreement, verdict and verification', async () => {
+  const session = await signedIn();
+  const estRes = await hit('/api/chat/eves/estimate', {
+    method: 'POST',
+    session,
+    headers: { 'x-jarvis-chat': '1' },
+    body: { prompt: 'What year did Neil Armstrong walk on the Moon?', settings: { level: 3 }, mode: 'on' },
+  });
+  assert.equal(estRes.status, 200);
+  const est = await estRes.json();
+  assert.ok(Array.isArray(est.lanes) && est.lanes.length >= 2);
+  assert.ok(est.judge && est.judge.model);
+  assert.ok(typeof est.totalUSD === 'number' && est.totalUSD > 0);
+
+  script.answer = '1969.';
+  script.geminiAnchor = { text: '1969.', sources: NASA };
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+      return sse(geminiSse('1969.', NASA));
+    }
+    return origFetch(input, init);
+  };
+  const evesRes = await hit('/api/chat/eves', {
+    method: 'POST',
+    session,
+    headers: { 'x-jarvis-chat': '1' },
+    body: {
+      messages: [{ role: 'user', content: 'What year did Neil Armstrong walk on the Moon?' }],
+      mode: 'on',
+      models: [
+        { model: 'gpt-6-luna', effort: 'none' },
+        { model: 'gemini-3.8-flash', effort: 'low' },
+      ],
+      settings: { level: 3 },
+    },
+  });
+  assert.equal(evesRes.status, 200);
+  const events = await readEvents(evesRes);
+  const types = events.map((e) => e.type);
+  assert.ok(types.includes('eves'));
+  assert.ok(types.includes('verdict'));
+  assert.ok(types.includes('verification'));
+  assert.ok(types.includes('end'));
+  const verdict = events.find((e) => e.type === 'verdict').data;
+  assert.equal(verdict.agreement, 'unanimous');
+  const ver = events.find((e) => e.type === 'verification').data;
+  assert.equal(ver.label.kind, 'eves_verified');
 });

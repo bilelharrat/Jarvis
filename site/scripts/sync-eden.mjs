@@ -69,8 +69,15 @@ const VERIFY_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'verify.js');
 const VERIFY_EXPORTS = {
   'src/verify/presupposition.ts': ['auditPresuppositions', 'hasFactualPremise', 'premiseNote', 'PREMISE_MAX_CALLS', 'PREMISE_MAX_SEARCHES'],
   'src/verify/falsification.ts': ['FALSIFY_THRESHOLD', 'FALSIFY_MAX_CALLS', 'falsifyAnswer', 'isFactualLookup', 'reanswerWithSearch'],
+  'src/verify/inspector.ts': ['checkInspector', 'extractProvenancePills'],
   'src/verify/risk.ts': ['assessRisk'],
-  'src/verify/labels.ts': ['buildVerification', 'worthSending', 'PREMISE_CORRECTED', 'WEB_CORRECTED', 'WEB_DISAGREES'],
+  'src/verify/labels.ts': ['buildVerification', 'worthSending', 'partlyCheckedLabel', 'PREMISE_CORRECTED', 'WEB_CORRECTED', 'WEB_DISAGREES'],
+  'src/verify/judge.ts': ['AGREEMENT_OUTPUT_TOKENS', 'JUDGE_OUTPUT_TOKENS', 'aimedAtJudge', 'allAbstain', 'checkAgreement', 'judgeAnswers', 'unletter'],
+  'src/verify/evidence.ts': ['ADDED_LEAD', 'EVIDENCE_MAX_CALLS', 'EVIDENCE_OUTPUT_TOKENS', 'applyCorrections', 'checkEvidence'],
+  'src/verify/claims.ts': ['clip', 'extractClaimsDetailed'],
+  'src/verify/checks.ts': ['ALL_CHECKS', 'runChecks'],
+  'src/verify/eves-config.ts': ['ANCHOR_OUTPUT_TOKENS', 'DEFAULT_LIMITS', 'EVES_TIME_BUDGET_MS', 'TYPICAL_LANE_SHARE', 'resolveLimits'],
+  'src/verify/text.ts': ['normalizeForMatch'],
 };
 const MANIFEST = path.join(SITE, 'src', 'eden', 'manifest.js');
 const HOSTED = path.join(SITE, 'web');
