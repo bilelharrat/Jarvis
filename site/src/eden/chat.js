@@ -64,7 +64,7 @@ import { refusalPlan } from './refusal.js';
 // Essay turns (askeden T18): a floor of strong writers, task hints, room for the reply, no fact checks (essay-route.js).
 import { ESSAY_MIN_REPLY_TOKENS, cheapestWriter, essayHints, essayOf, essayPool, essayRoom, withoutToolBlocks } from './essay-route.js';
 // Eden's two fact checks (askeden ROADMAP N19: the assumption check before an answer, the web check after one; checks.js) and EVES (eves.js).
-import { CHECKS_SKIPPED, answerCheck, checkModels, checksFor, checksWorst, hostedAsk, premiseAudit, premiseRoute, premiseRouteNote, riskOfTurn, trustworthy, verificationFor } from './checks.js';
+import { CHECKS_SKIPPED, answerCheck, checkModels, checksFor, checksWorst, hasSycophancyChallenge, hostedAsk, premiseAudit, premiseRoute, premiseRouteNote, riskOfTurn, sycophancyGuardNote, trustworthy, verificationFor } from './checks.js';
 import { hostedEves, hostedEvesEstimate, stopHostedEves } from './eves.js';
 import { capabilityOverrides, cleanAdjustments, taskClass } from '../../public/eden/learned-model.js';
 import { STAGES, TOP_MODEL, autopilotStage, autopilotState, monthBounds, stageExclusions, steppedLevel } from '../../public/eden/autopilot-model.js';
@@ -1339,7 +1339,12 @@ async function send(request, env, ctx, who, cfg) {
     const hinting = grounding && grounding.hint ? hintStream((text) => write('text', { text })) : null;
     const shown = hinting ? (type, data) => { if (type === 'text') hinting.push(data && data.text); else if (type !== 'thinking') write(type, data); } : write;
     const pics = pictures && pictures.attempt(shown, write, abort.signal); // the `[images: …]` line taken out, its pictures looked up
-    const emit = pics ? pics.emit : shown;
+    let thinkingText = '';
+    const BaseEmit = pics ? pics.emit : shown;
+    const emit = (type, data) => {
+      if (type === 'thinking' && data && typeof data.text === 'string') thinkingText += data.text;
+      BaseEmit(type, data);
+    };
     const r = await streamCall(
       { model, request: req, messages: body.messages, system, search: body.mode !== 'chat', uses, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens, videos },
       { signal: abort.signal, emit },
@@ -1369,7 +1374,7 @@ async function send(request, env, ctx, who, cfg) {
     // On credits, the reply's cost is the user's price (provider cost × the markup, credits.js).
     const f = metered(cfg.keys, model.provider) ? creditFactor(hold || allow) : 1;
     write('usage', { inputTokens: u.inputTokens, outputTokens: u.outputTokens, reasoningTokens: u.reasoningTokens, ...(u.webSearches ? { webSearches: u.webSearches } : {}), costUSD: round6(r.costUSD * f), notional: false, ...(metered(cfg.keys, model.provider) ? {} : { ownKey: true }), ...(top ? { topUSD: round6(usageUSD(top, { ...u, webSearches: 0 }) * f) } : {}) });
-    return { finish: r.finish, text: r.text, citations: r.citations, choice };
+    return { finish: r.finish, text: r.text, thinking: thinkingText, citations: r.citations, choice };
   };
 
   const run = async () => {
@@ -1390,6 +1395,11 @@ async function send(request, env, ctx, who, cfg) {
       : null;
     if (extracting) ctx.waitUntil(extracting);
     try {
+      const priorHistory = body.messages.slice(0, -1).map((m) => ({ role: m.role, content: messageText(m) }));
+      const sycophancy = hasSycophancyChallenge(question, priorHistory);
+      if (sycophancy && sycophancy.challenged) {
+        system = `${system}\n\n${sycophancyGuardNote(sycophancy)}`;
+      }
       // N19: the assumption check, before the first word (at most PREMISE_CHECK_MS); a premise a cited search found
       // false becomes Eden's own note at the end of the system prompt, and the route says what it did.
       if (checks.premise) {
@@ -1477,8 +1487,20 @@ async function send(request, env, ctx, who, cfg) {
         if (checks.answer && body.mode === 'chat' && !refused && !(outcome.citations && outcome.citations.length) && String(outcome.text || '').trim()) {
           after = await answerCheck(ask, question, outcome.text, abort.signal);
         }
-        if ((premise || after) && !abort.signal.aborted && !(after && after.stopped)) {
-          const ev = verificationFor({ risk: vrisk, searched: body.mode !== 'chat', citations: outcome.citations || [], premise, after, costUSD: round6(checkSpent), latencyMs: (premise ? premise.latencyMs : 0) + (after ? Date.now() - t1 : 0) });
+        if ((premise || after || (outcome.citations && outcome.citations.length) || outcome.thinking) && !abort.signal.aborted && !(after && after.stopped)) {
+          const ev = verificationFor({
+            risk: vrisk,
+            searched: body.mode !== 'chat',
+            citations: outcome.citations || [],
+            premise,
+            after,
+            costUSD: round6(checkSpent),
+            latencyMs: (premise ? premise.latencyMs : 0) + (after ? Date.now() - t1 : 0),
+            answerText: outcome.text,
+            thinking: outcome.thinking,
+            historyMessages: priorHistory,
+            memories: mem && mem.block ? [{ title: 'Memory', text: mem.block }] : [],
+          });
           if (ev) write('verification', ev);
           // M5: numbers and words, never the prompt, the reply or a key
           console.log(JSON.stringify({ kind: 'grounding', scope: 'chat', verdict: ev ? ev.label.kind : 'not_checked', risk: vrisk.level, premise: premise ? (premise.corrected ? 'corrected' : premise.checked ? 'checked' : 'unfinished') : null, answerCheck: after ? (after.answerCheck ? (after.answerCheck.corrected ? 'corrected' : after.answerCheck.fired ? 'flagged' : 'passed') : 'unfinished') : null, addedUSD: round6(checkSpent), calls: (premise ? premise.calls : 0) + (after ? after.calls : 0), model: (outcome.choice || first).model }));

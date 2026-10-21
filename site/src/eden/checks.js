@@ -32,19 +32,25 @@ import {
   FALSIFY_MAX_CALLS,
   FALSIFY_THRESHOLD,
   PREMISE_MAX_SEARCHES,
+  StreamInspectorGate,
+  assessAnswerClaimRisk,
   assessRisk,
   auditPresuppositions,
   buildVerification,
+  checkArithmetic,
   checkInspector,
+  crossFamilyAuditClaims,
   falsifyAnswer,
   hasFactualPremise,
+  hasSycophancyChallenge,
   isFactualLookup,
   premiseNote,
   reanswerWithSearch,
+  sycophancyGuardNote,
   worthSending,
 } from './vendor/verify.js';
 
-export { FALSIFY_THRESHOLD, hasFactualPremise, isFactualLookup };
+export { FALSIFY_THRESHOLD, StreamInspectorGate, assessAnswerClaimRisk, hasFactualPremise, hasSycophancyChallenge, isFactualLookup, sycophancyGuardNote };
 
 /** The assumption check may hold the first word this long (the Mac's PREMISE_CHECK_MS). */
 export const PREMISE_CHECK_MS = 10_000;
@@ -219,11 +225,13 @@ export function riskOfTurn(body) {
  */
 export function checksFor({ body, raw, risk, question, inCourse, grounding, picks }) {
   const last = body.messages[body.messages.length - 1];
-  const plain = !inCourse && !grounding && !(last.attachments && last.attachments.length) && !(body.context && body.context.length) && raw.privacy !== true;
+  const history = body.messages.slice(-7, -1).map((m) => ({ role: m.role, content: m.content }));
+  const hasNonImageAtts = Boolean(last.attachments && last.attachments.some((a) => a.kind !== 'image'));
+  const plain = !inCourse && !grounding && !hasNonImageAtts && !(body.context && body.context.length) && raw.privacy !== true;
   const searchable = Boolean(picks.search && picks.cheap);
   const premise =
-    plain && searchable && (body.mode === 'chat' || body.mode === 'search') && body.settings.premiseCheck !== false && !risk.reasons.includes('user_data') && hasFactualPremise(question);
-  const factual = risk.level !== 'low' || hasFactualPremise(question) || isFactualLookup(question);
+    plain && searchable && (body.mode === 'chat' || body.mode === 'search') && body.settings.premiseCheck !== false && !risk.reasons.includes('user_data') && hasFactualPremise(question, history);
+  const factual = risk.level !== 'low' || hasFactualPremise(question, history) || isFactualLookup(question);
   const answer = plain && searchable && body.mode === 'chat' && body.settings.answerCheck !== false && factual;
   return { premise, answer };
 }
@@ -274,6 +282,16 @@ export async function answerCheck(ask, question, answer, signal, { budgetMs = AF
   const out = await soft(Math.min(ANSWER_CHECK_MS, left()), signal, (s) => falsifyAnswer(counted, question, answer, { signal: s, maxCalls: FALSIFY_MAX_CALLS }));
   if (signal.aborted) return { findings, unfinished, calls, stopped: true };
   if (!out.ok) {
+    // Zero-Drop Hedged Verification Race: if web falsification failed (non-timeout) and time remains, fall back to fast cross-family claim audit
+    if (!/time/.test(out.why) && left() >= 800 && typeof crossFamilyAuditClaims === 'function') {
+      const fallbackAudit = await soft(Math.min(2_500, left()), signal, (s) => crossFamilyAuditClaims(counted, question, answer, { signal: s }));
+      if (fallbackAudit.ok && fallbackAudit.value.ok) {
+        for (const d of fallbackAudit.value.disputed || []) {
+          findings.push({ check: 'claim', status: 'fail', subject: oneLine(d.claim, 160), detail: oneLine(d.why, 300), ...(d.sentence ? { sentence: d.sentence } : {}) });
+        }
+        return { answerCheck: { ran: true, fired: (fallbackAudit.value.disputed || []).length > 0, corrected: false }, findings, unfinished: false, calls };
+      }
+    }
     findings.push(errorFinding('web', `Eden’s web check of this answer did not finish (${out.why}).`));
     if (/time/.test(out.why)) unfinished = true;
     return { findings, unfinished, calls };
@@ -302,14 +320,36 @@ export async function answerCheck(ask, question, answer, signal, { budgetMs = AF
  * The `verification` event for a turn on which a check ran (labels.ts, as the Mac builds it), or null when there is
  * nothing to say. `added.costUSD` is at the user's price, like the turn's `usage`.
  */
-export function verificationFor({ risk, searched, citations, premise, after, costUSD, latencyMs }) {
+export function verificationFor({ risk, searched, citations, premise, after, costUSD, latencyMs, answerText, thinking, historyMessages, memories, sources }) {
   const findings = after ? [...after.findings] : [];
-  if (citations && citations.length && typeof checkInspector === 'function') {
-    try {
-      const inspFindings = checkInspector(after && after.repaired ? after.repaired.text : '', { sources: citations });
-      if (Array.isArray(inspFindings)) findings.push(...inspFindings);
-    } catch {
-      // non-blocking deterministic inspector
+  const checkedText = after && after.repaired && after.repaired.text ? after.repaired.text : String(answerText || '');
+  if (checkedText.trim()) {
+    if (typeof checkArithmetic === 'function') {
+      try {
+        const arith = checkArithmetic(checkedText);
+        if (Array.isArray(arith)) findings.push(...arith);
+      } catch {
+        // non-blocking arithmetic check
+      }
+    }
+    if (typeof checkInspector === 'function') {
+      try {
+        const allSources = [
+          ...(Array.isArray(sources) ? sources : []),
+          ...(Array.isArray(citations) ? citations.map((c) => ({ title: c.title, url: c.url, text: c.title || '' })) : []),
+        ];
+        if (allSources.length || (historyMessages && historyMessages.length) || thinking || (memories && memories.length)) {
+          const inspFindings = checkInspector(checkedText, {
+            sources: allSources,
+            thinking,
+            historyMessages,
+            memories,
+          });
+          if (Array.isArray(inspFindings)) findings.push(...inspFindings);
+        }
+      } catch {
+        // non-blocking deterministic inspector
+      }
     }
   }
   const calls = (premise ? premise.calls : 0) + (after ? after.calls : 0);

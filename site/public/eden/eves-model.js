@@ -50,16 +50,15 @@ export function evesApplies({ kind = 'chat', chatMode = 'chat', mac = false, bro
 
 /**
  * What of the person's own material a message would carry to EVES's models, in words ('' when none): attached
- * files and images, and context blocks (email, calendar, notes, files, pages) on the message or earlier in the chat.
- * The person's saved memories don't count. `attachments` and `context` are lists as chat.js keeps them.
+ * non-image files, and context blocks (email, calendar, notes, files, pages) on the message or earlier in the chat.
+ * Images are supported by EVES across vision-capable models, and saved memories don't count.
  */
 export function personalMaterial({ attachments = [], context = [] } = {}) {
-  const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && typeof a === 'object');
+  const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && typeof a === 'object' && a.kind !== 'image');
   const ctx = (Array.isArray(context) ? context : []).filter((x) => x && typeof x === 'object' && String(x.source || x.kind || '').toLowerCase() !== 'memory' && !/^memory\b/i.test(String(x.title || '')));
   if (!atts.length && !ctx.length) return '';
   const words = [];
-  if (atts.some((a) => a.kind === 'image')) words.push('your images');
-  if (atts.some((a) => a.kind !== 'image')) words.push('your attached files');
+  if (atts.length) words.push('your attached files');
   if (ctx.length) words.push('your email, calendar, notes or files');
   return words.length > 1 ? `${words.slice(0, -1).join(', ')} or ${words.at(-1)}` : words[0];
 }

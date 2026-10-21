@@ -12,7 +12,7 @@
 import { call } from '../accounts/index.js';
 import { ApiError } from '../accounts/util.js';
 import { checkModels, hostedAsk } from './checks.js';
-import { autoModels, computedWhere, fitCall, maxTokensOf, metered, modelOf, ratesOf, streamCall, usageUSD } from './providers.js';
+import { autoModels, computedWhere, fitCall, hasVision, maxTokensOf, metered, modelOf, ratesOf, streamCall, usageUSD } from './providers.js';
 import { effortLabel } from './vendor/model-router.js';
 import {
   ADDED_LEAD,
@@ -28,12 +28,16 @@ import {
   allAbstain,
   applyCorrections,
   assessRisk,
+  buildClarificationAutoReply,
   checkAgreement,
   checkEvidence,
   checkInspector,
   clip,
   extractClaimsDetailed,
+  fastConsensusCheck,
+  isClarifyingQuestion,
   judgeAnswers,
+  mergeClarifyingQuestions,
   normalizeForMatch,
   partlyCheckedLabel,
   runChecks,
@@ -228,14 +232,19 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   if (cfg.models.length < 2) throw new ApiError(503, 'not_set_up', 'EVES needs at least two models on askeden.com.');
   const models = helpers.compareModels(raw, cfg);
   const body = helpers.parseSend({ ...raw, mode: 'chat', override: undefined, sticky: undefined }, cfg);
-  // Personal material check outside privacy mode
-  const hasAttachments = body.messages.some((m) => m.attachments && m.attachments.length);
+  // Personal material check outside privacy mode (images are supported across vision-capable lanes)
+  const hasNonImageAttachments = body.messages.some((m) => m.attachments && m.attachments.some((a) => a.kind !== 'image'));
+  const hasImages = body.messages.some((m) => m.attachments && m.attachments.some((a) => a.kind === 'image'));
   const hasContext = body.context && body.context.length;
-  if (hasAttachments || hasContext) {
+  if (hasNonImageAttachments || hasContext) {
     throw new ApiError(422, 'personal_material', 'EVES can’t check this message: it carries your attached files or context. Send it with EVES off, or without them.');
   }
   const checkPool = cfg.models;
   cfg = helpers.narrowFor(cfg, body);
+  if (hasImages) {
+    const visionModels = cfg.models.filter((m) => hasVision(m));
+    if (visionModels.length >= 2) cfg = { ...cfg, models: visionModels };
+  }
   if (models && models.some((x) => !cfg.models.some((m) => m.id === x.model))) {
     throw new ApiError(422, 'not_here', 'One of those models can’t be used with the providers you have on.');
   }
@@ -352,7 +361,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   let anchorName = ownAnchor ? ownAnchor.modelName : '';
   const nameOf = (lane) => (lane === anchorLane && ownAnchor ? `${anchorName} (with web search)` : plan.lanes[lane]?.modelName ?? `Answer ${lane + 1}`);
 
-  const runLane = async (i, choice, requestObj, signal) => {
+  const runLane = async (i, choice, requestObj, signal, messagesOverride = body.messages) => {
     const t0 = Date.now();
     if (signal.aborted) {
       write('done', { lane: i, finish: 'aborted' });
@@ -361,7 +370,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     const model = modelOf(choice.model);
     const citations = [];
     const r = await streamCall(
-      { model, request: requestObj, messages: body.messages, system, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens },
+      { model, request: requestObj, messages: messagesOverride, system, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens },
       {
         signal,
         emit: (type, data) => {
@@ -464,19 +473,84 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         stage: 'answering',
         detail: `Asking ${plan.lanes.map((l) => l.modelName).join(', ')}${ownAnchor ? `, with ${anchorName}’s answer from a web search` : ''}`,
       });
-      const [results, anchorRes] = await Promise.all([
-        Promise.all(lanes.map((l, i) => runLane(i, l, lanePlans[i].request, laneCtrls[i].signal))),
-        anchorCall(),
-      ]);
-      if (abort.signal.aborted) return;
-
-      const lanesUSD = results.reduce((n, r) => n + r.costUSD, 0) + (anchorRes?.costUSD ?? 0);
       const userText = body.messages
         .filter((m) => m.role === 'user')
         .slice(-6)
         .map((m) => helpers.messageText(m))
         .join('\n')
         .slice(0, 20_000);
+      const findings = Array.from({ length: anchorLane + 1 }, () => []);
+      const checkOne = async (r) => {
+        if (!r || !r.text.trim() || (r.finish !== 'stop' && r.finish !== 'length')) return;
+        const out = [];
+        const aimed = aimedAtJudge(r.text);
+        if (aimed) out.push({ check: 'injection', status: 'fail', subject: aimed, detail: 'This answer has text aimed at the AI checking it. That text is ignored, and this answer can’t be picked while another one can.' });
+        try {
+          const det = await runChecks(r.text, { checks: ALL_CHECKS, userText, citations: r.citations, signal: abort.signal }, {});
+          out.push(...det.filter(validFinding));
+          if (r.citations && r.citations.length) {
+            const insp = checkInspector(r.text, { sources: r.citations.map((c) => ({ title: c.title, url: c.url, text: c.title || '' })), userText });
+            if (Array.isArray(insp)) out.push(...insp.filter(validFinding));
+          }
+        } catch (e) {
+          out.push({ check: 'checks', status: 'error', subject: 'checks', detail: `The checks couldn’t run (${clip((e && e.message) || String(e), 160)}).` });
+        }
+        findings[r.lane] = out;
+      };
+
+      const anchorPromise = anchorCall().then(async (res) => {
+        if (res) await checkOne(res);
+        return res;
+      });
+      const results = await Promise.all(
+        lanes.map(async (l, i) => {
+          const res = await runLane(i, l, lanePlans[i].request, laneCtrls[i].signal);
+          await checkOne(res);
+          return res;
+        }),
+      );
+      if (abort.signal.aborted) return;
+
+      // ── Follow-up / Clarifying Question Auto-Resolution ──
+      const liveLanes = results.filter((r) => r.text.trim() && (r.finish === 'stop' || r.finish === 'length'));
+      const clarifyingLanes = liveLanes.filter((r) => isClarifyingQuestion(r.text));
+      const substantiveLanes = liveLanes.filter((r) => !isClarifyingQuestion(r.text));
+      if (clarifyingLanes.length === 1 && substantiveLanes.length >= 1 && !stoppedSet.has(String(clarifyingLanes[0].lane))) {
+        const target = clarifyingLanes[0];
+        const autoReply = buildClarificationAutoReply(
+          question,
+          target.text,
+          substantiveLanes.map((r) => r.text),
+        );
+        write('eves_stage', {
+          stage: 'answering',
+          detail: `Auto-answering ${nameOf(target.lane)}’s follow-up so it answers the same question as the other models`,
+        });
+        const followUpMessages = [
+          ...body.messages,
+          { role: 'assistant', content: target.text },
+          { role: 'user', content: autoReply },
+        ];
+        const reAnswered = await runLane(target.lane, lanes[target.lane], lanePlans[target.lane].request, laneCtrls[target.lane].signal, followUpMessages);
+        if (abort.signal.aborted) return;
+        if (reAnswered.text.trim() && (reAnswered.finish === 'stop' || reAnswered.finish === 'length')) {
+          results[target.lane] = {
+            ...reAnswered,
+            costUSD: round6(target.costUSD + reAnswered.costUSD),
+            ms: target.ms + reAnswered.ms,
+          };
+          await checkOne(results[target.lane]);
+        }
+      }
+
+      // Cap slow search-anchor tail latency once all model lanes are already finished (max 1.5s grace wait)
+      const anchorRes = await Promise.race([
+        anchorPromise,
+        new Promise((resolve) => setTimeout(() => resolve(null), 1_500)),
+      ]);
+      if (abort.signal.aborted) return;
+
+      const lanesUSD = results.reduce((n, r) => n + r.costUSD, 0) + (anchorRes?.costUSD ?? 0);
       const answered = [...results.filter((r) => r.text.trim() && (r.finish === 'stop' || r.finish === 'length')), ...(anchorRes ? [anchorRes] : [])];
       const ownCalls = results.length + (anchorRes ? 1 : 0);
 
@@ -502,28 +576,47 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         return;
       }
 
-      // Deterministic checks + INSPECTOR on every answer
+      // If 2 or more models asked a clarifying follow-up question, ask the user to clarify immediately (0ms judge wait)
+      const remainingClarifiers = results.filter((r) => r.text.trim() && (r.finish === 'stop' || r.finish === 'length') && isClarifyingQuestion(r.text));
+      if (remainingClarifiers.length >= 2) {
+        const clarifyWinner = remainingClarifiers[0];
+        const mergedQuestion = mergeClarifyingQuestions(remainingClarifiers.map((r) => r.text));
+        const clarifyNames = remainingClarifiers.map((r) => nameOf(r.lane)).join(' and ');
+        const summary = `${clarifyNames} asked a clarifying question before answering — please clarify what you mean so Eden can check the exact facts.`;
+        const verdict = {
+          winner: clarifyWinner.lane,
+          agreement: 'unanimous',
+          claims: [],
+          corrections: [],
+          skippedJudge: true,
+          summary,
+          judgeCostUSD: 0,
+          totalCostUSD: round6(lanesUSD),
+        };
+        write('eves_stage', { stage: 'finalizing' });
+        write('verdict', verdict);
+        for (const text of chunks(mergedQuestion)) write('text', { lane: 'final', text });
+        write('usage', { lane: 'final', inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUSD: 0, notional: false, calls: 0 });
+        write('done', { lane: 'final', finish: 'stop' });
+        write(
+          'verification',
+          verification(
+            {
+              kind: 'eves_verified',
+              text: `${remainingClarifiers.length} models asked you to clarify`,
+              detail: summary,
+              severity: 'info',
+            },
+            [],
+            clarifyWinner,
+          ),
+        );
+        write('end', {});
+        return;
+      }
+
+      // Deterministic checks + INSPECTOR on every answer (already pipelined per-lane as each finished)
       write('eves_stage', { stage: 'checking', detail: `Checking ${plural(answered.length, 'answer')}` });
-      const findings = Array.from({ length: anchorLane + 1 }, () => []);
-      await Promise.all(
-        answered.map(async (r) => {
-          const out = [];
-          const aimed = aimedAtJudge(r.text);
-          if (aimed) out.push({ check: 'injection', status: 'fail', subject: aimed, detail: 'This answer has text aimed at the AI checking it. That text is ignored, and this answer can’t be picked while another one can.' });
-          try {
-            const det = await runChecks(r.text, { checks: ALL_CHECKS, userText, citations: r.citations, signal: abort.signal }, {});
-            out.push(...det.filter(validFinding));
-            if (r.citations && r.citations.length) {
-              const insp = checkInspector(r.text, { sources: r.citations.map((c) => ({ title: c.title, url: c.url, text: c.title || '' })), userText });
-              if (Array.isArray(insp)) out.push(...insp.filter(validFinding));
-            }
-          } catch (e) {
-            out.push({ check: 'checks', status: 'error', subject: 'checks', detail: `The checks couldn’t run (${clip((e && e.message) || String(e), 160)}).` });
-          }
-          findings[r.lane] = out;
-        }),
-      );
-      if (abort.signal.aborted) return;
       for (const r of answered) if (r.lane !== anchorLane) write('checks', { lane: r.lane, findings: findings[r.lane] });
 
       const flagged = new Set(answered.filter((r) => findings[r.lane].some((f) => f.check === 'injection' && f.status === 'fail')).map((r) => r.lane));
@@ -604,13 +697,17 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         let how = 'model';
         if (!anyFail) {
           const texts = answered.map((r) => r.text);
+          const fast = fastConsensusCheck(texts);
           if (sameWords(texts)) {
             agreed = [];
             how = 'words';
           } else if (allAbstain(texts)) {
             agreed = [];
             how = 'abstain';
-          } else if (!judgeStopped()) {
+          } else if (fast.agreed) {
+            agreed = fast.claims;
+            how = 'words';
+          } else if (!fast.hasNumericConflict && !judgeStopped()) {
             startBudget();
             write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
             const a = await checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });

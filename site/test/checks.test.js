@@ -434,4 +434,68 @@ test('EVES on askeden.com: /api/chat/eves/estimate and /api/chat/eves stream lan
   assert.equal(verdict.agreement, 'unanimous');
   const ver = events.find((e) => e.type === 'verification').data;
   assert.equal(ver.label.kind, 'eves_verified');
+
+  // EVES on askeden.com also works with image attachments
+  const imgEvesRes = await hit('/api/chat/eves', {
+    method: 'POST',
+    session,
+    headers: { 'x-jarvis-chat': '1' },
+    body: {
+      messages: [
+        {
+          role: 'user',
+          content: 'What year is shown in this image?',
+          attachments: [{ kind: 'image', mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', name: 'img.png' }],
+        },
+      ],
+      mode: 'on',
+      models: [
+        { model: 'gpt-6-luna', effort: 'none' },
+        { model: 'gemini-3.8-flash', effort: 'low' },
+      ],
+      settings: { level: 3 },
+    },
+  });
+  assert.equal(imgEvesRes.status, 200);
+  const imgEvents = await readEvents(imgEvesRes);
+  assert.ok(imgEvents.some((e) => e.type === 'verdict'));
+
+  // EVES on askeden.com auto-responds when 1 model asks a clarifying question so it answers the same question as the other models
+  let openAiCalls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('api.openai.com')) {
+      openAiCalls++;
+      return sse(
+        openaiSse(
+          openAiCalls === 1
+            ? 'Do you mean Tom Brady’s regular-season 4th quarter stats, or his playoff stats?'
+            : 'Regular Season 4th Quarter Stats: Tom Brady threw for 26,370 yards and 186 touchdowns.',
+        ),
+      );
+    }
+    if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+      return sse(geminiSse('Regular Season 4th Quarter Stats: Tom Brady threw for 26,370 yards and 186 touchdowns.', NASA));
+    }
+    return origFetch(input, init);
+  };
+  const clarifyRes = await hit('/api/chat/eves', {
+    method: 'POST',
+    session,
+    headers: { 'x-jarvis-chat': '1' },
+    body: {
+      messages: [{ role: 'user', content: 'Tom Brady 4th quarter stats' }],
+      mode: 'on',
+      models: [
+        { model: 'gpt-6-luna', effort: 'none' },
+        { model: 'gemini-3.8-flash', effort: 'low' },
+      ],
+      settings: { level: 3 },
+    },
+  });
+  assert.equal(clarifyRes.status, 200);
+  const clarifyEvents = await readEvents(clarifyRes);
+  assert.equal(openAiCalls, 2, 'the single clarifying model was auto-reprompted to answer the same question');
+  assert.ok(clarifyEvents.some((e) => e.type === 'eves_stage' && /Auto-answering/.test(e.data.detail || '')));
+  globalThis.fetch = origFetch;
 });
