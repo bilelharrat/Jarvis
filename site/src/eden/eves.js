@@ -531,44 +531,84 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         findings[r.lane] = out;
       };
 
-      let substantiveDoneCount = 0;
-      let stragglerTimer;
-      const maybeScheduleStragglerCutover = () => {
-        const elapsed = Date.now() - started;
-        // Once >= 2 substantive answers (including anchor or lanes) have completed on a real network call (>= 400ms),
-        // cap any remaining straggler lane to at most +15% grace time so EVES stays <= 25% slower than single-model.
-        if (substantiveDoneCount >= 2 && lanes.length > 1 && elapsed >= 400 && !stragglerTimer) {
-          const graceMs = Math.min(400, Math.max(150, Math.round(elapsed * 0.15)));
-          stragglerTimer = setTimeout(() => {
-            for (let k = 0; k < laneCtrls.length; k++) {
-              if (!laneCtrls[k].signal.aborted) laneCtrls[k].abort();
-            }
-          }, graceMs);
+      // ── Verified quorum (latency without touching the routed models or their efforts) ──
+      // Lane 0 is the router's own pick: the model and effort a turn with EVES off would use, streamed live to the reply.
+      // The other lanes are slower models; waiting on all of them made EVES 3-4x slower than EVES off. Instead, as soon as
+      // lane 0 and at least one independent answer (the web-searched anchor, or another lane) are in, they are compared:
+      // when they agree with no numeric/polarity conflict and no failed check (by the deterministic consensus check, or by
+      // the agreement model when the wording differs), the answer is verified and the remaining lanes aren't needed. On
+      // any disagreement nothing is cut: every lane finishes and the judge + web evidence settle it as before.
+      const done = new Map(); // lane -> result, for answers (lanes + anchor) that have finished
+      const usable = (r) =>
+        !!r && !!r.text.trim() && (r.finish === 'stop' || r.finish === 'length') && !isClarifyingQuestion(r.text) && !findings[r.lane].some((f) => f.status === 'fail');
+      let quorum = null; // { lanes: number[], claims, how } once a quorum agreed and the other lanes were let go
+      const notNeeded = new Set();
+      let agreementRuns = 0;
+      let settled = false; // every lane is in: the full check below decides, the quorum no longer can
+      const tried = new Set();
+      const quorumCtrl = new AbortController();
+      abort.signal.addEventListener('abort', () => quorumCtrl.abort(), { once: true });
+      const cut = (set, claims, how) => {
+        if (quorum || settled || abort.signal.aborted) return;
+        quorum = { lanes: set.map((r) => r.lane), claims, how };
+        for (let k = 0; k < laneCtrls.length; k++) {
+          if (!done.has(k) && !laneCtrls[k].signal.aborted) {
+            notNeeded.add(k);
+            laneCtrls[k].abort();
+          }
         }
+      };
+      const consider = async () => {
+        if (quorum || settled || lanes.length < 2 || abort.signal.aborted) return;
+        const first = done.get(0);
+        if (!usable(first)) return;
+        const set = [first, ...[...done.values()].filter((r) => r.lane !== 0 && usable(r))];
+        if (set.length < 2) return;
+        const texts = set.map((r) => r.text);
+        if (sameWords(texts)) return cut(set, [], 'words');
+        if (allAbstain(texts)) return cut(set, [], 'abstain');
+        const fc = fastConsensusCheck(texts);
+        if (fc.agreed) return cut(set, fc.claims, 'words');
+        if (fc.hasNumericConflict) return; // a real disagreement: let every lane finish and the judge settle it
+        const key = set.map((r) => r.lane).join(',');
+        if (tried.has(key) || agreementRuns >= 2) return;
+        tried.add(key);
+        agreementRuns++;
+        const a = await checkAgreement(
+          ask,
+          question,
+          set.map((r) => ({ lane: r.lane, text: r.text, findings: findings[r.lane], finish: r.finish === 'length' ? 'length' : 'stop' })),
+          { signal: quorumCtrl.signal },
+        );
+        if (a.ok && a.agreement.same) cut(set, a.agreement.claims, 'model');
+      };
+      const pending = new Set();
+      const arrive = (res) => {
+        if (res) done.set(res.lane, res);
+        const p = consider().catch(() => {});
+        pending.add(p);
+        p.finally(() => pending.delete(p));
       };
 
       const anchorPromise = anchorCall().then(async (res) => {
         if (res) {
           await checkOne(res);
-          if (res.text.trim() && !isClarifyingQuestion(res.text)) {
-            substantiveDoneCount++;
-            maybeScheduleStragglerCutover();
-          }
+          arrive(res);
         }
         return res;
       });
       const results = await Promise.all(
         lanes.map(async (l, i) => {
           const res = await runLane(i, l, lanePlans[i].request, laneCtrls[i].signal);
-          await checkOne(res);
-          if (res.text.trim() && (res.finish === 'stop' || res.finish === 'length') && !isClarifyingQuestion(res.text)) {
-            substantiveDoneCount++;
-            maybeScheduleStragglerCutover();
+          if (!notNeeded.has(i)) {
+            await checkOne(res);
+            arrive(res);
           }
           return res;
         }),
       );
-      if (stragglerTimer) clearTimeout(stragglerTimer);
+      settled = true;
+      if (!quorum) quorumCtrl.abort(); // an agreement check still running on a partial set: the full check below supersedes it
       if (abort.signal.aborted) return;
 
       // ── Follow-up / Clarifying Question Auto-Resolution ──
@@ -793,20 +833,17 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
               }
             }
           }
+          if (!agreed && quorum && answered.every((r) => quorum.lanes.includes(r.lane))) {
+            // the agreement model already found these exact answers saying the same thing (the quorum above)
+            agreed = quorum.claims;
+            how = quorum.how;
+          }
           if (!agreed && !fast.hasNumericConflict && !judgeStopped()) {
-            if (Date.now() - started >= 400) {
-              const bestAns = answered.find((r) => r.lane === best) || answered[0];
-              agreed = fast.claims && fast.claims.length
-                ? fast.claims
-                : [{ text: clip(bestAns.text.split(/(?<=[.!?])\s+/)[0] || bestAns.text, 200), kind: 'fact' }];
-              how = 'words';
-            } else {
-              startBudget();
-              write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
-              const a = await checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });
-              if (abort.signal.aborted) return;
-              if (a.ok && a.agreement.same) agreed = a.agreement.claims;
-            }
+            startBudget();
+            write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
+            const a = await checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });
+            if (abort.signal.aborted) return;
+            if (a.ok && a.agreement.same) agreed = a.agreement.claims;
           }
         }
 
@@ -822,7 +859,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             summary:
               how === 'abstain'
                 ? `${answered.length} models agreed (${names.join(', ')}): none of them found anything to confirm, or said it doesn’t exist, so no further check was needed. This is ${nameOf(best)}’s answer.`
-                : `${answered.length} models agreed (${names.join(', ')}), so the judge wasn’t needed. This is ${nameOf(best)}’s answer.`,
+                : `${answered.length} models agreed (${names.join(', ')}), so the judge wasn’t needed. This is ${nameOf(best)}’s answer.${notNeeded.size ? ` ${[...notNeeded].map(nameOf).join(' and ')} ${notNeeded.size === 1 ? 'wasn’t' : 'weren’t'} waited for once they agreed.` : ''}`,
             judgeCostUSD: 0,
             unplaced: 0,
             timedOut: false,
@@ -844,15 +881,11 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             specSentence && plan.evidence.maxCalls > 0 && !judgeStopped()
               ? checkEvidence(ask, { claim: fast.disputedSentences[0], question, sentence: specSentence }, { signal: judgeCtrl.signal })
               : null;
-          const lanesElapsed = Date.now() - started;
-          const judgeSoftMs = lanesElapsed >= 400 ? Math.min(2_200, Math.max(800, Math.round(lanesElapsed * 0.18))) : EVES_TIME_BUDGET_MS;
-          const j = await Promise.race([
-            judgeAnswers(ask, question, judgeIn, { signal: judgeCtrl.signal }),
-            new Promise((resolve) => setTimeout(() => resolve({ ok: false, costUSD: 0, reason: 'judge soft cap' }), judgeSoftMs)),
-          ]);
+          const j = await judgeAnswers(ask, question, judgeIn, { signal: judgeCtrl.signal });
           if (abort.signal.aborted) return;
-          if (!j.ok && judgeStopped()) {
-            outcome = fallback('you stopped it', j.costUSD);
+          if (!j.ok && (judgeStopped() || !(fast.disputedSentences && fast.disputedSentences.length))) {
+            // no judgment and no pinpointed dispute for the web to settle: say so honestly rather than label it verified
+            outcome = judgeStopped() ? fallback('you stopped it', j.costUSD) : budget.timedOut ? ranOut(j.costUSD) : fallback(j.reason, j.costUSD);
           } else {
             // If judge LLM failed or timed out, synthesize a deterministic claim judgment so the answer is still verified
             const allLanes = answered.map((r) => r.lane);
@@ -908,20 +941,16 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             const checked = new Map();
             if (queue.length && !judgeStopped()) {
               write('eves_stage', { stage: 'evidence', detail: `Checking ${plural(queue.length, 'claim')} on the web` });
-              const evSoftMs = lanesElapsed >= 400 ? Math.min(1_200, Math.max(400, Math.round(lanesElapsed * 0.12))) : EVES_TIME_BUDGET_MS;
-              await Promise.race([
-                Promise.all(
-                  queue.map(async (c, idx) => {
-                    const sent = c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text);
-                    if (idx === 0 && specEvidencePromise) {
-                      checked.set(c.id, await specEvidencePromise);
-                    } else {
-                      checked.set(c.id, await checkEvidence(ask, { claim: c.text, question, sentence: sent }, { signal: judgeCtrl.signal }));
-                    }
-                  }),
-                ),
-                new Promise((resolve) => setTimeout(resolve, evSoftMs)),
-              ]);
+              await Promise.all(
+                queue.map(async (c, idx) => {
+                  const sent = c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text);
+                  if (idx === 0 && specEvidencePromise) {
+                    checked.set(c.id, await specEvidencePromise);
+                  } else {
+                    checked.set(c.id, await checkEvidence(ask, { claim: c.text, question, sentence: sent }, { signal: judgeCtrl.signal }));
+                  }
+                }),
+              );
               if (abort.signal.aborted) return;
             }
             const poolSources = [

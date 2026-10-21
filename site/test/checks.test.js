@@ -504,3 +504,70 @@ test('EVES on askeden.com: /api/chat/eves/estimate and /api/chat/eves stream lan
   assert.equal(clarifyVerification.label.severity, 'ok');
   globalThis.fetch = origFetch;
 });
+
+// ── EVES latency: the router's pick (lane 0) + an agreeing independent answer settle it; slower lanes aren't waited for ──
+const evesTurn = (session, content) =>
+  hit('/api/chat/eves', {
+    method: 'POST',
+    session,
+    headers: { 'x-jarvis-chat': '1' },
+    body: { messages: [{ role: 'user', content }], mode: 'on', models: [{ model: 'gpt-6-luna', effort: 'none' }, { model: 'gemini-3.8-flash', effort: 'low' }], settings: { level: 3 } },
+  });
+const slowLaneFetch = (origFetch, { anchor, lane0 = '1969.', laneMs = 1_500, laneText = '1969.' }) => {
+  const seen = { laneAborted: false, laneFinished: false };
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (Array.isArray(body.tools) && body.tools.length) return sse(geminiSse(anchor, NASA)); // the web-searched anchor
+      // the slow lane: answers after laneMs unless it is let go first
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => ((seen.laneFinished = true), resolve(sse(geminiSse(laneText)))), laneMs);
+        init.signal?.addEventListener('abort', () => (clearTimeout(t), (seen.laneAborted = true), reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))), { once: true });
+      });
+    }
+    if (url.includes('api.openai.com')) {
+      const body = init.body ? JSON.parse(init.body) : {};
+      const system = body.messages?.[0]?.role === 'system' ? body.messages[0].content : '';
+      if (/You audit the hidden assumptions|falsify/.test(system)) return origFetch(input, init);
+      return sse(openaiSse(lane0));
+    }
+    return origFetch(input, init);
+  };
+  return seen;
+};
+
+test('EVES latency: lane 0 and the web anchor agree, so the slow lane is let go and the turn is verified without waiting for it', async () => {
+  const session = await signedIn();
+  const origFetch = globalThis.fetch;
+  const seen = slowLaneFetch(origFetch, { anchor: 'Neil Armstrong walked on the Moon in 1969.', lane0: 'Neil Armstrong walked on the Moon in 1969.', laneMs: 3_000 });
+  try {
+    const t0 = Date.now();
+    const events = await readEvents(await evesTurn(session, 'What year did Neil Armstrong walk on the Moon?'));
+    const ms = Date.now() - t0;
+    assert.ok(ms < 1_500, `the turn finished in ${ms} ms, not after the 3 s lane`);
+    assert.equal(seen.laneAborted, true, 'the slow lane was let go');
+    assert.equal(seen.laneFinished, false);
+    const verdict = events.find((e) => e.type === 'verdict').data;
+    assert.equal(verdict.agreement, 'unanimous');
+    assert.match(verdict.summary, /wasn’t waited for once they agreed/);
+    assert.equal(events.find((e) => e.type === 'verification').data.label.kind, 'eves_verified');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('EVES accuracy: when lane 0 and the web anchor disagree nothing is cut; every lane finishes before the verdict', async () => {
+  const session = await signedIn();
+  const origFetch = globalThis.fetch;
+  const seen = slowLaneFetch(origFetch, { anchor: 'Neil Armstrong walked on the Moon in 1969.', lane0: 'Neil Armstrong walked on the Moon in 1972.', laneMs: 400, laneText: 'Neil Armstrong walked on the Moon in 1969.' });
+  try {
+    const events = await readEvents(await evesTurn(session, 'What year did Neil Armstrong walk on the Moon?'));
+    assert.equal(seen.laneAborted, false, 'a disagreement never lets a lane go');
+    assert.equal(seen.laneFinished, true);
+    assert.ok(events.some((e) => e.type === 'verdict'));
+    assert.ok(!/wasn’t waited for/.test(events.find((e) => e.type === 'verdict').data.summary));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
