@@ -125,16 +125,14 @@ export function checkModels(models, providers) {
   // floor (GPT-6 Luna's level, retired 2026-10-13); the cheapest of all only when nothing reaches it.
   const able = pool.filter(trustworthy);
   const cheapest = [...(able.length ? able : pool)].sort((a, b) => blended(a) - blended(b))[0];
-  // Prefer low-latency high-reasoning models for strong/judge so judging completes in <1s without multi-second thinking stalls
-  const fastStrongOrder = ['claude-sonnet-5-5', 'gemini-3.8-flash', 'gpt-6.1-sol', 'gemini-3.1-pro-preview', 'claude-opus-5-5', 'gemini-4-argon'];
   const strongest =
-    fastStrongOrder.map((id) => able.find((m) => m.id === id)).find(Boolean) ||
+    able.find((m) => m.id === 'gemini-4-argon') ||
     [...(able.length ? able : pool)].sort((a, b) => ((b.capabilities && b.capabilities.reasoning) || 0) - ((a.capabilities && a.capabilities.reasoning) || 0) || blended(a) - blended(b))[0];
   const gemini = pool.filter((m) => m.provider === 'gemini' && canSearch(m));
   const search = gemini.find((m) => m.id === SEARCH_MODEL) || [...gemini].sort((a, b) => blended(a) - blended(b))[0];
   return {
     cheap: cheapest ? { model: cheapest, effort: lowest(cheapest, ['none', 'minimal', 'low', 'medium']) } : null,
-    strong: strongest ? { model: strongest, effort: lowest(strongest, ['none', 'minimal', 'low', 'medium']) } : null,
+    strong: strongest ? { model: strongest, effort: lowest(strongest, ['low', 'medium', 'high']) } : null,
     search: search ? { model: search, effort: lowest(search, SEARCH_EFFORTS) } : null,
   };
 }

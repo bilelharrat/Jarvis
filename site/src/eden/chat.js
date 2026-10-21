@@ -1467,7 +1467,7 @@ async function send(request, env, ctx, who, cfg) {
       }
       if (outcome.finish !== 'aborted') {
         // A memory picked up from this message shows under the reply when it's ready in time (it's saved either way).
-        if (extracting && !memoryEvent) memoryEvent = await Promise.race([extracting, new Promise((r) => setTimeout(() => r(null), 1500))]);
+        if (extracting && !memoryEvent) memoryEvent = await Promise.race([extracting, new Promise((r) => setTimeout(() => r(null), 150))]);
         if (memoryEvent && !(mem && mem.event)) write('memory', memoryEvent);
         // A refusal (refusal.js): a benign one is retried once on another provider by the page (or offered, when the user picked the model)
         if (!videos.length && !(grounding && grounding.task)) {

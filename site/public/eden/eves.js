@@ -243,6 +243,7 @@ function announce(text) { if (live && text && live.textContent !== text) live.te
 export function beginEves(node, plan, ctrl, onChange) {
   const s = (node.eves = newState(plan.mode));
   let lastStage = '';
+  let finalStarted = false;
   const sync = () => {
     const u = usageOf(s);
     if (u) node.usage = u;
@@ -258,9 +259,16 @@ export function beginEves(node, plan, ctrl, onChange) {
       const data = d && typeof d === 'object' ? d : {};
       if (type === 'provenance') node.provenance = data;
       else if (type === 'memory') node.memory = data;
-      else if (data.lane === 'final') {
-        if (type === 'text') appendText(node, String(data.text || ''));
-        else if (type === 'citations') {
+      else if (data.lane === 0 && type === 'text' && !finalStarted && s.phase === 'running') {
+        appendText(node, String(data.text || ''));
+      } else if (data.lane === 'final') {
+        if (type === 'text') {
+          if (!finalStarted) {
+            finalStarted = true;
+            node.parts = [];
+          }
+          appendText(node, String(data.text || ''));
+        } else if (type === 'citations') {
           const seen = new Set((node.citations || []).map((x) => x.url));
           for (const x of Array.isArray(data.sources) ? data.sources : []) { const k = x && safeLink(x.url); if (k && !seen.has(k.href)) { (node.citations || (node.citations = [])).push({ title: String(x.title || ''), url: k.href }); seen.add(k.href); } }
         } else if (type === 'done') node.finish = data.finish || 'stop';
@@ -284,7 +292,7 @@ export function beginEves(node, plan, ctrl, onChange) {
       try { if (!s.id) throw new Error('not started'); await evesApi.stop(s.id, i); } catch { applyEvent(s, 'done', { lane: i, finish: 'aborted' }); onChange(); }
     },
     stopped() { markStopped(s); sync(); },
-    failed(message) { markError(s, message); sync(); },
+    failed(message) { if (!finalStarted) node.parts = []; markError(s, message); sync(); },
     end() { finish(s); sync(); const b = badgeView(s, false); announce(b.show ? b.text : liveText(s, false)); },
   };
   return turn;

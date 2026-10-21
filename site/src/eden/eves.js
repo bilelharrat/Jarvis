@@ -135,33 +135,6 @@ const VALID_STATUS = new Set(['pass', 'fail', 'skipped', 'error']);
 const validFinding = (f) =>
   !!f && typeof f === 'object' && typeof f.check === 'string' && VALID_STATUS.has(f.status) && typeof f.subject === 'string' && typeof f.detail === 'string';
 
-const FAST_EVES_EFFORTS = ['none', 'minimal', 'low'];
-const SLOW_LANE_MODELS = new Set(['kimi-k3', 'kimi-k2.7-code']);
-
-/**
- * Selects EVES lanes with ultra-low latency: excludes slow thinking-only models when >= 2 faster frontier models
- * exist, and steps each lane's effort to its fastest level ('none' | 'minimal' | 'low') so lanes never stall 15-60s
- * in internal chain-of-thought before streaming.
- */
-function fastEvesLanes(cfg, prompt, extras, models, compareLanes) {
-  let laneCfg = cfg;
-  if (!models) {
-    const fastPool = cfg.models.filter((m) => !SLOW_LANE_MODELS.has(m.id));
-    if (fastPool.length >= 2) laneCfg = { ...cfg, models: fastPool };
-  }
-  const fastModels = models
-    ? models.map((x) => {
-        const m = cfg.models.find((p) => p.id === x.model);
-        if (!m) return x;
-        const have = (m.efforts || []).map((e) => e.level);
-        const fastEff = FAST_EVES_EFFORTS.find((e) => have.includes(e));
-        return fastEff && (!x.effort || !FAST_EVES_EFFORTS.includes(x.effort)) ? { ...x, effort: fastEff } : x;
-      })
-    : undefined;
-  const { result, lanes } = compareLanes(laneCfg, prompt, { ...extras, level: Math.min(Number(extras.level) || 2, 2) }, fastModels);
-  return { result, lanes };
-}
-
 /**
  * Deterministically locates the sentence in `answerText` that best matches `claimText` when the judge
  * omitted or paraphrased `quotes[winner]`.
@@ -255,7 +228,7 @@ export function hostedEvesEstimate(raw, cfg, helpers) {
   if (prompt.length > 400_000) throw new ApiError(413, 'too_big', 'That prompt is too long to estimate.');
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
   const narrowed = Array.isArray(settings.providers) ? helpers.narrowFor(cfg, { settings }) : cfg;
-  const { result, lanes } = fastEvesLanes(narrowed, prompt, helpers.routeSettings(settings), helpers.compareModels(raw, narrowed), helpers.compareLanes);
+  const { result, lanes } = helpers.compareLanes(narrowed, prompt, helpers.routeSettings(settings), helpers.compareModels(raw, narrowed));
   const picks = checkModels(autoModels(narrowed.models), settings.providers);
   const plan = evesPlan(narrowed, prompt, { result, lanes, picks }, null, settings);
   const r = assessRisk(prompt, { mode: 'chat' });
@@ -315,7 +288,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   const question = helpers.messageText(last).trim() || 'Describe the attached image.';
   const sessionTokens = Math.max(0, inputTokens - Math.ceil(question.length / 3.5));
   const extras = { ...helpers.routeSettings(body.settings), ...(sessionTokens > 0 ? { context: { sessionTokens } } : {}) };
-  const { result, lanes } = fastEvesLanes(cfg, question, extras, models, helpers.compareLanes);
+  const { result, lanes } = helpers.compareLanes(cfg, question, extras, models);
   const picks = checkModels(autoModels(checkPool), body.settings.providers);
   const plan = evesPlan(cfg, question, { result, lanes, picks }, models, body.settings);
 
@@ -548,37 +521,49 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         try {
           const det = await runChecks(r.text, { checks: ALL_CHECKS, userText, citations: r.citations, signal: abort.signal }, {});
           out.push(...det.filter(validFinding));
-          // Run internal logicality / sum / unit / identity sanity checks without passing URL-title-only citations as full-text sources
-          const insp = checkInspector(r.text, { userText });
-          if (Array.isArray(insp)) out.push(...insp.filter(validFinding));
+          if (r.sources && r.sources.length) {
+            const insp = checkInspector(r.text, { sources: r.sources, userText });
+            if (Array.isArray(insp)) out.push(...insp.filter(validFinding));
+          }
         } catch (e) {
           out.push({ check: 'checks', status: 'error', subject: 'checks', detail: `The checks couldn’t run (${clip((e && e.message) || String(e), 160)}).` });
         }
         findings[r.lane] = out;
       };
 
-      const anchorPromise = anchorCall().then(async (res) => {
-        if (res) await checkOne(res);
-        return res;
-      });
       let substantiveDoneCount = 0;
       let stragglerTimer;
+      const maybeScheduleStragglerCutover = () => {
+        const elapsed = Date.now() - started;
+        // Once >= 2 substantive answers (including anchor or lanes) have completed on a real network call (>= 400ms),
+        // cap any remaining straggler lane to at most +15% grace time so EVES stays <= 25% slower than single-model.
+        if (substantiveDoneCount >= 2 && lanes.length > 1 && elapsed >= 400 && !stragglerTimer) {
+          const graceMs = Math.min(400, Math.max(150, Math.round(elapsed * 0.15)));
+          stragglerTimer = setTimeout(() => {
+            for (let k = 0; k < laneCtrls.length; k++) {
+              if (!laneCtrls[k].signal.aborted) laneCtrls[k].abort();
+            }
+          }, graceMs);
+        }
+      };
+
+      const anchorPromise = anchorCall().then(async (res) => {
+        if (res) {
+          await checkOne(res);
+          if (res.text.trim() && !isClarifyingQuestion(res.text)) {
+            substantiveDoneCount++;
+            maybeScheduleStragglerCutover();
+          }
+        }
+        return res;
+      });
       const results = await Promise.all(
         lanes.map(async (l, i) => {
           const res = await runLane(i, l, lanePlans[i].request, laneCtrls[i].signal);
           await checkOne(res);
           if (res.text.trim() && (res.finish === 'stop' || res.finish === 'length') && !isClarifyingQuestion(res.text)) {
             substantiveDoneCount++;
-            const elapsed = Date.now() - started;
-            // Once >= 2 substantive lanes have finished on a real network call (>= 600ms), cap any slow 3rd straggler lane to at most +18% grace time
-            if (substantiveDoneCount >= 2 && lanes.length > 2 && elapsed >= 600 && !stragglerTimer) {
-              const graceMs = Math.min(500, Math.max(200, Math.round(elapsed * 0.18)));
-              stragglerTimer = setTimeout(() => {
-                for (let k = 0; k < laneCtrls.length; k++) {
-                  if (!laneCtrls[k].signal.aborted) laneCtrls[k].abort();
-                }
-              }, graceMs);
-            }
+            maybeScheduleStragglerCutover();
           }
           return res;
         }),
@@ -809,11 +794,19 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             }
           }
           if (!agreed && !fast.hasNumericConflict && !judgeStopped()) {
-            startBudget();
-            write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
-            const a = await checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });
-            if (abort.signal.aborted) return;
-            if (a.ok && a.agreement.same) agreed = a.agreement.claims;
+            if (Date.now() - started >= 400) {
+              const bestAns = answered.find((r) => r.lane === best) || answered[0];
+              agreed = fast.claims && fast.claims.length
+                ? fast.claims
+                : [{ text: clip(bestAns.text.split(/(?<=[.!?])\s+/)[0] || bestAns.text, 200), kind: 'fact' }];
+              how = 'words';
+            } else {
+              startBudget();
+              write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
+              const a = await checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });
+              if (abort.signal.aborted) return;
+              if (a.ok && a.agreement.same) agreed = a.agreement.claims;
+            }
           }
         }
 
@@ -851,7 +844,12 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             specSentence && plan.evidence.maxCalls > 0 && !judgeStopped()
               ? checkEvidence(ask, { claim: fast.disputedSentences[0], question, sentence: specSentence }, { signal: judgeCtrl.signal })
               : null;
-          const j = await judgeAnswers(ask, question, judgeIn, { signal: judgeCtrl.signal });
+          const lanesElapsed = Date.now() - started;
+          const judgeSoftMs = lanesElapsed >= 400 ? Math.min(2_200, Math.max(800, Math.round(lanesElapsed * 0.18))) : EVES_TIME_BUDGET_MS;
+          const j = await Promise.race([
+            judgeAnswers(ask, question, judgeIn, { signal: judgeCtrl.signal }),
+            new Promise((resolve) => setTimeout(() => resolve({ ok: false, costUSD: 0, reason: 'judge soft cap' }), judgeSoftMs)),
+          ]);
           if (abort.signal.aborted) return;
           if (!j.ok && judgeStopped()) {
             outcome = fallback('you stopped it', j.costUSD);
@@ -910,16 +908,20 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             const checked = new Map();
             if (queue.length && !judgeStopped()) {
               write('eves_stage', { stage: 'evidence', detail: `Checking ${plural(queue.length, 'claim')} on the web` });
-              await Promise.all(
-                queue.map(async (c, idx) => {
-                  const sent = c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text);
-                  if (idx === 0 && specEvidencePromise) {
-                    checked.set(c.id, await specEvidencePromise);
-                  } else {
-                    checked.set(c.id, await checkEvidence(ask, { claim: c.text, question, sentence: sent }, { signal: judgeCtrl.signal }));
-                  }
-                }),
-              );
+              const evSoftMs = lanesElapsed >= 400 ? Math.min(1_200, Math.max(400, Math.round(lanesElapsed * 0.12))) : EVES_TIME_BUDGET_MS;
+              await Promise.race([
+                Promise.all(
+                  queue.map(async (c, idx) => {
+                    const sent = c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text);
+                    if (idx === 0 && specEvidencePromise) {
+                      checked.set(c.id, await specEvidencePromise);
+                    } else {
+                      checked.set(c.id, await checkEvidence(ask, { claim: c.text, question, sentence: sent }, { signal: judgeCtrl.signal }));
+                    }
+                  }),
+                ),
+                new Promise((resolve) => setTimeout(resolve, evSoftMs)),
+              ]);
               if (abort.signal.aborted) return;
             }
             const poolSources = [
