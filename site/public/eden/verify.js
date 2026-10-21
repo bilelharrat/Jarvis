@@ -17,7 +17,7 @@ import { $, el } from './util.js';
 import { state } from './state.js';
 import { renderMarkdown } from './markdown.js';
 import { isTainted } from './guard.js';
-import { labelView, compactVerification, applyRepair, severityWord, safeLink } from './verify-model.js';
+import { labelView, compactVerification, applyRepair, severityWord, safeLink, provenancePillView } from './verify-model.js';
 import { glassPill, toneOfLabel, phraseOfLabel } from './glass.js';
 
 /** Chips the person opened, by reply (a reply is drawn again while it streams and after); `${id}:original` for "Show original". */
@@ -48,9 +48,10 @@ export function linkEl(url, text, cls) {
 }
 
 function findingRow(f) {
+  const pill = provenancePillView(f);
   return el('li', { class: 'vf-f', 'data-tone': f.tone },
     el('span', 'vf-f-st', f.statusText),
-    el('span', 'vf-f-t', el('b', '', f.checkName), f.subject ? ' ' : '', f.subject ? el('span', { 'data-no-i18n': '' }, f.subject) : '', f.detail ? ' — ' : '', f.detail ? el('span', { 'data-no-i18n': '' }, f.detail) : ''), // what was checked: the answer's own words
+    el('span', 'vf-f-t', pill ? el('span', { class: `vf-pill vf-pill-${pill.kind}`, title: pill.tooltip, 'data-no-i18n': '' }, `${pill.badge} `) : null, el('b', '', f.checkName), f.subject ? ' ' : '', f.subject ? el('span', { 'data-no-i18n': '' }, f.subject) : '', f.detail ? ' — ' : '', f.detail ? el('span', { 'data-no-i18n': '' }, f.detail) : ''), // what was checked: the answer's own words
     f.sentence ? el('q', { class: 'vf-f-q', 'data-no-i18n': '' }, f.sentence) : null);
 }
 

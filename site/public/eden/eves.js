@@ -257,6 +257,7 @@ export function beginEves(node, plan, ctrl, onChange) {
     onEvent(type, d) {
       const data = d && typeof d === 'object' ? d : {};
       if (type === 'provenance') node.provenance = data;
+      else if (type === 'memory') node.memory = data;
       else if (data.lane === 'final') {
         if (type === 'text') appendText(node, String(data.text || ''));
         else if (type === 'citations') {

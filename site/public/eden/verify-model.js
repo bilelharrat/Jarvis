@@ -33,7 +33,7 @@ const KIND_DETAIL = {
   eves_disputed: 'Some claims in this answer could not be confirmed.',
   issues_found: 'A check found a problem in this answer.',
 };
-const CHECK_NAMES = { url: 'Link', quote: 'Quote', number: 'Number', code: 'Code', exact: 'Exact answer', action: 'Action', date: 'Date', unit: 'Unit', web: 'Web check' };
+const CHECK_NAMES = { url: 'Link', quote: 'Quote', number: 'Number', code: 'Code', exact: 'Exact answer', action: 'Action', date: 'Date', unit: 'Unit', web: 'Web check', inspector: 'Consistency' };
 const STATUS_WORDS = { pass: 'Checked', fail: 'Didn’t check out', skipped: 'Skipped', error: 'Couldn’t run' };
 const STATUS_TONE = { pass: 'ok', fail: 'bad', skipped: 'dim', error: 'warn' };
 const STATUS_ORDER = { fail: 0, error: 1, skipped: 2, pass: 3 };
@@ -96,6 +96,37 @@ export function chipSeverity(kind, severity) {
 }
 
 /* ---------- findings ---------- */
+
+/**
+ * Extracts a structured provenance pill (`{ badge, kind, tooltip }`) for a finding row when it
+ * represents a `[C#]` mathematical derivation, a Tier-1/2/3 source-authority check, a Session Truth
+ * Ledger check, or an INSPECTOR 3-aspect check. Pure strings only, capped.
+ */
+export function provenancePillView(f) {
+  if (!f || typeof f !== 'object') return null;
+  const detail = clean(f.detail, 400);
+  const check = clean(f.check, 24).toLowerCase();
+  if (!detail) return null;
+  if (/worked out from them|CAGR|midpoint|sum of \d+ items/i.test(detail)) {
+    return { badge: '[C# · Math]', kind: 'calc', tooltip: detail };
+  }
+  if (/Tier-1|Tier 1|Primary source authority/i.test(detail)) {
+    return { badge: '[S# · Tier 1]', kind: 'tier1', tooltip: detail };
+  }
+  if (/Session ledger conflict/i.test(detail)) {
+    return { badge: '[Session Ledger]', kind: 'ledger', tooltip: detail };
+  }
+  if (/Stale figure conflict/i.test(detail)) {
+    return { badge: '[Temporal Guard]', kind: 'temporal', tooltip: detail };
+  }
+  if (/Execution receipt mismatch|Hallucinated code/i.test(detail)) {
+    return { badge: '[Code Receipt]', kind: 'code', tooltip: detail };
+  }
+  if (check === 'inspector') {
+    return { badge: '[INSPECTOR · 3-Aspect]', kind: 'inspector', tooltip: detail };
+  }
+  return null;
+}
 
 /** One deterministic check's outcome as a row. An unknown status is "couldn't run", never a pass. */
 export function findingView(f) {
