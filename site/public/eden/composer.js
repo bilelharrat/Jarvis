@@ -21,6 +21,7 @@ import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calenda
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
 import { imagesAvailable } from './image-mode.js';
+import { followUpSuggestions, extractReplyTopic } from './render.js';
 import { stripBidi, putDraft, getDraft, storeDrafts, packDraftFiles, unpackDraftFiles, DRAFT_KEY, DRAFT_FILES_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
 
 let H = {}; // handlers from app.js
@@ -96,16 +97,16 @@ const SLASH_CHAT = [
   ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
   ['canvas', 'Open the canvas'], ['rename', 'Rename: /rename New name'], ['export', 'Save the chat as Markdown'], ['pin', 'Pin or unpin this chat'],
   ['copy', 'Copy the last reply'], ['clear', 'Start over in a new chat'], ['compact', 'Summarize into a new chat'],
-  ['route', 'Route console'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
+  ['route', 'Route console'], ['split', 'Split view: up to 10 chats side by side · /split close'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
 ];
 const SLASH_CODE = [
   ['code', 'New Code session'], ['manual', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'], ['plan', 'Plan first, you approve'],
   ['auto', 'Auto: run anything without asking'], ['changes', 'Show what changed'], ['todos', 'The to-do list'], ['activity', 'Tool activity (⌘J)'],
 ];
 const KEYS = [
-  ['⏎', 'Send'], ['⇧⏎', 'New line'], ['⌘⏎', 'Steer: queue for the running Code step'], ['↑ ↓', 'Your earlier messages'],
+  ['⏎', 'Send'], ['⇧⏎', 'New line'], ['⌘⏎', 'Steer: into the running step'], ['↑ ↓', 'Your earlier messages'],
   ['⇧⇥', 'Switch mode'], ['⌘⇧M', 'Mode menu'], ['⌘⇧I', 'Model'], ['⌘⇧E', 'Effort'], ['⌘U', 'Attach files'],
-  ['⌘K', 'Search and commands'], ['⌘N', 'New chat'], ['⌘B', 'Sidebar'], ['⌘⌥0', 'Inspector'], ['⌘J', 'Code activity'], ['⌘,', 'Settings'],
+  ['⌘K', 'Search and commands'], ['⌘N', 'New chat'], ['⌘B', 'Sidebar'], ['⌘⇧\\', 'Split view: add a pane'], ['⌘⌥←→↑↓', 'Split view: move between panes'], ['⌘1–0', 'Split view: go to a pane'], ['⌘⌥0', 'Inspector'], ['⌘J', 'Code activity'], ['⌘,', 'Settings'],
   ['Esc', 'Stop, or close a menu or pane'], ['/', 'Commands'], ['@', 'Mention a note or persona'],
 ];
 
@@ -115,8 +116,157 @@ const reading = new Set();
 const MAX_FILES = 6, MAX_BINARY = 6 * 1024 * 1024, MAX_TEXT = 400 * 1024, MAX_TOTAL = 20 * 1024 * 1024;
 let mentionItems = []; // async @ results
 let mentionQuery = null;
+let dismissedGhost = '';
+let currentGhostFull = '';
+let ghostTyping = null; // { full, pos, timer }
 
 const input = () => $('deck-input');
+
+const SMART_STARTERS = [
+  'Write a short, friendly email declining a meeting',
+  'Write a clear, professional follow-up email',
+  'Explain how this works step by step in plain English',
+  'Summarize this into key bullet points and action items',
+  'Compare the pros, cons, and trade-offs in a table',
+  'Help me brainstorm 5 creative ideas for a project',
+  'Draft a concise executive summary',
+  'How do I fix this issue and prevent it from happening again?',
+  'Review this text and make it clearer and more concise',
+  'Create a step-by-step study or project plan',
+  'Give me a concrete real-world example',
+  'What are the most common mistakes to avoid?',
+  'Make an HTML page with a bouncing ball animation',
+  'Make a table comparing three note-taking apps',
+  'Debug this error and explain the root cause',
+  'Refactor this code to be cleaner and more idiomatic',
+  'Write unit tests covering edge cases and failure modes',
+  'Turn these notes into a structured action checklist',
+  'Rewrite this to be shorter, punchier, and more direct',
+  'What are the strongest counterarguments to this view?',
+  'Design a clean architecture and data model for ',
+  'Walk through a concrete numerical example step by step',
+];
+
+function convTopic(c) {
+  if (!c) return '';
+  const nodes = path(c);
+  const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
+  const lastUser = [...nodes].reverse().find((n) => n.role === 'user' && n.content);
+  if (lastAsst || lastUser) {
+    const extracted = extractReplyTopic(lastAsst ? nodeText(lastAsst) : '', lastUser ? String(lastUser.content || '') : '');
+    if (extracted) return extracted;
+  }
+  const t = String(c.title || '').replace(/…$/, '').trim();
+  if (t && !/^(new chat|untitled|chat|conversation)$/i.test(t) && t.length >= 3 && t.length <= 42) return t;
+  return '';
+}
+
+function smartPromptCandidates() {
+  const c = state.current;
+  const nodes = c ? path(c) : [];
+  const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
+  const followUps = lastAsst ? followUpSuggestions(c, lastAsst) : [];
+  const askedBefore = new Set(
+    nodes
+      .filter((n) => n && n.role === 'user' && n.content)
+      .map((n) => String(n.content).trim().toLowerCase()),
+  );
+  const topic = convTopic(c);
+  const mode = curMode();
+  const list = [...followUps];
+  if (c && c.kind === 'code') {
+    list.push(
+      'Run the test suite to verify these changes',
+      'Review the uncommitted diff for bugs and regressions',
+      'Commit these changes with a clear commit message',
+      'Fix the failing test and re-run to verify',
+      'Explain how this project is laid out and where the entry points are',
+      'Check for lint or type errors and fix them',
+      'Write unit tests for the new changes',
+    );
+  }
+  if (topic) {
+    list.push(
+      `Explain ${topic} in simple terms with a concrete example`,
+      `Summarize the key points about ${topic} in bullet points`,
+      `What are the pros, cons, and trade-offs of ${topic}?`,
+      `How do I get started with ${topic} step by step?`,
+      `What are the most common pitfalls with ${topic}?`,
+      `Compare the best options and alternatives for ${topic}`,
+    );
+  }
+  if (mode === 'search') {
+    list.push(
+      topic ? `What are the latest updates and news on ${topic}?` : 'What are the latest updates and news on ',
+      topic ? `Find the official documentation and release notes for ${topic}` : 'Find the official documentation and release notes for ',
+      'Compare current prices, specs, and reviews for ',
+    );
+  } else if (mode === 'research') {
+    list.push(
+      topic ? `Write a comprehensive research report on ${topic}` : 'Write a comprehensive research report on ',
+      topic ? `Compare the leading approaches and benchmarks for ${topic}` : 'Compare the leading approaches and benchmarks for ',
+      'What changed in web accessibility rules this year?',
+    );
+  } else if (mode === 'image') {
+    list.push(
+      'Draw a detailed, cinematic illustration of ',
+      'Create a clean minimalist icon or logo for ',
+      'Design a high-contrast diagram showing ',
+    );
+  } else if (mode === 'slides') {
+    list.push(
+      topic ? `Create a 10-slide presentation deck on ${topic}` : 'Create a 10-slide presentation deck on ',
+      'Make a pitch deck covering problem, solution, and traction',
+    );
+  }
+  list.push(...SMART_STARTERS);
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const k = item.toLowerCase();
+    if (seen.has(k) || askedBefore.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
+export function matchSmartPrompts(raw, candidates = smartPromptCandidates(), dismissed = dismissedGhost) {
+  if (!raw || typeof raw !== 'string') return [];
+  const q = raw.toLowerCase();
+  const qTrim = q.trim();
+  if (qTrim.length < 2 || q.length > 64 || /^[/?@]/.test(qTrim)) return [];
+  const tokens = qTrim.split(/\s+/).filter(Boolean);
+  const scored = [];
+  for (let idx = 0; idx < candidates.length; idx++) {
+    const cand = candidates[idx];
+    if (!cand || cand === dismissed || cand.length <= raw.length + 2) continue;
+    const low = cand.toLowerCase();
+    if (low.startsWith(q)) {
+      scored.push({
+        score: 100 - Math.min(idx, 30),
+        label: raw,
+        help: cand.slice(raw.length),
+        value: cand,
+        prefix: true,
+      });
+      continue;
+    }
+    if (qTrim.length >= 3 && tokens.every((t) => low.includes(t))) {
+      const firstPos = low.indexOf(tokens[0]);
+      const boundary = firstPos === 0 || /[\s`'"(-]/.test(low[firstPos - 1] || '');
+      scored.push({
+        score: (boundary ? 65 : 45) - Math.min(idx, 25),
+        label: raw,
+        help: ` → ${cand}`,
+        value: cand,
+        prefix: false,
+      });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 4);
+}
 
 function suggestions() {
   const inp = input();
@@ -136,6 +286,17 @@ function suggestions() {
     return { kind: 'at', query: m[1], items: [...scopes, ...personas, ...mentionItems].slice(0, 14) };
   }
   mentionQuery = null;
+  if (!inp.value.includes('\n') && inp.selectionStart === inp.value.length) {
+    const raw = inp.value;
+    const matches = matchSmartPrompts(raw);
+    if (matches.length) {
+      return {
+        kind: 'smart',
+        typed: raw,
+        items: matches,
+      };
+    }
+  }
   return { kind: '', items: [] };
 }
 
@@ -158,23 +319,158 @@ function renderSuggestions() {
   const s = suggestions();
   const box = $('cc-slash');
   box.hidden = !s.items.length;
-  pickIndex = Math.min(pickIndex, Math.max(0, s.items.length - 1));
+  box.classList.toggle('smart-pop', s.kind === 'smart');
+  if (s.kind === 'smart') {
+    if (pickIndex >= s.items.length) pickIndex = -1;
+  } else {
+    pickIndex = Math.min(Math.max(0, pickIndex), Math.max(0, s.items.length - 1));
+  }
   const kids = [];
   if (s.kind === 'keys') kids.push(el('div', 'pop-head', 'Shortcuts'));
   s.items.forEach((item, i) => {
-    const b = el('button', { type: 'button', class: i === pickIndex ? 'active' : '', role: 'option', 'aria-selected': String(i === pickIndex), id: `sugg-${i}` });
+    const active = i === pickIndex;
+    const b = el('button', { type: 'button', class: active ? 'active' : '', role: 'option', 'aria-selected': String(active), id: `sugg-${i}` });
     if (s.kind === 'at') b.append(el('code', '', item.label), item.help ? el('span', '', item.help) : '');
-    else b.append(el('strong', '', item.label), el('span', '', item.help));
+    else if (s.kind === 'smart') {
+      b.append(
+        el('span', { class: 'sm-ic', 'aria-hidden': 'true' }, '✦'),
+        el('span', 'sm-tx', el('strong', '', item.label), el('span', '', item.help)),
+        ((active || (pickIndex < 0 && i === 0)) && !isTouch()) ? el('kbd', 'sm-tab', 'Tab') : '',
+      );
+    } else b.append(el('strong', '', item.label), el('span', '', item.help));
     b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s, item); });
     kids.push(b);
   });
   box.replaceChildren(...kids);
-  input().setAttribute('aria-activedescendant', s.items.length ? `sugg-${pickIndex}` : '');
+  input().setAttribute('aria-activedescendant', s.items.length && pickIndex >= 0 ? `sugg-${pickIndex}` : '');
+  renderGhostSuggestion(s);
+}
+
+function finishGhostTyping() {
+  if (!ghostTyping) return false;
+  cancelAnimationFrame(ghostTyping.timer);
+  const full = ghostTyping.full;
+  ghostTyping = null;
+  const inp = input();
+  inp.value = full;
+  inp.selectionStart = inp.selectionEnd = full.length;
+  currentGhostFull = '';
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  if (ghost) { ghost.hidden = true; ghost.classList.remove('swiping'); ghost.style.removeProperty('--ghost-swipe'); }
+  if (wrap) wrap.classList.remove('has-ghost', 'typing-ghost');
+  keepDraftSoon();
+  grow();
+  setPreviewText(inp.value);
+  renderCtxRing();
+  return true;
+}
+
+function renderGhostSuggestion(s = suggestions()) {
+  if (ghostTyping) return;
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  if (!ghost || !wrap) return;
+  const inp = input();
+  const c = state.current;
+  const streaming = c && state.streams.has(c.id);
+  let match = null;
+  if (!streaming && !inp.value.includes('\n') && inp.selectionStart === inp.value.length) {
+    if (!inp.value && $('cc-slash').hidden) {
+      const nodes = c ? path(c) : [];
+      const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
+      const followUps = lastAsst ? followUpSuggestions(c, lastAsst) : [];
+      const top = followUps[0] || '';
+      if (top && top !== dismissedGhost) match = { typed: '', rest: top, full: top };
+    } else if (s && s.kind === 'smart' && s.items.length) {
+      const item = s.items[pickIndex >= 0 ? pickIndex : 0] || s.items.find((x) => x.prefix);
+      if (item && item.prefix !== false && item.value !== dismissedGhost) match = { typed: item.label, rest: item.help, full: item.value };
+    }
+  }
+  if (!match) {
+    currentGhostFull = '';
+    ghost.hidden = true;
+    ghost.classList.remove('swiping');
+    ghost.style.removeProperty('--ghost-swipe');
+    wrap.classList.remove('has-ghost', 'typing-ghost');
+    return;
+  }
+  currentGhostFull = match.full;
+  $('jc-ghost-typed').textContent = match.typed;
+  $('jc-ghost-rest').textContent = match.rest;
+  const tabBadge = $('jc-ghost-tab');
+  if (tabBadge) {
+    const isMobileDevice = isTouch() || (typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 680px)').matches);
+    tabBadge.hidden = isMobileDevice;
+  }
+  ghost.hidden = false;
+  wrap.classList.add('has-ghost');
+}
+
+function acceptGhostSuggestion({ animate = true } = {}) {
+  if (ghostTyping) return finishGhostTyping();
+  if (!currentGhostFull) return false;
+  const inp = input();
+  const full = currentGhostFull;
+  const startPos = inp.value.length;
+  currentGhostFull = '';
+  $('cc-slash').hidden = true;
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!animate || reducedMotion || full.length <= startPos + 1 || !ghost || !wrap) {
+    inp.value = full;
+    inp.selectionStart = inp.selectionEnd = full.length;
+    keepDraftSoon();
+    grow();
+    setPreviewText(inp.value);
+    renderGhostSuggestion({ kind: '', items: [] });
+    renderCtxRing();
+    inp.focus({ preventScroll: true });
+    return true;
+  }
+  ghost.hidden = false;
+  ghost.classList.remove('swiping');
+  ghost.style.removeProperty('--ghost-swipe');
+  wrap.classList.add('has-ghost', 'typing-ghost');
+  inp.focus({ preventScroll: true });
+  const stepChars = Math.max(2, Math.ceil((full.length - startPos) / 11));
+  ghostTyping = { full, pos: startPos, timer: 0 };
+  const tick = () => {
+    if (!ghostTyping) return;
+    ghostTyping.pos = Math.min(full.length, ghostTyping.pos + stepChars);
+    const cur = full.slice(0, ghostTyping.pos);
+    const rem = full.slice(ghostTyping.pos);
+    inp.value = cur;
+    inp.selectionStart = inp.selectionEnd = cur.length;
+    $('jc-ghost-typed').textContent = cur;
+    $('jc-ghost-rest').textContent = rem;
+    grow();
+    if (ghostTyping.pos >= full.length) {
+      finishGhostTyping();
+      return;
+    }
+    ghostTyping.timer = requestAnimationFrame(tick);
+  };
+  ghostTyping.timer = requestAnimationFrame(tick);
+  return true;
 }
 
 function pick(s, item) {
   const inp = input();
-  if (s.kind === 'keys') { inp.value = ''; $('cc-slash').hidden = true; inp.focus(); return; }
+  if (s.kind === 'keys') { inp.value = ''; $('cc-slash').hidden = true; renderGhostSuggestion(); inp.focus(); return; }
+  if (s.kind === 'smart') {
+    inp.value = item.value;
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+    $('cc-slash').hidden = true;
+    keepDraftSoon();
+    grow();
+    setPreviewText(inp.value);
+    renderGhostSuggestion({ kind: '', items: [] });
+    renderCtxRing();
+    inp.focus();
+    return;
+  }
   if (s.kind === 'slash') {
     const needsArg = ['model', 'effort', 'rename', 'level', 'persona', 'note'].includes(item.value);
     inp.value = `/${item.value}${needsArg ? ' ' : ''}`;
@@ -874,11 +1170,11 @@ export function renderComposer() {
   $('jc-ctx').classList.toggle('full', u.percent >= 90);
   $('jc-ctx').title = `Context window: ${fmtTokens(u.tokens)} of ${fmtTokens(u.max)}`;
   renderCtxPop();
-  // send ↔ stop; steer only for a running Code turn
+  // send ↔ stop; steer while a turn is running (without interrupting it)
   const send = $('jc-send');
   send.classList.toggle('stop', !!streaming);
   send.setAttribute('aria-label', streaming ? 'Stop' : 'Send');
-  send.title = streaming ? 'Stop (Esc). Type to steer instead: it waits for the reply' : 'Send (⏎)';
+  send.title = streaming ? 'Stop (Esc). Type to steer instead: it goes in without stopping the reply' : 'Send (⏎)';
   $('jc-steer').hidden = !streaming;
   $('deck-composer').classList.toggle('busy', !!streaming);
   input().placeholder = code ? `Ask Eden to plan, build or fix something in ${c.project ? c.project.name : 'this project'}…`
@@ -888,14 +1184,18 @@ export function renderComposer() {
     : curMode() === 'compare' ? 'Ask several models at once — answers side by side…' : 'Message Eden — routed automatically…';
   renderEstimate(); // the routed model, its cost and time, above the input (compare.js)
   renderEvesChip(); // EVES: Off / On / Auto, and the draft's price (eves.js)
-  // the queue (steer)
+  // the queue (steer without interrupting, matching Eden Code)
   const q = (c && c.queue) || [];
+  const canSteer = Boolean(streaming);
   $('jc-queue').hidden = !q.length;
-  $('jc-queue').replaceChildren(...q.map((item) => el('li', item.state === 'queued' && !code ? 'jc-queued jc-queued-wait' : 'jc-queued',
-    el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : code ? 'Steer' : 'Queued — sends when Eden finishes'),
-    el('span', { class: 'jc-queued-text', title: item.text }, el('span', { 'data-no-i18n': '' }, item.text), item.state === 'sent' ? ' — sent to the running step' : ''), // the person's words are never translated
-    item.state === 'queued' ? el('button', { type: 'button', class: 'jc-queued-steer', title: code ? 'Send into the running step now' : 'Stop this reply (keeping what it wrote) and send this now', onclick: () => H.steerNow(item.id) }, code ? 'Steer now' : 'Send now (stop reply)') : null,
-    item.state === 'sent' ? null : el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Remove from the queue', onclick: () => H.dropQueued(item.id) }, '×'))));
+  $('jc-queue').replaceChildren(...q.map((item) => {
+    const steered = item.state === 'sent' || item.state === 'sending' || Boolean(item.steer);
+    return el('li', item.state === 'queued' && !steered ? 'jc-queued jc-queued-wait' : 'jc-queued',
+      el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : item.steer ? 'Steered' : 'Queued'),
+      el('span', { class: 'jc-queued-text', title: item.text }, el('span', { 'data-no-i18n': '' }, item.text), item.state === 'sent' ? ' — sent to the running step' : item.steer ? ' — into the running step' : ''), // the person's words are never translated
+      item.state === 'queued' && !item.steer && canSteer ? el('button', { type: 'button', class: 'jc-queued-steer', title: 'Send it into the running step now, without stopping it', onclick: () => H.steerNow(item.id) }, 'Steer now') : null,
+      item.state === 'sent' ? null : el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Remove from the queue', onclick: () => H.dropQueued(item.id) }, '×'));
+  }));
   // the status line
   const bits = [];
   if (c && c.temp) bits.push('Temporary · not saved');
@@ -903,6 +1203,7 @@ export function renderComposer() {
   if (streaming) bits.push(noKeys(code ? 'Working… Esc stops' : 'Replying… Esc stops'));
   $('cc-status').textContent = bits.join(' · ');
   renderAttachments();
+  renderGhostSuggestion();
 }
 
 /* ---------- Esc, in order ---------- */
@@ -1015,6 +1316,7 @@ export function initComposer(handlers) {
   });
   $('deck-composer').addEventListener('submit', (e) => {
     e.preventDefault();
+    finishGhostTyping();
     // iOS: end the typing session before reading the words. The blur commits a pending
     // autocorrection into the value (R2-18), and no autocorrect bubble is left floating over the
     // emptied field (B12). The field gets its focus back after (unless something else took it).
@@ -1037,9 +1339,11 @@ export function initComposer(handlers) {
       if (H.slash(word.toLowerCase(), rest.join(' ').trim())) { done(); return; }
     }
     if (streaming) {
-      // steer without interrupting: the text waits above the composer (or goes into the Code step)
+      // steer without interrupting: ⌘↩ or Steer steers into the running step; ⏎ queues (unless Queue follow-ups is off)
       if (attachments.length) { toast('Attachments go with a new message: stop the reply first, or wait'); return; }
-      H.queue(text); done(); return;
+      const willSteer = steer || Boolean(state.settings && state.settings.queueFollowUps === false);
+      if (H.queue(text, { steer: willSteer }) === false) return;
+      done(); return;
     }
     if ([...reading].some((s) => s.kind === 'video')) { toast('Wait for the video to finish uploading'); return; }
     const videos = attachments.filter((a) => a.kind === 'video');
@@ -1056,6 +1360,7 @@ export function initComposer(handlers) {
   }
   function finish(hadFocus, typedIn) {
     recall.index = -1;
+    dismissedGhost = '';
     // (on iOS the field was blurred before its words were read: submit above, B12 / R2-18)
     inp.value = '';
     if (hadFocus) inp.focus({ preventScroll: true });
@@ -1067,19 +1372,149 @@ export function initComposer(handlers) {
     if (!composerPinned) setComposerExpanded(false, { focus: true });
     renderComposer();
   }
+  if ($('jc-ghost-tab')) {
+    $('jc-ghost-tab').addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      acceptGhostSuggestion({ animate: true });
+    });
+  }
+  const ghostWrap = $('jc-input-wrap');
+  if (ghostWrap) {
+    ghostWrap.setAttribute('data-noswipe', '');
+    let swipeState = null; // { x0, y0, t0, dx, dy, accepted }
+    const clearSwipeVisual = () => {
+      const g = $('jc-ghost');
+      if (g) { g.classList.remove('swiping'); g.style.removeProperty('--ghost-swipe'); }
+    };
+    const startSwipe = (x, y) => {
+      if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; return; }
+      swipeState = { x0: x, y0: y, t0: performance.now(), dx: 0, dy: 0, accepted: false };
+    };
+    const moveSwipe = (x, y, ev) => {
+      if (!swipeState || swipeState.accepted) return;
+      if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; clearSwipeVisual(); return; }
+      const dx = x - swipeState.x0;
+      const dy = y - swipeState.y0;
+      swipeState.dx = dx;
+      swipeState.dy = dy;
+      if (Math.abs(dy) > 22 && Math.abs(dy) > Math.abs(dx)) {
+        swipeState = null;
+        clearSwipeVisual();
+        return;
+      }
+      if (dx > 6 && dx > Math.abs(dy) * 1.2) {
+        if (ev && ev.cancelable) ev.preventDefault();
+        const g = $('jc-ghost');
+        if (g) {
+          g.classList.add('swiping');
+          g.style.setProperty('--ghost-swipe', String(Math.min(1, dx / 36)));
+        }
+        if (dx >= 36 && performance.now() - swipeState.t0 < 800) {
+          swipeState.accepted = true;
+          clearSwipeVisual();
+          acceptGhostSuggestion({ animate: true });
+        }
+      }
+    };
+    const endSwipe = () => {
+      if (!swipeState) return;
+      const { dx, dy, t0, accepted } = swipeState;
+      swipeState = null;
+      clearSwipeVisual();
+      if (accepted) return;
+      const dt = Math.max(1, performance.now() - t0);
+      const vx = dx / dt;
+      if (dx >= 24 && dx > Math.abs(dy) * 1.3 && (dx >= 30 || vx >= 0.28) && dt < 700) {
+        acceptGhostSuggestion({ animate: true });
+      }
+    };
+    ghostWrap.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) { swipeState = null; return; }
+      startSwipe(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    ghostWrap.addEventListener('touchmove', (e) => {
+      if (!swipeState || e.touches.length !== 1) return;
+      moveSwipe(e.touches[0].clientX, e.touches[0].clientY, e);
+    }, { passive: false });
+    ghostWrap.addEventListener('touchend', endSwipe, { passive: true });
+    ghostWrap.addEventListener('touchcancel', () => { swipeState = null; clearSwipeVisual(); }, { passive: true });
+    ghostWrap.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' || e.button !== 0) return;
+      if (inp.value && inp.selectionStart !== inp.value.length) return;
+      startSwipe(e.clientX, e.clientY);
+    });
+    ghostWrap.addEventListener('pointermove', (e) => {
+      if (!swipeState || e.pointerType === 'touch' || !(e.buttons & 1)) return;
+      moveSwipe(e.clientX, e.clientY, e);
+    });
+    ghostWrap.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') endSwipe(); });
+    ghostWrap.addEventListener('pointercancel', () => { swipeState = null; clearSwipeVisual(); });
+    ghostWrap.addEventListener('wheel', (e) => {
+      if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) return;
+      if (Math.abs(e.deltaX) >= 24 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.8) {
+        e.preventDefault();
+        acceptGhostSuggestion({ animate: true });
+      }
+    }, { passive: false });
+  }
   inp.addEventListener('keydown', (e) => {
+    if (ghostTyping) {
+      finishGhostTyping();
+      if (e.key === 'Tab' || e.key === 'ArrowRight') { e.preventDefault(); return; }
+    }
     const s = suggestions();
     if (s.items.length && !$('cc-slash').hidden) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length; renderSuggestions(); return; }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (s.kind === 'smart' && pickIndex < 0) pickIndex = e.key === 'ArrowDown' ? 0 : s.items.length - 1;
+        else pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length;
+        renderSuggestions();
+        return;
+      }
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        pick(s, s.items[pickIndex >= 0 ? pickIndex : 0]);
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && (s.kind !== 'smart' || pickIndex >= 0)) {
+        e.preventDefault();
+        pick(s, s.items[pickIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        $('cc-slash').hidden = true;
+        if (s.kind === 'smart' && currentGhostFull) dismissedGhost = currentGhostFull;
+        renderGhostSuggestion({ kind: '', items: [] });
+        return;
+      }
     }
     if (e.key === 'Backspace' && !inp.value && inp.selectionStart === 0 && dropScope()) { e.preventDefault(); renderAttachments(); return; } // the @calendar / @mail chip
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); setMode(nextMode()); return; }
+    if (currentGhostFull && $('jc-ghost') && !$('jc-ghost').hidden) {
+      if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        acceptGhostSuggestion();
+        return;
+      }
+      if (e.key === 'ArrowRight' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && inp.selectionStart === inp.value.length) {
+        e.preventDefault();
+        acceptGhostSuggestion();
+        return;
+      }
+      if (e.key === 'Escape' && !inp.value) {
+        e.preventDefault();
+        e.stopPropagation();
+        dismissedGhost = currentGhostFull;
+        renderGhostSuggestion({ kind: '', items: [] });
+        return;
+      }
+    }
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) {
       const up = e.key === 'ArrowUp';
       const onEdge = up ? !inp.value.slice(0, inp.selectionStart).includes('\n') : !inp.value.slice(inp.selectionEnd).includes('\n');
-      if ((recall.index >= 0 || (up && !inp.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); return; }
+      if ((recall.index >= 0 || (up && !inp.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); renderGhostSuggestion(); return; }
     }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -1091,9 +1526,10 @@ export function initComposer(handlers) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('deck-composer').requestSubmit(); }
   });
   inp.addEventListener('input', () => {
+    if (ghostTyping) finishGhostTyping();
     keepDraftSoon();
     recall.index = -1;
-    pickIndex = 0;
+    pickIndex = /^[/?@]|\s@[\w./-]*$/.test(inp.value.slice(0, inp.selectionStart)) ? 0 : -1;
     renderSuggestions();
     grow();
     setPreviewText(inp.value);
