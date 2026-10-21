@@ -1487,7 +1487,8 @@ async function send(request, env, ctx, who, cfg) {
         if (checks.answer && body.mode === 'chat' && !refused && !(outcome.citations && outcome.citations.length) && String(outcome.text || '').trim()) {
           after = await answerCheck(ask, question, outcome.text, abort.signal);
         }
-        if ((premise || after || (outcome.citations && outcome.citations.length) || outcome.thinking) && !abort.signal.aborted && !(after && after.stopped)) {
+        const hadExternalCheck = Boolean(premise || after || (outcome.citations && outcome.citations.length));
+        if ((hadExternalCheck || outcome.thinking) && !abort.signal.aborted && !(after && after.stopped)) {
           const ev = verificationFor({
             risk: vrisk,
             searched: body.mode !== 'chat',
@@ -1501,9 +1502,12 @@ async function send(request, env, ctx, who, cfg) {
             historyMessages: priorHistory,
             memories: mem && mem.block ? [{ title: 'Memory', text: mem.block }] : [],
           });
-          if (ev) write('verification', ev);
-          // M5: numbers and words, never the prompt, the reply or a key
-          console.log(JSON.stringify({ kind: 'grounding', scope: 'chat', verdict: ev ? ev.label.kind : 'not_checked', risk: vrisk.level, premise: premise ? (premise.corrected ? 'corrected' : premise.checked ? 'checked' : 'unfinished') : null, answerCheck: after ? (after.answerCheck ? (after.answerCheck.corrected ? 'corrected' : after.answerCheck.fired ? 'flagged' : 'passed') : 'unfinished') : null, addedUSD: round6(checkSpent), calls: (premise ? premise.calls : 0) + (after ? after.calls : 0), model: (outcome.choice || first).model }));
+          // Only emit verification on thinking-only turns when a concrete issue was found (never emit model_memory / Unverified without an external check)
+          if (ev && (hadExternalCheck || ev.label.kind === 'issues_found')) write('verification', ev);
+          if (hadExternalCheck || (ev && ev.label.kind === 'issues_found')) {
+            // M5: numbers and words, never the prompt, the reply or a key
+            console.log(JSON.stringify({ kind: 'grounding', scope: 'chat', verdict: ev ? ev.label.kind : 'not_checked', risk: vrisk.level, premise: premise ? (premise.corrected ? 'corrected' : premise.checked ? 'checked' : 'unfinished') : null, answerCheck: after ? (after.answerCheck ? (after.answerCheck.corrected ? 'corrected' : after.answerCheck.fired ? 'flagged' : 'passed') : 'unfinished') : null, addedUSD: round6(checkSpent), calls: (premise ? premise.calls : 0) + (after ? after.calls : 0), model: (outcome.choice || first).model }));
+          }
         }
       }
     } catch (error) {

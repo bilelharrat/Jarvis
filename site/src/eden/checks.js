@@ -125,14 +125,16 @@ export function checkModels(models, providers) {
   // floor (GPT-6 Luna's level, retired 2026-10-13); the cheapest of all only when nothing reaches it.
   const able = pool.filter(trustworthy);
   const cheapest = [...(able.length ? able : pool)].sort((a, b) => blended(a) - blended(b))[0];
+  // Prefer low-latency high-reasoning models for strong/judge so judging completes in <1s without multi-second thinking stalls
+  const fastStrongOrder = ['claude-sonnet-5-5', 'gemini-3.8-flash', 'gpt-6.1-sol', 'gemini-3.1-pro-preview', 'claude-opus-5-5', 'gemini-4-argon'];
   const strongest =
-    pool.find((m) => m.id === 'gemini-4-argon') ||
+    fastStrongOrder.map((id) => able.find((m) => m.id === id)).find(Boolean) ||
     [...(able.length ? able : pool)].sort((a, b) => ((b.capabilities && b.capabilities.reasoning) || 0) - ((a.capabilities && a.capabilities.reasoning) || 0) || blended(a) - blended(b))[0];
   const gemini = pool.filter((m) => m.provider === 'gemini' && canSearch(m));
   const search = gemini.find((m) => m.id === SEARCH_MODEL) || [...gemini].sort((a, b) => blended(a) - blended(b))[0];
   return {
     cheap: cheapest ? { model: cheapest, effort: lowest(cheapest, ['none', 'minimal', 'low', 'medium']) } : null,
-    strong: strongest ? { model: strongest, effort: lowest(strongest, ['medium', 'high', 'low', 'minimal', 'none']) } : null,
+    strong: strongest ? { model: strongest, effort: lowest(strongest, ['none', 'minimal', 'low', 'medium']) } : null,
     search: search ? { model: search, effort: lowest(search, SEARCH_EFFORTS) } : null,
   };
 }
@@ -182,7 +184,8 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
     const model = pick.model;
     const k = keys[model.provider];
     if (!k) throw new Error(`No ${model.provider} key for this check.`);
-    const cap = req.search ? (req.purpose === 'web answer' || req.purpose === 'anchor' ? CALL_CAP.answer : CALL_CAP.search) : req.tier === 'strong' ? CALL_CAP.strong : CALL_CAP.cheap;
+    const tierCap = req.search ? (req.purpose === 'web answer' || req.purpose === 'anchor' ? CALL_CAP.answer : CALL_CAP.search) : req.tier === 'strong' ? CALL_CAP.strong : CALL_CAP.cheap;
+    const cap = typeof req.maxTokens === 'number' && req.maxTokens > 0 ? Math.min(tierCap, req.maxTokens + (req.search ? 600 : 350)) : tierCap;
     const prompt = `${req.system}\n\n${req.user}`;
     const request = sized(requestFor(pick, prompt), cap);
     const signal = req.signal || new AbortController().signal;
@@ -300,7 +303,14 @@ export async function answerCheck(ask, question, answer, signal, { budgetMs = AF
     findings.push(errorFinding('web', `Eden’s web check of this answer could not run (${oneLine(out.value.error || 'it failed', 120)}).`));
     return { findings, unfinished, calls };
   }
-  if (out.value.score < FALSIFY_THRESHOLD) return { answerCheck: { ran: true, fired: false, corrected: false }, findings, unfinished, calls };
+  if (out.value.score < FALSIFY_THRESHOLD) {
+    return {
+      answerCheck: { ran: true, fired: false, corrected: false, sources: out.value.sources, evidence: out.value.evidence },
+      findings,
+      unfinished,
+      calls,
+    };
+  }
   const fz = out.value;
   findings.push({ check: 'web', status: 'fail', subject: oneLine(fz.counterClaim, 160), detail: oneLine(`A web search found credible evidence for this instead of the answer${fz.evidence ? `: ${fz.evidence}` : ''}`, 400) });
   let re;
@@ -334,10 +344,8 @@ export function verificationFor({ risk, searched, citations, premise, after, cos
     }
     if (typeof checkInspector === 'function') {
       try {
-        const allSources = [
-          ...(Array.isArray(sources) ? sources : []),
-          ...(Array.isArray(citations) ? citations.map((c) => ({ title: c.title, url: c.url, text: c.title || '' })) : []),
-        ];
+        // Only pass full-text sources (never URL-title-only citations) so checkInspector doesn't treat a short webpage title as the entire source body
+        const allSources = Array.isArray(sources) ? sources : [];
         if (allSources.length || (historyMessages && historyMessages.length) || thinking || (memories && memories.length)) {
           const inspFindings = checkInspector(checkedText, {
             sources: allSources,
@@ -367,6 +375,15 @@ export function verificationFor({ risk, searched, citations, premise, after, cos
     added: { costUSD, latencyMs, calls },
   });
   const unfinished = Boolean(after && after.unfinished) || Boolean(premise && premise.why && /time/.test(premise.why));
+  if (!unfinished && after && after.answerCheck && after.answerCheck.ran && !after.answerCheck.fired && (ev.label.kind === 'model_memory' || ev.label.kind === 'not_checked')) {
+    const premText = premise && premise.corrected ? `Corrected a false assumption in the question${premise.corrected.text ? ` (it assumed: ${oneLine(premise.corrected.text, 160)})` : ''}. ` : '';
+    ev.label = {
+      kind: 'checked_on_web',
+      text: 'Checked on the web',
+      detail: oneLine(`${premText}Eden checked this answer against web sources and confirmed its claims hold up.`, 600),
+      severity: 'info',
+    };
+  }
   if (unfinished) {
     ev.label = { ...ev.label, detail: oneLine(`${UNFINISHED} ${ev.label.detail ?? ''}`, 600), ...(ev.label.severity === 'ok' ? { severity: 'info' } : {}) };
     if (!ev.findings.some((x) => x.status === 'error')) ev.findings.push(errorFinding('time', `${UNFINISHED} Eden stopped them so the reply isn’t held up.`));

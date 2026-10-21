@@ -497,5 +497,10 @@ test('EVES on askeden.com: /api/chat/eves/estimate and /api/chat/eves stream lan
   const clarifyEvents = await readEvents(clarifyRes);
   assert.equal(openAiCalls, 2, 'the single clarifying model was auto-reprompted to answer the same question');
   assert.ok(clarifyEvents.some((e) => e.type === 'eves_stage' && /Auto-answering/.test(e.data.detail || '')));
+  const clarifyVerdict = clarifyEvents.find((e) => e.type === 'verdict').data;
+  const clarifyVerification = clarifyEvents.find((e) => e.type === 'verification').data;
+  assert.equal(clarifyVerdict.skippedJudge, true, 'fastConsensusCheck resolves multi-number consensus in <1ms without judge');
+  assert.equal(clarifyVerification.label.kind, 'eves_verified');
+  assert.equal(clarifyVerification.label.severity, 'ok');
   globalThis.fetch = origFetch;
 });
