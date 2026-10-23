@@ -162,7 +162,7 @@ async function embedVaultQuestion(env, question) {
 }
 const FAMILY_NAMES = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini', kimi: 'Kimi', meta: 'Muse', mistral: 'Mistral', deepseek: 'DeepSeek' };
 const NUMBER_WORDS = ['no', 'one', 'two', 'three'];
-const ANCHOR_SYSTEM = 'Answer the question concisely and factually. Use web search when it helps. If you cannot find the answer, say you do not know.';
+const ANCHOR_SYSTEM = 'Answer the question concisely and factually in at most 200 words (or a compact bullet list). Use web search when it helps. If you cannot find the answer, say you do not know.';
 const PRIVACY_EVES = 'EVES in privacy mode runs only in Eden on your Mac, with its local models. Nothing was sent. Turn privacy off for this chat to use EVES here.';
 const EVES_NOTE = 'on askeden.com: each lane and check on its provider, counted on your Eden Secretary account’s included AI (your own keys aren’t)';
 
@@ -413,8 +413,9 @@ export function hostedEvesEstimate(raw, cfg, helpers) {
   if (!prompt.trim()) throw new ApiError(400, 'bad_request', 'Type a prompt to estimate.');
   if (prompt.length > 400_000) throw new ApiError(413, 'too_big', 'That prompt is too long to estimate.');
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
-  const narrowed = shapeEvesPool(Array.isArray(settings.providers) ? helpers.narrowFor(cfg, { settings }) : cfg, settings.evesModel);
-  const pins = shapeEvesPins(helpers.compareModels(raw, cfg), settings.evesModel);
+  const shaped = shapeEvesPool(cfg, settings.evesModel);
+  const narrowed = shapeEvesPool(Array.isArray(settings.providers) ? helpers.narrowFor(shaped, { settings }) : shaped, settings.evesModel);
+  const pins = shapeEvesPins(helpers.compareModels(raw, shaped), settings.evesModel);
   const { result, lanes } = compareEvesLanes(helpers, narrowed, prompt, helpers.routeSettings(settings), pins, settings.evesModel);
   const picks = checkModels(autoModels(narrowed.models), settings.providers, settings.evesModel);
   const plan = evesPlan(narrowed, prompt, { result, lanes, picks }, null, settings);
@@ -450,8 +451,8 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   if (raw.privacy !== undefined && raw.privacy !== null && raw.privacy !== false) throw new ApiError(503, 'needs_mac', PRIVACY_EVES);
   if (raw.mode !== undefined && raw.mode !== null && raw.mode !== 'on' && raw.mode !== 'auto') throw new ApiError(400, 'bad_request', 'mode must be "on" or "auto" (EVES is off otherwise).');
   if (cfg.models.length < 2) throw new ApiError(503, 'not_set_up', 'EVES needs at least two models on askeden.com.');
-  const models = helpers.compareModels(raw, cfg);
   const body = helpers.parseSend({ ...raw, mode: 'chat', override: undefined, sticky: undefined }, cfg);
+  const models = helpers.compareModels(raw, shapeEvesPool(cfg, body.settings.evesModel));
   // Personal material check outside privacy mode (images are supported across vision-capable lanes)
   const hasNonImageAttachments = body.messages.some((m) => m.attachments && m.attachments.some((a) => a.kind !== 'image'));
   const hasImages = body.messages.some((m) => m.attachments && m.attachments.some((a) => a.kind === 'image'));
@@ -836,7 +837,6 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         if (allAbstain(texts)) return cut(set, [], 'abstain');
         const fc = fastConsensusCheck(texts);
         if (fc.agreed) return cut(set, fc.claims, 'words');
-        if (fc.hasNumericConflict) return; // a real disagreement: let every lane finish and the judge settle it
         const key = set.map((r) => r.lane).sort((a, b) => a - b).join(',');
         if (tried.has(key) || agreementRuns >= 2) return;
         tried.add(key);
@@ -875,11 +875,11 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             // Never cut a straggler unless the web-searched anchor has arrived and agrees with zero numeric conflicts.
             if (ownAnchor && (!anchorText || !usable(done.get(anchorLane)))) return;
             const inTexts = anchorText ? [...doneTexts, anchorText] : doneTexts.slice();
-            if (fastConsensusCheck(inTexts).hasNumericConflict) return;
+            if (fastConsensusCheck(inTexts).hasNumericConflict && !quorum) return;
             for (let k = 0; k < laneCtrls.length; k++) {
               if (phaseOneDone.has(k) || laneCtrls[k].signal.aborted) continue;
               const sofar = partial[k]?.trim();
-              if (sofar && fastConsensusCheck([...inTexts, sofar]).hasNumericConflict) continue; // a new dissenter: waited for
+              if (sofar && !quorum && fastConsensusCheck([...inTexts, sofar]).hasNumericConflict) continue; // a new dissenter: waited for
               notNeeded.add(k);
               laneCtrls[k].abort();
             }
@@ -972,7 +972,6 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
 
       const results = await Promise.all(lanePromises);
       if (stragglerTimer) clearTimeout(stragglerTimer);
-      settled = true;
       if (abort.signal.aborted) return;
 
       const liveLanes = results.filter(live);
@@ -997,6 +996,8 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
 
       // The search anchor is the default winner (the only answer made with web search): always waited for, never dropped after 200ms.
       const anchorRes = await anchorPromise;
+      if (pending.size) await Promise.allSettled([...pending]);
+      settled = true;
       if (abort.signal.aborted) return;
 
       const lanesUSD = results.reduce((n, r) => n + r.costUSD, 0) + (anchorRes?.costUSD ?? 0);
@@ -1198,7 +1199,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
 
         const texts = answered.map((r) => r.text);
         const fast = fastConsensusCheck(texts);
-        if (fast.hasNumericConflict && fast.disputedSentences.length > 0 && plan.evidence.maxCalls > 0 && !judgeStopped()) {
+        if (!quorum && fast.hasNumericConflict && fast.disputedSentences.length > 0 && plan.evidence.maxCalls > 0 && !judgeStopped()) {
           const defaultWinText = textOfLane(best);
           for (const dispSent of fast.disputedSentences.slice(0, plan.evidence.maxCalls)) {
             const matchedSent = findSentenceForClaim(defaultWinText, dispSent) || (defaultWinText.includes(dispSent) ? dispSent : undefined);
@@ -1228,7 +1229,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
           for (const [k, _p] of inFlightAgreements) {
             if (k !== answeredKey && !quorum) quorumCtrl.abort();
           }
-          if (!agreed && !fast.hasNumericConflict && !checkedDisagreements.has(answeredKey) && !judgeStopped()) {
+          if (!agreed && (!fast.hasNumericConflict || reusableQuorumAgree) && !checkedDisagreements.has(answeredKey) && !judgeStopped()) {
             startBudget();
             write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
             const pendingAgree = reusableQuorumAgree || checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });

@@ -202,7 +202,12 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
             ? Math.min(tierCap, req.maxTokens + (req.search ? 600 : 350))
             : tierCap;
     const prompt = `${req.system}\n\n${req.user}`;
-    const request = sized(requestFor(pick, prompt), cap);
+    const effectivePick = req.purpose === 'anchor' && pick.model.id === 'gemini-3.8-flash' ? { ...pick, effort: 'low' } : pick;
+    const request = sized(requestFor(effectivePick, prompt), cap);
+    const effectiveSystem =
+      req.purpose === 'evidence' && model.provider === 'gemini'
+        ? `${req.system}\nFirst write 1 short sentence naming the source from your Google Search, then on a new line write the JSON.`
+        : req.system;
     if (signal.aborted) throw new Error('it was stopped');
     const callCtrl = new AbortController();
     const onAbort = () => callCtrl.abort();
@@ -213,7 +218,7 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
     let seenText = '';
     try {
       r = await streamCall(
-        { model, request, messages: [{ role: 'user', content: req.user, ...(Array.isArray(req.attachments) && req.attachments.length ? { attachments: req.attachments } : {}) }], system: req.system, search: Boolean(req.search), uses: req.search ? 1 : 0, key: k.key, base, inputTokens: tokensOf(prompt.length) },
+        { model, request, messages: [{ role: 'user', content: req.user, ...(Array.isArray(req.attachments) && req.attachments.length ? { attachments: req.attachments } : {}) }], system: effectiveSystem, search: Boolean(req.search), uses: req.search ? 1 : 0, key: k.key, base, inputTokens: tokensOf(prompt.length) },
         {
           signal: callCtrl.signal,
           emit: (e, d) => {

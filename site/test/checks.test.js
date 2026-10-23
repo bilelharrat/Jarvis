@@ -1062,6 +1062,43 @@ test('EVES model selector: default gemini-3.8-flash never puts gemini-4-argon in
     assert.ok(estDefault.lanes.some((l) => l.model === 'gpt-6-sol' && l.effort === 'low'), 'default EVES lanes include gpt-6-sol at low effort (CoT)');
     assert.equal(estDefault.independence, 'full', '3 distinct model families: Google + Anthropic + OpenAI');
 
+    // Sending an EVES turn with the exact lanes returned by /api/chat/eves/estimate (including gpt-6-sol) succeeds without 422
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        return sse(geminiSse('Green Bay Packers won Super Bowl I.', NASA));
+      }
+      if (url.includes('api.anthropic.com')) {
+        return sse(
+          [
+            `event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 1 } } })}`,
+            `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Green Bay Packers won Super Bowl I.' } })}`,
+            `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 20 } })}`,
+          ].join('\n\n') + '\n\n',
+        );
+      }
+      return origFetch(input, init);
+    };
+    try {
+      const sendRes = await hit('/api/chat/eves', {
+        method: 'POST',
+        session,
+        headers: { 'x-jarvis-chat': '1' },
+        body: {
+          messages: [{ role: 'user', content: 'who won the superbowl in 1966' }],
+          mode: 'on',
+          models: estDefault.lanes.map((l) => ({ model: l.model, effort: l.effort })),
+          settings: { level: 3, evesModel: 'gemini-3.8-flash' },
+        },
+      });
+      assert.equal(sendRes.status, 200, 'POST /api/chat/eves accepts the pinned fast trio including gpt-6-sol');
+      const sendEvents = await readEvents(sendRes);
+      assert.ok(sendEvents.some((e) => e.type === 'verdict'));
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+
     const estArgonRes = await hit('/api/chat/eves/estimate', {
       method: 'POST',
       session,
