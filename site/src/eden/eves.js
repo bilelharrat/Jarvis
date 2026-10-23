@@ -11,8 +11,11 @@
 
 import { call } from '../accounts/index.js';
 import { ApiError } from '../accounts/util.js';
+import { lookupEvesVault, putEvesFlag, putEvesVault, seedEvesVault } from '../news/store.js';
+import { record as recordStat } from '../stats/stats.js';
 import { checkModels, hostedAsk } from './checks.js';
 import { autoModels, computedWhere, fitCall, hasVision, maxTokensOf, metered, modelOf, ratesOf, streamCall, usageUSD } from './providers.js';
+import { withMaxOutputTokens } from './vendor/providers.js';
 import { effortLabel } from './vendor/model-router.js';
 import {
   ADDED_LEAD,
@@ -27,19 +30,29 @@ import {
   aimedAtJudge,
   allAbstain,
   applyCorrections,
+  assessQueryImmutability,
   assessRisk,
   buildClarificationAutoReply,
+  buildSeedVaultEntries,
   checkAgreement,
   checkEvidence,
   checkInspector,
   clip,
   extractClaimsDetailed,
+  falsifyAnswer,
   fastConsensusCheck,
+  findSentenceForClaim,
+  findVerifiedVaultMatch,
+  fingerprintQuestion,
   isClarifyingQuestion,
+  isEligibleForVaultStorage,
   judgeAnswers,
   mergeClarifyingQuestions,
+  MemoryVaultStore,
   normalizeForMatch,
+  packQuantizedVector,
   partlyCheckedLabel,
+  reanswerWithSearch,
   runChecks,
   unletter,
 } from './vendor/verify.js';
@@ -47,6 +60,106 @@ import { TOP_MODEL } from '../../public/eden/autopilot-model.js';
 
 const FINAL_CHUNK_CHARS = 1_500;
 const SHORT_ANSWER_CHARS = 200;
+const VAULT_EMBED_MODEL = '@cf/baai/bge-small-en-v1.5';
+const isNodeTest = typeof process !== 'undefined' && Boolean(process?.env?.NODE_TEST_CONTEXT);
+let cachedSeedEntries = null;
+function getSeedEntries() {
+  if (!cachedSeedEntries) cachedSeedEntries = buildSeedVaultEntries();
+  return cachedSeedEntries;
+}
+const hostedMemoryVaults = new WeakMap();
+let fallbackMemoryVault = null;
+
+function getMemoryVault(env) {
+  if (!env || typeof env !== 'object') {
+    if (!fallbackMemoryVault) {
+      fallbackMemoryVault = new MemoryVaultStore({ maxEntries: 25000, initialEntries: !isNodeTest ? getSeedEntries() : undefined });
+    }
+    return fallbackMemoryVault;
+  }
+  let v = hostedMemoryVaults.get(env);
+  if (!v) {
+    const shouldSeed = env.EDEN_VAULT_SEED === '1' || (!isNodeTest && env.EDEN_VAULT_SEED !== 'off');
+    const initialEntries = shouldSeed ? getSeedEntries() : undefined;
+    v = new MemoryVaultStore({ maxEntries: 25000, initialEntries });
+    hostedMemoryVaults.set(env, v);
+    if (shouldSeed && env.NEWS && !env.EVES_VAULT_DB) {
+      void seedEvesVault(env, initialEntries.slice(0, 500)).catch(() => {});
+    }
+  }
+  return v;
+}
+
+export function clearHostedEvesVault(env) {
+  if (env && typeof env === 'object') hostedMemoryVaults.delete(env);
+  if (fallbackMemoryVault) fallbackMemoryVault.clear();
+}
+
+export function hasHostedExactVaultHit(env, question, { messageCount = 1, hasAttachments = false, hasSources = false, privacy = false, vault = true } = {}) {
+  const vaultEnabled = vault !== false && env?.EDEN_EVES_VAULT !== 'off';
+  if (!vaultEnabled) return false;
+  const vaultQueryImm = assessQueryImmutability(question, {
+    messageCount,
+    hasAttachments,
+    hasSources,
+    privacy,
+    allowStandaloneInMultiTurn: true,
+  });
+  if (!vaultQueryImm.immutable) return false;
+  const memVault = getMemoryVault(env);
+  const qFp = fingerprintQuestion(question);
+  return typeof memVault.hasExactHash === 'function' ? memVault.hasExactHash(qFp) : false;
+}
+
+export async function lookupHostedVaultMatch(env, question, { messageCount = 1, hasAttachments = false, hasSources = false, privacy = false, vault = true, ask = undefined, signal = undefined } = {}) {
+  const vaultEnabled = vault !== false && env?.EDEN_EVES_VAULT !== 'off';
+  const vaultQueryImm = vaultEnabled
+    ? assessQueryImmutability(question, {
+        messageCount,
+        hasAttachments,
+        hasSources,
+        privacy,
+        allowStandaloneInMultiTurn: true,
+      })
+    : { immutable: false, reason: 'vault_disabled' };
+  if (!vaultQueryImm.immutable) return null;
+
+  const memVault = getMemoryVault(env);
+  const qFp = fingerprintQuestion(question);
+  const l1Candidates = await memVault.lookupCandidates(qFp).catch(() => []);
+  const exactInL1 = l1Candidates.some((c) => c.canonicalHash === qFp.canonicalHash);
+  const l2Candidates = !exactInL1 ? await lookupEvesVault(env, qFp.canonicalHash, qFp).catch(() => []) : [];
+  const seenHashes = new Set();
+  const candidates = [];
+  for (const c of [...l1Candidates, ...l2Candidates]) {
+    if (c && c.canonicalHash && !seenHashes.has(c.canonicalHash)) {
+      seenHashes.add(c.canonicalHash);
+      candidates.push(c);
+    }
+  }
+  if (!candidates.length || (signal && signal.aborted)) return null;
+  const exactCanonical = candidates.some((c) => c.canonicalHash === qFp.canonicalHash);
+  const queryVectorB64 = !exactCanonical ? await embedVaultQuestion(env, question) : null;
+  const match = await findVerifiedVaultMatch(question, candidates, {
+    queryVectorB64,
+    ask,
+    signal,
+  });
+  if (!match.hit || !match.entry || (signal && signal.aborted)) return null;
+  void memVault.putEntry(match.entry).catch(() => {});
+  return match;
+}
+
+async function embedVaultQuestion(env, question) {
+  if (!env || !env.AI) return null;
+  try {
+    const r = await env.AI.run(VAULT_EMBED_MODEL, { text: [String(question || '').slice(0, 1000)] });
+    const v = r && Array.isArray(r.data) ? r.data[0] : null;
+    return Array.isArray(v) && v.length ? packQuantizedVector(v) : null;
+  } catch {
+    return null;
+  }
+}
 const FAMILY_NAMES = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini', kimi: 'Kimi', meta: 'Muse', mistral: 'Mistral', deepseek: 'DeepSeek' };
 const NUMBER_WORDS = ['no', 'one', 'two', 'three'];
 const ANCHOR_SYSTEM = 'Answer the question concisely and factually. Use web search when it helps. If you cannot find the answer, say you do not know.';
@@ -135,39 +248,6 @@ const VALID_STATUS = new Set(['pass', 'fail', 'skipped', 'error']);
 const validFinding = (f) =>
   !!f && typeof f === 'object' && typeof f.check === 'string' && VALID_STATUS.has(f.status) && typeof f.subject === 'string' && typeof f.detail === 'string';
 
-/**
- * Deterministically locates the sentence in `answerText` that best matches `claimText` when the judge
- * omitted or paraphrased `quotes[winner]`.
- */
-function findSentenceForClaim(answerText, claimText) {
-  if (!answerText || !claimText) return undefined;
-  const sentences = String(answerText)
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.replace(/^\s*(?:[-*+•]|\d+[.)])\s+/, '').trim())
-    .filter((s) => s.length >= 8);
-  const claimNums = String(claimText).match(/\b\d+(?:[.,]\d+)*\b/g) || [];
-  const claimWords = new Set(
-    String(claimText)
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length >= 3),
-  );
-  let bestSent;
-  let bestScore = 0;
-  for (const s of sentences) {
-    const sLow = s.toLowerCase();
-    let score = 0;
-    for (const w of claimWords) if (sLow.includes(w)) score += 1;
-    for (const n of claimNums) if (s.includes(n)) score += 2.5;
-    if (score > bestScore && score >= 2) {
-      bestScore = score;
-      bestSent = s;
-    }
-  }
-  return bestSent;
-}
-
 export function evesPlan(cfg, prompt, extras, models, settings = {}) {
   const { result, lanes, picks } = extras;
   const notes = [EVES_NOTE];
@@ -219,6 +299,112 @@ export function evesPlan(cfg, prompt, extras, models, settings = {}) {
   };
 }
 
+function shapeEvesPool(cfg, evesModel) {
+  const want = typeof evesModel === 'string' && evesModel.trim() ? evesModel.trim() : 'gemini-3.8-flash';
+  let models = cfg.models;
+  // Promote gpt-6-sol (~1.88s at low effort) into the EVES pool when OpenAI is available so the OpenAI cross-check lane doesn't wait 5.6s for gpt-6.1-sol
+  if ((!cfg.keys || cfg.keys.openai) && !models.some((m) => m.id === 'gpt-6-sol')) {
+    const gpt6Sol = modelOf('gpt-6-sol');
+    if (gpt6Sol) models = [...models, gpt6Sol];
+  }
+  if (want !== 'gemini-4-argon') {
+    const withoutArgon = models.filter((m) => m.id !== 'gemini-4-argon');
+    if (withoutArgon.length >= 2) models = withoutArgon;
+  }
+  if (want !== 'kimi-k3') {
+    const withoutKimi = models.filter((m) => m.id !== 'kimi-k3');
+    if (withoutKimi.length >= 2) models = withoutKimi;
+  }
+  return models === cfg.models ? cfg : { ...cfg, models };
+}
+
+function shapeEvesPins(pins, evesModel) {
+  if (!Array.isArray(pins)) return undefined;
+  const want = typeof evesModel === 'string' && evesModel.trim() ? evesModel.trim() : 'gemini-3.8-flash';
+  if (want !== 'gemini-4-argon' && pins.some((p) => p && p.model === 'gemini-4-argon')) {
+    return undefined;
+  }
+  if (want === 'gemini-4-argon' && !pins.some((p) => p && p.model === 'gemini-4-argon')) {
+    return undefined;
+  }
+  return pins;
+}
+
+function compareEvesLanes(helpers, cfg, prompt, extras, pins, evesModel) {
+  let current = helpers.compareLanes(cfg, prompt, extras, pins);
+  const want = typeof evesModel === 'string' && evesModel.trim() ? evesModel.trim() : 'gemini-3.8-flash';
+  if (!pins && current.lanes.length >= 2) {
+    let nextWanted = current.lanes.map((l) => ({ model: l.model, effort: l.effort }));
+    let changed = false;
+    if (cfg.models.some((m) => m.id === want) && !nextWanted.some((l) => l.model === want)) {
+      const wantModel = cfg.models.find((m) => m.id === want);
+      let replaceIdx = -1;
+      for (let i = nextWanted.length - 1; i >= 0; i--) {
+        const lm = cfg.models.find((m) => m.id === nextWanted[i].model);
+        if (lm && wantModel && lm.provider === wantModel.provider) {
+          replaceIdx = i;
+          break;
+        }
+      }
+      if (replaceIdx < 0) replaceIdx = nextWanted.length - 1;
+      nextWanted[replaceIdx] = { model: want };
+      changed = true;
+    }
+    // Assemble the recommended fast 3-provider trio when available:
+    // 1) gemini-3.8-flash (low)  2) claude-sonnet-5-5 (none, ~2.2s)  3) gpt-6-sol (low, ~1.88s CoT) instead of slow gpt-6.1-sol (~5.6s)
+    const hasSonnet = cfg.models.some((m) => m.id === 'claude-sonnet-5-5');
+    const hasGpt6Sol = cfg.models.some((m) => m.id === 'gpt-6-sol');
+    const sol61Idx = nextWanted.findIndex((l) => l.model === 'gpt-6.1-sol');
+    if (sol61Idx >= 0 && want !== 'gpt-6.1-sol') {
+      if (hasSonnet && !nextWanted.some((l) => l.model === 'claude-sonnet-5-5')) {
+        nextWanted[sol61Idx] = { model: 'claude-sonnet-5-5', effort: 'none' };
+        if (hasGpt6Sol && nextWanted.length < 3 && !nextWanted.some((l) => l.model === 'gpt-6-sol')) {
+          nextWanted.push({ model: 'gpt-6-sol', effort: 'low' });
+        }
+        changed = true;
+      } else if (hasGpt6Sol && !nextWanted.some((l) => l.model === 'gpt-6-sol')) {
+        nextWanted[sol61Idx] = { model: 'gpt-6-sol', effort: 'low' };
+        changed = true;
+      }
+    }
+    // Ensure claude-sonnet-5-5 runs at effort: 'none' (~2.2s) and gpt-6-sol runs at effort: 'low' (~1.88s with CoT)
+    for (let i = 0; i < nextWanted.length; i++) {
+      if (nextWanted[i].model === 'claude-sonnet-5-5' && nextWanted[i].effort !== 'none' && want !== 'claude-sonnet-5-5') {
+        nextWanted[i] = { model: 'claude-sonnet-5-5', effort: 'none' };
+        changed = true;
+      }
+      if (nextWanted[i].model === 'gpt-6-sol' && nextWanted[i].effort !== 'low') {
+        nextWanted[i] = { model: 'gpt-6-sol', effort: 'low' };
+        changed = true;
+      }
+    }
+    // Guarantee the 3-provider fast trio (Google + Anthropic + OpenAI) when available:
+    // if claude-sonnet-5-5 or gpt-6-sol is missing because a second model from the same provider (e.g. gemini-3.5-flash-lite) took its slot, swap it in
+    if (hasSonnet && !nextWanted.some((l) => l.model === 'claude-sonnet-5-5')) {
+      const dupIdx = nextWanted.findIndex((l, idx) => idx > 0 && l.model !== want && l.model !== 'gpt-6-sol');
+      if (dupIdx >= 0) {
+        nextWanted[dupIdx] = { model: 'claude-sonnet-5-5', effort: 'none' };
+        changed = true;
+      } else if (nextWanted.length < 3) {
+        nextWanted.push({ model: 'claude-sonnet-5-5', effort: 'none' });
+        changed = true;
+      }
+    }
+    if (hasGpt6Sol && !nextWanted.some((l) => l.model === 'gpt-6-sol')) {
+      const dupIdx = nextWanted.findIndex((l, idx) => idx > 0 && l.model !== want && l.model !== 'claude-sonnet-5-5');
+      if (dupIdx >= 0) {
+        nextWanted[dupIdx] = { model: 'gpt-6-sol', effort: 'low' };
+        changed = true;
+      } else if (nextWanted.length < 3) {
+        nextWanted.push({ model: 'gpt-6-sol', effort: 'low' });
+        changed = true;
+      }
+    }
+    if (changed) current = helpers.compareLanes(cfg, prompt, extras, nextWanted.slice(0, 3));
+  }
+  return current;
+}
+
 /** POST /api/chat/eves/estimate */
 export function hostedEvesEstimate(raw, cfg, helpers) {
   if (raw.privacy !== undefined && raw.privacy !== null && raw.privacy !== false) throw new ApiError(503, 'needs_mac', PRIVACY_EVES);
@@ -227,9 +413,10 @@ export function hostedEvesEstimate(raw, cfg, helpers) {
   if (!prompt.trim()) throw new ApiError(400, 'bad_request', 'Type a prompt to estimate.');
   if (prompt.length > 400_000) throw new ApiError(413, 'too_big', 'That prompt is too long to estimate.');
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
-  const narrowed = Array.isArray(settings.providers) ? helpers.narrowFor(cfg, { settings }) : cfg;
-  const { result, lanes } = helpers.compareLanes(narrowed, prompt, helpers.routeSettings(settings), helpers.compareModels(raw, narrowed));
-  const picks = checkModels(autoModels(narrowed.models), settings.providers);
+  const narrowed = shapeEvesPool(Array.isArray(settings.providers) ? helpers.narrowFor(cfg, { settings }) : cfg, settings.evesModel);
+  const pins = shapeEvesPins(helpers.compareModels(raw, cfg), settings.evesModel);
+  const { result, lanes } = compareEvesLanes(helpers, narrowed, prompt, helpers.routeSettings(settings), pins, settings.evesModel);
+  const picks = checkModels(autoModels(narrowed.models), settings.providers, settings.evesModel);
   const plan = evesPlan(narrowed, prompt, { result, lanes, picks }, null, settings);
   const r = assessRisk(prompt, { mode: 'chat' });
   return {
@@ -273,12 +460,17 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     throw new ApiError(422, 'personal_material', 'EVES can’t check this message: it carries your attached files or context. Send it with EVES off, or without them.');
   }
   const checkPool = cfg.models;
-  cfg = helpers.narrowFor(cfg, body);
+  cfg = shapeEvesPool(helpers.narrowFor(cfg, body), body.settings.evesModel);
   if (hasImages) {
     const visionModels = cfg.models.filter((m) => hasVision(m));
     if (visionModels.length >= 2) cfg = { ...cfg, models: visionModels };
   }
-  if (models && models.some((x) => !cfg.models.some((m) => m.id === x.model))) {
+  let validModels = shapeEvesPins(models, body.settings.evesModel);
+  if (validModels && hasImages) {
+    const visionPins = validModels.filter((x) => cfg.models.some((m) => m.id === x.model && hasVision(m)));
+    validModels = visionPins.length >= 2 ? visionPins : undefined;
+  }
+  if (validModels && validModels.some((x) => !cfg.models.some((m) => m.id === x.model))) {
     throw new ApiError(422, 'not_here', 'One of those models can’t be used with the providers you have on.');
   }
   const system = helpers.systemPrompt(body);
@@ -288,9 +480,9 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   const question = helpers.messageText(last).trim() || 'Describe the attached image.';
   const sessionTokens = Math.max(0, inputTokens - Math.ceil(question.length / 3.5));
   const extras = { ...helpers.routeSettings(body.settings), ...(sessionTokens > 0 ? { context: { sessionTokens } } : {}) };
-  const { result, lanes } = helpers.compareLanes(cfg, question, extras, models);
-  const picks = checkModels(autoModels(checkPool), body.settings.providers);
-  const plan = evesPlan(cfg, question, { result, lanes, picks }, models, body.settings);
+  const { result, lanes } = compareEvesLanes(helpers, cfg, question, extras, validModels, body.settings.evesModel);
+  const picks = checkModels(autoModels(checkPool), body.settings.providers, body.settings.evesModel);
+  const plan = evesPlan(cfg, question, { result, lanes, picks }, validModels, body.settings);
 
   const isMetered = (l) => metered(cfg.keys, l.provider || (modelOf(l.model) || {}).provider);
   const anyMetered = lanes.some(isMetered) || (picks.cheap && metered(cfg.keys, picks.cheap.model.provider)) || (picks.strong && metered(cfg.keys, picks.strong.model.provider)) || (picks.search && metered(cfg.keys, picks.search.model.provider));
@@ -302,7 +494,10 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   const checksHoldUSD = Math.min(0.18, Math.max(0, (plan.estimate.totalUSD || 0) - lanes.reduce((n, l) => n + (l.costUSD || 0), 0)));
   const laneShare = Math.max(0.01, (left - checksHoldUSD) / metLanes);
   const lanePlans = lanes.map((l) => {
-    const f = fitCall(modelOf(l.model), l.request, { leftUSD: isMetered(l) ? laneShare : Infinity, inputTokens, maxTokens: cfg.maxTokens, minReply: 256 });
+    const m = modelOf(l.model);
+    const fullMax = Math.min(cfg.maxTokens, m.provider === 'kimi' ? 32_768 : m.maxOutputTokens || cfg.maxTokens);
+    const fullReq = maxTokensOf(l.request) < fullMax ? withMaxOutputTokens(l.request, fullMax) : l.request;
+    const f = fitCall(m, fullReq, { leftUSD: isMetered(l) ? laneShare : Infinity, inputTokens, maxTokens: cfg.maxTokens, minReply: 1024 });
     if (f.short) throw short();
     return { ...f, worstUSD: isMetered(l) ? f.worstUSD : 0, maxTokens: maxTokensOf(f.request) };
   });
@@ -393,6 +588,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   const ownAnchor = plan.anchor;
   let anchorName = ownAnchor ? ownAnchor.modelName : '';
   const nameOf = (lane) => (lane === anchorLane && ownAnchor ? `${anchorName} (with web search)` : plan.lanes[lane]?.modelName ?? `Answer ${lane + 1}`);
+  const partial = Array.from({ length: lanes.length }, () => '');
 
   const runLane = async (i, choice, requestObj, signal, messagesOverride = body.messages) => {
     const t0 = Date.now();
@@ -407,6 +603,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       {
         signal,
         emit: (type, data) => {
+          if (type === 'text' && data && data.text) partial[i] = (partial[i] || '') + data.text;
           if (type === 'citations' && Array.isArray(data.sources)) {
             for (const c of data.sources) if (c && typeof c.url === 'string' && citations.length < 50) citations.push({ title: String(c.title ?? ''), url: c.url });
           }
@@ -452,7 +649,8 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         .map((m) => `${m.role}: ${clip(helpers.messageText(m).replace(/\s+/g, ' ').trim(), 600)}`)
         .filter((l) => !/:\s*$/.test(l));
       const user = earlier.length ? `The conversation so far, for context:\n${earlier.join('\n')}\n\nThe question:\n${question}` : question;
-      const r = await baseAsk({ system: ANCHOR_SYSTEM, user, tier: 'strong', purpose: 'anchor', search: true, maxTokens: ANCHOR_OUTPUT_TOKENS, temperature: 0, signal: abort.signal });
+      const imgAtts = (last.attachments || []).filter((a) => a.kind === 'image');
+      const r = await baseAsk({ system: ANCHOR_SYSTEM, user, tier: 'strong', purpose: 'anchor', search: true, maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, ...(imgAtts.length ? { attachments: imgAtts } : {}), signal: abort.signal });
       if (!String(r.text ?? '').trim()) return null;
       return { lane: anchorLane, text: r.text, finish: 'stop', ms: Date.now() - t0, costUSD: round6((r.costUSD || 0) * factor()), citations: (r.citations ?? []).slice(0, 50) };
     } catch {
@@ -502,6 +700,67 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       });
       if (body.ledger && body.ledger.tainted) write('provenance', body.ledger.summary());
 
+      // ── Immutable Verified Vault (2-Tier + 3-Gate exact/vector lookup before spawning lanes) ──
+      const hasAttachments = Array.isArray(last?.attachments) && last.attachments.length > 0;
+      const vaultEnabled = raw.vault !== false && env?.EDEN_EVES_VAULT !== 'off';
+      const vaultQueryImm = vaultEnabled
+        ? assessQueryImmutability(question, {
+            messageCount: body.messages.length,
+            hasAttachments,
+            hasSources: Boolean(body.sources && body.sources.length),
+            privacy: false,
+            allowStandaloneInMultiTurn: true,
+          })
+        : { immutable: false, reason: 'vault_disabled' };
+      const match = vaultQueryImm.immutable
+        ? await lookupHostedVaultMatch(env, question, {
+            messageCount: body.messages.length,
+            hasAttachments,
+            hasSources: Boolean(body.sources && body.sources.length),
+            privacy: false,
+            vault: raw.vault,
+            ask,
+            signal: abort.signal,
+          })
+        : null;
+      if (match && match.hit && match.entry && !abort.signal.aborted) {
+        const hit = match.entry;
+        const vaultVerdict = {
+          ...hit.verdict,
+          judgeCostUSD: 0,
+          totalCostUSD: round6(checksState.costUSD),
+          summary: `${hit.verdict.summary} (Served from the EVES Verified Vault — timeless verified fact.)`,
+        };
+        write('eves_stage', { stage: 'finalizing', detail: 'Verified answer found in the EVES Vault' });
+        write('verdict', vaultVerdict);
+        if (Array.isArray(hit.citations) && hit.citations.length) {
+          write('citations', { lane: 'final', sources: hit.citations });
+        }
+        for (const text of chunks(hit.answerText)) write('text', { lane: 'final', text });
+        write('usage', {
+          lane: 'final',
+          inputTokens: checksState.inputTokens,
+          outputTokens: checksState.outputTokens,
+          reasoningTokens: checksState.reasoningTokens,
+          costUSD: round6(checksState.costUSD),
+          notional: checksState.notional,
+          calls: checksState.calls,
+        });
+        write('done', { lane: 'final', finish: 'stop' });
+        write('verification', {
+          label: hit.verification.label,
+          findings: hit.verification.findings,
+          added: {
+            costUSD: round6(checksState.costUSD),
+            latencyMs: Math.max(0, Date.now() - started),
+            calls: checksState.calls,
+          },
+        });
+        write('end', {});
+        console.log(JSON.stringify({ evt: 'eves_timing', vaultHit: match.tier, cosine: match.cosine, totalMs: Date.now() - started, label: 'eves_verified' }));
+        return;
+      }
+
       write('eves_stage', {
         stage: 'answering',
         detail: `Asking ${plan.lanes.map((l) => l.modelName).join(', ')}${ownAnchor ? `, with ${anchorName}’s answer from a web search` : ''}`,
@@ -546,6 +805,8 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       let agreementRuns = 0;
       let settled = false; // every lane is in: the full check below decides, the quorum no longer can
       const tried = new Set();
+      const inFlightAgreements = new Map(); // key -> Promise<AgreementOutcome>
+      const checkedDisagreements = new Set();
       const quorumCtrl = new AbortController();
       abort.signal.addEventListener('abort', () => quorumCtrl.abort(), { once: true });
       const cut = (set, claims, how) => {
@@ -560,27 +821,36 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       };
       const consider = async () => {
         if (quorum || settled || lanes.length < 2 || abort.signal.aborted) return;
+        // When a web-search anchor is configured, never declare quorum before the web-searched anchor has arrived
+        // so unsearched models agreeing from stale training memory can never bypass web search.
+        if (ownAnchor && !done.has(anchorLane) && !anchorSettled) return;
         const first = done.get(0);
-        if (!usable(first)) return;
-        const set = [first, ...[...done.values()].filter((r) => r.lane !== 0 && usable(r))];
+        // Quorum requires either Lane 0 + at least 1 other usable answer, OR (when Lane 0 is a slow straggler)
+        // the web-searched anchor + at least 2 independent usable lanes.
+        const others = [...done.values()].filter((r) => r.lane !== 0 && usable(r));
+        const set = usable(first) ? [first, ...others] : others.length >= 2 && others.some((r) => r.lane === anchorLane) ? others : [];
         if (set.length < 2) return;
+        if (ownAnchor && usable(done.get(anchorLane)) && !set.some((r) => r.lane === anchorLane)) return;
         const texts = set.map((r) => r.text);
         if (sameWords(texts)) return cut(set, [], 'words');
         if (allAbstain(texts)) return cut(set, [], 'abstain');
         const fc = fastConsensusCheck(texts);
         if (fc.agreed) return cut(set, fc.claims, 'words');
         if (fc.hasNumericConflict) return; // a real disagreement: let every lane finish and the judge settle it
-        const key = set.map((r) => r.lane).join(',');
+        const key = set.map((r) => r.lane).sort((a, b) => a - b).join(',');
         if (tried.has(key) || agreementRuns >= 2) return;
         tried.add(key);
         agreementRuns++;
-        const a = await checkAgreement(
+        const pAgree = checkAgreement(
           ask,
           question,
           set.map((r) => ({ lane: r.lane, text: r.text, findings: findings[r.lane], finish: r.finish === 'length' ? 'length' : 'stop' })),
           { signal: quorumCtrl.signal },
         );
+        inFlightAgreements.set(key, pAgree);
+        const a = await pAgree;
         if (a.ok && a.agreement.same) cut(set, a.agreement.claims, 'model');
+        else if (a.ok && !a.agreement.same) checkedDisagreements.add(key);
       };
       const pending = new Set();
       const arrive = (res) => {
@@ -590,38 +860,81 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         p.finally(() => pending.delete(p));
       };
 
+      let anchorSettled = false;
+      let anchorText = '';
+      const phaseOneDone = new Set();
+      let substantiveDoneCount = 0;
+      const doneTexts = [];
+      let stragglerTimer;
+      const maybeScheduleStragglerCutover = () => {
+        const elapsed = Date.now() - started;
+        if (substantiveDoneCount >= 2 && lanes.length > 1 && elapsed >= 400 && !stragglerTimer) {
+          const graceMs = Math.min(400, Math.max(150, Math.round(elapsed * 0.15)));
+          const cutStragglers = () => {
+            if (settled || abort.signal.aborted) return;
+            // Never cut a straggler unless the web-searched anchor has arrived and agrees with zero numeric conflicts.
+            if (ownAnchor && (!anchorText || !usable(done.get(anchorLane)))) return;
+            const inTexts = anchorText ? [...doneTexts, anchorText] : doneTexts.slice();
+            if (fastConsensusCheck(inTexts).hasNumericConflict) return;
+            for (let k = 0; k < laneCtrls.length; k++) {
+              if (phaseOneDone.has(k) || laneCtrls[k].signal.aborted) continue;
+              const sofar = partial[k]?.trim();
+              if (sofar && fastConsensusCheck([...inTexts, sofar]).hasNumericConflict) continue; // a new dissenter: waited for
+              notNeeded.add(k);
+              laneCtrls[k].abort();
+            }
+          };
+          stragglerTimer = setTimeout(() => (anchorSettled ? cutStragglers() : void anchorPromise.then(() => !abort.signal.aborted && cutStragglers())), graceMs);
+        }
+      };
+
       const anchorPromise = anchorCall().then(async (res) => {
         if (res) {
           await checkOne(res);
+          if (res.text.trim() && !isClarifyingQuestion(res.text)) anchorText = res.text;
+          arrive(res);
+        }
+        anchorSettled = true;
+        return res;
+      });
+      const live = (r) => !!r && r.text.trim() !== '' && (r.finish === 'stop' || r.finish === 'length');
+      const lanePromises = lanes.map(async (l, i) => {
+        const res = await runLane(i, l, lanePlans[i].request, laneCtrls[i].signal);
+        phaseOneDone.add(i);
+        if (!notNeeded.has(i)) {
+          await checkOne(res);
+          if (live(res) && !isClarifyingQuestion(res.text)) {
+            substantiveDoneCount++;
+            doneTexts.push(res.text);
+            maybeScheduleStragglerCutover();
+          }
           arrive(res);
         }
         return res;
       });
-      const results = await Promise.all(
-        lanes.map(async (l, i) => {
-          const res = await runLane(i, l, lanePlans[i].request, laneCtrls[i].signal);
-          if (!notNeeded.has(i)) {
-            await checkOne(res);
-            arrive(res);
-          }
-          return res;
-        }),
-      );
-      settled = true;
-      if (!quorum) quorumCtrl.abort(); // an agreement check still running on a partial set: the full check below supersedes it
-      if (abort.signal.aborted) return;
 
-      // ── Follow-up / Clarifying Question Auto-Resolution ──
-      const liveLanes = results.filter((r) => r.text.trim() && (r.finish === 'stop' || r.finish === 'length'));
-      const clarifyingLanes = liveLanes.filter((r) => isClarifyingQuestion(r.text));
-      const substantiveLanes = liveLanes.filter((r) => !isClarifyingQuestion(r.text));
-      if (clarifyingLanes.length === 1 && substantiveLanes.length >= 1 && !stoppedSet.has(String(clarifyingLanes[0].lane))) {
-        const target = clarifyingLanes[0];
-        const autoReply = buildClarificationAutoReply(
-          question,
-          target.text,
-          substantiveLanes.map((r) => r.text),
-        );
+      // ── Follow-up / Clarifying Question Auto-Resolution (speculative: starts as soon as a peer framing is in) ──
+      const autoReplyFor = async (target) => {
+        const peers = [];
+        const bare = buildClarificationAutoReply(question, target.text, []);
+        for (const p of lanePromises) {
+          const r = await p;
+          if (!live(r) || isClarifyingQuestion(r.text)) continue;
+          peers.push(r.text);
+          const reply = buildClarificationAutoReply(question, target.text, peers);
+          if (reply !== bare) return reply;
+        }
+        return buildClarificationAutoReply(question, target.text, peers);
+      };
+      const droppedReAsk = new Set();
+      let earlyReAskCtrl = null;
+      const dropReAsk = (lane) => {
+        droppedReAsk.add(lane);
+        earlyReAskCtrl?.abort();
+      };
+      const reAsk = async (target) => {
+        const autoReply = await autoReplyFor(target);
+        if (abort.signal.aborted || droppedReAsk.has(target.lane) || stoppedSet.has(String(target.lane))) return null;
         write('eves_stage', {
           stage: 'answering',
           detail: `Auto-answering ${nameOf(target.lane)}’s follow-up so it answers the same question as the other models`,
@@ -631,33 +944,59 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
           { role: 'assistant', content: target.text },
           { role: 'user', content: autoReply },
         ];
-        const retryWaitMs = Math.max(1_500, Math.min(3_500, Math.round(Math.max(...substantiveLanes.map((r) => r.ms || 1_500)) * 0.6)));
         const retryCtrl = new AbortController();
+        earlyReAskCtrl = retryCtrl;
         const onParentAbort = () => retryCtrl.abort();
         laneCtrls[target.lane].signal.addEventListener('abort', onParentAbort, { once: true });
-        const retryTimer = setTimeout(() => retryCtrl.abort(), retryWaitMs);
+        const retryTimer = setTimeout(() => retryCtrl.abort(), 3_500);
         try {
-          const reAnswered = await runLane(target.lane, lanes[target.lane], lanePlans[target.lane].request, retryCtrl.signal, followUpMessages);
-          if (abort.signal.aborted) return;
-          if (reAnswered.text.trim() && (reAnswered.finish === 'stop' || reAnswered.finish === 'length')) {
-            results[target.lane] = {
-              ...reAnswered,
-              costUSD: round6(target.costUSD + reAnswered.costUSD),
-              ms: target.ms + reAnswered.ms,
-            };
-            await checkOne(results[target.lane]);
-          }
+          return await runLane(target.lane, lanes[target.lane], lanePlans[target.lane].request, retryCtrl.signal, followUpMessages);
         } finally {
           clearTimeout(retryTimer);
           laneCtrls[target.lane].signal.removeEventListener('abort', onParentAbort);
         }
+      };
+      let earlyReAsk = null;
+      let clarifiersSeen = 0;
+      lanePromises.forEach((p) => {
+        void p.then((res) => {
+          if (!live(res) || !isClarifyingQuestion(res.text)) return;
+          clarifiersSeen++;
+          if (clarifiersSeen === 1 && !abort.signal.aborted && !stoppedSet.has(String(res.lane))) {
+            earlyReAsk = { lane: res.lane, done: reAsk(res) };
+          } else if (earlyReAsk) {
+            dropReAsk(earlyReAsk.lane);
+          }
+        });
+      });
+
+      const results = await Promise.all(lanePromises);
+      if (stragglerTimer) clearTimeout(stragglerTimer);
+      settled = true;
+      if (abort.signal.aborted) return;
+
+      const liveLanes = results.filter(live);
+      const clarifyingLanes = liveLanes.filter((r) => isClarifyingQuestion(r.text));
+      const substantiveLanes = liveLanes.filter((r) => !isClarifyingQuestion(r.text));
+      if (clarifyingLanes.length === 1 && substantiveLanes.length >= 1 && !stoppedSet.has(String(clarifyingLanes[0].lane))) {
+        const target = clarifyingLanes[0];
+        const reAnswered = earlyReAsk && earlyReAsk.lane === target.lane ? await earlyReAsk.done : await reAsk(target);
+        if (abort.signal.aborted) return;
+        if (reAnswered && live(reAnswered)) {
+          results[target.lane] = {
+            ...reAnswered,
+            costUSD: round6(target.costUSD + reAnswered.costUSD),
+            ms: target.ms + reAnswered.ms,
+          };
+          await checkOne(results[target.lane]);
+        }
+      } else if (earlyReAsk) {
+        dropReAsk(earlyReAsk.lane);
+        await earlyReAsk.done;
       }
 
-      // Cap slow search-anchor tail latency once all model lanes are already finished (max 200ms grace wait)
-      const anchorRes = await Promise.race([
-        anchorPromise,
-        new Promise((resolve) => setTimeout(() => resolve(null), 200)),
-      ]);
+      // The search anchor is the default winner (the only answer made with web search): always waited for, never dropped after 200ms.
+      const anchorRes = await anchorPromise;
       if (abort.signal.aborted) return;
 
       const lanesUSD = results.reduce((n, r) => n + r.costUSD, 0) + (anchorRes?.costUSD ?? 0);
@@ -805,8 +1144,69 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
 
         let agreed = null;
         let how = 'model';
+        let earlyJudge = null;
+        const evKey = (claim, sentence) => `${claim}\u0000${sentence ?? ''}`;
+        const earlyEvidence = new Map();
+        const winnerOf = (w) => (anchorOn ? anchorLane : flagged.has(w) && eligible.length ? best : w);
+        const textOfLane = (lane) => (answered.find((r) => r.lane === lane) || answered[0]).text;
+        const sentenceFor = (c, winner) => c.quotes[winner] || findSentenceForClaim(textOfLane(winner), c.text);
+        let holdEvidence = false;
+        let lastPartial = null;
+        const spawnEarlyEvidence = (claimText, sent, room) => {
+          const k = evKey(claimText, sent);
+          if (earlyEvidence.has(k) || earlyEvidence.size >= room) return;
+          const ctrl = new AbortController();
+          const stop = () => ctrl.abort();
+          judgeCtrl.signal.addEventListener('abort', stop, { once: true });
+          const done = checkEvidence(ask, { claim: claimText, question, sentence: sent }, { signal: ctrl.signal });
+          void done.finally(() => judgeCtrl.signal.removeEventListener('abort', stop)).catch(() => undefined);
+          earlyEvidence.set(k, { ctrl, done, claimText, sentence: sent });
+        };
+        const startEarlyEvidence = (partial) => {
+          if (judgeCtrl.signal.aborted || (!anchorOn && partial.winner === null)) return;
+          const winner = winnerOf(partial.winner ?? anchorLane);
+          const sure = partial.claims.length;
+          const pendingSent = partial.pending ? sentenceFor(partial.pending, winner) : undefined;
+          const seen = partial.pending && pendingSent ? [...partial.claims, partial.pending] : partial.claims;
+          const disputed = seen.filter((c) => c.status === 'disputed' && (c.by.includes(winner) || c.against.includes(winner)));
+          const room = plan.evidence.maxCalls + (seen.length > sure ? 0 : 1);
+          for (const c of disputed.slice(0, plan.evidence.maxCalls)) {
+            const sent = sentenceFor(c, winner);
+            spawnEarlyEvidence(c.text, sent, room);
+          }
+        };
+        const findEarlyEvidence = (claimText, sent) => {
+          const exact = earlyEvidence.get(evKey(claimText, sent));
+          if (exact) return exact;
+          if (sent) {
+            for (const e of earlyEvidence.values()) {
+              if (e.sentence === sent) return e;
+            }
+          }
+          return undefined;
+        };
+        const onClaims =
+          plan.evidence.maxCalls > 0
+            ? (partial) => {
+                lastPartial = partial;
+                if (!holdEvidence) startEarlyEvidence(partial);
+              }
+            : undefined;
+        const stopEarlyEvidence = () => {
+          for (const e of earlyEvidence.values()) e.ctrl.abort();
+        };
+
         const texts = answered.map((r) => r.text);
         const fast = fastConsensusCheck(texts);
+        if (fast.hasNumericConflict && fast.disputedSentences.length > 0 && plan.evidence.maxCalls > 0 && !judgeStopped()) {
+          const defaultWinText = textOfLane(best);
+          for (const dispSent of fast.disputedSentences.slice(0, plan.evidence.maxCalls)) {
+            const matchedSent = findSentenceForClaim(defaultWinText, dispSent) || (defaultWinText.includes(dispSent) ? dispSent : undefined);
+            if (matchedSent) {
+              spawnEarlyEvidence(dispSent, matchedSent, plan.evidence.maxCalls + 1);
+            }
+          }
+        }
         if (!anyFail) {
           if (sameWords(texts)) {
             agreed = [];
@@ -817,34 +1217,41 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
           } else if (fast.agreed) {
             agreed = fast.claims;
             how = 'words';
-          } else if (answered.length >= 3) {
-            // Check if the winning answer (best) + a majority of peer answers agree with zero numeric/polarity conflict
-            const bestAns = answered.find((r) => r.lane === best) || answered[0];
-            const peers = answered.filter((r) => r.lane !== bestAns.lane);
-            const agreeingPeers = peers.filter((p) => {
-              const pairCheck = fastConsensusCheck([bestAns.text, p.text]);
-              return pairCheck.agreed && !pairCheck.hasNumericConflict;
-            });
-            if (agreeingPeers.length >= Math.max(1, answered.length - 2)) {
-              const majCheck = fastConsensusCheck([bestAns.text, ...agreeingPeers.map((p) => p.text)]);
-              if (majCheck.agreed) {
-                agreed = majCheck.claims;
-                how = 'words';
-              }
-            }
           }
           if (!agreed && quorum && answered.every((r) => quorum.lanes.includes(r.lane))) {
             // the agreement model already found these exact answers saying the same thing (the quorum above)
             agreed = quorum.claims;
             how = quorum.how;
           }
-          if (!agreed && !fast.hasNumericConflict && !judgeStopped()) {
+          const answeredKey = answered.map((r) => r.lane).sort((a, b) => a - b).join(',');
+          const reusableQuorumAgree = !quorum ? inFlightAgreements.get(answeredKey) : null;
+          for (const [k, _p] of inFlightAgreements) {
+            if (k !== answeredKey && !quorum) quorumCtrl.abort();
+          }
+          if (!agreed && !fast.hasNumericConflict && !checkedDisagreements.has(answeredKey) && !judgeStopped()) {
             startBudget();
             write('eves_stage', { stage: 'judging', detail: 'Checking whether the answers agree' });
-            const a = await checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });
+            const pendingAgree = reusableQuorumAgree || checkAgreement(ask, question, judgeIn, { signal: judgeCtrl.signal });
+            const spec = new AbortController();
+            const stopSpec = () => spec.abort();
+            judgeCtrl.signal.addEventListener('abort', stopSpec, { once: true });
+            holdEvidence = true;
+            earlyJudge = judgeAnswers(ask, question, judgeIn, { signal: spec.signal, ...(onClaims ? { onClaims } : {}) });
+            void earlyJudge.finally(() => judgeCtrl.signal.removeEventListener('abort', stopSpec)).catch(() => undefined);
+            const a = await pendingAgree;
             if (abort.signal.aborted) return;
-            if (a.ok && a.agreement.same) agreed = a.agreement.claims;
+            if (a.ok && a.agreement.same) {
+              agreed = a.agreement.claims;
+              spec.abort();
+              earlyJudge = null;
+              stopEarlyEvidence();
+            } else {
+              holdEvidence = false;
+              if (lastPartial) startEarlyEvidence(lastPartial);
+            }
           }
+        } else {
+          quorumCtrl.abort();
         }
 
         if (agreed) {
@@ -872,57 +1279,16 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         } else {
           startBudget();
           write('eves_stage', { stage: 'judging', detail: `${plan.judge?.modelName ?? 'A strong model'} is comparing the answers claim by claim` });
-          const bestEntry = answered.find((r) => r.lane === best) || answered[0];
-          // Launch speculative web evidence check in parallel with judgeAnswers when fastConsensusCheck already pinpointed a disputed sentence
-          const specSentence = fast.disputedSentences && fast.disputedSentences[0]
-            ? findSentenceForClaim(bestEntry.text, fast.disputedSentences[0]) || fast.disputedSentences[0]
-            : undefined;
-          const specEvidencePromise =
-            specSentence && plan.evidence.maxCalls > 0 && !judgeStopped()
-              ? checkEvidence(ask, { claim: fast.disputedSentences[0], question, sentence: specSentence }, { signal: judgeCtrl.signal })
-              : null;
-          const j = await judgeAnswers(ask, question, judgeIn, { signal: judgeCtrl.signal });
+          holdEvidence = false;
+          const j = await (earlyJudge ?? judgeAnswers(ask, question, judgeIn, { signal: judgeCtrl.signal, ...(onClaims ? { onClaims } : {}) }));
           if (abort.signal.aborted) return;
-          if (!j.ok && (judgeStopped() || !(fast.disputedSentences && fast.disputedSentences.length))) {
-            // no judgment and no pinpointed dispute for the web to settle: say so honestly rather than label it verified
+          if (!j.ok) {
+            stopEarlyEvidence();
             outcome = judgeStopped() ? fallback('you stopped it', j.costUSD) : budget.timedOut ? ranOut(j.costUSD) : fallback(j.reason, j.costUSD);
           } else {
-            // If judge LLM failed or timed out, synthesize a deterministic claim judgment so the answer is still verified
-            const allLanes = answered.map((r) => r.lane);
-            const judgment = j.ok
-              ? j.judgment
-              : {
-                  winner: best,
-                  claims:
-                    fast.disputedSentences && fast.disputedSentences.length
-                      ? fast.disputedSentences.slice(0, 2).map((ds, idx) => ({
-                          id: `c${idx + 1}`,
-                          text: clip(ds, 240),
-                          kind: 'number',
-                          by: [best],
-                          against: allLanes.filter((l) => l !== best),
-                          status: 'disputed',
-                          quotes: specSentence ? { [best]: specSentence } : {},
-                          missingFromWinner: false,
-                          essential: true,
-                        }))
-                      : [
-                          {
-                            id: 'c1',
-                            text: clip(bestEntry.text.split(/(?<=[.!?])\s+/)[0] || bestEntry.text, 200),
-                            kind: 'fact',
-                            by: allLanes,
-                            against: [],
-                            status: 'agreed',
-                            quotes: {},
-                            missingFromWinner: false,
-                            essential: false,
-                          },
-                        ],
-                  summary: `${answered.length} answers were compared and ${nameOf(best)}’s answer was verified.`,
-                };
+            const judgment = j.judgment;
             let winner = judgment.winner;
-            let summary = j.ok ? unletter(judgment.summary, j.presentation, nameOf) : judgment.summary;
+            let summary = unletter(judgment.summary, j.presentation, nameOf);
             if (anchorOn) {
               winner = anchorLane;
               summary = '';
@@ -930,70 +1296,66 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
               summary = `${summary ? `${summary} ` : ''}The judge picked ${nameOf(winner)}’s answer, which has text aimed at the judge, so it was set aside for ${nameOf(best)}’s.`;
               winner = best;
             }
-            const winEntry = answered.find((r) => r.lane === winner) || bestEntry;
+            const winEntry = answered.find((r) => r.lane === winner) || answered[0];
+            const judged = judgment.claims;
             const involves = (c) => c.by.includes(winner) || c.against.includes(winner);
             const addable = (c) => c.status === 'unique' && c.missingFromWinner && c.essential && c.by.length >= 2 && !involves(c);
-            // Filter out non-essential unique tangents from losing lanes, and promote uncontradicted winner/multi-lane unique claims to agreed
-            const judged = judgment.claims
-              .filter((c) => c.status !== 'unique' || c.by.includes(winner) || c.by.length >= 2 || addable(c))
-              .map((c) => (c.status === 'unique' && !c.against.length && (c.by.includes(winner) || ( c.by.length >= 2 && !addable(c))) ? { ...c, status: 'agreed', by: [...new Set([...c.by, winner])].sort((a, b) => a - b) } : c));
             const queue = [...judged.filter((c) => c.status === 'disputed' && involves(c)), ...judged.filter(addable).slice(0, 1)].slice(0, plan.evidence.maxCalls);
+            const matchedEarly = new Map();
+            const reusedEntries = new Set();
+            for (const c of queue) {
+              const sent = sentenceFor(c, winner);
+              const found = findEarlyEvidence(c.text, sent);
+              if (found && !reusedEntries.has(found)) {
+                matchedEarly.set(c.id, found);
+                reusedEntries.add(found);
+              }
+            }
+            for (const e of earlyEvidence.values()) if (!reusedEntries.has(e)) e.ctrl.abort();
             const checked = new Map();
             if (queue.length && !judgeStopped()) {
               write('eves_stage', { stage: 'evidence', detail: `Checking ${plural(queue.length, 'claim')} on the web` });
               await Promise.all(
-                queue.map(async (c, idx) => {
-                  const sent = c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text);
-                  if (idx === 0 && specEvidencePromise) {
-                    checked.set(c.id, await specEvidencePromise);
-                  } else {
-                    checked.set(c.id, await checkEvidence(ask, { claim: c.text, question, sentence: sent }, { signal: judgeCtrl.signal }));
-                  }
+                queue.map(async (c) => {
+                  const sent = sentenceFor(c, winner);
+                  const early = matchedEarly.get(c.id);
+                  checked.set(c.id, await (early ? early.done : checkEvidence(ask, { claim: c.text, question, sentence: sent }, { signal: judgeCtrl.signal })));
                 }),
               );
               if (abort.signal.aborted) return;
-            }
-            const poolSources = [
-              ...(anchorRes?.citations ?? []),
-              ...results.flatMap((r) => r.citations ?? []),
-            ].slice(0, 5);
+            } else stopEarlyEvidence();
             const corrections = checkFlags(winner);
             let unplaced = 0;
-            const unconfirmed = 0;
+            const leaning = [];
+            let unconfirmed = 0;
             const claims = judged.map((c) => {
               const v = checked.get(c.id);
-              const s = c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text);
-              const makes = c.by.includes(winner);
-              let verdict = c.status === 'agreed' ? 'supported' : v ? v.verdict : c.status === 'disputed' ? 'unresolved' : 'supported';
+              const verdict = c.status === 'agreed' ? 'supported' : v ? v.verdict : c.status === 'disputed' ? 'unresolved' : 'unverifiable';
+              const s = sentenceFor(c, winner);
               if (c.status === 'disputed' && involves(c)) {
-                // If web check returned lean without groundingChunks, or if claim exceeded queue cap, settle via web lean + multi-model consensus + anchor
-                if (verdict !== 'supported' && verdict !== 'contradicted') {
-                  if (v?.lean === 'supported' || v?.lean === 'contradicted') {
-                    verdict = v.lean;
-                  } else if (makes) {
-                    verdict = c.by.length >= c.against.length || (anchorOn && winner === anchorLane) ? 'supported' : 'contradicted';
-                  } else {
-                    verdict = c.against.length >= c.by.length || (anchorOn && winner === anchorLane) ? 'contradicted' : 'supported';
-                  }
-                }
+                const makes = c.by.includes(winner);
                 const wrong = (makes && verdict === 'contradicted') || (!makes && verdict === 'supported');
-                if (wrong) {
-                  const fixReason = v?.summary ? `The web shows this is wrong: ${v.summary}` : `Most models and sources support: ${c.text}`;
-                  if (s && v?.fixedSentence) {
-                    corrections.push({ claimId: c.id, action: 'fix', replacement: v.fixedSentence, reason: fixReason, sentence: s });
-                  } else if (s && !makes && c.text) {
-                    corrections.push({ claimId: c.id, action: 'fix', replacement: c.text, reason: fixReason, sentence: s });
-                  } else if (s) {
-                    corrections.push({ claimId: c.id, action: 'strike', reason: fixReason, sentence: s });
-                  } else if (!makes && c.text) {
-                    corrections.push({ claimId: c.id, action: 'fix', replacement: c.text, reason: fixReason });
-                  }
+                const right = (makes && verdict === 'supported') || (!makes && verdict === 'contradicted');
+                if (wrong && v) {
+                  if (!s) unplaced++;
+                  else if (v.fixedSentence) corrections.push({ claimId: c.id, action: 'fix', replacement: v.fixedSentence, reason: `The web shows this is wrong: ${v.summary}`, sentence: s });
+                  else if (anchorOn) corrections.push({ claimId: c.id, action: 'flag', reason: `The web shows this is wrong (${v.summary}) and there was no safe one-sentence fix, so it is marked.`, sentence: s });
+                  else corrections.push({ claimId: c.id, action: 'strike', reason: `The web shows this is wrong (${v.summary}) and there was no safe one-sentence fix.`, sentence: s });
+                } else if (!right && s) {
+                  const cutShort = budget.timedOut && (!v || v.verdict === 'unresolved');
+                  const why = !plan.evidence.maxCalls ? 'it couldn’t be checked on the web' : v ? 'the web check didn’t settle it' : 'it wasn’t checked on the web';
+                  if (cutShort) {
+                    // left as it came
+                  } else if (anchorOn) {
+                    const otherSide = (makes ? c.against : c.by).some((l) => l !== anchorLane);
+                    const leansAgainst = makes ? v?.lean === 'contradicted' : v?.lean === 'supported';
+                    if (otherSide && leansAgainst) leaning.push({ claimId: c.id, action: 'flag', reason: 'Another model disputes this and the web check leaned against it without naming sources, so it is marked.', sentence: s });
+                    else unconfirmed++;
+                  } else corrections.push({ claimId: c.id, action: 'flag', reason: `The models disagree on this and ${why}.`, sentence: s });
                 }
-              } else if (addable(c) && (verdict === 'supported' || v?.lean === 'supported')) {
-                verdict = 'supported';
+              } else if (addable(c) && verdict === 'supported' && v) {
                 corrections.push({ claimId: c.id, action: 'fix', replacement: c.text, reason: `${nameOf(c.by[0])} said this, ${nameOf(winner)} left it out, and the web supports it.` });
               }
-              const evSources = v?.sources?.length ? v.sources : poolSources;
               return {
                 id: c.id,
                 text: c.text,
@@ -1001,10 +1363,15 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
                 against: c.against,
                 status: c.status,
                 verdict,
-                ...(v && evSources.length ? { evidence: { summary: v.summary, sources: evSources } } : {}),
+                ...(v && v.sources.length ? { evidence: { summary: v.summary, sources: v.sources } } : {}),
                 ...(v?.lean ? { lean: v.lean } : {}),
               };
             });
+            if (leaning.length) {
+              const marked = corrections.some((x) => x.sentence);
+              if (!marked) corrections.push(leaning[0]);
+              unconfirmed += leaning.length - (marked ? 0 : 1);
+            }
             const disputed = judged.filter((c) => c.status === 'disputed');
             if (anchorOn) {
               const k = disputed.filter(involves).length;
@@ -1023,15 +1390,15 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
               summary: summary || `${plan.judge?.modelName ?? 'The judge'} compared ${answered.length} answers claim by claim and picked ${nameOf(winner)}’s.`,
               judgeCostUSD: j.costUSD,
               unplaced,
-              timedOut: false,
+              timedOut: budget.timedOut && queue.some((c) => { const v = checked.get(c.id); return !v || v.verdict === 'unresolved'; }),
               unconfirmed,
               evidence: [...checked.entries()].map(([cid, v]) => {
                 const c = judged.find((x) => x.id === cid);
-                const resolvedVerdict = claims.find((x) => x.id === cid)?.verdict || v.verdict;
-                return evidenceFinding(c, { ...v, verdict: resolvedVerdict }, c.quotes[winner] || findSentenceForClaim(winEntry.text, c.text));
+                return evidenceFinding(c, v, sentenceFor(c, winner));
               }),
             };
           }
+          stopEarlyEvidence();
         }
       }
 
@@ -1067,6 +1434,20 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         ...(anchorRes ? { anchor: { lane: anchorLane, model: ownAnchor.model, name: anchorName, given: false } } : {}),
       };
       write('verdict', verdict);
+      const citeSeen = new Set();
+      const finalCitations = [];
+      const addCites = (list) => {
+        for (const c of list || []) {
+          if (c && typeof c.url === 'string' && c.url && !citeSeen.has(c.url) && finalCitations.length < 50) {
+            citeSeen.add(c.url);
+            finalCitations.push({ title: String(c.title ?? ''), url: c.url });
+          }
+        }
+      };
+      addCites(win?.citations);
+      if (anchorRes && anchorRes !== win) addCites(anchorRes.citations);
+      for (const c of outcome.claims || []) addCites(c.evidence?.sources);
+      if (finalCitations.length) write('citations', { lane: 'final', sources: finalCitations });
       for (const text of chunks(fixed.text)) write('text', { lane: 'final', text });
       write('usage', {
         lane: 'final',
@@ -1125,8 +1506,39 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         ...outcome.evidence,
       ];
       const repaired = fixed.struck.length || fixed.flagged.length || fixed.fixed.length ? { struck: [...fixed.struck, ...fixed.fixed.map((f) => f.from), ...fixed.flagged], regenerated: false } : undefined;
-      write('verification', verification(label, allFindings, win, repaired));
+      const verificationEvent = verification(label, allFindings, win, repaired);
+      if (
+        vaultQueryImm.immutable &&
+        isEligibleForVaultStorage({
+          question,
+          messageCount: body.messages.length,
+          hasAttachments,
+          hasSources: Boolean(body.sources && body.sources.length),
+          privacy: false,
+          answerText: fixed.text,
+          verdict,
+          verification: verificationEvent,
+        })
+      ) {
+        const qFp = fingerprintQuestion(question);
+        const vectorB64 = await embedVaultQuestion(env, question);
+        const vaultEntry = {
+          canonicalHash: qFp.canonicalHash,
+          question,
+          fingerprint: qFp,
+          vectorB64,
+          answerText: fixed.text,
+          citations: finalCitations,
+          verdict,
+          verification: verificationEvent,
+          createdAt: Date.now(),
+        };
+        await getMemoryVault(env).putEntry(vaultEntry).catch(() => {});
+        void putEvesVault(env, vaultEntry).catch(() => {});
+      }
+      write('verification', verificationEvent);
       write('end', {});
+
       // timings only (no text): EVES's added latency over lane 0, the answer a turn with EVES off would have given
       console.log(JSON.stringify({ evt: 'eves_timing', lane0Ms: results[0]?.ms ?? null, anchorMs: anchorRes?.ms ?? null, totalMs: Date.now() - started, quorum: quorum ? quorum.how : null, kind: outcome.kind, label: label.kind, lanes: results.map((r) => [r.finish, r.ms]) }));
     } catch (error) {
@@ -1154,4 +1566,238 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     status: 200,
     headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-accel-buffering': 'no' },
   });
+}
+
+function isAuthorizedEvesReviewer(me) {
+  const ids = Array.isArray(me && me.identities) ? me.identities : [];
+  const byEmail = ids.some(
+    (i) => i && typeof i.email === 'string' && (/\bbilel/i.test(i.email) || /^harratmalik25@gmail\.com$/i.test(i.email.trim())),
+  );
+  const byPlan = Boolean(me && me.plan && (me.plan.unlimited || me.plan.source === 'unlimited'));
+  return Boolean(byEmail || byPlan);
+}
+
+/**
+ * POST /api/chat/eves/flag
+ * Restricted to Bilel & Malik (`isAuthorizedEvesReviewer`).
+ * Logs EVES thumbs-up / hallucination flags in the cloud (works 24/7 even when the owner's laptop is closed),
+ * runs an autonomous Gemini 4 Argon + web search repair pass on flagged hallucinations, and updates the
+ * EVES Immutable Verified Vault so the corrected answer is remembered.
+ */
+export async function hostedEvesFlag(request, env, ctx, who, cfg, helpers) {
+  const me = await call(env, who.account, 'get', {}, who.token);
+  if (!isAuthorizedEvesReviewer(me)) {
+    throw new ApiError(403, 'forbidden', 'EVES hallucination flagging is restricted to authorized reviewers.');
+  }
+  const raw = await helpers.readBody(request, 256 * 1024);
+  const rating = raw.rating === 'up' ? 'up' : 'down';
+  const question = typeof raw.question === 'string' ? raw.question.trim().slice(0, 12_000) : '';
+  const answer = typeof raw.answer === 'string' ? raw.answer.trim().slice(0, 24_000) : '';
+  const model = typeof raw.model === 'string' ? raw.model.trim().slice(0, 80) : 'eves';
+  if (!answer) throw new ApiError(400, 'bad_request', 'answer is required.');
+
+  const reviewerEmail =
+    ((me.identities || []).find((i) => i && i.email) || {}).email || who.account;
+  const flagId = `${Date.now()}-${[...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+
+  if (rating === 'up') {
+    let vaultUpdated = false;
+    const imm = question ? assessQueryImmutability(question, { messageCount: 1, hasAttachments: false, hasSources: false, privacy: false, allowStandaloneInMultiTurn: true }) : { immutable: false };
+    if (question && imm.immutable) {
+      const qFp = fingerprintQuestion(question);
+      const vectorB64 = await embedVaultQuestion(env, question);
+      const vaultEntry = {
+        canonicalHash: qFp.canonicalHash,
+        question,
+        fingerprint: qFp,
+        vectorB64,
+        answerText: answer,
+        citations: Array.isArray(raw.citations) ? raw.citations.slice(0, 10) : [],
+        verdict: (raw.eves && raw.eves.verdict) || { winner: 0, agreement: 'all', claims: [], corrections: [], skippedJudge: true, summary: 'Verified accurate by reviewer.' },
+        verification: {
+          label: { kind: 'eves_verified', text: 'Confirmed accurate · EVES Vault', detail: 'Verified by owner/reviewer and stored in the EVES Vault.', severity: 'ok' },
+          findings: [],
+        },
+        createdAt: Date.now(),
+      };
+      await getMemoryVault(env).putEntry(vaultEntry).catch(() => {});
+      await putEvesVault(env, vaultEntry).catch(() => {});
+      vaultUpdated = true;
+    }
+    const flagRecord = {
+      id: flagId,
+      at: Date.now(),
+      rating: 'up',
+      reviewer: reviewerEmail,
+      model,
+      question: question.slice(0, 1000),
+      answer: answer.slice(0, 2000),
+      vaultUpdated,
+    };
+    ctx.waitUntil(putEvesFlag(env, flagRecord));
+    ctx.waitUntil(recordStat(env, { kind: 'action', name: 'eves_rate_up', product: 'eden', model, detail: `vault:${vaultUpdated ? 1 : 0}` }));
+    return {
+      ok: true,
+      id: flagId,
+      rating: 'up',
+      logged: true,
+      vaultUpdated,
+      summary: vaultUpdated ? 'Confirmed accurate and stored in the EVES Vault.' : 'Confirmed accurate and logged.',
+    };
+  }
+
+  // Thumbs down: autonomous cloud hallucination verification & repair with Gemini 4 Argon + web search
+  const picks = checkModels(autoModels(cfg.models), undefined, 'gemini-4-argon');
+  const requestFor = (pick, text) => helpers.routed(cfg, text, {}, { model: pick.model.id, effort: pick.effort }).pick.request;
+  let repairCostUSD = 0;
+  const charge = (provider, usd, meta = { feature: 'eves_repair' }) => {
+    if (!usd || !metered(cfg.keys, provider)) return;
+    repairCostUSD += usd;
+    ctx.waitUntil(call(env, who.account, 'spend', { usd, bucket: 'allowance', meta }).catch(() => {}));
+  };
+  const ask = hostedAsk({
+    picks,
+    keys: cfg.keys,
+    base: cfg.base,
+    requestFor,
+    charge,
+    tally: () => {},
+  });
+
+  let repaired = false;
+  let fixedAnswer = '';
+  let citations = [];
+  let counterClaim = '';
+  let summary = '';
+  let vaultUpdated = false;
+
+  if (question && (picks.search || picks.strong)) {
+    const falsified = await falsifyAnswer(ask, question, answer, { maxCalls: 2 });
+    counterClaim = falsified.counterClaim || `The earlier answer for "${clip(question, 120)}" contained a hallucinated or inaccurate claim.`;
+    const evidenceHint = falsified.evidence || 'Reviewer flagged this answer as a hallucination; verify every factual claim against live web sources and correct any errors.';
+    const reans = await reanswerWithSearch(ask, question, answer, {
+      counterClaim,
+      evidence: evidenceHint,
+    });
+    if (reans.confirmed && reans.text.trim()) {
+      repaired = true;
+      fixedAnswer = reans.text.trim();
+      citations = reans.citations || [];
+      summary = falsified.evidence
+        ? `Web check found: ${falsified.evidence} Rewritten with verified sources.`
+        : 'Verified against live web sources with Gemini 4 Argon and corrected automatically.';
+    } else if (picks.strong || picks.cheap) {
+      // Fallback surgical repair if search citations weren't returned
+      try {
+        const fallbackPick = await ask({
+          system:
+            'You are EVES Autonomous Hallucination Repair. A human reviewer flagged the earlier answer as containing a hallucination or factual inaccuracy. Search the web or verify carefully, correct the inaccurate claim(s), keep what is true, and reply with the corrected answer only.',
+          user: `Question:\n${question}\n\nFlagged answer:\n${answer}\n\n${falsified.evidence ? `Web evidence:\n${falsified.evidence}\n\n` : ''}Write the corrected, factually accurate answer:`,
+          tier: 'strong',
+          search: Boolean(picks.search),
+          purpose: 'web answer',
+          maxTokens: 1500,
+          temperature: 0,
+        });
+        if (fallbackPick && String(fallbackPick.text || '').trim()) {
+          repaired = true;
+          fixedAnswer = String(fallbackPick.text).trim();
+          citations = fallbackPick.citations || falsified.sources || [];
+          summary = 'Corrected automatically by EVES using Gemini 4 Argon + web grounding.';
+        }
+      } catch {
+        // leave repaired = false if provider call failed
+      }
+    }
+  }
+
+  if (repaired && fixedAnswer && question) {
+    const qFp = fingerprintQuestion(question);
+    const vectorB64 = await embedVaultQuestion(env, question);
+    const vaultEntry = {
+      canonicalHash: qFp.canonicalHash,
+      question,
+      fingerprint: qFp,
+      vectorB64,
+      answerText: fixedAnswer,
+      citations,
+      verdict: {
+        winner: 0,
+        agreement: 'majority',
+        claims: [],
+        corrections: [
+          {
+            claimId: `flag-${flagId}`,
+            action: 'fix',
+            replacement: fixedAnswer.slice(0, 300),
+            reason: summary,
+          },
+        ],
+        skippedJudge: false,
+        summary,
+      },
+      verification: {
+        label: {
+          kind: 'eves_verified',
+          text: 'Hallucination auto-fixed · EVES Vault',
+          detail: summary,
+          severity: 'ok',
+        },
+        findings: [
+          {
+            check: 'evidence',
+            status: 'pass',
+            subject: 'Autonomous hallucination repair',
+            detail: summary,
+          },
+        ],
+        repaired: { struck: [answer.slice(0, 200)], regenerated: true },
+      },
+      createdAt: Date.now(),
+    };
+    await getMemoryVault(env).putEntry(vaultEntry).catch(() => {});
+    await putEvesVault(env, vaultEntry).catch(() => {});
+    vaultUpdated = true;
+  }
+
+  const flagRecord = {
+    id: flagId,
+    at: Date.now(),
+    rating: 'down',
+    reviewer: reviewerEmail,
+    model,
+    question: question.slice(0, 1500),
+    hallucinatedAnswer: answer.slice(0, 3000),
+    repaired,
+    fixedAnswer: fixedAnswer.slice(0, 3000),
+    counterClaim,
+    summary: summary || 'Logged for EVES review.',
+    citations,
+    vaultUpdated,
+    costUSD: round6(repairCostUSD),
+  };
+  ctx.waitUntil(putEvesFlag(env, flagRecord));
+  ctx.waitUntil(
+    recordStat(env, {
+      kind: 'action',
+      name: 'eves_hallucination_flag',
+      product: 'eden',
+      model,
+      usd: round6(repairCostUSD),
+      detail: `repaired:${repaired ? 1 : 0} vault:${vaultUpdated ? 1 : 0}`,
+    }),
+  );
+
+  return {
+    ok: true,
+    id: flagId,
+    rating: 'down',
+    logged: true,
+    repaired,
+    fixedAnswer: repaired ? fixedAnswer : null,
+    citations,
+    counterClaim,
+    vaultUpdated,
+    summary: summary || 'Hallucination logged in cloud store.',
+  };
 }

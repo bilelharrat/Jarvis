@@ -13,6 +13,19 @@
 /* ---------- the setting ---------- */
 
 export const EVES_MODES = ['off', 'on', 'auto'];
+export const DEFAULT_EVES_MODEL = 'gemini-3.8-flash';
+export const EVES_MODEL_CHOICES = [
+  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', note: 'Default · fastest verification (~2.1s) with Google Search grounding' },
+  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', note: 'Fastest Anthropic model (~1.9s) · crisp claim & NLI checking' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', note: 'Ultra-low latency (~1.6s) · low cost' },
+  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite', note: 'Sub-second light checks (~1.2s) · lowest cost' },
+  { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', note: 'OpenAI frontier cross-checker (~4.2s)' },
+  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', note: 'Anthropic balanced reasoning (~4.5s)' },
+  { id: 'gemini-4-argon', name: 'Gemini 4 Argon', note: 'Deep frontier reasoning (~9.5s) · slower, highest single-model depth' },
+  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', note: 'Maximum reasoning depth (~11.0s)' },
+  { id: 'auto', name: 'Router Automatic', note: 'Let the Model Router pick per check' },
+];
+export const normalizeEvesModel = (v) => (typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_EVES_MODEL);
 export const EVES_COST_NOTE = 'Costs about 4–5× a normal reply.';
 /** What the switch says it does, in plain words (tooltip and Settings). */
 export const EVES_HELP = `Eden asks several models, checks the facts they disagree on, and gives you one answer. ${EVES_COST_NOTE}`;
@@ -673,7 +686,8 @@ export function badgeView(s, live = false) {
   const counts = tally(v);
   const open = counts.flagged + counts.unverified;
   const parts = [];
-  if (v.agreement === 'single' || got < 2) {
+  const allAgreed = v.agreement === 'unanimous' || v.skippedJudge === true || (one && one.kind === 'eves_verified');
+  if (!allAgreed && (v.agreement === 'single' || got < 2)) {
     const text = got === 1 && total > 1 ? 'Only one of the models answered · not cross-checked' : 'Answered by one model · not cross-checked';
     if (counts.corrected) parts.push(`${counts.corrected} corrected`);
     if (counts.added) parts.push(`${counts.added} added from the web`);
@@ -685,7 +699,7 @@ export function badgeView(s, live = false) {
     if (counts.contradicted) sev = worse(sev, 'bad');
     return make([text, ...parts].join(' · '), [text, ...parts], 'eves_single', sev);
   }
-  const lead = got === total ? `Checked by ${plural(got, 'model', 'models')}` : `Checked by ${got} of ${total} models`;
+  const lead = got < 2 && allAgreed ? 'All models agreed' : got === total ? `Checked by ${plural(got, 'model', 'models')}` : `Checked by ${got} of ${total} models`;
   parts.push(lead);
   if (counts.agreed) parts.push(`${counts.agreed} agreed`);
   if (counts.confirmed) parts.push(`${counts.confirmed} confirmed by sources`);

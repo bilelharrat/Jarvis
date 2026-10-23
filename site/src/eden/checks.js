@@ -62,6 +62,8 @@ export const AFTER_REPLY_MS = 45_000;
 /** The search model, and its effort. */
 export const SEARCH_MODEL = 'gemini-3.8-flash';
 export const SEARCH_EFFORTS = ['medium', 'low', 'minimal', 'none'];
+/** Hard per-call timeout on check/judge/search transport calls so a hung stream never stalls EVES. */
+export const CHECK_CALL_TIMEOUT_MS = 20_000;
 /** A check call's output cap, thinking included: the cheap steps write a short JSON, a search a paragraph and a JSON line. */
 export const CALL_CAP = { cheap: 1_500, strong: 4_000, search: 4_000, answer: 6_000 };
 /** Gemini 3 grounding bills per query: a search call's worst case counts this many. */
@@ -116,24 +118,34 @@ const lowest = (m, order) => {
 
 /**
  * The checks' models for this asker: `cheap` the cheapest model they may use, `strong` the strongest/judge model
- * (prefers Argon 4 / highest reasoning at medium effort), `search` a Gemini that grounds, each
+ * (prefers Gemini 3.8 Flash by default, or the user's `evesModel` setting), `search` a Gemini that grounds, each
  * { model, effort }; null where there is none. `providers`: the page's provider switches (settings.providers).
  */
-export function checkModels(models, providers) {
+export function checkModels(models, providers, evesModel) {
   const pool = models.filter((m) => !Array.isArray(providers) || providers.includes(m.provider));
   // A check that catches mistakes can't run on a model that makes more of them: the cheapest at or above the reasoning
   // floor (GPT-6 Luna's level, retired 2026-10-13); the cheapest of all only when nothing reaches it.
   const able = pool.filter(trustworthy);
   const cheapest = [...(able.length ? able : pool)].sort((a, b) => blended(a) - blended(b))[0];
-  const strongest =
-    able.find((m) => m.id === 'gemini-4-argon') ||
-    [...(able.length ? able : pool)].sort((a, b) => ((b.capabilities && b.capabilities.reasoning) || 0) - ((a.capabilities && a.capabilities.reasoning) || 0) || blended(a) - blended(b))[0];
+  const strongRank = (a, b) =>
+    ((b.capabilities && b.capabilities.reasoning) || 0) - ((a.capabilities && a.capabilities.reasoning) || 0) || blended(a) - blended(b);
+  const prefId = typeof evesModel === 'string' && evesModel && evesModel !== 'auto' ? evesModel : SEARCH_MODEL;
+  const preferred = (able.length ? able : pool).find((m) => m.id === prefId);
+  const strongOrdered = [
+    ...(preferred ? [preferred] : []),
+    ...[...(able.length ? able : pool)].filter((m) => m !== preferred && (m.id !== 'gemini-4-argon' || prefId === 'gemini-4-argon')).sort(strongRank),
+  ];
+  const strongest = strongOrdered[0];
+  const strongFallback = strongOrdered.find((m) => m !== strongest);
   const gemini = pool.filter((m) => m.provider === 'gemini' && canSearch(m));
-  const search = gemini.find((m) => m.id === SEARCH_MODEL) || [...gemini].sort((a, b) => blended(a) - blended(b))[0];
+  const search = (prefId !== 'gemini-4-argon' && gemini.find((m) => m.id === prefId)) || gemini.find((m) => m.id === SEARCH_MODEL) || [...gemini].sort((a, b) => blended(a) - blended(b))[0];
+  const searchFallback = gemini.filter((m) => m !== search && trustworthy(m)).sort((a, b) => blended(a) - blended(b))[0];
   return {
     cheap: cheapest ? { model: cheapest, effort: lowest(cheapest, ['none', 'minimal', 'low', 'medium']) } : null,
     strong: strongest ? { model: strongest, effort: lowest(strongest, ['low', 'medium', 'high']) } : null,
+    strongFallback: strongFallback ? { model: strongFallback, effort: lowest(strongFallback, ['low', 'medium', 'high']) } : null,
     search: search ? { model: search, effort: lowest(search, SEARCH_EFFORTS) } : null,
+    searchFallback: searchFallback ? { model: searchFallback, effort: lowest(searchFallback, SEARCH_EFFORTS) } : null,
   };
 }
 
@@ -175,31 +187,81 @@ export function checksWorst({ picks, keys, question, premise, answer, requestFor
  * with Gemini grounding. Each call streams like a reply (nothing is shown), is charged with `charge(provider, usd)` however
  * it ended, and is tallied with `tally(usdAtUsersPrice)`. Rejects on a failure, an empty reply or a stop.
  */
-export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally, factor = () => 1 }) {
-  return async (req) => {
-    const pick = req.search ? picks.search : req.tier === 'strong' && picks.strong ? picks.strong : picks.cheap;
-    if (!pick) throw new Error(req.search ? 'No model here can search the web for this check.' : 'No model for this check.');
+export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally, factor = () => 1, timeoutMs = CHECK_CALL_TIMEOUT_MS }) {
+  const runOne = async (pick, req, signal) => {
     const model = pick.model;
     const k = keys[model.provider];
     if (!k) throw new Error(`No ${model.provider} key for this check.`);
     const tierCap = req.search ? (req.purpose === 'web answer' || req.purpose === 'anchor' ? CALL_CAP.answer : CALL_CAP.search) : req.tier === 'strong' ? CALL_CAP.strong : CALL_CAP.cheap;
-    const cap = typeof req.maxTokens === 'number' && req.maxTokens > 0 ? Math.min(tierCap, req.maxTokens + (req.search ? 600 : 350)) : tierCap;
+    const cap =
+      req.purpose === 'anchor'
+        ? Math.max(req.maxTokens || 16_384, CALL_CAP.answer)
+        : req.purpose === 'web answer'
+          ? CALL_CAP.answer
+          : typeof req.maxTokens === 'number' && req.maxTokens > 0
+            ? Math.min(tierCap, req.maxTokens + (req.search ? 600 : 350))
+            : tierCap;
     const prompt = `${req.system}\n\n${req.user}`;
     const request = sized(requestFor(pick, prompt), cap);
-    const signal = req.signal || new AbortController().signal;
     if (signal.aborted) throw new Error('it was stopped');
-    const r = await streamCall(
-      { model, request, messages: [{ role: 'user', content: req.user }], system: req.system, search: Boolean(req.search), uses: req.search ? 1 : 0, key: k.key, base, inputTokens: tokensOf(prompt.length) },
-      { signal, emit: () => {} },
-    );
+    const callCtrl = new AbortController();
+    const onAbort = () => callCtrl.abort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    const actualTimeout = req.purpose === 'anchor' || req.purpose === 'web answer' ? Math.max(timeoutMs, 60_000) : timeoutMs;
+    const timer = actualTimeout > 0 ? setTimeout(() => callCtrl.abort(), actualTimeout) : undefined;
+    let r;
+    let seenText = '';
+    try {
+      r = await streamCall(
+        { model, request, messages: [{ role: 'user', content: req.user, ...(Array.isArray(req.attachments) && req.attachments.length ? { attachments: req.attachments } : {}) }], system: req.system, search: Boolean(req.search), uses: req.search ? 1 : 0, key: k.key, base, inputTokens: tokensOf(prompt.length) },
+        {
+          signal: callCtrl.signal,
+          emit: (e, d) => {
+            if (e === 'text' && d && d.text) {
+              seenText += d.text;
+              if (req.onText) {
+                try {
+                  req.onText(seenText);
+                } catch {
+                  // listener error never breaks the call
+                }
+              }
+            }
+          },
+        },
+      );
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+    }
     if (r.usage) {
       charge(model.provider, r.costUSD); // counted however it ended, as a reply's call is
       tally(r.costUSD * (metered(keys, model.provider) ? factor() : 1));
     }
-    if (r.stopped || signal.aborted) throw new Error('it was stopped');
+    if (signal.aborted) throw new Error('it was stopped');
+    if (r.stopped && callCtrl.signal.aborted) throw new Error(`${model.name} timed out after ${Math.round(timeoutMs / 1000)}s.`);
+    if (r.stopped) throw new Error('it was stopped');
     if (r.failure) throw new Error(r.failure);
     if (!String(r.text || '').trim()) throw new Error(`${model.name} sent an empty reply.`);
     return { text: r.text, model: model.id, costUSD: r.costUSD, ...(r.citations.length ? { citations: r.citations } : {}) };
+  };
+  return async (req) => {
+    const primary = req.search ? picks.search : req.tier === 'strong' && picks.strong ? picks.strong : picks.cheap;
+    if (!primary) throw new Error(req.search ? 'No model here can search the web for this check.' : 'No model for this check.');
+    const signal = req.signal || new AbortController().signal;
+    if (signal.aborted) throw new Error('it was stopped');
+    try {
+      return await runOne(primary, req, signal);
+    } catch (e) {
+      if (signal.aborted) throw e;
+      const fallback = req.search
+        ? picks.searchFallback
+        : req.tier === 'strong'
+          ? picks.strongFallback || (picks.cheap && picks.cheap.model.id !== primary.model.id ? picks.cheap : null)
+          : null;
+      if (!fallback || !keys[fallback.model.provider]) throw e;
+      return await runOne(fallback, req, signal);
+    }
   };
 }
 

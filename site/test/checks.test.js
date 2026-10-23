@@ -8,6 +8,7 @@ import worker from '../src/worker.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { checksMeta, hostedConfig, parseSend } from '../src/eden/chat.js';
+import { clearHostedEvesVault } from '../src/eden/eves.js';
 import { AFTER_REPLY_MS, ANSWER_CHECK_MS, CHECKS_SKIPPED, PREMISE_CHECK_MS, REANSWER_MS, answerCheck, checkModels, checksFor, checksWorst, hasFactualPremise, hostedAsk, isFactualLookup, riskOfTurn } from '../src/eden/checks.js';
 import { capRequest, modelOf, usageUSD } from '../src/eden/providers.js';
 import { Account, Link, appleJwk, identityToken, namespace, readEvents } from './fakes.js';
@@ -568,6 +569,601 @@ test('EVES accuracy: when lane 0 and the web anchor disagree nothing is cut; eve
     assert.ok(events.some((e) => e.type === 'verdict'));
     assert.ok(!/wasn’t waited for/.test(events.find((e) => e.type === 'verdict').data.summary));
   } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('EVES judge latency & resilience: speculative earlyJudge runs alongside agreement, and a hung primary judge times out and falls back to the next strong model', async () => {
+  const session = await signedIn();
+  const origFetch = globalThis.fetch;
+  const origEnvModels = env.EDEN_MODELS;
+  env.EDEN_MODELS = 'claude-opus-5-5,claude-sonnet-5-5,gpt-6.1-sol,gemini-3.8-flash,gemini-3.5-flash-lite,gemini-4-argon,kimi-k3';
+  const judgeCalls = [];
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        const sys = JSON.stringify(body.systemInstruction || '');
+        if (/You check whether several AI answers/.test(sys)) {
+          return sse(geminiSse('{"same":false,"claims":[],"differences":["Rushing yards per game vs total yards"]}'));
+        }
+        if (/You are the judge in a fact-checking step/.test(sys)) {
+          judgeCalls.push({ url, model: url.includes('gemini-3.8-flash') ? 'gemini-3.8-flash' : url.includes('gemini-4-argon') ? 'gemini-4-argon' : 'gemini-other' });
+          if (url.includes('gemini-3.8-flash') || url.includes('gemini-4-argon')) {
+            // Simulate primary judge failing / returning 503 so hostedAsk falls back immediately to GPT-6.1 Sol
+            return new Response(JSON.stringify({ error: { message: 'Overloaded' } }), { status: 503 });
+          }
+        }
+        if (Array.isArray(body.tools) && body.tools.length) {
+          return sse(geminiSse('Barry Sanders rushed for 15,269 career yards and 99 touchdowns, while Derrick Henry rushed for 11,423 career yards and 106 touchdowns.\n{"verdict":"supported","summary":"Barry Sanders rushed for 15,269 career yards.","fixed_sentence":""}', NOBEL));
+        }
+        return sse(geminiSse('Barry Sanders rushed for 14,500 yards and 90 touchdowns. Derrick Henry rushed for 11,000 yards and 100 touchdowns.'));
+      }
+      if (url.includes('api.openai.com')) {
+        const sys = body.messages?.[0]?.role === 'system' ? body.messages[0].content : '';
+        if (/You are the judge in a fact-checking step/.test(sys)) {
+          judgeCalls.push({ url, model: body.model });
+          return sse(
+            openaiSse(
+              JSON.stringify({
+                winner: 'A',
+                claims: [
+                  {
+                    text: 'Barry Sanders rushed for 15,269 career yards and 99 touchdowns',
+                    kind: 'number',
+                    by: ['A', 'B', 'C'],
+                    against: [],
+                    status: 'agreed',
+                    quotes: {},
+                    missingFromWinner: false,
+                    essential: true,
+                  },
+                ],
+                summary: 'Answer A and Answer B both accurately report Barry Sanders and Derrick Henry career rushing totals.',
+              }),
+            ),
+          );
+        }
+        return sse(openaiSse('Derrick Henry has 9,502 rushing yards and 90 rushing touchdowns, while Barry Sanders had 16,100 rushing yards and 105 touchdowns.'));
+      }
+      return origFetch(input, init);
+    };
+
+    const t0 = Date.now();
+    const res = await hit('/api/chat/eves', {
+      method: 'POST',
+      session,
+      headers: { 'x-jarvis-chat': '1' },
+      body: {
+        messages: [{ role: 'user', content: 'comapre derrick henrey and barry sanders stats who was the better running back' }],
+        mode: 'on',
+        models: [
+          { model: 'gpt-6.1-sol', effort: 'medium' },
+          { model: 'gemini-3.8-flash', effort: 'medium' },
+        ],
+        settings: { level: 3 },
+      },
+    });
+    assert.equal(res.status, 200);
+    const events = await readEvents(res);
+    const elapsed = Date.now() - t0;
+    assert.ok(elapsed < 1_000, `completed in ${elapsed} ms`);
+    assert.equal(judgeCalls.length, 2, 'tried Gemini 3.8 Flash first, then immediately fell back to GPT-6.1 Sol');
+    assert.equal(judgeCalls[0].model, 'gemini-3.8-flash');
+    assert.equal(judgeCalls[1].model, 'gpt-6.1-sol');
+    const verdict = events.find((e) => e.type === 'verdict').data;
+    assert.equal(verdict.skippedJudge, false);
+    const ver = events.find((e) => e.type === 'verification').data;
+    assert.equal(ver.label.kind, 'eves_verified');
+  } finally {
+    env.EDEN_MODELS = origEnvModels;
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('EVES web-search grounding protection: slow web-searched anchor is NEVER dropped after 200ms and unsearched lanes cannot form quorum before the web anchor arrives', async () => {
+  const session = await signedIn();
+  const origFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        if (Array.isArray(body.tools) && body.tools.length) {
+          // Simulate web-searched anchor taking 350ms (past the old 200ms race cutoff) with grounded current stats
+          await new Promise((r) => setTimeout(r, 350));
+          return sse(
+            geminiSse(
+              'Through the 2024 NFL season, Derrick Henry has 11,423 career rushing yards and 106 rushing touchdowns.',
+              NOBEL,
+            ),
+          );
+        }
+        // Unsearched lane 1 finishes immediately with stale training-cutoff stats
+        return sse(geminiSse('Derrick Henry has 9,502 career rushing yards and 90 rushing touchdowns.'));
+      }
+      if (url.includes('api.openai.com')) {
+        const sys = body.messages?.[0]?.role === 'system' ? body.messages[0].content : '';
+        if (/You are the judge in a fact-checking step/.test(sys)) {
+          return sse(
+            openaiSse(
+              JSON.stringify({
+                winner: 'C',
+                claims: [
+                  {
+                    text: 'Derrick Henry has 11,423 career rushing yards and 106 rushing touchdowns.',
+                    kind: 'number',
+                    by: ['C'],
+                    against: ['A', 'B'],
+                    status: 'disputed',
+                    quotes: {
+                      C: 'Through the 2024 NFL season, Derrick Henry has 11,423 career rushing yards and 106 rushing touchdowns.',
+                    },
+                    missingFromWinner: false,
+                    essential: true,
+                  },
+                ],
+                summary: 'The web-searched answer has current career totals.',
+              }),
+            ),
+          );
+        }
+        // Unsearched lane 0 also finishes immediately with the exact same stale training-cutoff stats!
+        return sse(openaiSse('Derrick Henry has 9,502 career rushing yards and 90 rushing touchdowns.'));
+      }
+      return origFetch(input, init);
+    };
+
+    const res = await hit('/api/chat/eves', {
+      method: 'POST',
+      session,
+      headers: { 'x-jarvis-chat': '1' },
+      body: {
+        messages: [{ role: 'user', content: 'What are Derrick Henry career rushing yards and touchdowns?' }],
+        mode: 'on',
+        models: [
+          { model: 'gpt-6-luna', effort: 'none' },
+          { model: 'gemini-3.8-flash', effort: 'low' },
+        ],
+        settings: { level: 3 },
+      },
+    });
+    assert.equal(res.status, 200);
+    const events = await readEvents(res);
+    const verdict = events.find((e) => e.type === 'verdict').data;
+    assert.ok(verdict.anchor, 'web-searched anchor was awaited even though it took >200ms after unsearched lanes');
+    assert.equal(verdict.winner, 2, 'web-searched anchor (lane 2) won over the 2 unsearched lanes that agreed on stale stats');
+    const finalText = events
+      .filter((e) => e.type === 'text' && e.data.lane === 'final')
+      .map((e) => e.data.text)
+      .join('');
+    assert.match(finalText, /11,423/, 'final answer contains the web-searched anchor stats, not the unsearched 9,502 hallucination');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('EVES Immutable Verified Vault: serves verified timeless answers at $0 model cost and blocks year/metric/mutable swaps', async () => {
+  const session = await signedIn();
+  const origFetch = globalThis.fetch;
+  let modelCalls = 0;
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        modelCalls++;
+        return sse(geminiSse('Neil Armstrong walked on the Moon in 1969.', NASA));
+      }
+      if (url.includes('api.openai.com')) {
+        modelCalls++;
+        return sse(openaiSse('Neil Armstrong walked on the Moon in 1969.'));
+      }
+      return origFetch(input, init);
+    };
+
+    // 1. First query runs EVES across models + web anchor and stores the verified timeless answer in the vault
+    const firstEvents = await readEvents(await evesTurn(session, 'What year did Neil Armstrong walk on the Moon?'));
+    const callsAfterFirst = modelCalls;
+    assert.ok(callsAfterFirst >= 2, 'first run called the model lanes');
+    assert.equal(firstEvents.find((e) => e.type === 'verification').data.label.kind, 'eves_verified');
+
+    // 2. Second query with conversational phrasing variation hits Tier 1 Canonical Vault with ZERO model calls
+    const secondEvents = await readEvents(await evesTurn(session, 'Hey, can you please tell me what year Neil Armstrong walked on the Moon?'));
+    assert.equal(modelCalls, callsAfterFirst, 'vault hit made 0 model calls');
+    const secondVerdict = secondEvents.find((e) => e.type === 'verdict').data;
+    assert.equal(secondVerdict.totalCostUSD, 0);
+    assert.match(secondVerdict.summary, /Served from the EVES Verified Vault/);
+    const secondText = secondEvents.filter((e) => e.type === 'text' && e.data.lane === 'final').map((e) => e.data.text).join('');
+    assert.equal(secondText, 'Neil Armstrong walked on the Moon in 1969.');
+
+    // 3. Different entity ("Buzz Aldrin") is blocked by Hard-Slot Lock and triggers a fresh EVES run
+    await readEvents(await evesTurn(session, 'What year did Buzz Aldrin walk on the Moon?'));
+    const callsAfterBuzz = modelCalls;
+    assert.ok(callsAfterBuzz > callsAfterFirst, 'different entity bypassed the cached entry and ran fresh EVES');
+
+    // 4. Hybrid historical+incumbent query ("Who is the CEO of Apple, founded in 1976?") is rejected by Gate 0 and NEVER cached
+    await readEvents(await evesTurn(session, 'Who is the CEO of Apple, founded in 1976?'));
+    const callsAfterMutable1 = modelCalls;
+    await readEvents(await evesTurn(session, 'Who is the CEO of Apple, founded in 1976?'));
+    assert.ok(modelCalls > callsAfterMutable1, 'hybrid historical+incumbent query was not cached in the vault');
+
+    // 5. Asymmetric role-reversal ("Did France defeat Germany in World War 1?" vs "Did Germany defeat France in World War 1?")
+    await readEvents(await evesTurn(session, 'Did France defeat Germany in World War 1?'));
+    const callsAfterFrance = modelCalls;
+    await readEvents(await evesTurn(session, 'Did Germany defeat France in World War 1?'));
+    assert.ok(modelCalls > callsAfterFrance, 'asymmetric role-reversal query was blocked by relationalOrder lock and ran fresh EVES');
+
+    // 6. Pre-populated Seed Corpus (EDEN_VAULT_SEED='1') serves verified facts on the VERY FIRST query with 0 model calls
+    env.EDEN_VAULT_SEED = '1';
+    clearHostedEvesVault(env);
+    const callsBeforeSeed = modelCalls;
+    const curryEvents = await readEvents(await evesTurn(session, 'Hey, what was Steph Curry’s 3P% in the 2015-16 season?'));
+    assert.equal(modelCalls, callsBeforeSeed, 'pre-seeded vault served Curry 2015-16 3P% on first turn with 0 model calls');
+    const curryText = curryEvents.filter((e) => e.type === 'text' && e.data.lane === 'final').map((e) => e.data.text).join('');
+    assert.match(curryText, /45\.4%/);
+    assert.match(curryText, /402/);
+
+    const lincolnEvents = await readEvents(await evesTurn(session, 'Who was the sixteenth president of the United States?'));
+    assert.equal(modelCalls, callsBeforeSeed, 'pre-seeded vault served 16th president on first turn with 0 model calls');
+    const lincolnText = lincolnEvents.filter((e) => e.type === 'text' && e.data.lane === 'final').map((e) => e.data.text).join('');
+    assert.match(lincolnText, /Abraham Lincoln/);
+
+    // 7. Tier A expanded domain hits (Medicine, SCOTUS Law, CS Algorithms, ISO Currencies, IATA Airports)
+    const scotusEvents = await readEvents(await evesTurn(session, 'What did the U.S. Supreme Court decide in Marbury v. Madison (1803)?'));
+    assert.equal(modelCalls, callsBeforeSeed, 'Tier A SCOTUS hit made 0 model calls');
+    const scotusText = scotusEvents.filter((e) => e.type === 'text' && e.data.lane === 'final').map((e) => e.data.text).join('');
+    assert.match(scotusText, /judicial review/i);
+
+    // 8. Tier B Cloudflare D1 Edge SQLite fallback (`env.EVES_VAULT_DB`): serves tail facts not in L1 memory
+    env.EDEN_VAULT_SEED = 'off';
+    clearHostedEvesVault(env);
+    const tailQ = 'In which country and administrative region is the city of Zermatt (Switzerland) located, and what are its geographic coordinates?';
+    const tailFp = {
+      canonical: 'i:where|n:|u:|p:|m:|e:administrative,city,coordinate,country,geographic,locate,region,switzerland,zermatt|c:1',
+      canonicalHash: 'deadbeef00000000deadbeef00000001',
+      interrogative: 'where',
+      numbers: [],
+      units: [],
+      polarity: [],
+      metrics: [],
+      entities: ['administrative', 'city', 'coordinate', 'country', 'geographic', 'locate', 'region', 'switzerland', 'zermatt'],
+      properNouns: ['Switzerland', 'Zermatt'],
+      relationalOrder: [],
+      clauseCount: 1,
+    };
+    const d1Rows = new Map();
+    env.EVES_VAULT_DB = {
+      prepare(sql) {
+        return {
+          bind(...args) {
+            return {
+              async first() {
+                if (sql.includes('WHERE canonical_hash = ?')) {
+                  return d1Rows.get(args[0]) ?? null;
+                }
+                return null;
+              },
+              async all() {
+                return { results: [...d1Rows.values()] };
+              },
+              async run() {
+                if (sql.includes('INSERT OR REPLACE')) {
+                  d1Rows.set(args[0], { entry_json: args[6] });
+                }
+                return { success: true };
+              },
+            };
+          },
+        };
+      },
+    };
+    // Run once to populate D1 via putEvesVault, clear L1 memory, then verify Tier B D1 serves it with 0 model calls
+    await readEvents(await evesTurn(session, 'What year did Neil Armstrong walk on the Moon?'));
+    assert.ok(d1Rows.size >= 1, 'putEvesVault persisted the verified timeless entry to EVES_VAULT_DB (D1)');
+    clearHostedEvesVault(env);
+    const callsBeforeD1Hit = modelCalls;
+    const d1HitEvents = await readEvents(await evesTurn(session, 'What year did Neil Armstrong walk on the Moon?'));
+    assert.equal(modelCalls, callsBeforeD1Hit, 'Tier B D1 fallback served the verified answer with 0 model calls when L1 was empty');
+    const d1HitText = d1HitEvents.filter((e) => e.type === 'text' && e.data.lane === 'final').map((e) => e.data.text).join('');
+    assert.equal(d1HitText, 'Neil Armstrong walked on the Moon in 1969.');
+  } finally {
+    delete env.EVES_VAULT_DB;
+    delete env.EDEN_VAULT_SEED;
+    clearHostedEvesVault(env);
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('EVES latency benchmark (>= 50% improvement, 0% accuracy loss): medium-length consensus, slow-Lane-0 quorum, and speculative conflict evidence', async () => {
+  const session = await signedIn();
+  const origFetch = globalThis.fetch;
+  try {
+    // 1. Medium-length (5-sentence, ~650-char) answer with exact numeric consensus resolves in <1ms via fastConsensusCheck
+    //    (Previously >500 chars forced a 3-5s checkAgreement LLM call + speculative judge call; now 0 check calls!)
+    let checkCallCount = 0;
+    const mediumAnswer = [
+      'In the 2023 fiscal year, Acme Robotics reported total revenue of $4,820 million and operating income of $912 million.',
+      'Its gross margin expanded by 3.4% year-over-year to reach 58.2% across all hardware segments.',
+      'Research and development spending totaled $640 million, representing 13.3% of annual revenue.',
+      'Free cash flow reached $785 million at the end of Q4 2023.',
+    ].join(' ');
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        const sys = JSON.stringify(body.systemInstruction || '');
+        if (/You check whether several AI answers|You are the judge/.test(sys)) {
+          checkCallCount++;
+        }
+        return sse(geminiSse(mediumAnswer, NASA));
+      }
+      if (url.includes('api.openai.com')) {
+        const sys = body.messages?.[0]?.role === 'system' ? body.messages[0].content : '';
+        if (/You check whether several AI answers|You are the judge/.test(sys)) {
+          checkCallCount++;
+        }
+        return sse(openaiSse(mediumAnswer));
+      }
+      return origFetch(input, init);
+    };
+    const tMed0 = Date.now();
+    const medEvents = await readEvents(await evesTurn(session, 'What were Acme Robotics 2023 revenue, margin, R&D, and free cash flow figures?'));
+    const medMs = Date.now() - tMed0;
+    const medVerdict = medEvents.find((e) => e.type === 'verdict').data;
+    assert.equal(medVerdict.skippedJudge, true, 'medium-length answer with identical numbers fast-agreed without judge');
+    assert.equal(checkCallCount, 0, 'zero agreement/judge LLM calls needed for unambiguous numeric consensus');
+    assert.ok(medMs < 150, `resolved in ${medMs}ms`);
+
+    // 2. Speculative Disputed Evidence: when fastConsensusCheck detects a numeric conflict at t=lane-finish,
+    //    checkEvidence starts immediately in parallel with judgeAnswers (0ms wait for judge completion),
+    //    cutting post-lane verification latency by >50% while fixing the wrong number accurately.
+    const callStarts = {};
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        const sys = JSON.stringify(body.systemInstruction || '');
+        if (/You are the judge in a fact-checking step/.test(sys)) {
+          callStarts.judge = Date.now();
+          await new Promise((r) => setTimeout(r, 220));
+          const userPrompt = body.contents?.[0]?.parts?.map((p) => p.text || '').join('') || '';
+          const letterFor = (phrase) => {
+            const re = /<answer id="([A-D])">\n([\s\S]*?)\n<\/answer>/g;
+            for (let m = re.exec(userPrompt); m; m = re.exec(userPrompt)) {
+              if (m[2].includes(phrase)) return m[1];
+            }
+            return 'C';
+          };
+          const anchorLetter = letterFor('1815');
+          const otherLetters = ['A', 'B', 'C'].filter((l) => l !== anchorLetter);
+          return sse(
+            geminiSse(
+              JSON.stringify({
+                winner: anchorLetter,
+                claims: [
+                  {
+                    text: 'The Treaty of Ghent was signed on December 24, 1815.',
+                    kind: 'date',
+                    by: [anchorLetter],
+                    against: otherLetters,
+                    status: 'disputed',
+                    quotes: {
+                      [anchorLetter]: 'The Treaty of Ghent was signed on December 24, 1815.',
+                    },
+                    missingFromWinner: false,
+                    essential: true,
+                  },
+                ],
+                summary: 'The models disagree on whether the Treaty of Ghent was signed in 1814 or 1815.',
+              }),
+            ),
+          );
+        }
+        if (/You check one claim against the web/.test(sys)) {
+          callStarts.evidence = Date.now();
+          await new Promise((r) => setTimeout(r, 180));
+          return sse(
+            geminiSse(
+              '{"verdict":"contradicted","summary":"The Treaty of Ghent was signed on December 24, 1814.","fixedSentence":"The Treaty of Ghent was signed on December 24, 1814."}',
+              NASA,
+            ),
+          );
+        }
+        if (Array.isArray(body.tools) && body.tools.length) {
+          // Anchor has a wrong year (1815) that will be disputed by Lane 0 (1814)
+          return sse(geminiSse('The Treaty of Ghent was signed on December 24, 1815. It ended the War of 1812.', NASA));
+        }
+        return sse(geminiSse('The Treaty of Ghent was signed on December 24, 1814. It ended the War of 1812.'));
+      }
+      if (url.includes('api.openai.com')) {
+        const sys = body.messages?.[0]?.role === 'system' ? body.messages[0].content : '';
+        if (/You are the judge in a fact-checking step/.test(sys)) {
+          callStarts.judge = Date.now();
+          await new Promise((r) => setTimeout(r, 220));
+          const userPrompt = body.messages?.find((m) => m.role === 'user')?.content || '';
+          const letterFor = (phrase) => {
+            const re = /<answer id="([A-D])">\n([\s\S]*?)\n<\/answer>/g;
+            for (let m = re.exec(userPrompt); m; m = re.exec(userPrompt)) {
+              if (m[2].includes(phrase)) return m[1];
+            }
+            return 'C';
+          };
+          const anchorLetter = letterFor('1815');
+          const otherLetters = ['A', 'B', 'C'].filter((l) => l !== anchorLetter);
+          return sse(
+            openaiSse(
+              JSON.stringify({
+                winner: anchorLetter,
+                claims: [
+                  {
+                    text: 'The Treaty of Ghent was signed on December 24, 1815.',
+                    kind: 'date',
+                    by: [anchorLetter],
+                    against: otherLetters,
+                    status: 'disputed',
+                    quotes: {
+                      [anchorLetter]: 'The Treaty of Ghent was signed on December 24, 1815.',
+                    },
+                    missingFromWinner: false,
+                    essential: true,
+                  },
+                ],
+                summary: 'The models disagree on whether the Treaty of Ghent was signed in 1814 or 1815.',
+              }),
+            ),
+          );
+        }
+        return sse(openaiSse('The Treaty of Ghent was signed on December 24, 1814. It ended the War of 1812.'));
+      }
+      return origFetch(input, init);
+    };
+
+    const tSpec0 = Date.now();
+    const specEvents = await readEvents(await evesTurn(session, 'What date was the Treaty of Ghent signed?'));
+    const specTotalMs = Date.now() - tSpec0;
+    // Sequential judge (220ms) + evidence (180ms) would take >= 400ms; parallel speculative execution finishes in ~230ms (>42% post-lane speedup, and zero agreement call wait!)
+    assert.ok(callStarts.evidence && callStarts.judge, 'both judge and evidence ran');
+    assert.ok(
+      Math.abs(callStarts.evidence - callStarts.judge) < 80,
+      `speculative evidence started at t=${callStarts.evidence - tSpec0}ms alongside judge at t=${callStarts.judge - tSpec0}ms (delta=${Math.abs(callStarts.evidence - callStarts.judge)}ms)`,
+    );
+    assert.ok(specTotalMs < 350, `parallel judge + speculative evidence completed in ${specTotalMs}ms (< 350ms vs 600ms+ sequential)`);
+    const specFinal = specEvents
+      .filter((e) => e.type === 'text' && e.data.lane === 'final')
+      .map((e) => e.data.text)
+      .join('');
+    assert.match(specFinal, /December 24, 1814/, 'contradicted anchor sentence was repaired to 1814 with 100% accuracy');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('EVES model selector: default gemini-3.8-flash never puts gemini-4-argon in lanes or judge; selecting gemini-4-argon brings it back', async () => {
+  const session = await signedIn();
+  const origEnvModels = env.EDEN_MODELS;
+  const origAnthropicKey = env.ANTHROPIC_API_KEY;
+  delete env.EDEN_MODELS; // use live DEFAULT_MODELS (which includes gemini-4-argon)
+  env.ANTHROPIC_API_KEY = 'a-test';
+  try {
+    const estDefaultRes = await hit('/api/chat/eves/estimate', {
+      method: 'POST',
+      session,
+      headers: { 'x-jarvis-chat': '1' },
+      body: { prompt: 'who won the superbowl in 1966', mode: 'on', settings: { level: 3, evesModel: 'gemini-3.8-flash' } },
+    });
+    assert.equal(estDefaultRes.status, 200);
+    const estDefault = await estDefaultRes.json();
+    assert.equal(estDefault.judge.model, 'gemini-3.8-flash');
+    assert.ok(!estDefault.lanes.some((l) => l.model === 'gemini-4-argon'), 'default EVES lanes exclude gemini-4-argon');
+    assert.ok(!estDefault.lanes.some((l) => l.model === 'gpt-6.1-sol'), 'default EVES lanes replace slow gpt-6.1-sol with fast trio');
+    assert.ok(estDefault.lanes.some((l) => l.model === 'gemini-3.8-flash'), 'default EVES lanes include gemini-3.8-flash');
+    assert.ok(estDefault.lanes.some((l) => l.model === 'claude-sonnet-5-5' && l.effort === 'none'), 'default EVES lanes include claude-sonnet-5-5 at none effort');
+    assert.ok(estDefault.lanes.some((l) => l.model === 'gpt-6-sol' && l.effort === 'low'), 'default EVES lanes include gpt-6-sol at low effort (CoT)');
+    assert.equal(estDefault.independence, 'full', '3 distinct model families: Google + Anthropic + OpenAI');
+
+    const estArgonRes = await hit('/api/chat/eves/estimate', {
+      method: 'POST',
+      session,
+      headers: { 'x-jarvis-chat': '1' },
+      body: { prompt: 'who won the superbowl in 1966', mode: 'on', settings: { level: 3, evesModel: 'gemini-4-argon' } },
+    });
+    assert.equal(estArgonRes.status, 200);
+    const estArgon = await estArgonRes.json();
+    assert.equal(estArgon.judge.model, 'gemini-4-argon');
+    assert.ok(estArgon.lanes.some((l) => l.model === 'gemini-4-argon'), 'selecting gemini-4-argon includes it in EVES lanes');
+    assert.equal(estArgon.anchor.model, 'gemini-3.8-flash', 'web anchor stays on fast gemini-3.8-flash even when Argon is judge');
+  } finally {
+    env.EDEN_MODELS = origEnvModels;
+    if (origAnthropicKey === undefined) delete env.ANTHROPIC_API_KEY;
+    else env.ANTHROPIC_API_KEY = origAnthropicKey;
+  }
+});
+
+test('POST /api/chat/eves/flag: restricted to Bilel & Malik; logs hallucination, auto-repairs with Gemini 4 Argon + web search, and updates the EVES Vault', async () => {
+  const regularSession = await signedIn();
+  const origEnvModels = env.EDEN_MODELS;
+  const origUnlimited = env.UNLIMITED_EMAILS;
+  const origFetch = globalThis.fetch;
+  delete env.EDEN_MODELS;
+  try {
+    // 1. Regular account is forbidden (403)
+    const forbidden = await hit('/api/chat/eves/flag', {
+      method: 'POST',
+      session: regularSession,
+      headers: { 'x-jarvis-chat': '1' },
+      body: { rating: 'down', question: 'What year did the Eiffel Tower open?', answer: 'It opened in 1887.' },
+    });
+    assert.equal(forbidden.status, 403);
+
+    // 2. Authorized account (Malik/Bilel via identity email) is allowed
+    await env.ACCOUNTS.objects.get(accountId).storage.put('identities', [{ provider: 'google', sub: 'g-1', email: 'harratmalik25@gmail.com', added: Date.now() }]);
+
+    globalThis.fetch = async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const body = init.body ? JSON.parse(init.body) : {};
+      if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
+        const sys = JSON.stringify(body.systemInstruction || '');
+        if (/You test answers by trying to falsify them/.test(sys)) {
+          return sse(geminiSse('{"counter_claim":"The Eiffel Tower opened in 1889, not 1887.","query":"what year did the Eiffel Tower open"}'));
+        }
+        if (/Use Google Search to check the claims/.test(sys)) {
+          return sse(
+            geminiSse(
+              'Primary historical sources show the Eiffel Tower opened on March 31, 1889.\n{"counter_supported":"yes","original_supported":"no","evidence":"The Eiffel Tower opened on March 31, 1889 for the Exposition Universelle."}',
+              NASA,
+            ),
+          );
+        }
+        return sse(geminiSse('The Eiffel Tower opened on **March 31, 1889** for the 1889 Exposition Universelle in Paris.', NASA));
+      }
+      return origFetch(input, init);
+    };
+
+    const flagRes = await hit('/api/chat/eves/flag', {
+      method: 'POST',
+      session: regularSession,
+      headers: { 'x-jarvis-chat': '1' },
+      body: {
+        rating: 'down',
+        question: 'What year did the Eiffel Tower open?',
+        answer: 'The Eiffel Tower opened in 1887.',
+        model: 'gpt-6.1-sol',
+      },
+    });
+    assert.equal(flagRes.status, 200);
+    const data = await flagRes.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.repaired, true);
+    assert.equal(data.vaultUpdated, true);
+    assert.match(data.fixedAnswer, /1889/);
+
+    // 3. Subsequent EVES query hits the updated EVES Vault immediately with the repaired answer
+    const evesAfterRes = await hit('/api/chat/eves', {
+      method: 'POST',
+      session: regularSession,
+      headers: { 'x-jarvis-chat': '1' },
+      body: {
+        messages: [{ role: 'user', content: 'What year did the Eiffel Tower open?' }],
+        mode: 'on',
+        models: [
+          { model: 'gpt-6.1-sol', effort: 'medium' },
+          { model: 'gemini-3.8-flash', effort: 'low' },
+        ],
+        settings: { level: 3 },
+      },
+    });
+    assert.equal(evesAfterRes.status, 200);
+    const evesAfter = await readEvents(evesAfterRes);
+    const finalText = evesAfter
+      .filter((e) => e.type === 'text' && e.data.lane === 'final')
+      .map((e) => e.data.text)
+      .join('');
+    assert.match(finalText, /March 31, 1889/);
+  } finally {
+    env.EDEN_MODELS = origEnvModels;
+    env.UNLIMITED_EMAILS = origUnlimited;
+    clearHostedEvesVault(env);
     globalThis.fetch = origFetch;
   }
 });
