@@ -8,6 +8,8 @@
 const BASE = 'https://aeroapi.flightaware.com/aeroapi';
 const TIMEOUT = 8000;
 export const CACHE_MS = 2 * 60_000;
+export const POSITION_MS = 5 * 60_000; // a live position: $0.010 a look (price page, 2026-10-26), so at most one per 5 minutes per flight
+export const AIRPORT_MS = 30 * 86400_000; // airports don't move: $0.015 a look, kept a month
 const IDENT = /^[A-Z0-9]{2,3}\d{1,4}[A-Z]?$/; // a designator: TP1351, BA2, U2-style codes after cleaning
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -24,7 +26,35 @@ export const cleanIdent = (v) => String(v || '').toUpperCase().replace(/[\s-]/g,
 export function flightAwareFor(env = {}, { fetch: fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
   const key = typeof env.FLIGHTAWARE_API_KEY === 'string' ? env.FLIGHTAWARE_API_KEY.trim() : '';
   if (!key) return null;
+  const get = async (path) => {
+    let res;
+    try {
+      res = await fetcher(`${BASE}${path}`, { headers: { 'x-apikey': key, accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT) });
+    } catch {
+      throw new FlightError('unavailable', 'FlightAware did not answer in time.');
+    }
+    if (res.status === 401 || res.status === 403) throw new FlightError('unavailable', 'FlightAware refused the key.');
+    if (res.status === 429) throw new FlightError('rate_limited', 'FlightAware is over its rate limit for now.');
+    if (res.status === 404) throw new FlightError('not_found', 'FlightAware has nothing for that.');
+    if (!res.ok) throw new FlightError('unavailable', `FlightAware answered ${res.status}.`);
+    return res.json();
+  };
   return {
+    /** Where the plane is now: { lat, lng, heading, altitude_ft, speed_kts, at }, or null before it has a position. */
+    async position(faId) {
+      if (!/^[A-Za-z0-9-]{6,80}$/.test(String(faId || ''))) throw new FlightError('bad_ident', 'That isn’t a FlightAware flight id.');
+      const out = await get(`/flights/${encodeURIComponent(faId)}/position`);
+      const p = out && out.last_position;
+      if (!p || !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) return null;
+      return { lat: p.latitude, lng: p.longitude, heading: Number.isFinite(p.heading) ? p.heading : null, altitude_ft: Number.isFinite(p.altitude) ? p.altitude * 100 : null, speed_kts: Number.isFinite(p.groundspeed) ? p.groundspeed : null, at: p.timestamp || null };
+    },
+    /** An airport's point: { code, name, lat, lng }. */
+    async airport(code) {
+      const c = String(code || '').toUpperCase();
+      if (!/^[A-Z0-9]{3,4}$/.test(c)) throw new FlightError('bad_ident', 'An airport code looks like LIS or LPPT.');
+      const a = await get(`/airports/${c}`);
+      return { code: a.code_iata || a.airport_code || c, name: a.name || null, lat: a.latitude, lng: a.longitude };
+    },
     /** One flight on one day (the departure's local date): our summary, or a FlightError. */
     async track(identRaw, date) {
       const ident = cleanIdent(identRaw);
@@ -70,6 +100,7 @@ export function summary(f, checkedAt) {
   const state = f.cancelled ? 'cancelled' : f.diverted ? 'diverted' : f.actual_in || f.actual_on ? 'landed' : f.actual_off || f.actual_out ? 'in_air' : (f.departure_delay || 0) >= 15 * 60 ? 'delayed' : 'scheduled';
   return {
     ident: f.ident_iata || f.ident,
+    fa_flight_id: f.fa_flight_id || null,
     operator: f.operator_iata || f.operator || null,
     origin: airport(f.origin),
     destination: airport(f.destination),

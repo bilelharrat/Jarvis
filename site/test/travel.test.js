@@ -412,7 +412,7 @@ test('trip-flight: not set up says so; a lookup is cached so a second look doesn
   const a = await tripOp(acct, 'trip-flight', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
   const b = await tripOp(acct, 'trip-flight', { ident: 'tp 1351', date: '2027-06-12' }, { flightaware });
   assert.equal(a.flight.state, 'scheduled');
-  assert.equal(b.cached, true);
+  assert.equal(b.flight.state, 'scheduled');
   assert.equal(n, 1);
   acct.t += 3 * 60_000;
   await tripOp(acct, 'trip-flight', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
@@ -496,4 +496,71 @@ test('Eden Mail not connected: says so plainly', async () => {
   const acct = account();
   const { trip } = await tripOp(acct, 'trip-sample');
   await assert.rejects(tripOp(acct, 'trip-mail-scan', { id: trip.id }), (e) => e.code === 'not_connected' && /Connect Gmail in Eden Mail/.test(e.message));
+});
+
+test('trip-flight-live: airport points kept a month, the plane’s position at most every 5 minutes, none once landed', async () => {
+  const acct = account();
+  let pos = 0, ap = 0;
+  let state = 'in_air';
+  const flightaware = {
+    async track(ident) { return { ident, fa_flight_id: 'TAP1351-1780000000-schedule-0001', state, origin: { code: 'LHR' }, destination: { code: 'LIS' }, source: 'FlightAware AeroAPI', checked_at: 'now' }; },
+    async airport(code) { ap++; return code === 'LHR' ? { code, lat: 51.47, lng: -0.4543 } : { code, lat: 38.7742, lng: -9.1342 }; },
+    async position() { pos++; return { lat: 45.1, lng: -5.2, heading: 200, altitude_ft: 36000, speed_kts: 450, at: 'now' }; },
+  };
+  const a = await tripOp(acct, 'trip-flight-live', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
+  assert.deepEqual([a.from.code, a.to.code, a.position.altitude_ft, a.refresh_s], ['LHR', 'LIS', 36000, 300]);
+  acct.t += 3 * 60_000; // the flight status refreshes (2 min), the position doesn't yet (5 min)
+  await tripOp(acct, 'trip-flight-live', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
+  assert.deepEqual([pos, ap], [1, 2]);
+  acct.t += 3 * 60_000;
+  await tripOp(acct, 'trip-flight-live', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
+  assert.deepEqual([pos, ap], [2, 2], 'a new position after 5 minutes; airports still from the cache');
+  state = 'landed';
+  acct.t += 3 * 60_000;
+  const landed = await tripOp(acct, 'trip-flight-live', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
+  assert.deepEqual([landed.position, landed.refresh_s, pos], [null, null, 2], 'no position look once landed');
+});
+
+test('FlightAware position and airport: spec field names and units (altitude in hundreds of feet, speed in knots)', async () => {
+  const { flightAwareFor } = await import('../src/travel/flightaware.js');
+  const urls = [];
+  const fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).endsWith('/position')) return Response.json({ fa_flight_id: 'X', last_position: { latitude: 45.1, longitude: -5.2, heading: 201, altitude: 360, groundspeed: 452, timestamp: '2027-06-12T07:30:00Z' } });
+    if (String(url).includes('/airports/LIS')) return Response.json({ airport_code: 'LPPT', code_iata: 'LIS', name: 'Humberto Delgado', latitude: 38.7742, longitude: -9.1342 });
+    return new Response('{}', { status: 404 });
+  };
+  const fa = flightAwareFor({ FLIGHTAWARE_API_KEY: 'k' }, { fetch });
+  assert.deepEqual(await fa.position('TAP1351-1780000000-schedule-0001'), { lat: 45.1, lng: -5.2, heading: 201, altitude_ft: 36000, speed_kts: 452, at: '2027-06-12T07:30:00Z' });
+  assert.deepEqual(await fa.airport('lis'), { code: 'LIS', name: 'Humberto Delgado', lat: 38.7742, lng: -9.1342 });
+  assert.match(urls[0], /\/aeroapi\/flights\/TAP1351-1780000000-schedule-0001\/position$/);
+  await assert.rejects(fa.position('../x'), (e) => e.code === 'bad_ident');
+  await assert.rejects(fa.airport('LONDON'), (e) => e.code === 'bad_ident');
+});
+
+test('in-flight map: the view fits both airports; the picture comes through the server, the key never in the answer', async () => {
+  const { fitView, worldPx, MAP_SIZE } = await import('../src/travel/maps.js');
+  const lhr = { lat: 51.47, lng: -0.4543 }, lis = { lat: 38.7742, lng: -9.1342 };
+  const v = fitView(lhr, lis);
+  const c = worldPx(v.center.lat, v.center.lng, v.zoom);
+  for (const p of [lhr, lis]) {
+    const w = worldPx(p.lat, p.lng, v.zoom);
+    assert.ok(Math.abs(w.x - c.x) <= MAP_SIZE.w / 2 - MAP_SIZE.pad + 1 && Math.abs(w.y - c.y) <= MAP_SIZE.h / 2 - MAP_SIZE.pad + 1, 'both airports inside the frame, with room');
+  }
+  assert.ok(v.zoom >= 3 && v.zoom <= 6, `a London–Lisbon view, got zoom ${v.zoom}`);
+  const across = fitView({ lat: 35.55, lng: 139.78 }, { lat: 37.62, lng: -122.38 }); // Tokyo → San Francisco, the short way over the Pacific
+  assert.ok(Math.abs(across.center.lng) > 150, `centred over the Pacific, got ${across.center.lng}`);
+
+  const seen = [];
+  const deps = { call: async () => ({}), limited: async () => {}, readBody: async (r) => r.json(), fetch: async (url) => { seen.push(String(url)); return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } }); } };
+  const who = { account: 'acct-1', token: {} };
+  const req = (q) => new Request(`https://askeden.com/api/chat/travel/map?${q}`);
+  await assert.rejects(travelApi(req('a=51.47,-0.45&b=38.77,-9.13'), { EDEN_TRAVEL: '1' }, who, '/api/chat/travel/map', deps), (e) => e.status === 404, 'no key: not set up');
+  const env = { EDEN_TRAVEL: '1', GOOGLE_MAPS_SERVER_KEY: 'server-key' };
+  const res = await travelApi(req('a=51.47,-0.4543&b=38.7742,-9.1342'), env, who, '/api/chat/travel/map', deps);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  assert.equal(res.headers.get('x-map-zoom'), String(v.zoom));
+  assert.match(seen[0], /^https:\/\/maps\.googleapis\.com\/maps\/api\/staticmap\?/);
+  assert.ok(![...res.headers.values()].some((h) => h.includes('server-key')), 'the key is never in what the page gets');
+  await assert.rejects(travelApi(req('a=bad&b=38.77,-9.13'), env, who, '/api/chat/travel/map', deps), (e) => e.status === 400);
 });

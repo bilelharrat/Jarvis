@@ -23,6 +23,7 @@
 // trip-cards-match { names }                  → { cards }                  (nothing saved: for the card that asks)
 // trip-cards-save { names, confirm: true }    → { cards }                  (the person's card names: names only)
 // trip-flight { ident, date }                → { flight }                 (live status from FlightAware, cached 2 minutes)
+// trip-flight-live { ident, date }           → { flight, from, to, position, refresh_s }  (for the in-flight map; position at most every 5 minutes)
 // trip-mail-scan { id }                      → { candidates, scanned }    (bookings found in Eden Mail; nothing changes)
 // trip-mail-preview { id, message, index }    → { candidate }              (one email again, for the card)
 // trip-mail-import { id, message, index, stop?, confirm: true } → { trip, checks, stop }  (read again here, then added or marked booked)
@@ -30,7 +31,7 @@
 
 import { checkTrip, compareChecks } from './checks.js';
 import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
-import { CACHE_MS as FLIGHT_CACHE_MS, FlightError, cleanIdent, flightAwareFor } from './flightaware.js';
+import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, cleanIdent, flightAwareFor } from './flightaware.js';
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { mapsFor } from './maps.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
@@ -208,16 +209,25 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       }
       return { cards: named(names) };
     }
-    case 'trip-flight': {
+    case 'trip-flight':
+    case 'trip-flight-live': {
       const fa = deps.flightaware !== undefined ? deps.flightaware : flightAwareFor(account.env, { fetch: deps.fetch, now });
       if (!fa) throw new TripError('Live flight status isn’t switched on yet (FlightAware).', 404, 'not_set_up');
-      const key = `f:${cleanIdent(body.ident)}:${body.date}`;
-      const hit = await cache.get(key);
-      if (hit) return { flight: hit, cached: true };
+      const cached = async (key, ms, get) => {
+        const hit = await cache.get(key);
+        if (hit !== undefined) return hit;
+        const v = await get();
+        await cache.put(key, v, ms);
+        return v;
+      };
       try {
-        const flight = await fa.track(body.ident, body.date);
-        await cache.put(key, flight, FLIGHT_CACHE_MS);
-        return { flight };
+        const flight = await cached(`f:${cleanIdent(body.ident)}:${body.date}`, FLIGHT_CACHE_MS, () => fa.track(body.ident, body.date));
+        if (op === 'trip-flight') return { flight };
+        const point = (a) => (a && a.code ? cached(`ap:${a.code}`, AIRPORT_MS, () => fa.airport(a.code)).catch(() => null) : null);
+        const [from, to] = await Promise.all([point(flight.origin), point(flight.destination)]);
+        const flying = flight.state === 'in_air' || flight.state === 'delayed' || flight.state === 'diverted';
+        const position = flying && flight.fa_flight_id ? await cached(`fp:${flight.fa_flight_id}`, POSITION_MS, () => fa.position(flight.fa_flight_id)).catch(() => null) : null;
+        return { flight, from, to, position, refresh_s: flight.state === 'landed' || flight.state === 'cancelled' ? null : POSITION_MS / 1000 };
       } catch (e) {
         if (e instanceof FlightError) throw new TripError(e.message, e.code === 'not_found' ? 404 : e.code.startsWith('bad') ? 400 : 503, e.code);
         throw e;

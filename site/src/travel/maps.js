@@ -171,3 +171,54 @@ export function distanceKm(a, b) {
 }
 
 export const STANDIN_IDS = Object.keys(STANDIN);
+
+// ── the in-flight map's picture (Google Static Maps, fetched here so the key never reaches the page) ──
+
+export const MAP_SIZE = { w: 640, h: 320, pad: 48 };
+const STATIC = 'https://maps.googleapis.com/maps/api/staticmap';
+const DARK = ['element:geometry|color:0x0b1a2e', 'element:labels|visibility:off', 'feature:water|element:geometry|color:0x050f1c', 'feature:administrative.country|element:geometry.stroke|color:0x2b4a70', 'feature:landscape|element:geometry|color:0x12253d', 'feature:road|visibility:off', 'feature:poi|visibility:off', 'feature:transit|visibility:off'];
+
+/** Web Mercator world pixels at zoom z (256-pixel tiles), as Google draws them. */
+export function worldPx(lat, lng, z) {
+  const s = Math.min(Math.max(Math.sin((lat * Math.PI) / 180), -0.9999), 0.9999);
+  const size = 256 * 2 ** z;
+  return { x: ((lng + 180) / 360) * size, y: (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * size };
+}
+function fromWorld(x, y, z) {
+  const size = 256 * 2 ** z;
+  const lng = (x / size) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * y) / size;
+  return { lat: (180 / Math.PI) * Math.atan(Math.sinh(n)), lng };
+}
+
+/** The view that fits two points with room around them: { center, zoom } (zoom 1–10). */
+export function fitView(a, b, { w, h, pad } = MAP_SIZE) {
+  const bLng = Math.abs(b.lng - a.lng) > 180 ? b.lng + (b.lng < a.lng ? 360 : -360) : b.lng; // the short way round
+  let zoom = 1;
+  for (let z = 10; z >= 1; z--) {
+    const p = worldPx(a.lat, a.lng, z), q = worldPx(b.lat, bLng, z);
+    if (Math.abs(p.x - q.x) + 2 * pad <= w && Math.abs(p.y - q.y) + 2 * pad <= h) { zoom = z; break; }
+  }
+  const p = worldPx(a.lat, a.lng, zoom), q = worldPx(b.lat, bLng, zoom);
+  const c = fromWorld((p.x + q.x) / 2, (p.y + q.y) / 2, zoom);
+  return { center: { lat: Math.round(c.lat * 1e5) / 1e5, lng: Math.round((((c.lng + 540) % 360) - 180) * 1e5) / 1e5 }, zoom };
+}
+
+const point = (v) => {
+  const [lat, lng] = String(v || '').split(',').map(Number);
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+};
+/** GET /api/chat/travel/map?a=lat,lng&b=lat,lng → the picture, with x-map-center and x-map-zoom for the page's overlay. */
+export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fetch } = {}) {
+  const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
+  if (!key) throw new MapsError('not_set_up', 'The map needs Google Maps on Eden’s server.');
+  const a = point(url.searchParams.get('a')), b = point(url.searchParams.get('b'));
+  if (!a || !b) throw new MapsError('bad_request', 'a and b must be lat,lng.');
+  const { center, zoom } = fitView(a, b);
+  const q = new URLSearchParams({ center: `${center.lat},${center.lng}`, zoom: String(zoom), size: `${MAP_SIZE.w}x${MAP_SIZE.h}`, scale: '2', maptype: 'roadmap', key });
+  for (const s of DARK) q.append('style', s);
+  let res;
+  try { res = await fetcher(`${STATIC}?${q}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
+  if (!res.ok || !String(res.headers.get('content-type') || '').startsWith('image/')) throw new MapsError('unavailable', `Google Maps answered ${res.status}.`);
+  return new Response(res.body, { headers: { 'content-type': res.headers.get('content-type'), 'cache-control': 'private, max-age=86400', 'x-map-center': `${center.lat},${center.lng}`, 'x-map-zoom': String(zoom), 'x-content-type-options': 'nosniff' } });
+}
