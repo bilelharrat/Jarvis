@@ -42,6 +42,7 @@ import { receiptOp } from './receipts.js';
 import { autodraftDue, autodraftOp } from './autodrafts.js';
 import { taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
+import { flightOp } from '../travel/flights.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
@@ -167,6 +168,7 @@ export class Account {
       if (op.startsWith('ad-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Background Auto Drafts are the owner’s.'); return json(await autodraftOp(this, op, body)); } // Auto Drafts in the background (autodrafts.js)
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
+      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
       if (op.startsWith('trip-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.'); return json(await tripOp(this, op, body)); } // Eden Travel (travel/ops.js)
       switch (op) {
         case 'get': return json(await this.view(device));

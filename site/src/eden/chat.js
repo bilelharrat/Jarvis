@@ -42,6 +42,7 @@ import { sharedChatsApi, sharedRoute } from '../accounts/shared-chats.js';
 import { ENDED as GRANT_ENDED, grantAllows, grantRefusal, ownRoute } from '../accounts/delegates.js';
 import { tasksApi } from '../accounts/tasks.js';
 import { travelApi } from '../travel/api.js';
+import { flightsApi } from '../travel/flights.js';
 import { keysApi } from '../accounts/user-keys.js';
 import { EXTRACT_MODEL, extractMemory, memoryApi, memoryForTurn } from './memory.js';
 import { transcribeApi } from './transcribe.js';
@@ -623,6 +624,7 @@ export async function chatApi(request, env, ctx, path) {
     if (sharedRoute(path)) return await sharedChatsApi(request, env, who, path); // shared chats, askeden Q3 (accounts/shared-chats.js)
     if (path === '/api/chat/courses' || path.startsWith('/api/chat/courses/')) return json(await coursesApi(request, env, who, path, { call, limited, readBody })); // Eden for Education (edu/course.js)
     if (path === '/api/chat/tasks') return await tasksApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // G3 (accounts/tasks.js)
+    if (path === '/api/chat/flights' || path === '/api/chat/flights/status') return await flightsApi(request, env, who, path, { call, limited, readBody }); // flights through Duffel, off unless EDEN_FLIGHTS=1 (travel/flights.js)
     if (path === '/api/chat/travel' || path === '/api/chat/travel/map') return await travelApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // Eden Travel, off unless EDEN_TRAVEL=1 (travel/api.js)
     const route = `${request.method} ${path}`;
     switch (route) {
