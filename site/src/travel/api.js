@@ -5,12 +5,12 @@
 //   GET  /api/chat/travel            → trip-list
 //   GET  /api/chat/travel?id=<id>    → trip-get
 //   POST /api/chat/travel { action, args }
-//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save
+//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
@@ -25,7 +25,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   const body = await readBody(request, 256 * 1024);
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
-  // A Google lookup per search: held to the turn rate, like a chat message.
-  if (body.action === 'places') await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+  // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.
+  if (body.action === 'places' || body.action === 'flight') await limited(env, 'EDEN_RATE', `turn:${who.account}`);
   return json(await call(env, who.account, `trip-${body.action}`, args, who.token));
 }

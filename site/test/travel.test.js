@@ -374,3 +374,47 @@ test('saving cards needs the person’s confirm; trip-get then carries the compa
   assert.equal(dinner.cards[0].name, 'Chase Sapphire Reserve', '3x at a stated 1¢ (3%) ranks above 4x with no stated value');
   assert.ok(got.rewards.every((r) => r.cost.amount > 0));
 });
+
+// ── live flight status (FlightAware AeroAPI, against a fake) ──
+
+test('FlightAware: off without a key; the key goes in x-apikey; the right day is picked; delays in minutes', async () => {
+  const { flightAwareFor, pickFlight } = await import('../src/travel/flightaware.js');
+  assert.equal(flightAwareFor({}), null);
+  const calls = [];
+  const flight = (day, extra = {}) => ({ ident: 'TAP1351', ident_iata: 'TP1351', operator_iata: 'TP', origin: { code_iata: 'LHR', name: 'London Heathrow', city: 'London', timezone: 'Europe/London' }, destination: { code_iata: 'LIS', name: 'Humberto Delgado', city: 'Lisbon', timezone: 'Europe/Lisbon' }, scheduled_out: `${day}T06:05:00Z`, estimated_out: `${day}T06:35:00Z`, scheduled_in: `${day}T08:50:00Z`, estimated_in: `${day}T09:12:00Z`, departure_delay: 1800, arrival_delay: 1320, status: 'Scheduled / Delayed', gate_origin: 'A10', terminal_destination: '1', progress_percent: -1, cancelled: false, diverted: false, ...extra });
+  const fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).includes('/flights/XX9999')) return new Response('{}', { status: 404 });
+    return Response.json({ flights: [flight('2027-06-11'), flight('2027-06-12'), flight('2027-06-13')] });
+  };
+  const fa = flightAwareFor({ FLIGHTAWARE_API_KEY: 'fa-test-key' }, { fetch, now: () => NOW });
+  const f = await fa.track('tp 1351', '2027-06-12');
+  assert.equal(calls[0].init.headers['x-apikey'], 'fa-test-key');
+  assert.ok(!calls[0].url.includes('fa-test-key'));
+  assert.match(calls[0].url, /^https:\/\/aeroapi\.flightaware\.com\/aeroapi\/flights\/TP1351\?ident_type=designator&start=2027-06-11&end=2027-06-14$/);
+  assert.equal(f.departure.scheduled, '2027-06-12T06:05:00Z');
+  assert.deepEqual([f.ident, f.origin.code, f.destination.code, f.state, f.delay_minutes.departure, f.delay_minutes.arrival, f.departure.gate, f.arrival.terminal, f.progress], ['TP1351', 'LHR', 'LIS', 'delayed', 30, 22, 'A10', '1', null]);
+  assert.equal(f.source, 'FlightAware AeroAPI');
+  await assert.rejects(fa.track('XX9999', '2027-06-12'), (e) => e.code === 'not_found');
+  await assert.rejects(fa.track('hello world', '2027-06-12'), (e) => e.code === 'bad_ident');
+  await assert.rejects(fa.track('TP1351', '12/06/2027'), (e) => e.code === 'bad_date');
+  assert.equal(pickFlight([flight('2027-06-12', { cancelled: true })], '2027-06-12').cancelled, true);
+  const { summary } = await import('../src/travel/flightaware.js');
+  assert.equal(summary(flight('2027-06-12', { actual_out: 'x', actual_in: 'y' }), 'now').state, 'landed');
+  assert.equal(summary(flight('2027-06-12', { cancelled: true }), 'now').state, 'cancelled');
+});
+
+test('trip-flight: not set up says so; a lookup is cached so a second look doesn’t pay again', async () => {
+  const acct = account();
+  await assert.rejects(tripOp(acct, 'trip-flight', { ident: 'TP1351', date: '2027-06-12' }), (e) => e.code === 'not_set_up');
+  let n = 0;
+  const flightaware = { async track(ident, date) { n++; return { ident, date, state: 'scheduled', source: 'FlightAware AeroAPI', checked_at: 'now' }; } };
+  const a = await tripOp(acct, 'trip-flight', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
+  const b = await tripOp(acct, 'trip-flight', { ident: 'tp 1351', date: '2027-06-12' }, { flightaware });
+  assert.equal(a.flight.state, 'scheduled');
+  assert.equal(b.cached, true);
+  assert.equal(n, 1);
+  acct.t += 3 * 60_000;
+  await tripOp(acct, 'trip-flight', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
+  assert.equal(n, 2, 'after 2 minutes it looks again');
+});

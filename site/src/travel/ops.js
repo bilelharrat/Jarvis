@@ -22,10 +22,12 @@
 // trip-cards {}                               → { cards: [{ name, known, card? }], known: [the cards Eden has checked rates for] }
 // trip-cards-match { names }                  → { cards }                  (nothing saved: for the card that asks)
 // trip-cards-save { names, confirm: true }    → { cards }                  (the person's card names: names only)
+// trip-flight { ident, date }                → { flight }                 (live status from FlightAware, cached 2 minutes)
 // trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
 import { checkTrip, compareChecks } from './checks.js';
 import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
+import { CACHE_MS as FLIGHT_CACHE_MS, FlightError, cleanIdent, flightAwareFor } from './flightaware.js';
 import { mapsFor } from './maps.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanTrip, money } from './trips.js';
 
@@ -201,6 +203,21 @@ export async function tripOp(account, op, body = {}, deps = {}) {
         await storage.put('tcards', names);
       }
       return { cards: named(names) };
+    }
+    case 'trip-flight': {
+      const fa = deps.flightaware !== undefined ? deps.flightaware : flightAwareFor(account.env, { fetch: deps.fetch, now });
+      if (!fa) throw new TripError('Live flight status isn’t switched on yet (FlightAware).', 404, 'not_set_up');
+      const key = `f:${cleanIdent(body.ident)}:${body.date}`;
+      const hit = await cache.get(key);
+      if (hit) return { flight: hit, cached: true };
+      try {
+        const flight = await fa.track(body.ident, body.date);
+        await cache.put(key, flight, FLIGHT_CACHE_MS);
+        return { flight };
+      } catch (e) {
+        if (e instanceof FlightError) throw new TripError(e.message, e.code === 'not_found' ? 404 : e.code.startsWith('bad') ? 400 : 503, e.code);
+        throw e;
+      }
     }
     case 'trip-places': {
       const q = String(body.text || '').trim();
