@@ -18,6 +18,7 @@ import { MapsError } from './maps.js';
 import { dayDate, hhmm, minutesOf, weekday } from './trips.js';
 
 export const CACHE = { placeMs: 24 * 3600_000, travelMs: 6 * 3600_000 };
+const HOW = { walk: 'on foot', transit: 'by public transport', drive: 'by car', taxi: 'by taxi' };
 const TIGHT = 10; // minutes of slack under which a connection is tight
 const LATE = 5; // minutes late before it counts
 
@@ -84,7 +85,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
           move += t.minutes;
           arrive = (leave ?? at) + t.minutes;
           const slack = at - arrive;
-          const words = `${t.minutes} min by ${s.mode} from ${stops[k - 1].place.name}`;
+          const words = `${t.minutes} min ${HOW[s.mode] || `by ${s.mode}`} from ${stops[k - 1].place.name}`;
           let status = 'ok', note = words;
           if (slack < -LATE) {
             status = 'warn';
