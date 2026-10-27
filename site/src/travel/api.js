@@ -5,12 +5,12 @@
 //   GET  /api/chat/travel            → trip-list
 //   GET  /api/chat/travel?id=<id>    → trip-get
 //   POST /api/chat/travel { action, args }
-//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places
+//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 

@@ -283,3 +283,38 @@ test('the route is off unless EDEN_TRAVEL=1, then hands each action to the accou
   assert.equal(seen[0].token, who.token);
   await assert.rejects(travelApi(post({ action: 'book' }), env, who, '/api/chat/travel', deps), /action must be one of/);
 });
+
+// ── kinds, links, and marking a booking ──
+
+test('stops have a kind, a stay its nights, a link must be plain https', () => {
+  const t = cleanTrip({ title: 'Ski week', start: '2027-01-09', days: [{ stops: [
+    stop('Chalet', '16:00', { kind: 'stay', nights: 6, link: 'https://example.com/chalet?id=4' }),
+    stop('Ski rental', '17:00', { kind: 'rental' }),
+    stop('Museum', '10:00', { nights: 3 }),
+  ] }] }, { newId, now: NOW });
+  const [museum, chalet, skis] = t.days[0].stops;
+  assert.deepEqual([chalet.kind, chalet.nights, chalet.link], ['stay', 6, 'https://example.com/chalet?id=4']);
+  assert.equal(skis.kind, 'rental');
+  assert.equal(museum.kind, 'visit');
+  assert.equal(museum.nights, null, 'only a stay has nights');
+  for (const link of ['http://example.com', 'javascript:alert(1)', 'https://user:pw@example.com/']) {
+    assert.throws(() => cleanTrip({ title: 'x', start: '2027-01-09', days: [{ stops: [stop('A', '10:00', { link })] }] }, { newId, now: NOW }), /https/, link);
+  }
+  assert.throws(() => cleanTrip({ title: 'x', start: '2027-01-09', days: [{ stops: [stop('A', '10:00', { kind: 'spaceship' })] }] }, { newId, now: NOW }), /kind must be/);
+});
+
+test('only the person marks a stop booked; then it is locked; unbook frees it', async () => {
+  const acct = account();
+  const { trip } = await tripOp(acct, 'trip-create', { trip: { title: 'Ski week', start: '2027-01-09', days: [{ stops: [stop('Chalet', '16:00', { id: 'ch', kind: 'stay', nights: 6 })] }] } });
+  await assert.rejects(tripOp(acct, 'trip-mark-booked', { id: trip.id, stop: 'ch', ref: 'BK123' }), /confirm: true/);
+  await assert.rejects(tripOp(acct, 'trip-mark-booked', { id: trip.id, stop: 'ch', ref: ' ', confirm: true }), /booking reference/);
+  const marked = await tripOp(acct, 'trip-mark-booked', { id: trip.id, stop: 'ch', ref: 'BK123', provider: 'Chalets Ltd', via: 'browser', cost: { amount: 1400, currency: 'EUR' }, confirm: true });
+  const ch = marked.trip.days[0].stops[0];
+  assert.deepEqual([ch.booked.ref, ch.booked.provider, ch.booked.via, ch.booked.kind, ch.cost.amount], ['BK123', 'Chalets Ltd', 'browser', 'stay', 1400]);
+  await assert.rejects(tripOp(acct, 'trip-edit', { id: trip.id, ops: [{ op: 'time', stop: 'ch', at: '15:00' }] }), (e) => e.code === 'locked');
+  // a proposal can't mark anything booked: `booked` isn't an op
+  await assert.rejects(tripOp(acct, 'trip-edit', { id: trip.id, ops: [{ op: 'book', stop: 'ch' }] }), /op must be/);
+  const freed = await tripOp(acct, 'trip-unbook', { id: trip.id, stop: 'ch', confirm: true });
+  assert.equal(freed.trip.days[0].stops[0].booked, null);
+  await tripOp(acct, 'trip-edit', { id: trip.id, ops: [{ op: 'time', stop: 'ch', at: '15:00' }] });
+});

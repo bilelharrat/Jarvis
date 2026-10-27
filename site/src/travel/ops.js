@@ -17,10 +17,12 @@
 // trip-discard { id, proposal }               → { discarded: true }
 // trip-undo { id }                            → { trip, checks }
 // trip-places { text, near? }                 → { places, maps }          (to add a stop)
+// trip-mark-booked { id, stop, ref, provider, via, cost?, confirm: true } → { trip, checks }  (the person says it's booked)
+// trip-unbook { id, stop, confirm: true }     → { trip, checks }          (a booking the person cancelled)
 
 import { checkTrip, compareChecks } from './checks.js';
 import { mapsFor } from './maps.js';
-import { TRIP, TripError, applyOps, cleanTrip } from './trips.js';
+import { TRIP, TripError, applyOps, cleanBooking, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
 export const PROPOSAL_MS = 24 * 3600_000;
@@ -166,6 +168,22 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       await storage.put({ [`trip:${id}`]: prev, [`thist:${id}`]: hist });
       await storage.delete(`tprop:${id}`);
       return { trip: { id, ...prev }, checks: await check(prev) };
+    }
+    case 'trip-mark-booked':
+    case 'trip-unbook': {
+      if (body.confirm !== true) throw new TripError(`${op === 'trip-unbook' ? 'unbook' : 'mark-booked'} needs confirm: true (the person confirmed it).`);
+      const { id, trip } = await load();
+      const after = structuredClone(trip);
+      const stop = after.days.flatMap((d) => d.stops).find((s) => s.id === String(body.stop || ''));
+      if (!stop) throw new TripError('There is no such stop in this trip.', 404, 'not_found');
+      if (op === 'trip-unbook') stop.booked = null;
+      else {
+        if (!String(body.ref || '').trim()) throw new TripError('ref: the booking reference from the confirmation.');
+        stop.booked = cleanBooking({ kind: stop.kind, ref: body.ref, provider: body.provider, via: body.via, at: now() }, stop.kind);
+        if (body.cost !== undefined) stop.cost = money(body.cost, 'cost');
+      }
+      const saved = await save(id, trip, after);
+      return { trip: { id, ...saved }, checks: await check(saved) };
     }
     case 'trip-places': {
       const q = String(body.text || '').trim();

@@ -5,9 +5,11 @@
 //
 // trip  { id, title, destination, start: 'YYYY-MM-DD', travelers, budget: { amount, currency } | null,
 //         days: [{ title, stops }], rev, created, updated }
-// stop  { id, place: { id, name, lat, lng }, at: 'HH:MM', minutes, mode, cost: { amount, currency } | null,
-//         booked: null | { kind, ref }, note }
-//   mode: how you get to this stop from the one before (maps.js MODES).
+// stop  { id, kind, place: { id, name, lat, lng }, at: 'HH:MM', minutes, mode, cost: { amount, currency } | null,
+//         nights, link, booked: null | { kind, ref, provider, via, at }, note }
+//   kind: visit, stay, transport (a flight, train, bus, ferry, car hire), rental (skis, golf clubs, a bike), activity, meal.
+//   mode: how you get to this stop from the one before (maps.js MODES). nights: a stay's nights. link: the provider's
+//   https page to book it on (Eden's browser or the person's own). booked: set only by the person's "Mark as booked".
 //
 // ops   { op: 'add', day, stop, index? } · { op: 'remove', stop } · { op: 'move', stop, day, index? }
 //       { op: 'time', stop, at } · { op: 'edit', stop, minutes?, mode?, note?, cost? } · { op: 'title', day, title }
@@ -15,6 +17,7 @@
 import { ApiError } from '../accounts/util.js';
 import { MODES } from './maps.js';
 
+export const KINDS = ['visit', 'stay', 'transport', 'rental', 'activity', 'meal'];
 export const TRIP = { max: 50, days: 30, stops: 24, ops: 40, title: 120, note: 500, travelers: 20 };
 
 export class TripError extends ApiError {
@@ -38,7 +41,7 @@ export function dayDate(trip, i) {
 }
 export const weekday = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
 
-function money(c, what) {
+export function money(c, what) {
   if (c == null) return null;
   if (!isObj(c) || !Number.isFinite(c.amount) || c.amount < 0 || c.amount > 1e6) throw bad(`${what} needs { amount, currency } with an amount from 0 to 1,000,000.`);
   const currency = String(c.currency || 'EUR').toUpperCase();
@@ -63,8 +66,24 @@ export function cleanStop(s, newId) {
   const mode = s.mode == null ? 'walk' : String(s.mode);
   if (!MODES.includes(mode)) throw bad(`mode must be one of ${MODES.join(', ')}.`);
   const id = s.id != null && STOP_ID.test(String(s.id)) ? String(s.id) : newId();
-  const booked = isObj(s.booked) ? { kind: text(s.booked.kind, 20) || 'booking', ref: text(s.booked.ref, 80) } : null;
-  return { id, place: cleanPlace(s.place), at: s.at, minutes, mode, cost: money(s.cost, 'A stop’s cost'), booked, note: text(s.note, TRIP.note) };
+  const kind = s.kind == null ? 'visit' : String(s.kind);
+  if (!KINDS.includes(kind)) throw bad(`kind must be one of ${KINDS.join(', ')}.`);
+  const nights = s.nights == null ? null : Number(s.nights);
+  if (nights !== null && (!Number.isInteger(nights) || nights < 1 || nights > 60)) throw bad('nights must be 1 to 60.');
+  const booked = isObj(s.booked) ? cleanBooking(s.booked, kind) : null;
+  return { id, kind, place: cleanPlace(s.place), at: s.at, minutes, mode, cost: money(s.cost, 'A stop’s cost'), nights: kind === 'stay' ? nights : null, link: cleanLink(s.link), booked, note: text(s.note, TRIP.note) };
+}
+
+// A provider's booking page: https only, no credentials in it.
+export function cleanLink(v) {
+  if (v == null || v === '') return null;
+  let u;
+  try { u = new URL(String(v)); } catch { throw bad('link must be a full https:// address.'); }
+  if (u.protocol !== 'https:' || u.username || u.password || String(v).length > 500) throw bad('link must be an https:// address (no sign-in details in it), under 500 characters.');
+  return u.toString();
+}
+export function cleanBooking(b, kind) {
+  return { kind: text(b.kind, 20) || kind || 'booking', ref: text(b.ref, 80), provider: text(b.provider, 80), via: ['api', 'browser', 'link', 'person'].includes(b.via) ? b.via : 'person', at: Number.isFinite(b.at) ? b.at : null };
 }
 
 const sortDay = (day) => { day.stops.sort((a, b) => minutesOf(a.at) - minutesOf(b.at)); return day; };
@@ -166,10 +185,10 @@ export function applyOps(trip, ops, { newId }) {
       }
       case 'edit': {
         const { stop } = find(next, String(o.stop));
-        const fields = ['minutes', 'mode', 'cost'].filter((f) => o[f] !== undefined);
+        const fields = ['minutes', 'mode', 'cost', 'kind', 'nights', 'link'].filter((f) => o[f] !== undefined);
         if (stop.booked && fields.length) throw locked(stop, 'change');
         const merged = cleanStop({ ...stop, ...Object.fromEntries(fields.map((f) => [f, o[f]])), note: o.note ?? stop.note }, newId);
-        Object.assign(stop, { minutes: merged.minutes, mode: merged.mode, cost: merged.cost, note: merged.note });
+        Object.assign(stop, { kind: merged.kind, minutes: merged.minutes, mode: merged.mode, cost: merged.cost, nights: merged.nights, link: merged.link, note: merged.note });
         mark(stop.id, 'edited');
         break;
       }
