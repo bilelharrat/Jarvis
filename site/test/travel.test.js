@@ -353,6 +353,10 @@ test('cards: names only (a number is refused), matched to checked rates; unknown
   const dinner = compareCards({ kind: 'meal', place: { name: 'Dinner' } }, ['Amex Gold', 'Sapphire Preferred'], Date.parse('2026-11-01'));
   assert.deepEqual(dinner.map((r) => [r.name, r.rate]), [['American Express Gold Card', 4], ['Chase Sapphire Preferred', 3]]);
   assert.equal(compareCards({ kind: 'transport', place: { name: 'Fly home' } }, ['Amex Gold'])[0].category, 'flight');
+  // a stop with no kind is guessed from its name, and says so
+  const old = compareCards({ place: { name: 'Your hotel in Baixa' } }, ['Sapphire Reserve'])[0];
+  assert.deepEqual([old.category, old.guessed, old.rate], ['hotel', true, 4]);
+  assert.deepEqual([compareCards({ kind: 'visit', place: { name: 'Lunch in Alfama' } }, ['Amex Gold'])[0].category, compareCards({ kind: 'activity', place: { name: 'Wine bar tour' } }, ['Amex Gold'])[0].category], ['dining', 'other']);
 });
 
 test('saving cards needs the person’s confirm; trip-get then carries the comparison for each priced stop', async () => {

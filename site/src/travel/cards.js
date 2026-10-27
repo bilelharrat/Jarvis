@@ -86,13 +86,25 @@ export function cleanCardNames(names) {
   });
 }
 
-/** Which earning category a stop falls in. */
+const FLIGHT = /\b(fly|flights?|airlines?|airport|plane)\b/i;
+const GUESS = [
+  ['hotel', /\b(hotels?|hostels?|stays?|apartments?|airbnb|guest ?house|chalets?|resorts?|b&b|inn)\b/i],
+  ['dining', /\b(lunch|dinner|breakfast|brunch|restaurants?|caf[eé]s?|coffee|bistro|tasca|market|bar|pastel)\b/i],
+  ['flight', FLIGHT],
+  ['travel', /\b(trains?|bus|coach|ferry|ferries|taxi|car hire|rental car|transfer|metro|tram)\b/i],
+];
+/** Which earning category a stop falls in: { category, guessed }. A stop with no kind (or a plain visit) is guessed from its name, and says so. */
 export function categoryOf(stop) {
+  const words = `${stop.place.name} ${stop.note || ''}`;
   switch (stop.kind) {
-    case 'stay': return 'hotel';
-    case 'transport': return /\b(fly|flight|airline|airport|plane)\b/i.test(`${stop.place.name} ${stop.note || ''}`) ? 'flight' : 'travel';
-    case 'meal': return 'dining';
-    default: return 'other';
+    case 'stay': return { category: 'hotel', guessed: false };
+    case 'transport': return { category: FLIGHT.test(words) ? 'flight' : 'travel', guessed: false };
+    case 'meal': return { category: 'dining', guessed: false };
+    case 'rental': case 'activity': return { category: 'other', guessed: false };
+    default: {
+      const hit = GUESS.find(([, re]) => re.test(words));
+      return hit ? { category: hit[0], guessed: true } : { category: 'other', guessed: false };
+    }
   }
 }
 
@@ -104,14 +116,14 @@ const daysOld = (checked, now) => Math.floor((now - Date.parse(`${checked}T00:00
  * comes back with `known: false`.
  */
 export function compareCards(stop, names, now = Date.now()) {
-  const cat = categoryOf(stop);
+  const { category: cat, guessed } = categoryOf(stop);
   const rows = names.map((name) => {
     const c = matchCard(name);
     if (!c) return { name, known: false };
     const rate = c.rates[cat];
     const back = c.value && rate != null ? Math.round(rate * c.value.cents * 100) / 100 : null; // % back: rate × cents per point
     return {
-      name: c.name, known: true, card: c.id, category: cat, rate, unit: c.unit,
+      name: c.name, known: true, card: c.id, category: cat, guessed, rate, unit: c.unit,
       back_pct: back, value_how: c.value ? c.value.how : null, value_implied: Boolean(c.value && c.value.implied),
       portal: c.portal, ftf: c.ftf, annual_fee: c.annual_fee, notes: c.notes,
       source: c.source, checked: c.checked, stale: daysOld(c.checked, now) > STALE_DAYS,
@@ -126,7 +138,7 @@ export function tripRewards(trip, names, now = Date.now()) {
   if (!names || !names.length) return [];
   const out = [];
   trip.days.forEach((d, day) => d.stops.forEach((s) => {
-    if (s.cost && s.cost.amount > 0) out.push({ stop: s.id, day, name: s.place.name, category: categoryOf(s), cost: s.cost, booked: Boolean(s.booked), cards: compareCards(s, names, now) });
+    if (s.cost && s.cost.amount > 0) out.push({ stop: s.id, day, name: s.place.name, ...categoryOf(s), cost: s.cost, booked: Boolean(s.booked), cards: compareCards(s, names, now) });
   }));
   return out;
 }
