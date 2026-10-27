@@ -9,12 +9,12 @@ SiteI18n.add({
     'How it works': 'Comment ça marche',
     'Why Eden': 'Pourquoi Eden',
     'Flights': 'Vols',
-    'Try Eden': 'Essayer Eden',
-    'Ask Eden Travel · Coming soon': 'Ask Eden Travel · Bientôt disponible',
+    'Open Eden Travel': 'Ouvrir Eden Travel',
+    'Ask Eden Travel': 'Ask Eden Travel',
     'The trip planner that shows its work. Every opening hour, price and travel time comes with its source and when it was checked, and nothing in your plan changes until you say so.':
       'Le planificateur de voyage qui montre son travail. Chaque horaire d’ouverture, prix et temps de trajet est accompagné de sa source et de l’heure de sa vérification, et rien ne change dans votre programme sans votre accord.',
-    'Try Eden today': 'Essayer Eden dès aujourd’hui',
-    'Not open yet. Eden at askeden.com can help plan a trip in chat today.': 'Pas encore ouvert. Dès aujourd’hui, Eden sur askeden.com peut vous aider à préparer un voyage en discutant.',
+    'Plan your days, check hours and routes with EVES, and keep every change under your control.':
+      'Planifiez vos journées, vérifiez les horaires et les trajets avec EVES, et gardez le contrôle sur chaque modification.',
     'Illustrative sample trip': 'Exemple de voyage, à titre d’illustration',
     'Lisbon and Sintra, 3 days': 'Lisbonne et Sintra, 3 jours',
     '12 to 14 June · You and Alex': 'Du 12 au 14 juin · Vous et Alex',
@@ -109,8 +109,8 @@ SiteI18n.add({
     'Send a web page with your flight’s live status and about when you’ll be out at the curb. It opens in any browser, no app needed.':
       'Envoyez une page web avec le statut de votre vol en direct et l’heure approximative de votre sortie. Elle s’ouvre dans n’importe quel navigateur, sans application.',
     'Plan with Eden today': 'Préparez votre voyage avec Eden dès aujourd’hui',
-    'Ask Eden Travel isn’t open yet. Eden is, at askeden.com, and EVES can check what it tells you.':
-      'Ask Eden Travel n’est pas encore ouvert. Eden l’est, sur askeden.com, et EVES peut vérifier ce qu’Eden vous dit.',
+    'Open Ask Eden Travel in your browser to plan your days, check hours and travel times with EVES, and book when you’re ready.':
+      'Ouvrez Ask Eden Travel dans votre navigateur pour planifier vos journées, vérifier les horaires et les temps de trajet avec EVES, et réserver quand vous êtes prêt.',
     'About EVES': 'À propos d’EVES',
     '27%': '27 %',
     '16%': '16 %',
