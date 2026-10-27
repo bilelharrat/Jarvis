@@ -53,7 +53,7 @@ export function flightAwareFor(env = {}, { fetch: fetcher = globalThis.fetch, no
       const c = String(code || '').toUpperCase();
       if (!/^[A-Z0-9]{3,4}$/.test(c)) throw new FlightError('bad_ident', 'An airport code looks like LIS or LPPT.');
       const a = await get(`/airports/${c}`);
-      return { code: a.code_iata || a.airport_code || c, name: a.name || null, lat: a.latitude, lng: a.longitude };
+      return { code: a.code_iata || a.airport_code || c, name: a.name || null, lat: a.latitude, lng: a.longitude, country: a.country_code || null };
     },
     /** One flight on one day (the departure's local date): our summary, or a FlightError. */
     async track(identRaw, date) {

@@ -527,12 +527,12 @@ test('FlightAware position and airport: spec field names and units (altitude in 
   const fetch = async (url) => {
     urls.push(String(url));
     if (String(url).endsWith('/position')) return Response.json({ fa_flight_id: 'X', last_position: { latitude: 45.1, longitude: -5.2, heading: 201, altitude: 360, groundspeed: 452, timestamp: '2027-06-12T07:30:00Z' } });
-    if (String(url).includes('/airports/LIS')) return Response.json({ airport_code: 'LPPT', code_iata: 'LIS', name: 'Humberto Delgado', latitude: 38.7742, longitude: -9.1342 });
+    if (String(url).includes('/airports/LIS')) return Response.json({ airport_code: 'LPPT', code_iata: 'LIS', name: 'Humberto Delgado', latitude: 38.7742, longitude: -9.1342, country_code: 'PT' });
     return new Response('{}', { status: 404 });
   };
   const fa = flightAwareFor({ FLIGHTAWARE_API_KEY: 'k' }, { fetch });
   assert.deepEqual(await fa.position('TAP1351-1780000000-schedule-0001'), { lat: 45.1, lng: -5.2, heading: 201, altitude_ft: 36000, speed_kts: 452, at: '2027-06-12T07:30:00Z' });
-  assert.deepEqual(await fa.airport('lis'), { code: 'LIS', name: 'Humberto Delgado', lat: 38.7742, lng: -9.1342 });
+  assert.deepEqual(await fa.airport('lis'), { code: 'LIS', name: 'Humberto Delgado', lat: 38.7742, lng: -9.1342, country: 'PT' });
   assert.match(urls[0], /\/aeroapi\/flights\/TAP1351-1780000000-schedule-0001\/position$/);
   await assert.rejects(fa.position('../x'), (e) => e.code === 'bad_ident');
   await assert.rejects(fa.airport('LONDON'), (e) => e.code === 'bad_ident');

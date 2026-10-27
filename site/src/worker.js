@@ -256,6 +256,12 @@ async function route(request, env, ctx) {
     }
     return api(request, env, ctx);
   }
+  if (path.startsWith('/f/')) { // a shared flight tracker and its pickup planner (travel/track.js): no sign-in
+    const refused = fromElsewhere(request, path);
+    if (refused) return refused;
+    const tracked = await edenPage(request, env, path);
+    if (tracked) return tracked;
+  }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
   }

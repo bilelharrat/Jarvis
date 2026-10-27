@@ -40,8 +40,9 @@ import { eduAccountOp } from '../edu/budget.js';
 import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
 import { receiptOp } from './receipts.js';
 import { autodraftDue, autodraftOp } from './autodrafts.js';
-import { taskDue, taskOp } from './tasks.js';
+import { notifyOwner, taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
+import { sharePublicOp } from '../travel/track.js';
 import { flightOp } from '../travel/flights.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
@@ -134,6 +135,8 @@ export class Account {
       if (op === 'web-signin') return json(await this.webSignIn(await request.json().catch(() => ({}))));
       if (op.startsWith('web-')) return await webOp(this, op, request); // hosted Eden → the Mac (webrelay.js)
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
+      // Eden Travel's guest tracking links (travel/track.js): the link's code is the key; no device signs these
+      if (op.startsWith('tshare-')) return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
       if (op.startsWith('share-')) return await sharedChatsOp(this, op, request); // shared chats, /s/<id> (shared-chats.js, askeden Q3)
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
       if (op.startsWith('cmerge-')) return await chatMergeOp(this, op, request); // another sign-in's chats copied into the account that proved it (chat-sync.js)

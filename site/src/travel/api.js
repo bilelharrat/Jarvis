@@ -6,13 +6,13 @@
 //   GET  /api/chat/travel?id=<id>    → trip-get
 //   GET  /api/chat/travel/map?a=lat,lng&b=lat,lng → the in-flight map's picture (maps.js flightMapImage)
 //   POST /api/chat/travel { action, args }
-//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, mail-scan, mail-preview, mail-import
+//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, flight-live, mail-scan, mail-preview, mail-import, share-create, shares, share-revoke
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
 import { MapsError, flightMapImage } from './maps.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 

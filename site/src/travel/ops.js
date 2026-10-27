@@ -27,6 +27,8 @@
 // trip-mail-scan { id }                      → { candidates, scanned }    (bookings found in Eden Mail; nothing changes)
 // trip-mail-preview { id, message, index }    → { candidate }              (one email again, for the card)
 // trip-mail-import { id, message, index, stop?, confirm: true } → { trip, checks, stop }  (read again here, then added or marked booked)
+// trip-share-create { ident, date, first_name, trip?, stop? } → { code, url, expires }  (a guest tracking link: track.js)
+// trip-shares {} → { shares }   trip-share-revoke { code } → { revoked }
 // trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
 import { checkTrip, compareChecks } from './checks.js';
@@ -34,6 +36,7 @@ import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, cleanIdent, flightAwareFor } from './flightaware.js';
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { mapsFor } from './maps.js';
+import { shareCreate, shareList, shareRevoke } from './track.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
@@ -223,7 +226,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       try {
         const flight = await cached(`f:${cleanIdent(body.ident)}:${body.date}`, FLIGHT_CACHE_MS, () => fa.track(body.ident, body.date));
         if (op === 'trip-flight') return { flight };
-        const point = (a) => (a && a.code ? cached(`ap:${a.code}`, AIRPORT_MS, () => fa.airport(a.code)).catch(() => null) : null);
+        const point = (a) => (a && a.code ? cached(`ap2:${a.code}`, AIRPORT_MS, () => fa.airport(a.code)).catch(() => null) : null);
         const [from, to] = await Promise.all([point(flight.origin), point(flight.destination)]);
         const flying = flight.state === 'in_air' || flight.state === 'delayed' || flight.state === 'diverted';
         const position = flying && flight.fa_flight_id ? await cached(`fp:${flight.fa_flight_id}`, POSITION_MS, () => fa.position(flight.fa_flight_id)).catch(() => null) : null;
@@ -277,6 +280,9 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const saved = await save(id, trip, after);
       return { trip: { id, ...saved }, checks: await check(saved), stop: stopId };
     }
+    case 'trip-share-create': return await shareCreate(account, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    case 'trip-shares': return await shareList(account);
+    case 'trip-share-revoke': return await shareRevoke(account, body);
     case 'trip-places': {
       const q = String(body.text || '').trim();
       if (q.length < 2) throw new TripError('text: what to look for.');
