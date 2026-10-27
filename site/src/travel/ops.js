@@ -130,7 +130,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       };
       // The preview is kept with it, so Apply writes exactly what was shown (new stops keep their ids).
       await storage.put(`tprop:${id}`, { ...proposal, after });
-      return { proposal, preview: { trip: { id, ...after }, changed, checks, diff: compareChecks(before, checks) } };
+      return { proposal, preview: { trip: { id, ...after }, changed, changes: changeList(trip, after, changed), checks, diff: compareChecks(before, checks), maps: maps.mode } };
     }
     case 'trip-apply': {
       if (body.confirm !== true) throw new TripError('apply needs confirm: true (the person tapped Apply).');
@@ -176,6 +176,23 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     default:
       throw new TripError('Unknown trip op.', 404, 'not_found');
   }
+}
+
+// Each changed stop by name, where it was and where it goes (a removed stop is only in `before`),
+// in day order, so a card can say "Moved: National Tile Museum, Day 3 11:00 → Day 2 17:30".
+export function changeList(before, after, changed) {
+  const where = (trip) => {
+    const m = new Map();
+    trip.days.forEach((d, day) => d.stops.forEach((s) => m.set(s.id, { day, at: s.at, name: s.place.name })));
+    return m;
+  };
+  const was = where(before), now = where(after);
+  return Object.entries(changed)
+    .map(([stop, how]) => {
+      const a = was.get(stop), b = now.get(stop);
+      return { stop, how, name: (b || a).name, ...(b ? { day: b.day, at: b.at } : {}), ...(a && how !== 'new' ? { was: { day: a.day, at: a.at } } : {}) };
+    })
+    .sort((x, y) => (x.day ?? x.was.day) - (y.day ?? y.was.day) || String(x.at ?? x.was.at).localeCompare(String(y.at ?? y.was.at)));
 }
 
 // Three days in Lisbon on stand-in places: the mockup's trip, for the beta's first look.

@@ -193,6 +193,10 @@ test('propose changes nothing; Apply needs confirm and writes what was previewed
   assert.equal(preview.changed[tiles.id], 'moved');
   assert.ok(preview.diff.alerts_fixed.some((a) => a.kind === 'closed_that_day'));
   const added = Object.keys(preview.changed).find((k) => preview.changed[k] === 'new');
+  const moved = preview.changes.find((x) => x.stop === tiles.id);
+  assert.deepEqual(moved, { stop: tiles.id, how: 'moved', name: 'National Tile Museum', day: 1, at: '17:30', was: { day: 2, at: '11:00' } });
+  assert.equal(preview.changes.find((x) => x.how === 'new').name, 'Gulbenkian Museum');
+  assert.equal(preview.maps, 'standin');
 
   const still = await tripOp(acct, 'trip-get', { id: trip.id });
   assert.equal(still.trip.rev, 1, 'a proposal changes nothing');
