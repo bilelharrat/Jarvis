@@ -134,8 +134,9 @@ export async function edenPage(request, env, path) {
   // Eden Travel: signed in and switched on (EDEN_TRAVEL=1), the Eden app opened on Travel beside the chat (travel.js);
   // otherwise the front page. Never in the iPhone app: the page itself keeps Travel behind !IN_APP.
   if (path === '/travel') {
-    const { session } = await currentSession(request, env);
-    if (!session || String(env.EDEN_TRAVEL || '') !== '1') return Response.redirect(new URL('/', request.url).toString(), 302);
+    const { session, stale } = await currentSession(request, env);
+    if (String(env.EDEN_TRAVEL || '') !== '1') return Response.redirect(new URL('/', request.url).toString(), 302);
+    if (!session) return byCookie(redirect('/signin?return=%2Ftravel'), stale);
     return byCookie(appPage(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS })), false);
   }
   // Eden Mail (public/mail-home/): signed out, its page (askedenmail.com's front, with MAIL_HOST set: worker.js); signed in,
