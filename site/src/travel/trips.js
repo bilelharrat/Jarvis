@@ -83,7 +83,7 @@ export function cleanLink(v) {
   return u.toString();
 }
 export function cleanBooking(b, kind) {
-  return { kind: text(b.kind, 20) || kind || 'booking', ref: text(b.ref, 80), provider: text(b.provider, 80), via: ['api', 'browser', 'link', 'person'].includes(b.via) ? b.via : 'person', at: Number.isFinite(b.at) ? b.at : null };
+  return { kind: text(b.kind, 20) || kind || 'booking', ref: text(b.ref, 80), provider: text(b.provider, 80), via: ['api', 'browser', 'link', 'person', 'mail'].includes(b.via) ? b.via : 'person', at: Number.isFinite(b.at) ? b.at : null };
 }
 
 const sortDay = (day) => { day.stops.sort((a, b) => minutesOf(a.at) - minutesOf(b.at)); return day; };

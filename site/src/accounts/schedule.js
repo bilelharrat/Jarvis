@@ -200,6 +200,16 @@ export async function googleInAccount(account, { local: isLocal = false } = {}) 
     scopes: tokens.scopes || [],
     gmail: () => createGmailApi({ token, fetch: f }),
     calendar: () => createCalendarApi({ token, fetch: f }),
+    // One message as Gmail stores it (format=full): Eden Travel reads booking data a cleaned-up read drops (travel/confirmations.js).
+    async gmailMessage(id) {
+      if (!GMAIL_ID.test(String(id))) throw new GoogleError('That isn’t a Gmail message id.', 'bad_request', 400);
+      const get = async (fresh) => f(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`, { headers: { authorization: `Bearer ${await token(fresh)}` } });
+      let r = await get(false);
+      if (r.status === 401) r = await get(true);
+      if (r.status === 404) throw new GoogleError('That email isn’t in Gmail any more.', 'not_found', 404);
+      if (!r.ok) throw new GoogleError(`Gmail answered ${r.status}.`, 'unavailable', 502);
+      return r.json();
+    },
   };
 }
 

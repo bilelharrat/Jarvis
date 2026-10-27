@@ -23,13 +23,17 @@
 // trip-cards-match { names }                  → { cards }                  (nothing saved: for the card that asks)
 // trip-cards-save { names, confirm: true }    → { cards }                  (the person's card names: names only)
 // trip-flight { ident, date }                → { flight }                 (live status from FlightAware, cached 2 minutes)
+// trip-mail-scan { id }                      → { candidates, scanned }    (bookings found in Eden Mail; nothing changes)
+// trip-mail-preview { id, message, index }    → { candidate }              (one email again, for the card)
+// trip-mail-import { id, message, index, stop?, confirm: true } → { trip, checks, stop }  (read again here, then added or marked booked)
 // trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
 import { checkTrip, compareChecks } from './checks.js';
 import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { CACHE_MS as FLIGHT_CACHE_MS, FlightError, cleanIdent, flightAwareFor } from './flightaware.js';
+import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { mapsFor } from './maps.js';
-import { TRIP, TripError, applyOps, cleanBooking, cleanTrip, money } from './trips.js';
+import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
 export const PROPOSAL_MS = 24 * 3600_000;
@@ -219,6 +223,50 @@ export async function tripOp(account, op, body = {}, deps = {}) {
         throw e;
       }
     }
+    case 'trip-mail-scan':
+    case 'trip-mail-preview':
+    case 'trip-mail-import': {
+      const { id, trip } = await load();
+      const mail = deps.mail || (await mailIn(account, body.local === true));
+      const candidate = async (messageId, index = null) => {
+        const parts = messageParts(await mail.full(messageId));
+        return bookingsIn(parts).map((b, i) => ({ message: messageId, index: i, subject: parts.subject, from: parts.from, received: parts.date, booking: b, match: matchBooking(trip, b) })).filter((c) => index === null || c.index === index);
+      };
+      if (op === 'trip-mail-scan') {
+        const ids = (await mail.search(MAIL_QUERY, SCAN_LIMIT)).slice(0, SCAN_LIMIT);
+        const all = [];
+        for (const m of ids) { try { all.push(...(await candidate(m))); } catch { /* one unreadable email doesn't stop the scan */ } }
+        const inTrip = all.filter((c) => c.match.action !== 'none' || !c.booking.date);
+        return { candidates: inTrip.slice(0, 20), scanned: ids.length };
+      }
+      const msg = String(body.message || '');
+      const [c] = await candidate(msg, Number(body.index) || 0);
+      if (!c) throw new TripError('That email has no booking Eden can read.', 404, 'not_found');
+      if (op === 'trip-mail-preview') return { candidate: c };
+      if (body.confirm !== true) throw new TripError('mail-import needs confirm: true (the person pressed the button).');
+      const b = c.booking;
+      if (!b.ref) throw new TripError('That email has no booking reference, so it can’t mark anything booked.');
+      const after = structuredClone(trip);
+      const booked = cleanBooking({ kind: b.kind, ref: b.ref, provider: b.provider, via: 'mail', at: now() }, b.kind);
+      const match = body.stop ? { action: 'mark', stop: String(body.stop) } : c.match;
+      let stopId;
+      if (match.action === 'mark') {
+        const stop = after.days.flatMap((d) => d.stops).find((x) => x.id === match.stop);
+        if (!stop) throw new TripError('There is no such stop in this trip.', 404, 'not_found');
+        stop.booked = { ...booked, kind: stop.kind || booked.kind };
+        if (b.cost) stop.cost = money(b.cost, 'cost');
+        stopId = stop.id;
+      } else if (match.action === 'add') {
+        if (after.days[match.day].stops.length >= TRIP.stops) throw new TripError(`Day ${match.day + 1} already has ${TRIP.stops} stops.`);
+        const minutes = b.start && b.end && b.kind !== 'stay' ? Math.min(1440, Math.max(0, Math.round((Date.parse(b.end) - Date.parse(b.start)) / 60_000))) : 60;
+        const stop = cleanStop({ kind: b.kind || 'activity', place: { name: (b.place && b.place.name) || b.title || 'Booking', ...(b.place && Number.isFinite(b.place.lat) ? { lat: b.place.lat, lng: b.place.lng } : {}) }, at: match.at, minutes: Number.isFinite(minutes) ? minutes : 60, mode: 'taxi', cost: b.cost, nights: b.kind === 'stay' ? b.nights : null, note: `From Eden Mail: ${c.subject}`.slice(0, 300), booked }, newId);
+        after.days[match.day].stops.push(stop);
+        after.days[match.day].stops.sort((x, y) => x.at.localeCompare(y.at));
+        stopId = stop.id;
+      } else throw new TripError(match.why || 'Say which stop this booking is for.', 409, 'no_match');
+      const saved = await save(id, trip, after);
+      return { trip: { id, ...saved }, checks: await check(saved), stop: stopId };
+    }
     case 'trip-places': {
       const q = String(body.text || '').trim();
       if (q.length < 2) throw new TripError('text: what to look for.');
@@ -245,6 +293,19 @@ export function changeList(before, after, changed) {
       return { stop, how, name: (b || a).name, ...(b ? { day: b.day, at: b.at } : {}), ...(a && how !== 'new' ? { was: { day: a.day, at: a.at } } : {}) };
     })
     .sort((x, y) => (x.day ?? x.was.day) - (y.day ?? y.was.day) || String(x.at ?? x.was.at).localeCompare(String(y.at ?? y.was.at)));
+}
+
+// Eden Mail as the trip ops read it: search ids, and one message in full.
+async function mailIn(account, local) {
+  const { googleInAccount, gmailScopesOk } = await import('../accounts/schedule.js');
+  let google;
+  try { google = await googleInAccount(account, { local }); } catch { throw new TripError('Connect Gmail in Eden Mail first, so Eden can read your confirmations.', 409, 'not_connected'); }
+  if (!gmailScopesOk(google.scopes)) throw new TripError('Eden Mail can’t read your mail yet: connect Gmail in Mail.', 409, 'not_connected');
+  const api = google.gmail();
+  return {
+    async search(query, limit) { const r = await api.search({ query, limit }); return (r.messages || r || []).map((m) => m.id).filter(Boolean); },
+    full: (id) => google.gmailMessage(id),
+  };
 }
 
 // Three days in Lisbon on stand-in places: the mockup's trip, for the beta's first look.

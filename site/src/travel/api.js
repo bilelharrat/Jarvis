@@ -5,16 +5,16 @@
 //   GET  /api/chat/travel            → trip-list
 //   GET  /api/chat/travel?id=<id>    → trip-get
 //   POST /api/chat/travel { action, args }
-//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight
+//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, mail-scan, mail-preview, mail-import
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'mail-scan', 'mail-preview', 'mail-import']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
-export async function travelApi(request, env, who, path, { call, limited, readBody }) {
+export async function travelApi(request, env, who, path, { call, limited, readBody, local = false }) {
   if (!travelOn(env) || path !== '/api/chat/travel') throw new ApiError(404, 'not_found', 'Not found');
   await limited(env, 'API_RATE', who.account);
   if (request.method === 'GET') {
@@ -27,5 +27,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
   // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.
   if (body.action === 'places' || body.action === 'flight') await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+  // Eden Mail reads: held to the turn rate; `local` only from wrangler dev with a fake Google (as tasks.js)
+  if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `turn:${who.account}`); args.local = local; }
   return json(await call(env, who.account, `trip-${body.action}`, args, who.token));
 }

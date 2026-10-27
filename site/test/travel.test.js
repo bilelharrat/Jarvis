@@ -418,3 +418,82 @@ test('trip-flight: not set up says so; a lookup is cached so a second look doesn
   await tripOp(acct, 'trip-flight', { ident: 'TP1351', date: '2027-06-12' }, { flightaware });
   assert.equal(n, 2, 'after 2 minutes it looks again');
 });
+
+// ── confirmations from Eden Mail (a fake Gmail) ──
+
+const b64u = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const email = (id, subject, from, html, text = '') => ({
+  id, internalDate: String(Date.parse('2027-05-02T09:00:00Z')),
+  payload: { mimeType: 'multipart/alternative', headers: [{ name: 'Subject', value: subject }, { name: 'From', value: from }], parts: [
+    ...(text ? [{ mimeType: 'text/plain', body: { data: b64u(text) } }] : []),
+    ...(html ? [{ mimeType: 'text/html', body: { data: b64u(html) } }] : []),
+  ] },
+});
+const ld = (obj) => `<html><head><script type="application/ld+json">${JSON.stringify(obj)}</script></head><body>Thanks!</body></html>`;
+function fakeMail(start) {
+  const day = (n, t) => { const d = new Date(`${start}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return `${d.toISOString().slice(0, 10)}T${t}:00+01:00`; };
+  const box = {
+    hotel: email('m-hotel', 'Your booking is confirmed', '"Example Hotels" <no-reply@hotels.example>', ld({ '@context': 'http://schema.org', '@type': 'LodgingReservation', reservationNumber: 'HB-2231', reservationStatus: 'http://schema.org/ReservationConfirmed', checkinTime: day(0, '15:00'), checkoutTime: day(2, '11:00'), totalPrice: '376.00', priceCurrency: 'EUR', reservationFor: { '@type': 'LodgingBusiness', name: 'Hotel Baixa Example', address: { streetAddress: 'Rua Augusta 1', addressLocality: 'Lisboa' }, geo: { latitude: 38.7118, longitude: -9.1384 } }, provider: { name: 'Example Hotels' } })),
+    flight: email('m-flight', 'E-ticket TP1351', 'TAP <tickets@tap.example>', ld([{ '@type': 'FlightReservation', reservationNumber: 'ABC123', reservationFor: { '@type': 'Flight', flightNumber: '1351', airline: { '@type': 'Airline', name: 'TAP Air Portugal', iataCode: 'TP' }, departureAirport: { '@type': 'Airport', name: 'London Heathrow', iataCode: 'LHR' }, departureTime: day(0, '06:05'), arrivalAirport: { '@type': 'Airport', name: 'Lisbon', iataCode: 'LIS' }, arrivalTime: day(0, '08:50') } }])),
+    tour: email('m-tour', 'Your tuk-tuk tour', 'Tours <hi@tours.example>', '<p>Thanks for booking!</p>', 'Booking reference: TK48812\nSee you soon.'),
+    news: email('m-news', 'Our newsletter', 'Shop <news@shop.example>', '<p>Big sale</p>'),
+    later: email('m-later', 'Ski chalet confirmed', 'Chalets <c@chalets.example>', ld({ '@type': 'LodgingReservation', reservationNumber: 'CH-9', checkinTime: '2031-01-09T16:00:00', checkoutTime: '2031-01-15T10:00:00', reservationFor: { name: 'Chalet' } })),
+  };
+  const reads = [];
+  return { reads, mail: { async search() { return Object.values(box).map((m) => m.id); }, async full(id) { reads.push(id); const m = Object.values(box).find((x) => x.id === id); if (!m) throw new Error('gone'); return m; } } };
+}
+
+test('confirmations: schema.org reservations are read field by field; plain mail gives a reference only', async () => {
+  const { bookingsIn, messageParts, jsonLdReservations } = await import('../src/travel/confirmations.js');
+  const { mail } = fakeMail('2027-06-05');
+  const hotel = bookingsIn(messageParts(await mail.full('m-hotel')))[0];
+  assert.deepEqual([hotel.kind, hotel.ref, hotel.provider, hotel.date, hotel.at, hotel.nights, hotel.cost, hotel.place.name, hotel.status, hotel.structured], ['stay', 'HB-2231', 'Example Hotels', '2027-06-05', '15:00', 2, { amount: 376, currency: 'EUR' }, 'Hotel Baixa Example', 'ReservationConfirmed', true]);
+  const flight = bookingsIn(messageParts(await mail.full('m-flight')))[0];
+  assert.deepEqual([flight.kind, flight.flight, flight.ref, flight.provider, flight.at], ['transport', 'TP1351', 'ABC123', 'TAP Air Portugal', '06:05']);
+  const tour = bookingsIn(messageParts(await mail.full('m-tour')))[0];
+  assert.deepEqual([tour.ref, tour.provider, tour.date, tour.structured], ['TK48812', 'Tours', null, false]);
+  assert.deepEqual(bookingsIn(messageParts(await mail.full('m-news'))), []);
+  assert.deepEqual(jsonLdReservations('<script type="application/ld+json">{not json</script>'), [], 'broken JSON is skipped, not thrown');
+});
+
+test('Eden Mail scan finds the trip’s bookings; import re-reads the email and marks or adds, only on confirm', async () => {
+  const acct = account();
+  const { trip } = await tripOp(acct, 'trip-sample');
+  const { mail, reads } = fakeMail(trip.start);
+  const scan = await tripOp(acct, 'trip-mail-scan', { id: trip.id }, { mail });
+  assert.equal(scan.scanned, 5);
+  const by = Object.fromEntries(scan.candidates.map((c) => [c.message, c]));
+  assert.equal(by['m-hotel'].match.action, 'mark', 'the hotel email confirms the trip’s hotel stop');
+  assert.equal(by['m-flight'].match.action, 'mark');
+  assert.equal(by['m-tour'].match.action, 'none', 'no date: Eden asks which stop');
+  assert.equal(by['m-later'], undefined, 'a booking outside the trip is left out');
+  assert.equal(by['m-news'], undefined);
+  assert.equal((await tripOp(acct, 'trip-get', { id: trip.id })).trip.rev, 1, 'a scan changes nothing');
+
+  await assert.rejects(tripOp(acct, 'trip-mail-import', { id: trip.id, message: 'm-hotel', index: 0 }, { mail }), /confirm: true/);
+  reads.length = 0;
+  // whatever the client says about the booking is ignored: the server reads the email again
+  const done = await tripOp(acct, 'trip-mail-import', { id: trip.id, message: 'm-hotel', index: 0, confirm: true, ref: 'FAKE', cost: { amount: 1, currency: 'EUR' } }, { mail });
+  assert.deepEqual(reads, ['m-hotel']);
+  const hotel = done.trip.days[0].stops.find((s) => s.id === done.stop);
+  assert.deepEqual([hotel.place.name, hotel.booked.ref, hotel.booked.via, hotel.booked.provider, hotel.cost.amount], ['Your hotel in Baixa', 'HB-2231', 'mail', 'Example Hotels', 376]);
+  await assert.rejects(tripOp(acct, 'trip-edit', { id: trip.id, ops: [{ op: 'remove', stop: hotel.id }] }), (e) => e.code === 'locked');
+
+  // a dated booking with no stop to confirm is added, booked
+  const t2 = (await tripOp(acct, 'trip-create', { trip: { title: 'x', start: trip.start, days: [{ stops: [] }] } })).trip;
+  const added = await tripOp(acct, 'trip-mail-import', { id: t2.id, message: 'm-flight', index: 0, confirm: true }, { mail });
+  const f = added.trip.days[0].stops[0];
+  assert.deepEqual([f.kind, f.at, f.minutes, f.booked.ref], ['transport', '06:05', 165, 'ABC123']);
+  assert.match(f.note, /^From Eden Mail: E-ticket TP1351/);
+  // no date: needs the person to say which stop
+  await assert.rejects(tripOp(acct, 'trip-mail-import', { id: trip.id, message: 'm-tour', index: 0, confirm: true }, { mail }), (e) => e.code === 'no_match');
+  const tourStop = done.trip.days[1].stops[3].id;
+  const tour = await tripOp(acct, 'trip-mail-import', { id: trip.id, message: 'm-tour', index: 0, stop: tourStop, confirm: true }, { mail });
+  assert.equal(tour.trip.days[1].stops.find((s) => s.id === tourStop).booked.ref, 'TK48812');
+});
+
+test('Eden Mail not connected: says so plainly', async () => {
+  const acct = account();
+  const { trip } = await tripOp(acct, 'trip-sample');
+  await assert.rejects(tripOp(acct, 'trip-mail-scan', { id: trip.id }), (e) => e.code === 'not_connected' && /Connect Gmail in Eden Mail/.test(e.message));
+});
