@@ -564,3 +564,16 @@ test('in-flight map: the view fits both airports; the picture comes through the 
   assert.ok(![...res.headers.values()].some((h) => h.includes('server-key')), 'the key is never in what the page gets');
   await assert.rejects(travelApi(req('a=bad&b=38.77,-9.13'), env, who, '/api/chat/travel/map', deps), (e) => e.status === 400);
 });
+
+test('day map: many points fit in the frame; one point gets a street-level view', async () => {
+  const { fitPoints, worldPx, MAP_SIZE } = await import('../src/travel/maps.js');
+  const day = [{ lat: 38.7167, lng: -9.1484 }, { lat: 38.6979, lng: -9.2068 }, { lat: 38.6975, lng: -9.2032 }, { lat: 38.7034, lng: -9.1785 }, { lat: 38.7071, lng: -9.1458 }];
+  const v = fitPoints(day);
+  const c = worldPx(v.center.lat, v.center.lng, v.zoom);
+  for (const p of day) {
+    const w = worldPx(p.lat, p.lng, v.zoom);
+    assert.ok(Math.abs(w.x - c.x) <= MAP_SIZE.w / 2 - MAP_SIZE.pad + 1 && Math.abs(w.y - c.y) <= MAP_SIZE.h / 2 - MAP_SIZE.pad + 1);
+  }
+  assert.ok(v.zoom >= 11 && v.zoom <= 14, `a Lisbon day, got zoom ${v.zoom}`);
+  assert.equal(fitPoints([{ lat: 38.7, lng: -9.14 }]).zoom, 14);
+});

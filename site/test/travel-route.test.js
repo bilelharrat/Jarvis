@@ -110,3 +110,14 @@ test('signed out, or with Travel off, there is nothing at /api/chat/travel', asy
   const off = await chat(session);
   assert.equal(off.status, 404);
 });
+
+test('/travel: the Eden app when signed in with Travel on; the front page otherwise', async () => {
+  const out = await hit('/travel');
+  assert.equal(out.status, 302);
+  const session = await signedIn();
+  const on = await hit('/travel', { session });
+  assert.equal(on.status, 200, await on.clone().text());
+  env = makeEnv(); // EDEN_TRAVEL unset
+  const s2 = await signedIn();
+  assert.equal((await hit('/travel', { session: s2 })).status, 302);
+});

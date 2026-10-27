@@ -192,15 +192,25 @@ function fromWorld(x, y, z) {
 }
 
 /** The view that fits two points with room around them: { center, zoom } (zoom 1–10). */
-export function fitView(a, b, { w, h, pad } = MAP_SIZE) {
-  const bLng = Math.abs(b.lng - a.lng) > 180 ? b.lng + (b.lng < a.lng ? 360 : -360) : b.lng; // the short way round
+export const fitView = (a, b, size = MAP_SIZE) => fitPoints([a, b], size);
+
+/** The view that fits every point (a day's stops, a flight's two airports): { center, zoom }, zoom 1–16. */
+export function fitPoints(points, { w, h, pad } = MAP_SIZE) {
+  const first = points[0];
+  // each point the short way round from the first (a route over the Pacific stays over the Pacific)
+  const pts = points.map((p) => ({ lat: p.lat, lng: Math.abs(p.lng - first.lng) > 180 ? p.lng + (p.lng < first.lng ? 360 : -360) : p.lng }));
+  const box = (z) => {
+    const px = pts.map((p) => worldPx(p.lat, p.lng, z));
+    const xs = px.map((p) => p.x), ys = px.map((p) => p.y);
+    return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  };
   let zoom = 1;
-  for (let z = 10; z >= 1; z--) {
-    const p = worldPx(a.lat, a.lng, z), q = worldPx(b.lat, bLng, z);
-    if (Math.abs(p.x - q.x) + 2 * pad <= w && Math.abs(p.y - q.y) + 2 * pad <= h) { zoom = z; break; }
+  for (let z = pts.length === 1 ? 14 : 16; z >= 1; z--) {
+    const b = box(z);
+    if (b.x1 - b.x0 + 2 * pad <= w && b.y1 - b.y0 + 2 * pad <= h) { zoom = z; break; }
   }
-  const p = worldPx(a.lat, a.lng, zoom), q = worldPx(b.lat, bLng, zoom);
-  const c = fromWorld((p.x + q.x) / 2, (p.y + q.y) / 2, zoom);
+  const b = box(zoom);
+  const c = fromWorld((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, zoom);
   return { center: { lat: Math.round(c.lat * 1e5) / 1e5, lng: Math.round((((c.lng + 540) % 360) - 180) * 1e5) / 1e5 }, zoom };
 }
 
@@ -208,13 +218,15 @@ const point = (v) => {
   const [lat, lng] = String(v || '').split(',').map(Number);
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180 ? { lat, lng } : null;
 };
-/** GET /api/chat/travel/map?a=lat,lng&b=lat,lng → the picture, with x-map-center and x-map-zoom for the page's overlay. */
+/** GET /api/chat/travel/map?a=lat,lng&b=lat,lng (a flight) or ?p=lat,lng|lat,lng|… (a day's stops, up to 25)
+ *  → the picture, with x-map-center and x-map-zoom for the page's overlay. */
 export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fetch } = {}) {
   const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
   if (!key) throw new MapsError('not_set_up', 'The map needs Google Maps on Eden’s server.');
-  const a = point(url.searchParams.get('a')), b = point(url.searchParams.get('b'));
-  if (!a || !b) throw new MapsError('bad_request', 'a and b must be lat,lng.');
-  const { center, zoom } = fitView(a, b);
+  const listed = url.searchParams.get('p');
+  const pts = listed ? listed.split('|').slice(0, 25).map(point) : [point(url.searchParams.get('a')), point(url.searchParams.get('b'))];
+  if (!pts.length || pts.some((p) => !p)) throw new MapsError('bad_request', 'a and b (or p) must be lat,lng.');
+  const { center, zoom } = fitPoints(pts);
   const q = new URLSearchParams({ center: `${center.lat},${center.lng}`, zoom: String(zoom), size: `${MAP_SIZE.w}x${MAP_SIZE.h}`, scale: '2', maptype: 'roadmap', key });
   for (const s of DARK) q.append('style', s);
   let res;

@@ -130,6 +130,13 @@ export async function edenPage(request, env, path) {
   if (path === '/edu/privacy' || path === '/edu/terms') return page(await asset(env, request, `/edu-home/${path.slice(5)}`), FRONT_CSP, { cache: 'public, max-age=300' }); // Eden for Education's student privacy notice and materials terms
   if (path === '/edu-home/edu-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (path === '/edu-home/edu-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
+  // Eden Travel: signed in and switched on (EDEN_TRAVEL=1), the Eden app opened on Travel beside the chat (travel.js);
+  // otherwise the front page. Never in the iPhone app: the page itself keeps Travel behind !IN_APP.
+  if (path === '/travel') {
+    const { session } = await currentSession(request, env);
+    if (!session || String(env.EDEN_TRAVEL || '') !== '1') return Response.redirect(new URL('/', request.url).toString(), 302);
+    return byCookie(appPage(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS })), false);
+  }
   // Eden Mail (public/mail-home/): signed out, its page (askedenmail.com's front, with MAIL_HOST set: worker.js); signed in,
   // the Eden app opened on Mail, full screen (app.js). The app stays on askeden.com, where Gmail's sign-in comes back.
   if (path === '/mail') {
