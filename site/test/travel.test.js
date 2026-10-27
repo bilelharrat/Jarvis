@@ -318,3 +318,12 @@ test('only the person marks a stop booked; then it is locked; unbook frees it', 
   assert.equal(freed.trip.days[0].stops[0].booked, null);
   await tripOp(acct, 'trip-edit', { id: trip.id, ops: [{ op: 'time', stop: 'ch', at: '15:00' }] });
 });
+
+test('the sample trip has a 2-night stay, transport legs and meals', () => {
+  const t = cleanTrip(sampleTrip(NOW), { newId, now: NOW });
+  const all = t.days.flatMap((d) => d.stops);
+  const hotel = all.find((s) => s.kind === 'stay');
+  assert.deepEqual([hotel.place.name, hotel.nights], ['Your hotel in Baixa', 2]);
+  assert.equal(all.filter((s) => s.kind === 'transport').length, 2);
+  assert.equal(all.filter((s) => s.kind === 'meal').length, 5);
+});

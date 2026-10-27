@@ -217,7 +217,7 @@ export function changeList(before, after, changed) {
 export function sampleTrip(now) {
   const d = new Date(now + 30 * 86400_000);
   while (d.getUTCDay() !== 6) d.setUTCDate(d.getUTCDate() + 1); // a Saturday, so Day 3 is a Monday
-  const s = (id, name, at, minutes, mode, cost, lat, lng) => ({ place: { id, name, lat, lng }, at, minutes, mode, cost: cost == null ? null : { amount: cost, currency: 'EUR' } });
+  const s = (id, name, at, minutes, mode, cost, lat, lng, more = {}) => ({ place: { id, name, lat, lng }, at, minutes, mode, cost: cost == null ? null : { amount: cost, currency: 'EUR' }, ...more });
   return {
     title: 'Three days in Lisbon',
     destination: 'Lisbon, Portugal',
@@ -226,24 +226,24 @@ export function sampleTrip(now) {
     budget: { amount: 900, currency: 'EUR' },
     days: [
       { title: 'Arrival and old town', stops: [
-        s('standin:lis-airport', 'Arrive in Lisbon', '10:30', 30, 'taxi', null, 38.7742, -9.1342),
-        s('standin:baixa-hotel', 'Your hotel in Baixa', '11:30', 60, 'taxi', null, 38.7118, -9.1384),
-        s('standin:alfama', 'Lunch in Alfama', '13:00', 90, 'walk', 24, 38.711, -9.13),
+        s('standin:lis-airport', 'Arrive in Lisbon', '10:30', 30, 'taxi', null, 38.7742, -9.1342, { kind: 'transport' }),
+        s('standin:baixa-hotel', 'Your hotel in Baixa', '11:30', 60, 'taxi', null, 38.7118, -9.1384, { kind: 'stay', nights: 2 }),
+        s('standin:alfama', 'Lunch in Alfama', '13:00', 90, 'walk', 24, 38.711, -9.13, { kind: 'meal' }),
         s('standin:graca', 'Miradouro da Graça', '16:00', 60, 'walk', null, 38.7163, -9.1309),
-        s('standin:chiado', 'Dinner in Chiado', '19:30', 120, 'transit', 50, 38.7107, -9.1422),
+        s('standin:chiado', 'Dinner in Chiado', '19:30', 120, 'transit', 50, 38.7107, -9.1422, { kind: 'meal' }),
       ] },
       { title: 'Belém and the river', stops: [
         s('standin:principe-real', 'Coffee in Príncipe Real', '09:00', 45, 'walk', 8, 38.7167, -9.1484),
         s('standin:jeronimos', 'Jerónimos Monastery', '10:30', 90, 'transit', null, 38.6979, -9.2068),
-        s('standin:pasteis-belem', 'Lunch in Belém', '13:00', 60, 'walk', 24, 38.6975, -9.2032),
+        s('standin:pasteis-belem', 'Lunch in Belém', '13:00', 60, 'walk', 24, 38.6975, -9.2032, { kind: 'meal' }),
         s('standin:lx-factory', 'LX Factory', '15:30', 120, 'transit', 20, 38.7034, -9.1785),
-        s('standin:time-out-market', 'Dinner at Time Out Market', '19:30', 90, 'transit', 40, 38.7071, -9.1458),
+        s('standin:time-out-market', 'Dinner at Time Out Market', '19:30', 90, 'transit', 40, 38.7071, -9.1458, { kind: 'meal' }),
       ] },
       { title: 'Tiles and goodbye', stops: [
         s('standin:chiado-cafe', 'Coffee and a pastel de nata', '09:30', 30, 'walk', 6, 38.7105, -9.141),
         s('standin:tiles', 'National Tile Museum', '11:00', 90, 'taxi', null, 38.7247, -9.1135),
-        s('standin:chiado', 'Lunch in Chiado', '13:30', 60, 'taxi', 30, 38.7107, -9.1422),
-        s('standin:lis-airport', 'Head to the airport', '15:30', 0, 'taxi', null, 38.7742, -9.1342),
+        s('standin:chiado', 'Lunch in Chiado', '13:30', 60, 'taxi', 30, 38.7107, -9.1422, { kind: 'meal' }),
+        s('standin:lis-airport', 'Head to the airport', '15:30', 0, 'taxi', null, 38.7742, -9.1342, { kind: 'transport' }),
       ] },
     ],
   };
