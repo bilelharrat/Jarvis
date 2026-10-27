@@ -19,8 +19,13 @@
 // trip-places { text, near? }                 → { places, maps }          (to add a stop)
 // trip-mark-booked { id, stop, ref, provider, via, cost?, confirm: true } → { trip, checks }  (the person says it's booked)
 // trip-unbook { id, stop, confirm: true }     → { trip, checks }          (a booking the person cancelled)
+// trip-cards {}                               → { cards: [{ name, known, card? }], known: [the cards Eden has checked rates for] }
+// trip-cards-match { names }                  → { cards }                  (nothing saved: for the card that asks)
+// trip-cards-save { names, confirm: true }    → { cards }                  (the person's card names: names only)
+// trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
 import { checkTrip, compareChecks } from './checks.js';
+import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { mapsFor } from './maps.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanTrip, money } from './trips.js';
 
@@ -92,7 +97,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const { id, trip } = await load();
       const prop = await storage.get(`tprop:${id}`);
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
-      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null };
+      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()) };
     }
     case 'trip-create':
       return await create(body.trip);
@@ -184,6 +189,18 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       }
       const saved = await save(id, trip, after);
       return { trip: { id, ...saved }, checks: await check(saved) };
+    }
+    case 'trip-cards':
+    case 'trip-cards-match':
+    case 'trip-cards-save': {
+      const named = (list) => list.map((name) => { const c = matchCard(name); return c ? { name, known: true, card: c.id, matched: c.name, checked: c.checked, source: c.source } : { name, known: false }; });
+      if (op === 'trip-cards') return { cards: named((await storage.get('tcards')) || []), known: CARDS.map((c) => ({ name: c.name, issuer: c.issuer, checked: c.checked })) };
+      const names = cleanCardNames(body.names);
+      if (op === 'trip-cards-save') {
+        if (body.confirm !== true) throw new TripError('cards-save needs confirm: true (the person confirmed the list).');
+        await storage.put('tcards', names);
+      }
+      return { cards: named(names) };
     }
     case 'trip-places': {
       const q = String(body.text || '').trim();

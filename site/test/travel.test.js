@@ -327,3 +327,46 @@ test('the sample trip has a 2-night stay, transport legs and meals', () => {
   assert.equal(all.filter((s) => s.kind === 'transport').length, 2);
   assert.equal(all.filter((s) => s.kind === 'meal').length, 5);
 });
+
+// ── card rewards ──
+
+test('cards: names only (a number is refused), matched to checked rates; unknown cards say so', async () => {
+  const { CARDS, cleanCardNames, matchCard, compareCards } = await import('../src/travel/cards.js');
+  assert.ok(CARDS.every((c) => c.source.startsWith('https://') && /^\d{4}-\d{2}-\d{2}$/.test(c.checked)), 'every card has a source and a checked date');
+  assert.equal(matchCard('my Chase Sapphire Reserve®').id, 'chase-sapphire-reserve');
+  assert.equal(matchCard('Capital One Venture X').id, 'capital-one-venture-x', 'Venture X, not Venture');
+  assert.equal(matchCard('capital one venture').id, 'capital-one-venture');
+  assert.equal(matchCard('Amex Gold').id, 'amex-gold');
+  assert.equal(matchCard('Discover it'), null);
+  assert.throws(() => cleanCardNames(['Visa 4111 1111 1111 1111']), /never its number/);
+  assert.throws(() => cleanCardNames(['card 41111111']), /never its number/);
+  assert.deepEqual(cleanCardNames(['  Amex   Gold ']), ['Amex Gold']);
+
+  const hotel = { kind: 'stay', place: { name: 'Hotel' }, cost: { amount: 376, currency: 'EUR' } };
+  const rows = compareCards(hotel, ['Sapphire Preferred', 'Sapphire Reserve', 'Venture', 'Discover it'], Date.parse('2026-11-01'));
+  assert.deepEqual(rows.map((r) => r.name), ['Chase Sapphire Reserve', 'Capital One Venture', 'Chase Sapphire Preferred', 'Discover it']);
+  assert.deepEqual([rows[0].rate, rows[0].back_pct], [4, 4], 'Reserve: 4x on hotels booked direct at a stated 1¢ = 4% back');
+  assert.equal(rows[1].value_implied, true);
+  assert.deepEqual([rows[2].rate, rows[2].back_pct], [2, null], 'Preferred: no stated value, so no % back');
+  assert.equal(rows[3].known, false);
+  assert.equal(compareCards(hotel, ['Sapphire Reserve'], Date.parse('2027-03-01'))[0].stale, true, 'a check older than 90 days is flagged');
+  const dinner = compareCards({ kind: 'meal', place: { name: 'Dinner' } }, ['Amex Gold', 'Sapphire Preferred'], Date.parse('2026-11-01'));
+  assert.deepEqual(dinner.map((r) => [r.name, r.rate]), [['American Express Gold Card', 4], ['Chase Sapphire Preferred', 3]]);
+  assert.equal(compareCards({ kind: 'transport', place: { name: 'Fly home' } }, ['Amex Gold'])[0].category, 'flight');
+});
+
+test('saving cards needs the person’s confirm; trip-get then carries the comparison for each priced stop', async () => {
+  const acct = account();
+  const { trip } = await tripOp(acct, 'trip-sample');
+  assert.deepEqual((await tripOp(acct, 'trip-get', { id: trip.id })).rewards, []);
+  const m = await tripOp(acct, 'trip-cards-match', { names: ['Sapphire Reserve', 'Discover it'] });
+  assert.deepEqual(m.cards.map((c) => c.known), [true, false]);
+  assert.deepEqual((await tripOp(acct, 'trip-cards')).cards, [], 'match saves nothing');
+  await assert.rejects(tripOp(acct, 'trip-cards-save', { names: ['Sapphire Reserve'] }), /confirm: true/);
+  await tripOp(acct, 'trip-cards-save', { names: ['Sapphire Reserve', 'Amex Gold'], confirm: true });
+  const got = await tripOp(acct, 'trip-get', { id: trip.id });
+  const dinner = got.rewards.find((r) => r.name === 'Dinner in Chiado');
+  assert.equal(dinner.category, 'dining');
+  assert.equal(dinner.cards[0].name, 'Chase Sapphire Reserve', '3x at a stated 1¢ (3%) ranks above 4x with no stated value');
+  assert.ok(got.rewards.every((r) => r.cost.amount > 0));
+});
