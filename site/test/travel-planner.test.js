@@ -260,3 +260,30 @@ test('a late arrival is started when you get there, if that still fits', async (
   assert.equal(changes[0].what, 'retimed');
   assert.match(changes[0].why, /there at 11:10/);
 });
+
+test('names: the same place across languages and word order; a different one flagged', () => {
+  for (const [a, g] of [['Galleria degli Uffizi', 'Uffizi Galleries'], ['Fontana di Trevi', 'Trevi Fountain'], ['Louvre', 'Musée du Louvre'], ['Sagrada Familia', 'Basílica de la Sagrada Família'], ['Mercato Centrale Firenze — First-floor Food Hall', 'il Mercato Centrale Firenze']]) assert.ok(sameName(a, g), `${a} = ${g}`);
+  for (const [a, g] of [['Red pumpkin', 'Yellow Pumpkin'], ['Tate Modern', 'Tate Britain']]) assert.ok(!sameName(a, g), `${a} ≠ ${g}`);
+});
+
+test('a place is searched with its city, and the matching hit nearest the destination wins over a same-name square in the next town', async () => {
+  const asked = [];
+  const florence = { id: 'g-flo', name: 'Piazza della Repubblica', lat: 43.7714, lng: 11.2542, status: 'open', hours: null, source: 'Google Maps (Places API)', checked_at: '2026-10-28T10:00:00Z' };
+  const signa = { ...florence, id: 'g-signa', lat: 43.7820, lng: 11.0960 };
+  const duomo = { id: 'g-duomo', name: 'Cathedral of Santa Maria del Fiore', lat: 43.7731, lng: 11.2560, status: 'open', hours: null, source: 'Google Maps (Places API)', checked_at: '2026-10-28T10:00:00Z' };
+  const maps = {
+    mode: 'google',
+    async search(q) { asked.push(q); return /Repubblica/.test(q) ? [signa, florence] : [duomo]; },
+    async place(id) { return [florence, signa, duomo].find((p) => p.id === id); },
+    async travel(a, b, mode) { return { minutes: 5, meters: 400, mode, standin: false, source: 'Google Maps (Routes API)', checked_at: '2026-10-28T10:00:00Z' }; },
+  };
+  const draft = { title: 'Florence', destination: 'Florence, Italy', start: '2026-11-17', travelers: 1, days: [{ title: 'Day 1', stops: [
+    { kind: 'visit', place: { name: 'Cathedral of Santa Maria del Fiore' }, at: '10:00', minutes: 60, mode: 'walk' },
+    { kind: 'visit', place: { name: 'Piazza della Repubblica', address: 'Piazza della Repubblica' }, at: '11:30', minutes: 30, mode: 'walk' },
+  ] }] };
+  const r = await planTrip({ request: 'Florence' }, { draft, env: { OPENAI_API_KEY: 'k' }, maps, fetch: async () => { throw new Error('no model call: the draft is given and nothing needs repair'); }, now: () => T0 });
+  assert.ok(asked.some((q) => q === 'Piazza della Repubblica, Florence, Italy'), asked.join(' | '));
+  const stop = r.trip.days[0].stops.find((s) => /Repubblica/.test(s.place.name));
+  assert.equal(stop.place.id, 'g-flo', 'Florence’s square, not Signa’s');
+  assert.ok(!r.changes.some((c) => c.what === 'matched'), 'no "check it’s the place you mean" for an exact name');
+});

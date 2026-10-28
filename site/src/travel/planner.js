@@ -238,13 +238,15 @@ function draftTrip(j, { constraints: c }, newId) {
 // ── Google: each place on its own ──
 
 // words that say what a place is, not which one (a "yellow pumpkin" isn't the "red pumpkin")
-const GENERIC = new Set(['museum', 'museo', 'musee', 'gallery', 'galleries', 'galleria', 'cathedral', 'church', 'chiesa', 'basilica', 'restaurant', 'ristorante', 'trattoria', 'osteria', 'cafe', 'caffe', 'hotel', 'station', 'stazione', 'palace', 'palazzo', 'park', 'garden', 'gardens', 'bridge', 'ponte', 'square', 'piazza', 'platz', 'tower', 'market', 'with', 'from', 'near', 'centre', 'center', 'city', 'national', 'visit', 'tour']);
-const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length > 3 && !GENERIC.has(w));
+const GENERIC = new Set(['the', 'and', 'von', 'van', 'dei', 'del', 'des', 'les', 'los', 'las', 'der', 'die', 'das', 'il', 'la', 'le', 'degli', 'della', 'delle', 'dello', 'dalla', 'nella', 'les', 'des', 'der', 'die', 'das', 'del', 'los', 'las', 'fontana', 'fountain', 'fuente', 'fontaine', 'brunnen', 'cattedrale', 'duomo', 'castello', 'castle', 'castillo', 'chateau', 'schloss', 'mercato', 'mercado', 'marche', 'markt', 'giardino', 'jardin', 'parco', 'parque', 'torre', 'turm', 'tour', 'museu', 'museum', 'musee', 'galerie', 'plaza', 'praca', 'place', 'museo', 'musee', 'gallery', 'galleries', 'galleria', 'cathedral', 'church', 'chiesa', 'basilica', 'restaurant', 'ristorante', 'trattoria', 'osteria', 'cafe', 'caffe', 'hotel', 'station', 'stazione', 'palace', 'palazzo', 'park', 'garden', 'gardens', 'bridge', 'ponte', 'square', 'piazza', 'platz', 'tower', 'market', 'with', 'from', 'near', 'centre', 'center', 'city', 'national', 'visit', 'tour']);
+const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !GENERIC.has(w)); // 3 letters count: "Red" pumpkin isn't the yellow one
 /** More than half the distinctive words of the name asked for are in Google's (else the card says what it was matched
  *  as: similar names are a common slip; a translated name can show up here too, which is worth a look anyway). */
 export const sameName = (asked, google) => {
   const g = [...new Set(words(google))], a = words(asked);
-  return !a.length || a.filter((w) => g.some((x) => x.startsWith(w) || w.startsWith(x))).length * 2 > a.length;
+  const hit = (w, list) => list.some((x) => x.startsWith(w) || w.startsWith(x));
+  // either way round: "Galleria degli Uffizi" is "Uffizi Galleries", "Fontana di Trevi" is "Trevi Fountain"
+  return !a.length || !g.length || a.filter((w) => hit(w, g)).length * 2 > a.length || (g.length && g.every((w) => hit(w, a)));
 };
 
 /**
@@ -258,14 +260,21 @@ async function findPlaces(trip, maps, cache, center) {
   for (const day of trip.days) for (const s of day.stops) {
     if (s.kind === 'transport' || s.place.id) continue;
     if (todo.length >= PLAN.places) { found.set(s.id, { error: 'Not looked up: the trip has more places than Eden checks in one plan.' }); continue; }
-    const where = s.place.address || s.place.city || trip.destination;
-    todo.push({ s, q: where && !s.place.name.toLowerCase().includes(String(where).toLowerCase()) ? `${s.place.name}, ${where}` : s.place.name });
+    // always with the city (a square or a church shares its name with many towns: "Piazza della Repubblica" in Signa
+    // isn't Florence's); the address too when it says more than the name
+    const city = String(s.place.city || trip.destination || '').trim();
+    const addr = String(s.place.address || '').trim();
+    const parts = [s.place.name, addr && addr.toLowerCase() !== s.place.name.toLowerCase() ? addr : '', city && !`${s.place.name} ${addr}`.toLowerCase().includes(city.split(',')[0].toLowerCase()) ? city : ''].filter(Boolean);
+    todo.push({ s, q: parts.join(', ') });
   }
   await Promise.all(todo.map(async ({ s, q }) => {
     if (!memo.has(q)) memo.set(q, maps.search(q, center || {}).then((hits) => ({ hits }), (e) => ({ e })));
     const r = await memo.get(q);
     if (r.e) { found.set(s.id, { error: r.e instanceof MapsError ? r.e.message : 'The map lookup failed.', held: r.e && r.e.code === 'capped' }); return; }
-    const hit = r.hits.find((h) => Number.isFinite(h.lat) && (!center || distanceKm(h, center) < PLAN.km));
+    // of the hits near the destination: the one whose name matches, nearest first (a same-name place in the next town loses)
+    const near = r.hits.filter((h) => Number.isFinite(h.lat) && (!center || distanceKm(h, center) < PLAN.km));
+    const rank = (h) => (sameName(s.place.name, h.name) ? 0 : 1e6) + (center ? distanceKm(h, center) : 0);
+    const hit = near.sort((x, y) => rank(x) - rank(y))[0];
     if (!hit) { found.set(s.id, { none: true, q }); return; }
     found.set(s.id, { hit, asked: s.place.name });
     s.place = { id: hit.id, name: hit.name, lat: hit.lat, lng: hit.lng };
