@@ -49,7 +49,7 @@ import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { flightOp } from '../travel/flights.js';
 import { payOn, payOp, payRefund } from '../travel/pay.js';
-import { calOp, feedPublicOp, gcalAfterWrite } from '../travel/calsync.js';
+import { calOp, feedPublicOp } from '../travel/calsync.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
@@ -207,8 +207,9 @@ export class Account {
         if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.');
         // Eden Travel is part of Eden Plus (the owner's decision, 2026-10-28): without it the list answers empty with
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
-        // ending a shared link, listing links and deleting a trip are always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete'].includes(op) && !(await this.planNow()).active) {
+        // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
+        // always the person's, Plus or not
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off'].includes(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
@@ -226,11 +227,6 @@ export class Account {
           if (words) out.card_refund_text = words;
         }
         if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
-        // a trip that syncs to Google Calendar is written there again (after the answer, where the platform allows)
-        if (TRIP_WRITES.has(op) && op !== 'trip-delete') {
-          const synced = gcalAfterWrite(this, String(body.id || (out && out.trip && out.trip.id) || ''), { tripOp });
-          if (this.ctx && typeof this.ctx.waitUntil === 'function') this.ctx.waitUntil(synced); else await synced;
-        }
         return json(out);
       }
       switch (op) {

@@ -9,11 +9,15 @@
 //      anyone with the link (the Worker): tcal-feed { code } → the calendar text
 //
 // 2. Google Calendar directly (Eden's own Google connection, accounts/schedule.js googleInAccount): each stop of one trip
-//    an event in the person's main Google calendar, kept up to date: switched on once (the person's confirm), the trip's
-//    changes are written again after each edit (account.js), stops taken out are deleted, and switching off deletes them.
-//    Google needs a time zone for a timed event: the trip's, from its first stop (Places' timeZone, or the Time Zone API),
-//    so 10:00 at a museum in Lisbon is 10:00 in Lisbon.
-//      trip-gcal-status { id } · trip-gcal-sync { id, confirm: true } (on, and written now) · trip-gcal-off { id, confirm: true }
+//    an event in a Google calendar the person picks, written only when they press the button (the first time, and Update
+//    after the trip changed: the status counts what changed since); stops taken out are deleted then, and stopping deletes
+//    them all. Google needs a time zone for a timed event: the trip's, from its first stop (Places' timeZone, or the Time
+//    Zone API), so 10:00 at a museum in Lisbon is 10:00 in Lisbon.
+//      trip-gcal-calendars → the calendars it can write to · trip-gcal-status { id } → … pending
+//      trip-gcal-sync { id, calendarId, confirm: true } · trip-gcal-off { id, confirm: true }
+//
+// Both carry named fields only (as a trip link's file, triplink.js): the trip's title and dates, each stop's place, time
+// and length. Never notes, links, costs or booking references: a calendar is copied into other apps and kept.
 
 import { ApiError } from '../accounts/util.js';
 import { googleInAccount, calendarScopesOk } from '../accounts/schedule.js';
@@ -66,6 +70,9 @@ async function feedRevoke(account) {
   await feedIndex(account.env, code, 'tshare-index-drop').catch(() => {});
   return { revoked: true };
 }
+
+/** The trip with named fields only (as triplink.js gives the people on it): nothing private goes into a calendar. */
+export const plainTrip = (t, id = t.id) => ({ id, title: t.title, start: t.start, days: (t.days || []).map((d) => ({ title: d.title, stops: (d.stops || []).map((x) => ({ id: x.id, kind: x.kind, at: x.at, minutes: x.minutes, nights: x.nights, place: { name: x.place && x.place.name, lat: x.place && x.place.lat, lng: x.place && x.place.lng } })) })) });
 
 /** Every trip of the account in one calendar (each trip's events from ics.js, under one name). */
 export function tripsToIcs(trips, { now = Date.now() } = {}) {
@@ -162,7 +169,7 @@ async function tripZone(account, trip, fetcher) {
 /** One stop as a Google Calendar event: timed in the trip's zone, a stay all day over its nights. */
 export function stopEvent(trip, d, s, zone) {
   const date = dayDate(trip, d);
-  const base = { title: s.place && s.place.name || 'Stop', location: s.place && s.place.name || undefined, notes: [s.note, 'From Ask Eden Travel'].filter(Boolean).join('\n\n') };
+  const base = { title: s.place && s.place.name || 'Stop', location: s.place && s.place.name || undefined, notes: 'From Ask Eden Travel' }; // never the stop's own notes
   if (s.kind === 'stay' && Number.isInteger(s.nights) && s.nights > 0) {
     const end = new Date(Date.parse(`${date}T00:00:00Z`) + s.nights * 86400_000).toISOString().slice(0, 10);
     return { ...base, allDay: true, start: date, end };
@@ -176,23 +183,44 @@ export function stopEvent(trip, d, s, zone) {
   return { ...base, allDay: false, start: at(startMin), end: at(endMin), timeZone: zone };
 }
 
-async function googleCalendar(account, deps) {
+/** Eden's Google Calendar, and the calendars it may write to (never a read-only one). */
+async function googleCalendars(account, deps) {
   const google = deps.google ? await deps.google(account) : await googleInAccount(account);
   if (!calendarScopesOk(google.scopes)) throw new ApiError(409, 'not_connected', 'Connect Google Calendar to Eden first (Settings › Google), then turn this on.');
   const api = google.calendar();
-  const cals = await api.calendars();
-  const main = cals.find((c) => c.primary) || cals.find((c) => !c.readOnly) || cals[0];
-  if (!main) throw new ApiError(404, 'not_found', 'No Google calendar to add the trip to.');
-  return { api, cal: main, email: google.email };
+  const writable = (await api.calendars()).filter((c) => !c.readOnly);
+  return { api, writable, email: google.email };
+}
+
+/** The calendar the person picked, still one Eden may write to. */
+async function googleCalendar(account, deps, calendarId) {
+  const { api, writable } = await googleCalendars(account, deps);
+  const cal = writable.find((c) => c.id === calendarId);
+  if (!cal) throw new ApiError(400, 'bad_request', 'Pick one of your Google calendars to add the trip to.');
+  return { api, cal };
+}
+
+/** What would change in Google: stops new, changed or taken out since the last sync (no call to Google). */
+async function pending(account, tripId, on, deps) {
+  const zone = await account.storage.get(`tz:${tripId}`);
+  if (!zone) return null;
+  const plain = plainTrip((await deps.tripOp(account, 'trip-get', { id: tripId })).trip, tripId);
+  const events = on.events || {};
+  let n = 0;
+  const seen = new Set();
+  plain.days.forEach((day, d) => day.stops.forEach((s) => { seen.add(s.id); const was = events[s.id]; if (!was || was.sig !== JSON.stringify(stopEvent(plain, d, s, zone))) n++; }));
+  for (const stop of Object.keys(events)) if (!seen.has(stop)) n++;
+  return n;
 }
 
 /** Writes the trip to Google Calendar: new stops added, changed ones updated, removed ones deleted. */
 export async function gcalWrite(account, tripId, deps) {
   const on = await account.storage.get(GKEY(tripId));
   if (!on) return null;
-  const { trip } = await deps.tripOp(account, 'trip-get', { id: tripId });
-  const zone = await tripZone(account, { ...trip, id: tripId }, deps.fetch || fetch);
-  const { api, cal } = await googleCalendar(account, deps);
+  const raw = (await deps.tripOp(account, 'trip-get', { id: tripId })).trip;
+  const zone = await tripZone(account, { ...raw, id: tripId }, deps.fetch || fetch); // the places' Google ids: for the zone only
+  const trip = plainTrip(raw, tripId); // what Google is given: named fields only
+  const { api, cal } = await googleCalendar(account, deps, on.calendarId);
   const act = deps.calendarAction || runCalendarAction;
   const events = { ...(on.events || {}) }; // stop id → { id, sig }
   const seen = new Set();
@@ -219,18 +247,9 @@ export async function gcalWrite(account, tripId, deps) {
     delete events[stop];
     removed++;
   }
-  const rec = { ...on, events, calendar: cal.title || 'Google Calendar', calendarId: cal.id, zone, synced: account.now(), error: null };
+  const rec = { ...on, events, calendar: cal.title || 'Google Calendar', calendarId: cal.id, zone, synced: account.now() };
   await account.storage.put(GKEY(tripId), rec);
   return { on: true, calendar: rec.calendar, zone, synced: rec.synced, added, updated, removed, events: Object.keys(events).length };
-}
-
-/** After a trip changed (account.js): written again if it syncs; a failure is kept to show, never thrown at the edit. */
-export async function gcalAfterWrite(account, tripId, deps) {
-  if (!tripId || !(await account.storage.get(GKEY(tripId)))) return;
-  try { await gcalWrite(account, tripId, deps); } catch (e) {
-    const on = await account.storage.get(GKEY(tripId));
-    if (on) await account.storage.put(GKEY(tripId), { ...on, error: String((e && e.message) || 'Google Calendar didn’t take the change.') });
-  }
 }
 
 /** The account object's side: trip-calfeed*, trip-gcal-*. `deps`: { tripOp, google?, fetch?, calendarAction? } (the last three: tests) */
@@ -238,17 +257,25 @@ export async function calOp(account, op, body, deps) {
   if (op === 'trip-calfeed') { const code = await account.storage.get('tcf:current'); return feedView(code ? await account.storage.get(`tcf:${code}`) : null); }
   if (op === 'trip-calfeed-create') return feedCreate(account, body);
   if (op === 'trip-calfeed-revoke') return feedRevoke(account);
+  if (op === 'trip-gcal-calendars') {
+    const { writable, email } = await googleCalendars(account, deps);
+    return { email, calendars: writable.map((c) => ({ id: c.id, title: c.title, primary: Boolean(c.primary) })) };
+  }
   const id = String(body.id || '');
   if (!id) throw new ApiError(400, 'bad_request', 'Which trip?');
   if (op === 'trip-gcal-status') {
     const on = await account.storage.get(GKEY(id));
-    return on ? { on: true, calendar: on.calendar || null, synced: on.synced || null, error: on.error || null, events: Object.keys(on.events || {}).length } : { on: false };
+    return on ? { on: true, calendar: on.calendar || null, calendarId: on.calendarId || null, synced: on.synced || null, events: Object.keys(on.events || {}).length, pending: await pending(account, id, on, deps).catch(() => null) } : { on: false };
   }
   if (op === 'trip-gcal-sync') {
     if (body.confirm !== true) throw new ApiError(400, 'bad_request', 'Syncing to Google Calendar needs confirm: true (the person pressed it).');
     await deps.tripOp(account, 'trip-get', { id }); // a trip of this account (404 otherwise)
     const was = await account.storage.get(GKEY(id));
-    await account.storage.put(GKEY(id), { ...(was || { events: {} }), on: true, since: (was && was.since) || account.now() });
+    // the calendar the person picked (the first time); later updates write to the same one
+    const calendarId = (was && was.calendarId) || String(body.calendarId || '');
+    if (!calendarId) throw new ApiError(400, 'bad_request', 'Pick one of your Google calendars to add the trip to.');
+    await googleCalendar(account, deps, calendarId);
+    await account.storage.put(GKEY(id), { ...(was || { events: {} }), on: true, calendarId, since: (was && was.since) || account.now() });
     try { return await gcalWrite(account, id, deps); } catch (e) { if (!was) await account.storage.delete(GKEY(id)); throw e; }
   }
   if (op === 'trip-gcal-off') {
@@ -256,10 +283,10 @@ export async function calOp(account, op, body, deps) {
     const on = await account.storage.get(GKEY(id));
     if (!on) return { on: false, removed: 0 };
     let removed = 0;
-    const { api, cal } = await googleCalendar(account, deps).catch(() => ({}));
+    const { api } = await googleCalendars(account, deps).catch(() => ({}));
     for (const ev of Object.values(on.events || {})) {
       if (!api) break;
-      await (deps.calendarAction || runCalendarAction)(api, 'delete', { calendarId: on.calendarId || cal.id, id: ev.id, confirm: true }).then(() => removed++, () => {});
+      await (deps.calendarAction || runCalendarAction)(api, 'delete', { calendarId: on.calendarId, id: ev.id, confirm: true }).then(() => removed++, () => {});
     }
     await account.storage.delete(GKEY(id));
     return { on: false, removed };

@@ -31,7 +31,7 @@ test('a zone’s offset at a wall-clock time there, summer time included', () =>
 test('one stop as a Google event: timed in the trip’s zone (15 minutes at least), a stay all day over its nights', () => {
   const museum = stopEvent(TRIP, 0, TRIP.days[0].stops[1], 'Europe/Lisbon');
   assert.deepEqual({ start: museum.start, end: museum.end, allDay: museum.allDay, timeZone: museum.timeZone }, { start: '2026-11-28T10:00:00+00:00', end: '2026-11-28T11:30:00+00:00', allDay: false, timeZone: 'Europe/Lisbon' });
-  assert.match(museum.notes, /Closed Mondays[\s\S]*From Ask Eden Travel/);
+  assert.equal(museum.notes, 'From Ask Eden Travel', 'never the stop’s own notes (they can hold references)');
   const hotel = stopEvent(TRIP, 0, TRIP.days[0].stops[0], 'Europe/Lisbon');
   assert.deepEqual({ start: hotel.start, end: hotel.end, allDay: hotel.allDay }, { start: '2026-11-28', end: '2026-11-30', allDay: true });
   const coffee = stopEvent(TRIP, 1, TRIP.days[1].stops[0], 'Europe/Lisbon');
@@ -72,24 +72,33 @@ function google({ scopes = ['https://www.googleapis.com/auth/calendar.events'] }
   return g;
 }
 
-test('Google Calendar: switched on with the person’s confirm, each stop an event in the main calendar, in Lisbon time', async () => {
+test('Google Calendar: the person picks a calendar it may write to; each stop an event there, in Lisbon time, named fields only', async () => {
   const account = fakeAccount();
   const g = google();
-  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'trip1' }, g.deps(TRIP)), /confirm: true/);
-  const r = await calOp(account, 'trip-gcal-sync', { id: 'trip1', confirm: true }, g.deps(TRIP));
+  assert.deepEqual(await calOp(account, 'trip-gcal-calendars', {}, g.deps(TRIP)), { email: 'ana@example.com', calendars: [{ id: 'primary-cal', title: 'Ana', primary: true }] }, 'never a read-only one');
+  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'trip1', calendarId: 'primary-cal' }, g.deps(TRIP)), /confirm: true/);
+  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'trip1', confirm: true }, g.deps(TRIP)), /Pick one of your Google calendars/);
+  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'trip1', calendarId: 'cal-shared', confirm: true }, g.deps(TRIP)), /Pick one/, 'a read-only calendar can’t be picked');
+  assert.equal(account.store.get('gcal:trip1'), undefined);
+  const r = await calOp(account, 'trip-gcal-sync', { id: 'trip1', calendarId: 'primary-cal', confirm: true }, g.deps(TRIP));
   assert.deepEqual({ on: r.on, calendar: r.calendar, zone: r.zone, added: r.added }, { on: true, calendar: 'Ana', zone: 'Europe/Lisbon', added: 3 });
-  assert.ok(g.actions.every((a) => a.args.calendarId === 'primary-cal' && a.args.confirm === true), 'the main calendar, never a read-only one');
-  assert.equal(g.actions.find((a) => a.args.event.title === 'Tile Museum').args.event.start, '2026-11-28T10:00:00+00:00');
+  assert.ok(g.actions.every((a) => a.args.calendarId === 'primary-cal' && a.args.confirm === true));
+  const museum = g.actions.find((a) => a.args.event.title === 'Tile Museum').args.event;
+  assert.equal(museum.start, '2026-11-28T10:00:00+00:00');
+  assert.equal(museum.notes, 'From Ask Eden Travel', 'never the stop’s own notes');
   assert.equal(account.store.get('tz:trip1'), 'Europe/Lisbon', 'the zone is looked up once');
-  assert.deepEqual(await calOp(account, 'trip-gcal-status', { id: 'trip1' }, g.deps(TRIP)), { on: true, calendar: 'Ana', synced: 1_800_000_000_000, error: null, events: 3 });
+  assert.deepEqual(await calOp(account, 'trip-gcal-status', { id: 'trip1' }, g.deps(TRIP)), { on: true, calendar: 'Ana', calendarId: 'primary-cal', synced: 1_800_000_000_000, events: 3, pending: 0 });
 });
 
-test('Google Calendar: a changed stop is updated, a removed one deleted, an unchanged one left alone; off deletes them all', async () => {
+test('Google Calendar: Update writes what changed (a moved stop updated, a removed one deleted, the rest left); stopping deletes them all', async () => {
   const account = fakeAccount();
   const g = google();
-  await calOp(account, 'trip-gcal-sync', { id: 'trip1', confirm: true }, g.deps(TRIP));
+  await calOp(account, 'trip-gcal-sync', { id: 'trip1', calendarId: 'primary-cal', confirm: true }, g.deps(TRIP));
   g.actions.length = 0;
   g.trip = { ...TRIP, days: [{ ...TRIP.days[0], stops: [TRIP.days[0].stops[0], { ...TRIP.days[0].stops[1], at: '11:00' }] }, { title: 'Belém', stops: [] }] };
+  // nothing is written until the person presses Update: the status says what changed
+  assert.equal(g.actions.length, 0);
+  assert.equal((await calOp(account, 'trip-gcal-status', { id: 'trip1' }, g.deps(TRIP))).pending, 2);
   const again = await calOp(account, 'trip-gcal-sync', { id: 'trip1', confirm: true }, g.deps(TRIP));
   assert.deepEqual({ added: again.added, updated: again.updated, removed: again.removed }, { added: 0, updated: 1, removed: 1 });
   assert.deepEqual(g.actions.map((a) => a.action).sort(), ['delete', 'update']);
@@ -102,9 +111,9 @@ test('Google Calendar: a changed stop is updated, a removed one deleted, an unch
 
 test('Google Calendar refused without the calendar permission, or for another account’s trip; nothing is left switched on', async () => {
   const account = fakeAccount();
-  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'trip1', confirm: true }, google({ scopes: [] }).deps(TRIP)), /Connect Google Calendar/);
+  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'trip1', calendarId: 'primary-cal', confirm: true }, google({ scopes: [] }).deps(TRIP)), /Connect Google Calendar/);
   assert.equal(account.store.get('gcal:trip1'), undefined);
-  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'nope', confirm: true }, google().deps(TRIP)), /no such trip/);
+  await assert.rejects(calOp(account, 'trip-gcal-sync', { id: 'nope', calendarId: 'primary-cal', confirm: true }, google().deps(TRIP)), /no such trip/);
 });
 
 // ── the subscription link, through the Worker ──
@@ -144,4 +153,17 @@ test('the subscription link: every trip, for any calendar app, no sign-in; a new
   assert.deepEqual(await (await post({ action: 'calfeed-revoke', args: {} }, session)).json(), { revoked: true });
   assert.equal((await get(new URL(second.url).pathname)).status, 404);
   assert.doesNotMatch((await get('/c/short.ics')).headers.get('content-type') || '', /calendar/, 'not a feed address: never a calendar');
+});
+
+test('Plus: making a calendar link needs it; switching one off doesn’t; a link stops serving while the owner has no Plus', async () => {
+  const session = (await call(env, A, 'web-signin', { account_id: A, create: true, device: { name: 'Eden on the web: Safari on a Mac' } })).token;
+  await post({ action: 'sample', args: {} }, session);
+  const made = await (await post({ action: 'calfeed-create', args: {} }, session)).json();
+  assert.equal((await get(new URL(made.url).pathname)).status, 200);
+  env.TRAVEL_PLUS = '1'; // Plus required again, and this account has none
+  assert.equal((await get(new URL(made.url).pathname)).status, 404, 'not served without Plus');
+  const refused = await post({ action: 'calfeed-create', args: {} }, session);
+  assert.equal(refused.status, 402);
+  assert.equal((await post({ action: 'calfeed', args: {} }, session)).status, 200, 'seeing it, without Plus');
+  assert.deepEqual(await (await post({ action: 'calfeed-revoke', args: {} }, session)).json(), { revoked: true }, 'switching it off, without Plus');
 });
