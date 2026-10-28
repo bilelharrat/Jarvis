@@ -85,21 +85,21 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   // who's looking at a shared trip, and a member's copy of it (together.js)
   if (body.action === 'shared-presence-beat' || body.action === 'shared-copy') {
     const a0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
-    if (body.action === 'shared-copy') await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    if (body.action === 'shared-copy') await limited(env, 'EDEN_RATE', `travel:${who.account}`);
     return json(await togetherApi(env, who, body.action, a0, { call, ask }));
   }
   if (MEMBER_ACTIONS.has(body.action)) {
     const args0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
-    if (['join', 'shared-get', 'shared-propose', 'shared-decisions', 'shared-chat-post', 'shared-expense-add', 'shared-photo-add', 'shared-discover', 'shared-nearby'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    if (['join', 'shared-get', 'shared-propose', 'shared-decisions', 'shared-chat-post', 'shared-expense-add', 'shared-photo-add', 'shared-discover', 'shared-nearby'].includes(body.action)) await limited(env, 'EDEN_RATE', `travel:${who.account}`);
     return json(await memberApi(env, who, body.action, args0, { call }));
   }
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
   // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.
-  if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'stays-rates' || body.action === 'stays-quote' || body.action === 'rail-check' || body.action === 'ground-search' || body.action.startsWith('flight') || ['discover', 'nearby', 'decisions', 'optimize', 'windows', 'paste', 'doc-add', 'chat-post', 'activities', 'fwatch-on', 'photo-add', 'copy', 'check-report', 'promise-rebook', 'esim', 'esim-check', 'year', 'card-perk', 'claims'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
+  if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'stays-rates' || body.action === 'stays-quote' || body.action === 'rail-check' || body.action === 'ground-search' || body.action.startsWith('flight') || ['discover', 'nearby', 'decisions', 'optimize', 'windows', 'paste', 'doc-add', 'chat-post', 'activities', 'fwatch-on', 'photo-add', 'copy', 'check-report', 'promise-rebook', 'esim', 'esim-check', 'year', 'card-perk', 'claims'].includes(body.action)) await limited(env, 'EDEN_RATE', `travel:${who.account}`); // create: its named places are looked up (ops.js locate)
   // Eden Mail reads: held to the turn rate; `local` only from wrangler dev with a fake Google (as tasks.js)
   if (body.action === 'mailwatch-on') args.local = local; // the email watch's first look (a fake Google only under wrangler dev)
-  if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `turn:${who.account}`); args.local = local; }
+  if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `travel:${who.account}`); args.local = local; }
   // where Stripe sends the traveller back: this very address (askedentravel.com or askeden.com), never one the page names
   if (body.action === 'pay-start' || body.action === 'calfeed-create') args.origin = new URL(request.url).origin;
   return json(await call(env, who.account, `trip-${body.action}`, args, who.token));
