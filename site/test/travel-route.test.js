@@ -57,8 +57,8 @@ async function hit(p, { method = 'GET', body, headers = {}, session, cookie, tok
 }
 const cookieValue = (response, name) => ((response.headers.getSetCookie() || []).find((c) => c.startsWith(`${name}=`)) || '').slice(name.length + 1).split(';')[0];
 
-async function signedIn() {
-  const r = await hit('/api/account/apple', { method: 'POST', headers: { origin: null }, body: { identity_token: await identityToken({ sub: 'traveller-1' }), nonce: 'raw-nonce', device: { name: 'iPhone', kind: 'iphone' } } });
+async function signedIn(sub = 'traveller-1') {
+  const r = await hit('/api/account/apple', { method: 'POST', headers: { origin: null }, body: { identity_token: await identityToken({ sub }), nonce: 'raw-nonce', device: { name: 'iPhone', kind: 'iphone' } } });
   assert.equal(r.status, 200, await r.clone().text());
   const me = await r.json();
   const started = await hit('/api/web/link', { method: 'POST', body: {} });
@@ -174,4 +174,45 @@ test('without Plus a trip link can still be ended (and stops showing), and a tri
   assert.equal((await travel(session, 'link-revoke', { code: link.body.code })).status, 200);
   assert.equal((await travel(session, 'delete', { id: made.body.trip.id })).status, 200);
   assert.equal((await travel(session, 'sample')).status, 402);
+});
+
+test('planning together: an invite, a member who sees the whole trip and suggests, the organiser who applies; a member can’t change it', async () => {
+  const owner = await signedIn('organiser-1');
+  const friend = await signedIn('friend-1');
+  const made = await travel(owner, 'sample');
+  const id = made.body.trip.id;
+  const inv = await travel(owner, 'invite-create', { id });
+  assert.equal(inv.status, 200, JSON.stringify(inv.body));
+  assert.match(inv.body.url, /^\/join\/[a-z0-9]{12}$/);
+  const page = await hit(inv.body.url, { session: friend });
+  assert.equal(page.headers.get('location'), `/travel?join=${inv.body.code}`);
+  const joined = await travel(friend, 'join', { code: inv.body.code, name: 'Sam' });
+  assert.equal(joined.status, 200, JSON.stringify(joined.body));
+  const list = await travel(friend, 'shared-list', {});
+  assert.deepEqual(list.body.shared.map((x) => x.trip), [id]);
+  const seen = await travel(friend, 'shared-get', { owner: joined.body.owner, trip: id });
+  assert.equal(seen.body.trip.title, made.body.trip.title);
+  assert.ok(!('rewards' in seen.body), 'never the organiser’s cards');
+  // a member can't act on the organiser's trip through their own account
+  assert.equal((await travel(friend, 'apply', { id, proposal: 'x', confirm: true })).status, 404);
+  const stop = made.body.trip.days[0].stops[1];
+  const sug = await travel(friend, 'shared-propose', { owner: joined.body.owner, trip: id, title: 'Later lunch', ops: [{ op: 'time', stop: stop.id, at: '14:00' }] });
+  assert.equal(sug.status, 200, JSON.stringify(sug.body));
+  const mine = await (await chat(owner, { path: `/api/chat/travel?id=${id}` })).json();
+  assert.equal(mine.proposal.by, 'member');
+  assert.equal(mine.proposal.by_name, 'Sam');
+  const applied = await travel(owner, 'apply', { id, proposal: mine.proposal.id, confirm: true });
+  assert.equal(applied.status, 200);
+  // the organiser takes them off: the trip is gone for them
+  await travel(owner, 'member-remove', { id, member: (await travel(owner, 'members', { id })).body.members[0].member });
+  assert.equal((await travel(friend, 'shared-get', { owner: joined.body.owner, trip: id })).status, 404);
+  assert.equal((await travel(friend, 'join', { code: 'aaaaaaaaaaaa' })).status, 404, 'a made-up invite');
+});
+
+test('the shared trip page: photos only of the trip’s own stops; the map from the day’s stops', async () => {
+  const session = await signedIn();
+  const made = await travel(session, 'sample');
+  const link = await travel(session, 'link-create', { id: made.body.trip.id });
+  const r = await hit(`${link.body.url}/photo?n=${encodeURIComponent('places/ChIJnotOnThisTrip0/photos/AbCdEfGhIjKlMn')}`);
+  assert.equal(r.status, 404, 'not any Google photo on Eden’s key');
 });

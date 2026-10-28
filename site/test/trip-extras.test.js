@@ -269,3 +269,31 @@ test('ics: the id defaults to the trip’s, and odd characters are kept out of t
   const t = { ...TRIP, id: 'trip 9/x', days: [TRIP.days[1]] };
   assert.equal(events(tripToIcs(t, { now: NOW }))[0].UID, 'trip-9-x-s4@askeden.com');
 });
+
+test('a train or bus: booked only after a fresh seat check, the person’s button and their acceptance of the carrier’s terms', async () => {
+  const { extraOp } = await import('../src/travel/extraops.js');
+  const m = new Map();
+  const clock = { t: Date.parse('2027-05-01T10:00:00Z') };
+  const account = { env: {}, now: () => clock.t, storage: { get: async (k) => m.get(k), put: async (k, v) => m.set(k, v), delete: async (k) => m.delete(k) } };
+  const calls = [];
+  const rail = {
+    vacancy: async (a) => { calls.push(['vacancy', a]); return { vacant: true, total_price: { amount: 48, currency: 'EUR' }, source: 'Distribusion', checked_at: 'now' }; },
+    reserve: async (a) => { calls.push(['reserve', a]); return { reservation_id: 'R1234' }; },
+    confirm: async (d, o) => { calls.push(['confirm', d, o]); return { reservation_id: 'R1234', carrier_refs: ['SNCF-77'] }; },
+  };
+  const marks = [];
+  const deps = { rail, tripOp: async (_a, op, b) => { marks.push([op, b]); return {}; } };
+  const base = { offer_id: 'off_1', passenger_ids: ['p1', 'p2'] };
+  await assert.rejects(extraOp(account, 'trip-rail-book', { ...base, terms_accepted: true, confirm: true, passengers: [{ first_name: 'A', last_name: 'B' }, { first_name: 'C', last_name: 'D' }], email: 'a@b.co' }, deps), /Check the seats and price again/);
+  await extraOp(account, 'trip-rail-check', { ...base, title: 'Train Paris → Lyon' }, deps);
+  await assert.rejects(extraOp(account, 'trip-rail-book', { ...base, confirm: true, terms_accepted: false, passengers: [], email: 'a@b.co' }, deps), /accept the carrier’s terms/);
+  await assert.rejects(extraOp(account, 'trip-rail-book', { ...base, terms_accepted: true, passengers: [], email: 'a@b.co' }, deps), /confirm: true/);
+  const b = await extraOp(account, 'trip-rail-book', { ...base, confirm: true, terms_accepted: true, passengers: [{ first_name: 'A', last_name: 'B' }, { first_name: 'C', last_name: 'D' }], email: 'a@b.co', id: 't1', stop: 's-1' }, deps);
+  assert.deepEqual(b.carrier_refs, ['SNCF-77']);
+  assert.equal(calls.find((c) => c[0] === 'confirm')[2].confirm, true);
+  assert.deepEqual(marks[0][1], { id: 't1', stop: 's-1', ref: 'SNCF-77', provider: 'Distribusion', via: 'api', cost: { amount: 48, currency: 'EUR' }, confirm: true });
+  clock.t += 21 * 60_000;
+  await extraOp(account, 'trip-rail-check', { ...base }, deps);
+  clock.t += 21 * 60_000;
+  await assert.rejects(extraOp(account, 'trip-rail-book', { ...base, confirm: true, terms_accepted: true, passengers: [{ first_name: 'A', last_name: 'B' }, { first_name: 'C', last_name: 'D' }], email: 'a@b.co' }, deps), /ran out/, 'a check older than 20 minutes');
+});

@@ -6,6 +6,11 @@
 //   trip-ground-stations { mode: 'ferry'|'train', query }                               → ports or stations
 //   trip-weather         { id }    → { days: [{ date, place, high_c, low_c, rain_chance_pct, summary } | { date, forecast: null, why }] }
 //   trip-entry           { country_code, passport? }   → the official pages to read (never rules of Eden's own)
+//   trip-rail-check      { offer_id, passenger_ids, adults, currency }  → Distribusion's live seats and price (kept a while)
+//   trip-rail-book       { offer_id, passenger_ids, passengers: [{ first_name, last_name }], email, terms_accepted: true,
+//                          id?, stop?, confirm: true } → reserve, then confirm; the stop marked booked (via api)
+// A train or bus is bought by Eden from Distribusion (invoiced to Eden), so with TRAVEL_PAY on the traveller pays first
+// (pay.js kind rail; account.js refuses trip-rail-book without it, 402 pay_first).
 
 import { GroundError, groundFor } from './ground.js';
 import { entryAdvice } from './entry.js';
@@ -13,10 +18,13 @@ import { forecast } from './weather.js';
 import { TripError, dayDate } from './trips.js';
 
 export const WEATHER_MS = 3 * 3600_000; // a forecast kept 3 hours per trip
+export const RAIL_CHECK_MS = 20 * 60_000; // a seat check is good this long for the booking that follows
+const ADULT = 'PNOS'; // Distribusion's passenger type in its docs' example (an adult); GAP: other types aren't documented
 
 const asTripError = (e) => (e instanceof GroundError ? new TripError(e.message, e.code === 'not_found' || e.code === 'not_set_up' ? 404 : e.code === 'rate_limited' ? 429 : e.code === 'unavailable' ? 503 : 400, e.code) : e);
 
-export async function extraOp(account, op, body, { cache, fetch } = {}) {
+export async function extraOp(account, op, body, deps = {}) {
+  const { cache, fetch } = deps;
   const now = () => account.now();
   try {
     switch (op) {
@@ -36,6 +44,30 @@ export async function extraOp(account, op, body, { cache, fetch } = {}) {
         }
         const out = mode === 'ferry' ? await p.search({ from: body.from, to: body.to, date: body.date, adults: body.adults }) : await p.search({ from_station: body.from, to_station: body.to, date: body.date, adults: body.adults });
         return { mode, options: Array.isArray(out) ? out : out.options || [] };
+      }
+      case 'trip-rail-check':
+      case 'trip-rail-book': {
+        const rail = deps.rail !== undefined ? deps.rail : groundFor(account.env, { fetch, now }).rail;
+        if (!rail) throw new TripError('Train and bus booking isn’t switched on yet (Distribusion needs its key).', 404, 'not_set_up');
+        const ids = (Array.isArray(body.passenger_ids) ? body.passenger_ids : []).map(String).slice(0, 9);
+        const offers = [{ id: String(body.offer_id || ''), passenger_ids: ids }];
+        if (op === 'trip-rail-check') {
+          const v = await rail.vacancy({ offers, passengers: ids.map((id) => ({ id, type: ADULT, pax: 1 })), currency: body.currency || 'EUR' });
+          if (v.vacant) await account.storage.put(`rlq:${body.offer_id}`, { at: now(), total: v.total_price, offer_id: body.offer_id, passenger_ids: ids, title: String(body.title || 'Train').slice(0, 120) });
+          return v;
+        }
+        if (body.confirm !== true) throw new TripError('rail-book needs confirm: true (the person pressed Book).');
+        if (body.terms_accepted !== true) throw new TripError('The traveller has to accept the carrier’s terms first.');
+        const kept = await account.storage.get(`rlq:${String(body.offer_id || '')}`);
+        if (!kept || now() - kept.at > RAIL_CHECK_MS) throw new TripError('Check the seats and price again first: the last check ran out.', 409, 'check_expired');
+        const people = (Array.isArray(body.passengers) ? body.passengers : []).slice(0, ids.length);
+        if (people.length !== ids.length) throw new TripError('A first and last name is needed for each passenger.');
+        const passengers = ids.map((id, i) => ({ id, type: ADULT, first_name: people[i].first_name, last_name: people[i].last_name }));
+        const r = await rail.reserve({ email: body.email, offers, passengers });
+        const b = await rail.confirm({ reservation_id: r.reservation_id, first_name: people[0].first_name, last_name: people[0].last_name, email: body.email, terms_accepted: true, passengers }, { confirm: true });
+        if (body.id && body.stop && deps.tripOp) await deps.tripOp(account, 'trip-mark-booked', { id: body.id, stop: body.stop, ref: (b.carrier_refs && b.carrier_refs[0]) || b.reservation_id || r.reservation_id, provider: 'Distribusion', via: 'api', cost: kept.total ? { amount: Number(kept.total.amount), currency: kept.total.currency } : undefined, confirm: true }).catch(() => {});
+        await account.storage.delete(`rlq:${body.offer_id}`);
+        return b;
       }
       case 'trip-weather': {
         const id = String(body.id || '');

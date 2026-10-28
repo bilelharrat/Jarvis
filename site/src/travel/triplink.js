@@ -13,13 +13,14 @@
 //   GET /t/<code>                 the page (public/travel-trip/), noindex
 //   GET /t/<code>/data            → tlink-view
 //   GET /t/<code>/map?day=N       that day's map picture, from its own stops (only while the link is live)
+//   GET /t/<code>/photo?n=…       a stop's Google photo (only one of this trip's own stops)
 //   GET /t/<code>/calendar.ics    the trip as a calendar file (ics.js)
 //   GET /t/<file>                 the page's own files (TRIP_FILES)
 
 import { ApiError, json } from '../accounts/util.js';
 import { page as pageHeaders, withHeaders } from '../eden/web.js';
 import { travelOn } from './api.js';
-import { flightMapImage, MapsError } from './maps.js';
+import { flightMapImage, MapsError, placePhoto } from './maps.js';
 import { CODE, NOINDEX, TRACK_CSP, ask, asset, index, newCode, slowDown } from './track.js';
 import { dayDate } from './trips.js';
 
@@ -94,6 +95,7 @@ export function guestView(trip, checks) {
             place: { name: s.place.name, lat: s.place.lat, lng: s.place.lng },
             booked: Boolean(s.booked), // booked or not, never the reference
             hours: badge(v.badges && v.badges.hours), travel: badge(v.badges && v.badges.travel),
+            photo: v.photo ? { name: v.photo.name, by: v.photo.by || null } : null, // Google's photo of the place, credited
           };
         }),
       };
@@ -115,7 +117,7 @@ export async function linkPublicOp(account, op, body, { tripOp }) {
 
 /** GET /t/…: the page, its files, its data, the map and the calendar file. Null: not ours. */
 export async function tripLinkPage(request, env, path, { tripToIcs } = {}) {
-  const m = /^\/t\/([a-z0-9]{12})(?:\/(data|map|calendar\.ics))?$/.exec(path);
+  const m = /^\/t\/([a-z0-9]{12})(?:\/(data|map|photo|calendar\.ics))?$/.exec(path);
   if (!m) {
     const file = path.slice(3);
     if (!TRIP_FILES.has(file)) return null;
@@ -130,6 +132,13 @@ export async function tripLinkPage(request, env, path, { tripToIcs } = {}) {
     await slowDown(env, 'API_RATE', `tln-ip:${ip}`);
     const { account } = await index(env, code, 'tshare-index-get');
     if (part === 'data') return withHeaders(json(await ask(env, account, 'tlink-view', { code })), NOINDEX);
+    if (part === 'photo') {
+      // only a photo of one of this trip's own stops: not any Google photo on Eden's key
+      const view = await ask(env, account, 'tlink-view', { code });
+      const n = new URL(request.url).searchParams.get('n') || '';
+      if (!view.trip.days.some((d) => d.stops.some((x) => x.photo && x.photo.name === n))) throw new ApiError(404, 'not_found', 'No such photo on this trip.');
+      return withHeaders(await placePhoto(env, new URL(`https://photo.invalid/?n=${encodeURIComponent(n)}&w=160`)), NOINDEX);
+    }
     if (part === 'map') {
       // the day's own stops only (built here from the trip, never points from the request): not a map of anywhere on Eden's key
       const view = await ask(env, account, 'tlink-view', { code });

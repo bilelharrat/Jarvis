@@ -20,6 +20,8 @@ import { SESSION_COOKIE, SIGNIN_CSP, clearCookie, cookie, cookies, page } from '
 import { browserName, currentSession } from './session.js';
 
 export const HAND_COOKIE = '__Host-eden-hand';
+const THEN_COOKIE = '__Host-eden-then'; // where the sign-in goes on to: only a trip invite (/join/<code>)
+const THEN = /^\/join\/[a-z0-9]{12}$/;
 const HAND_SECONDS = 600;
 const CODE_SECONDS = 60;
 const CODE = /^[A-Za-z0-9_-]{43}$/;
@@ -32,7 +34,7 @@ const origin = (v, fallback) => { const o = String(v || fallback); return /^http
 const mainOrigin = (env) => origin(env.MAIN_ORIGIN, 'https://askeden.com');
 const travelOrigin = (env) => origin(env.TRAVEL_ORIGIN, `https://${travelHost(env)}`);
 
-function note(title, text, link, label) {
+export function note(title, text, link, label) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 ${link && !label ? `<meta http-equiv="refresh" content="0; url=${link}">` : ''}<title>Eden Travel</title><link rel="stylesheet" href="/signin/signin.css"></head>
 <body><main class="card"><h1>${title}</h1>${text ? `<p>${text}</p>` : ''}${link ? `<p><a class="button" href="${link}">${label || 'Continue'}</a></p>` : ''}</main></body></html>`;
@@ -49,6 +51,8 @@ export async function handStart(request, env) {
   const state = b64url(randomBytes(32));
   const res = go(`${mainOrigin(env)}/hand?s=${await sha256Hex(state)}`);
   res.headers.append('set-cookie', cookie(HAND_COOKIE, state, { maxAge: HAND_SECONDS, sameSite: 'Lax' }));
+  const then = new URL(request.url).searchParams.get('then') || '';
+  if (THEN.test(then)) res.headers.append('set-cookie', cookie(THEN_COOKIE, then.slice(6), { maxAge: HAND_SECONDS, sameSite: 'Lax' }));
   return res;
 }
 
@@ -70,6 +74,8 @@ export async function handPage(request, env) {
   return go(`${travelOrigin(env)}/api/web/site-handoff/finish?code=${code}`);
 }
 
+const nextOf = (request) => { const c = String(cookies(request)[THEN_COOKIE] || ''); return /^[a-z0-9]{12}$/.test(c) ? `/join/${c}` : '/'; };
+
 /** 3. Back on the travel address: the code for this browser's own state, and its session. */
 export async function handFinish(request, env) {
   if (!onTravelHost(request, env)) throw new ApiError(404, 'not_found', 'No such thing here.');
@@ -86,14 +92,15 @@ export async function handFinish(request, env) {
     // this browser already signed in here to the same account: no second browser device
     const here = await currentSession(request, env).catch(() => ({ session: null }));
     if (here.session && here.session.account === kept.account_id) {
-      const same = note('Opening Eden Travel…', '', '/');
+      const same = note('Opening Eden Travel…', '', nextOf(request));
       same.headers.append('set-cookie', clearCookie(HAND_COOKIE, 'Lax'));
       return same;
     }
     const made = await call(env, kept.account_id, 'web-signin', { account_id: kept.account_id, device: { name: browserName(request), app_version: `${travelHost(env)} (askeden.com sign-in)` } });
     // a page that moves on, not a redirect: this load came from another site, and a browser holds a Strict cookie back
     // from the rest of a chain that started there (the next load, started here, has it)
-    const res = note('Opening Eden Travel…', '', '/');
+    const res = note('Opening Eden Travel…', '', nextOf(request));
+    res.headers.append('set-cookie', clearCookie(THEN_COOKIE, 'Lax'));
     res.headers.append('set-cookie', cookie(SESSION_COOKIE, made.token, { maxAge: WEB_SESSION_DAYS * 86400 }));
     res.headers.append('set-cookie', clearCookie(HAND_COOKIE, 'Lax'));
     return res;

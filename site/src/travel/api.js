@@ -9,15 +9,18 @@
 //   POST /api/chat/travel { action, args }
 //     pay-start, pay-complete, pay-status, pay-latest: a booking paid with the traveller's card first (pay.js)
 //     calfeed, calfeed-create, calfeed-revoke, gcal-calendars, gcal-status, gcal-sync, gcal-off: the trips in the traveller's calendar (calsync.js)
-//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, flight-live, mail-scan, mail-preview, mail-import, share-create, shares, share-revoke, link-create, links, link-revoke, stays-search, stays-rates, stays-quote, stays-book, stays-cancel, ground-search, ground-stations, weather, entry
+//     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, flight-live, mail-scan, mail-preview, mail-import, share-create, shares, share-revoke, link-create, links, link-revoke, stays-search, stays-rates, stays-quote, stays-book, stays-cancel, ground-search, ground-stations, weather, entry, rail-check, rail-book
 //   GET  /api/chat/travel/calendar?id=<id>  → the trip as a calendar file (ics.js)
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
 import { MapsError, flightMapImage, placePhoto } from './maps.js';
 import { tripToIcs } from './ics.js';
+import { memberApi } from './members.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke']);
+// a member's actions on a trip shared with them (members.js memberApi): the organiser's object is asked, not theirs
+const MEMBER_ACTIONS = new Set(['join', 'shared-list', 'shared-get', 'shared-propose', 'shared-leave']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
@@ -42,6 +45,11 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   }
   if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'GET or POST');
   const body = await readBody(request, 256 * 1024);
+  if (MEMBER_ACTIONS.has(body.action)) {
+    const args0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
+    if (body.action === 'join') await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    return json(await memberApi(env, who, body.action, args0, { call }));
+  }
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
   // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.

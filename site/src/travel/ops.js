@@ -40,6 +40,7 @@ import { shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
 import { priceDrops, stayOp } from './stayops.js';
 import { extraOp } from './extraops.js';
+import { inviteCreate, inviteRevoke, joinedOp, memberRemove, membersOf } from './members.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
@@ -144,7 +145,8 @@ export async function tripOp(account, op, body = {}, deps = {}) {
         id: hex(6),
         title: String(body.title || 'Proposed change').replace(/\s+/g, ' ').trim().slice(0, 120),
         reason: String(body.reason || '').replace(/\s+/g, ' ').trim().slice(0, 600),
-        by: body.by === 'eden' ? 'eden' : 'person',
+        by: body.by === 'eden' ? 'eden' : body.by === 'member' ? 'member' : 'person',
+        ...(body.by === 'member' ? { by_name: String(body.by_name || '').slice(0, 40) } : {}), // a suggestion from someone on the trip (members.js)
         base_rev: trip.rev,
         ops: body.ops,
         created: now(),
@@ -295,8 +297,14 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-stays-search': case 'trip-stays-rates': case 'trip-stays-quote': case 'trip-stays-book': case 'trip-stays-cancel':
       return await stayOp(account, op, body, { ...deps, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
     // ferries, trains and buses, car hire; each day's weather; the official entry advice (extraops.js)
-    case 'trip-ground-search': case 'trip-ground-stations': case 'trip-weather': case 'trip-entry':
-      return await extraOp(account, op, body, { cache, fetch: deps.fetch });
+    // planning together (members.js): the organiser's invites and members, and a member's own list of shared trips
+    case 'trip-invite-create': return await inviteCreate(account, body);
+    case 'trip-members': return await membersOf(account, body);
+    case 'trip-member-remove': return await memberRemove(account, body);
+    case 'trip-invite-revoke': return await inviteRevoke(account, body);
+    case 'trip-joined': case 'trip-joined-list': case 'trip-joined-drop': return await joinedOp(account, op, body);
+    case 'trip-ground-search': case 'trip-ground-stations': case 'trip-weather': case 'trip-entry': case 'trip-rail-check': case 'trip-rail-book':
+      return await extraOp(account, op, body, { cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
     case 'trip-places': {
       const q = String(body.text || '').trim();
       if (q.length < 2) throw new TripError('text: what to look for.');

@@ -12,7 +12,8 @@
 //
 //   4. A paid booking cancelled (account.js): payRefund gives the card back what the provider gives back: a hotel's whole
 //      price within its free cancellation, a flight's refund as the airline quoted it (Duffel refunds Ask Eden's balance).
-// kind: flight (an instant booking: flights.js book), flight_pay (paying a held one: flights.js pay), stay (stayops.js).
+// kind: flight (an instant booking: flights.js book), flight_pay (paying a held one: flights.js pay), stay (stayops.js),
+// rail (a train or bus through Distribusion: extraops.js).
 // On only with TRAVEL_PAY = "1" and Stripe's key and webhook secret set (eden/billing.js); then the account refuses those
 // bookings without a payment (account.js, 402 pay_first). TRAVEL_FEE_CENTS: a fee per booking; unset, as the owner decided
 // (2026-10-28: Eden Travel is part of Plus, no booking fee or markup), so the hold is the fare or stay total only.
@@ -21,7 +22,7 @@ import { ApiError } from '../accounts/util.js';
 import { stripeRequest } from '../eden/billing.js';
 
 export const payOn = (env) => String(env?.TRAVEL_PAY || '') === '1' && Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
-export const PAY_KINDS = ['flight', 'flight_pay', 'stay'];
+export const PAY_KINDS = ['flight', 'flight_pay', 'stay', 'rail'];
 const KEY = (id) => `tpay:${id}`;
 const LAST = 'tpay:last';
 const CHECKOUT_MINUTES = 30; // Stripe's shortest Checkout; a flight's price check lasts 20, so a late payment is released
@@ -52,6 +53,11 @@ async function priceOf(account, kind, args, { flightOp }) {
     const q = await flightOp(account, 'flight-pay_quote', { order_id: args.order_id });
     return { cents: Math.round(Number(q.amount) * 100), currency: q.currency, title: `Flight booking ${q.booking_reference}` };
   }
+  if (kind === 'rail') {
+    const r = await account.storage.get(`rlq:${String(args.offer_id || '')}`);
+    if (!r || !r.total || account.now() - r.at > 20 * 60_000) throw new ApiError(409, 'check_expired', 'Check the seats and price again first.');
+    return { cents: Math.round(Number(r.total.amount) * 100), currency: r.total.currency, title: r.title || 'Train' };
+  }
   const q = await account.storage.get(`stq:${String(args.quote_id || '')}`);
   if (!q || !q.total) throw new ApiError(409, 'quote_expired', 'Eden has no recent price for this room. Get the price again.');
   return { cents: Math.round(Number(q.total) * 100), currency: q.currency, title: `Hotel: ${(q.accommodation && q.accommodation.name) || 'your stay'}${q.room ? `, ${q.room}` : ''}` };
@@ -61,6 +67,7 @@ async function priceOf(account, kind, args, { flightOp }) {
 async function book(account, rec, { flightOp, tripOp }) {
   if (rec.kind === 'flight') return flightOp(account, 'flight-book', { ...rec.args, confirm: true });
   if (rec.kind === 'flight_pay') return flightOp(account, 'flight-pay', { ...rec.args, confirm: true });
+  if (rec.kind === 'rail') return tripOp(account, 'trip-rail-book', { ...rec.args, confirm: true });
   return tripOp(account, 'trip-stays-book', { ...rec.args, confirm: true });
 }
 

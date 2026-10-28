@@ -47,6 +47,7 @@ import { armFlightWatch, flightWatchDue } from '../travel/watch.js';
 import { stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
+import { memberOp } from '../travel/members.js';
 import { flightOp } from '../travel/flights.js';
 import { payOn, payOp, payRefund } from '../travel/pay.js';
 import { calOp, feedPublicOp } from '../travel/calsync.js';
@@ -153,6 +154,11 @@ export class Account {
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This calendar link has ended.');
         return json(await feedPublicOp(this, op, await request.json().catch(() => ({})), { tripOp }));
       }
+      // planning together (travel/members.js): the Worker vouches for the member's account; the organiser's Plus covers them
+      if (op.startsWith('tmember-')) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This shared trip isn’t available now.');
+        return json(await memberOp(this, op, await request.json().catch(() => ({})), { tripOp }));
+      }
       if (op.startsWith('tlink-')) {
         // the trip shared with the people on it (travel/triplink.js): shown only while its owner has Plus
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This trip link has ended.');
@@ -209,7 +215,7 @@ export class Account {
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
         // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
         // always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off'].includes(op) && !(await this.planNow()).active) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke'].includes(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
@@ -217,7 +223,7 @@ export class Account {
         if (op.startsWith('trip-pay-')) return json(await payOp(this, op, body, { flightOp, tripOp }));
         // the trips in the traveller's own calendar: a subscription link, or Google Calendar directly (travel/calsync.js)
         if (op.startsWith('trip-calfeed') || op.startsWith('trip-gcal-')) return json(await calOp(this, op, body, { tripOp }));
-        if (op === 'trip-stays-book' && payOn(this.env)) throw PAY_FIRST;
+        if ((op === 'trip-stays-book' || op === 'trip-rail-book') && payOn(this.env)) throw PAY_FIRST;
         // a paid hotel cancelled within its free cancellation: the whole price goes back to the card (travel/pay.js payRefund)
         const stay = op === 'trip-stays-cancel' ? await this.storage.get(`stbk:${String(body.booking_id || '')}`) : null;
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
