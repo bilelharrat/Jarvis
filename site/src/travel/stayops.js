@@ -15,7 +15,7 @@ import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { StaysError, priceDrop, staysFor } from './stays.js';
 import { TripError, dayDate } from './trips.js';
 
-export const PRICE_WATCH = { everyMs: 24 * 3600_000, keepRatesMs: 2 * 3600_000 };
+export const PRICE_WATCH = { everyMs: 24 * 3600_000 };
 const JOB = 'pwatch';
 
 const asTripError = (e) => {
@@ -59,8 +59,8 @@ export async function stayOp(account, op, body, deps = {}) {
       }
       case 'trip-stays-quote': {
         const q = await stays.quote(body.rate_id);
-        const kept = await account.storage.get(`strt:${String(body.rate_id)}`);
-        const fresh = kept && now() - kept.at < PRICE_WATCH.keepRatesMs ? kept : null;
+        // the rate's room and cancellation terms (they don't change for a rate; the price is the quote's own, below)
+        const fresh = (await account.storage.get(`strt:${String(body.rate_id)}`)) || null;
         // the quote's own price (Duffel's live check), not the rate's earlier one: that is what Duffel takes, and what the card is held for
         // always kept for the payment and booking that follow: the quote's own price; the room and cancellation when known
         await account.storage.put(`stq:${q.quote_id}`, { ...(fresh || { room: null, cancellation: null, accommodation: q.accommodation }), total: q.total, currency: q.currency, rate_id: body.rate_id, at: now() });
@@ -147,7 +147,11 @@ export async function stayWatchDue(account, { notify, stays: given, fetch } = {}
             if (!best || Number(r.total) < Number(best.total)) best = r;
           }
         }
-        if (best) fresh = { total: best.total, currency: best.currency, rate_id: best.rate_id, search_result_id: same.search_result_id };
+        if (best) {
+          fresh = { total: best.total, currency: best.currency, rate_id: best.rate_id, search_result_id: same.search_result_id };
+          // its terms kept, as trip-stays-rates keeps them: a rebook from this rate knows its free cancellation
+          await account.storage.put(`strt:${best.rate_id}`, { at: now, room: b.room || null, total: best.total, currency: best.currency, cancellation: best.cancellation, accommodation: all.accommodation || b.accommodation });
+        }
       }
     } catch { continue; } // Duffel down: tomorrow
     if (!fresh) continue;

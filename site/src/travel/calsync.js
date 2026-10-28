@@ -142,7 +142,7 @@ export function offsetAt(date, minutes, zone) {
 }
 
 /** The trip's time zone (IANA), from its first stop Google knows: Places' timeZone, else the Time Zone API at its spot. */
-async function tripZone(account, trip, fetcher) {
+export async function tripZone(account, trip, fetcher) {
   const kept = await account.storage.get(`tz:${trip.id}`);
   const first = trip.days.flatMap((d) => d.stops).find((s) => s.place && (s.place.id || Number.isFinite(s.place.lat)));
   const from = first ? (first.place.id || `${first.place.lat},${first.place.lng}`) : '';

@@ -51,7 +51,7 @@ import { linkPublicOp } from '../travel/triplink.js';
 import { memberOp } from '../travel/members.js';
 import { flightOp } from '../travel/flights.js';
 import { payOn, payOp, payRefund, payRefundRetry } from '../travel/pay.js';
-import { calOp, feedPublicOp } from '../travel/calsync.js';
+import { calOp, feedPublicOp, tripZone } from '../travel/calsync.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
@@ -59,6 +59,8 @@ import { playCap, playOp, withPlayPlan } from './play-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 import { aiSpend } from '../stats/stats.js';
 
+// what a person keeps after Plus ends: their paid bookings (see, cancel, the card refund) and a payment already under way
+const AFTER_PLUS = new Set(['flight-order', 'flight-cancel_quote', 'flight-cancel_confirm', 'trip-stays-cancel', 'trip-pay-status', 'trip-pay-latest', 'trip-pay-complete']);
 const TRIP_WRITES = new Set(['trip-stays-book', 'trip-create', 'trip-sample', 'trip-update', 'trip-delete', 'trip-edit', 'trip-apply', 'trip-undo', 'trip-mark-booked', 'trip-unbook', 'trip-mail-import']); // re-arm the flight watch (travel/watch.js)
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
@@ -147,7 +149,11 @@ export class Account {
       if (op.startsWith('web-')) return await webOp(this, op, request); // hosted Eden → the Mac (webrelay.js)
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       // Eden Travel's guest tracking links (travel/track.js): the link's code is the key; no device signs these
-      if (op.startsWith('tshare-')) return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
+      if (op.startsWith('tshare-')) {
+        // a link's lookups are billed (FlightAware, Google): only while the owner has Plus
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This tracking link has ended.');
+        return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
+      }
       // Stripe's word that a booking's card is held (eden/billing.js webhook; travel/pay.js checks it with Stripe)
       if (op === 'pay-webhook') return json(await payOp(this, op, await request.json().catch(() => ({})), { flightOp, tripOp }));
       // the traveller's calendar subscription (travel/calsync.js): the link's code is the key; only while the owner has Plus
@@ -199,7 +205,7 @@ export class Account {
       if (op.startsWith('ad-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Background Auto Drafts are the owner’s.'); return json(await autodraftOp(this, op, body)); } // Auto Drafts in the background (autodrafts.js)
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
-      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); if (payOn(this.env) && ((op === 'flight-book' && body.hold !== true) || op === 'flight-pay')) throw PAY_FIRST;
+      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !AFTER_PLUS.has(op) && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); if (payOn(this.env) && ((op === 'flight-book' && body.hold !== true) || op === 'flight-pay')) throw PAY_FIRST;
         const out = await flightOp(this, op, body);
         // a paid flight cancelled: the airline's quoted refund goes back to the traveller's card (travel/pay.js payRefund)
         if (op === 'flight-cancel_quote' && out.cancellation_id) await this.storage.put(`tcq:${out.cancellation_id}`, { order_id: out.order_id, refund: out.refund ?? 0, refund_to: out.refund_to ?? null, refund_currency: out.refund_currency ?? null });
@@ -219,7 +225,7 @@ export class Account {
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
         // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
         // always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke'].includes(op) && !(await this.planNow()).active) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
@@ -239,6 +245,8 @@ export class Account {
           if (words) out.card_refund_text = words;
         }
         if (TRIP_WRITES.has(op)) {
+          // the trip's time zone, for its morning re-checks at 07:00 there (one Google lookup per trip, kept)
+          if (out && out.trip && out.trip.id && !(await this.storage.get(`tz:${out.trip.id}`))) await tripZone(this, out.trip, fetch).catch(() => {});
           await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
           await armRecheck(this, out).catch((e) => console.error('trip recheck', e && e.message)); // re-checked before you go (travel/recheck.js)
         }

@@ -6,7 +6,7 @@ import { createHmac } from 'node:crypto';
 import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { call } from '../src/accounts/index.js';
-import { payOp, payRefund, stripeAmount } from '../src/travel/pay.js';
+import { payOp, payRefund, payRefundRetry, stripeAmount } from '../src/travel/pay.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Identity, Link, namespace, rateLimiter } from './fakes.js';
 
@@ -229,4 +229,33 @@ test('with payments on, a hotel isn’t booked without a payment; Stripe’s sig
   const rec = await object.storage.get('tpay:0123456789abcdef01234567');
   assert.equal(rec.status, 'failed');
   assert.match(rec.error, /Nothing was charged\./);
+});
+
+test('a card refund that failed is tried again with a new key (Stripe keeps a key’s error), unless Stripe made it after all', async () => {
+  const account = fakeAccount();
+  account.storage.list = async ({ prefix }) => new Map([...account.store].filter(([k]) => k.startsWith(prefix)));
+  account.storage.setAlarm = async () => {}; account.storage.getAlarm = async () => null; account.storage.deleteAlarm = async () => {}; account.storage.delete = async (k) => { for (const x of [].concat(k)) account.store.delete(x); };
+  account.store.set('tpay:p1', { intent: 'pi_1', status: 'paid', cents: 41250, fee: 0, currency: 'EUR' });
+  account.store.set('tpayby:ord_1', 'p1');
+  const calls = [];
+  let fail = true, made = [];
+  const stripe = async (method, path, params, opts) => {
+    calls.push([method, path.split('?')[0], opts && opts.idempotency]);
+    if (method === 'GET') return { data: made };
+    if (fail) throw new Error('card_declined');
+    return { id: 're_1' };
+  };
+  assert.match(await payRefund(account, 'ord_1', 41250, { stripe }), /didn’t go through yet/);
+  fail = false;
+  await payRefundRetry(account, { stripe });
+  const posts = calls.filter(([m]) => m === 'POST');
+  assert.notEqual(posts[0][2], posts[1][2], 'each try its own key');
+  assert.equal(account.store.get('tpay:p1').refunded, 41250);
+
+  account.store.set('tpay:p2', { intent: 'pi_2', status: 'paid', cents: 1000, fee: 0, currency: 'EUR', refund_failed: { cents: 1000, booking: 'x', tries: 1 } });
+  made = [{ status: 'succeeded', metadata: { pay_id: 'p2' } }];
+  const before = calls.filter(([m]) => m === 'POST').length;
+  await payRefundRetry(account, { stripe });
+  assert.equal(calls.filter(([m]) => m === 'POST').length, before, 'already refunded at Stripe: not again');
+  assert.equal(account.store.get('tpay:p2').refunded, 1000);
 });

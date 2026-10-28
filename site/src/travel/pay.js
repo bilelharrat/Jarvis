@@ -182,8 +182,9 @@ async function complete(account, op, body, deps) {
  */
 const RETRY = 'tpayretry', RETRY_MS = 3600_000, RETRY_TRIES = 24;
 
-/** Alarm 'tpayretry' (account.js): card refunds that failed, tried again hourly with the same idempotency key (Stripe
- *  makes it once); after a day of failures it stays flagged (refund_failed.gave_up) for the owner. */
+/** Alarm 'tpayretry' (account.js): card refunds that failed, tried again hourly. Stripe keeps a key's first answer (an
+ *  error too) for a day, so each try has its own key, after a look at whether a refund was made after all. After a day
+ *  of failures it stays flagged (refund_failed.gave_up) for the owner. */
 export async function payRefundRetry(account, deps = {}) {
   const stripe = deps.stripe || ((method, path, params, opts) => stripeRequest(account.env || {}, method, path, params, opts));
   let more = false;
@@ -191,7 +192,9 @@ export async function payRefundRetry(account, deps = {}) {
     const f = rec && rec.refund_failed;
     if (!f || typeof f !== 'object' || f.gave_up || rec.refunded) continue;
     try {
-      await stripe('POST', '/refunds', { payment_intent: rec.intent, amount: stripeAmount(f.cents, rec.currency), metadata: { pay_id: key.slice(5), booking: f.booking } }, { idempotency: `tpay-refund-${key.slice(5)}` });
+      const made = await stripe('GET', `/refunds?payment_intent=${encodeURIComponent(rec.intent)}&limit=10`).catch(() => null);
+      const done = made && Array.isArray(made.data) && made.data.some((r) => r && r.status !== 'failed' && r.status !== 'canceled' && r.metadata && r.metadata.pay_id === key.slice(5));
+      if (!done) await stripe('POST', '/refunds', { payment_intent: rec.intent, amount: stripeAmount(f.cents, rec.currency), metadata: { pay_id: key.slice(5), booking: f.booking } }, { idempotency: `tpay-refund-${key.slice(5)}-r${f.tries || 1}` });
       Object.assign(rec, { refund_failed: null, refunded: f.cents, status: f.cents >= rec.cents + rec.fee ? 'refunded' : 'paid' });
     } catch (e) {
       console.error('travel refund retry failed', key, e && e.message);
