@@ -92,7 +92,12 @@ export async function feedPublicOp(account, op, body, { tripOp }) {
   const list = (await tripOp(account, 'trip-list', {})).trips || [];
   const trips = [];
   for (const t of list.slice(0, 50)) {
-    try { trips.push({ ...(await tripOp(account, 'trip-get', { id: t.id })).trip, id: t.id }); } catch { /* a trip gone meanwhile */ }
+    try {
+      // named fields only, as the trip link's calendar (triplink.js): a subscription link gets copied into other apps and
+      // kept, and a stop's note can hold a booking reference, so no notes, links, costs or bookings
+      const x = (await tripOp(account, 'trip-get', { id: t.id })).trip;
+      trips.push({ id: t.id, title: x.title, start: x.start, days: x.days.map((d) => ({ title: d.title, stops: d.stops.map((st) => ({ id: st.id, kind: st.kind, at: st.at, minutes: st.minutes, nights: st.nights, place: { name: st.place.name, lat: st.place.lat, lng: st.place.lng } })) })) });
+    } catch { /* a trip gone meanwhile */ }
   }
   return { ics: tripsToIcs(trips, { now: account.now() }) };
 }
