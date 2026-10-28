@@ -28,7 +28,12 @@ export async function extraOp(account, op, body, { cache, fetch } = {}) {
         if (!['ferry', 'train', 'bus', 'car'].includes(mode)) throw new TripError('mode must be ferry, train, bus or car.');
         if (!p) throw new TripError(mode === 'ferry' ? 'Ferry search isn’t switched on yet (Ferryhopper).' : mode === 'car' ? 'Car hire isn’t switched on yet: it needs CarTrawler’s partner spec.' : 'Train and bus booking isn’t switched on yet (Distribusion needs its key).', 404, 'not_set_up');
         if (op === 'trip-ground-stations') return mode === 'ferry' ? { ports: await p.ports(body.query) } : { stations: await p.stations(body.query) };
-        if (mode === 'car') { const c = await p.search(body); return { mode, options: Array.isArray(c) ? c : c.options || [] }; }
+        if (mode === 'car') {
+          // car hire: pick up at from on date, give back at to (default: the same place) on return_date (default: the next day)
+          const back = body.return_date || new Date(Date.parse(`${body.date}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
+          const c = await p.search({ pickup: body.from, dropoff: body.to || body.from, from: body.date, to: back, driver_age: body.driver_age ?? 30 });
+          return { mode, options: Array.isArray(c) ? c : c.options || [] };
+        }
         const out = mode === 'ferry' ? await p.search({ from: body.from, to: body.to, date: body.date, adults: body.adults }) : await p.search({ from_station: body.from, to_station: body.to, date: body.date, adults: body.adults });
         return { mode, options: Array.isArray(out) ? out : out.options || [] };
       }

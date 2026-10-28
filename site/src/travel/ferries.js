@@ -128,6 +128,8 @@ const cheapestCents = (seg) => {
 };
 
 /** One search_ferry_trips option → a journey option (price: the cheapest tier on each segment, × adults). */
+const localTime = (v) => (typeof v === 'string' ? v.replace(/(?:Z|[+-]00:?00)$/, '') : v);
+
 export function ferryOption(opt, { adults = 1, bookUrl = null, checkedAt }) {
   const segs = Array.isArray(opt && opt.segments) ? opt.segments.filter((s) => s && typeof s === 'object') : [];
   if (!segs.length) return null;
@@ -141,8 +143,10 @@ export function ferryOption(opt, { adults = 1, bookUrl = null, checkedAt }) {
     id: opt.id,
     from: { name: first.departurePort && first.departurePort.name, code: first.departurePort && first.departurePort.code },
     to: { name: last.arrivalPort && last.arrivalPort.name, code: last.arrivalPort && last.arrivalPort.code },
-    depart: first.departureDateTime,
-    arrive: last.arrivalDateTime,
+    // Ferryhopper sends port-local times with a "Z" on them (its own booking code for a 07:25 sailing says 0725 while
+    // departureDateTime says 07:25Z): kept as local times, with no zone, so nothing shifts them by the UTC offset
+    depart: localTime(first.departureDateTime),
+    arrive: localTime(last.arrivalDateTime),
     duration_min: null,
     operator: operators.join(' + ') || null,
     price: cents.every((c) => c !== null) ? { amount: (cents.reduce((a, b) => a + b, 0) * adults) / 100, currency: CURRENCY } : null,

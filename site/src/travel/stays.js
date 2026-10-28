@@ -66,7 +66,7 @@ export function staysFor(env = {}, { fetch: fetcher = globalThis.fetch, now = ()
       throw new StaysError('unavailable', 'Eden couldn’t reach Duffel.');
     }
     // By status only: the Stays pages document no error codes. Duffel's message isn't passed on (it can echo input).
-    if (res.status === 401 || res.status === 403) throw new StaysError('not_set_up', 'Duffel didn’t accept Eden’s token.');
+    if (res.status === 401 || res.status === 403) throw new StaysError('not_set_up', 'Duffel refused: hotel booking (Stays) may not be switched on for Eden’s Duffel account yet.');
     if (res.status === 404) throw new StaysError('not_found', 'Duffel has no such hotel, rate, quote or booking (it may have expired).');
     if (res.status === 429) throw new StaysError('rate_limited', 'Duffel is busy. Try again in a minute.');
     if (res.status === 400 || res.status === 422) throw new StaysError('bad_request', 'Duffel said some details aren’t valid, or the rate is no longer available.');

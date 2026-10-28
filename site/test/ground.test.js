@@ -150,8 +150,8 @@ test('ferry search maps sailings to indicative options with Ferryhopper’s link
   assert.equal(o.id, 'PIR/JMK/2026-11-10T16:00:00Z/00027');
   assert.deepEqual(o.from, { name: 'PIRAEUS', code: 'PIR' });
   assert.deepEqual(o.to, { name: 'MYKONOS', code: 'JMK' });
-  assert.equal(o.depart, '2026-11-10T16:00:00Z');
-  assert.equal(o.duration_min, 300);
+  assert.equal(o.depart, '2026-11-10T16:00:00', 'port-local: Ferryhopper’s Z is not UTC (its booking code says the same clock time)');
+  assert.equal(o.duration_min, null, 'two local times may be in different zones: no duration guessed');
   assert.equal(o.operator, 'BLUE STAR FERRIES');
   assert.deepEqual(o.price, { amount: 88, currency: 'EUR' }, 'cheapest tier 44.00 × 2 adults');
   assert.equal(o.price_kind, 'indicative');
