@@ -29,6 +29,8 @@
 // trip-mail-import { id, message, index, stop?, confirm: true } → { trip, checks, stop }  (read again here, then added or marked booked)
 // trip-share-create { ident, date, first_name, trip?, stop? } → { code, url, expires }  (a guest tracking link: track.js)
 // trip-shares {} → { shares }   trip-share-revoke { code } → { revoked }
+// trip-plan { request, constraints? }         → { trip, checks, changes, unresolved, sources, model, costs }  (a new trip drafted by the
+//                                               search model, checked and fixed on Google: planner.js; nothing saved)
 // trip-hero { q }                             → { hero }                   (the destination's licensed Commons photo or null: hero.js, kept 30 days)
 // trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
@@ -37,7 +39,8 @@ import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, cleanIdent, flightAwareFor } from './flightaware.js';
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { distanceKm, mapsFor } from './maps.js';
-import { spendMeter } from './spend.js';
+import { capsFor, spendMeter } from './spend.js';
+import { PLAN, cleanPlanArgs, planTrip } from './planner.js';
 import { index, shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
 import { priceDrops, stayOp } from './stayops.js';
@@ -468,6 +471,18 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       // a found photo kept 30 days; "none" a day (Wikipedia's lead image may change); a failed lookup isn't kept
       await cache.put(key, out, hero ? HERO.cacheMs : 86400_000);
       return out;
+    }
+    // a new trip: drafted by the best search model, then Google's checks and Eden's fixes (planner.js); its own Google cap
+    case 'trip-plan': {
+      // plans a day per account (each pays the search model): TRAVEL_PLANS_A_DAY, default PLAN.daily
+      cleanPlanArgs(body); // its words checked before a plan is counted
+      const day = new Date(now()).toISOString().slice(0, 10), cap = Number(account.env?.TRAVEL_PLANS_A_DAY) > 0 ? Number(account.env.TRAVEL_PLANS_A_DAY) : PLAN.daily;
+      const used = (await storage.get('tplan:count')) || {};
+      if (used.day === day && used.n >= cap) throw new TripError(`That’s ${cap} plan${cap === 1 ? '' : 's'} today, Eden’s daily limit. Plan more tomorrow, or start a trip by hand.`, 429, 'rate_limited');
+      await storage.put('tplan:count', { day, n: used.day === day ? used.n + 1 : 1 });
+      const planMeter = deps.meter || spendMeter(account, { caps: { ...capsFor(account.env), openUsd: Number(account.env?.TRAVEL_PLAN_GOOGLE_USD) > 0 ? Number(account.env.TRAVEL_PLAN_GOOGLE_USD) : PLAN.googleUsd } });
+      const planMaps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now, meter: planMeter });
+      return await planTrip(body, { env: account.env || {}, maps: planMaps, cache, now, fetch: deps.fetch || globalThis.fetch, meter: planMeter });
     }
     case 'trip-places': {
       const q = String(body.text || '').trim();
