@@ -127,7 +127,10 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     }
     case 'trip-delete': {
       const { id } = await load();
-      await storage.delete([`trip:${id}`, `thist:${id}`, `tprop:${id}`]);
+      await storage.delete([`trip:${id}`, `thist:${id}`, `tprop:${id}`, `tz:${id}`]); // its time zone, kept for Google Calendar (calsync.js)
+      // its members, and anyone taken off it (members.js): the trip is gone for them too
+      const theirs = [...(await storage.list({ prefix: `tmem:${id}:` })).keys(), ...(await storage.list({ prefix: `tban:${id}:` })).keys()];
+      if (theirs.length) await storage.delete(theirs);
       return { deleted: true };
     }
     case 'trip-edit': {
@@ -139,6 +142,11 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     }
     case 'trip-propose': {
       const { id, trip } = await load();
+      // one proposal waits at a time: a suggestion from someone on the trip never replaces Eden's or the organiser's own
+      if (body.by === 'member') {
+        const waiting = await storage.get(`tprop:${id}`);
+        if (waiting && waiting.by !== 'member' && waiting.base_rev === trip.rev && now() - waiting.created < PROPOSAL_MS) throw new TripError('The organiser has another change waiting. Suggest yours once they’ve decided on it.', 409, 'busy');
+      }
       const { trip: after, changed } = applyOps(trip, body.ops, { newId });
       const [before, checks] = await Promise.all([check(trip), check(after)]);
       const proposal = {

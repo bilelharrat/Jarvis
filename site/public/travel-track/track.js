@@ -140,7 +140,7 @@ function strip(l) {
 /** The plane moves on between looks: only the map and the strip are drawn again (the driver may be typing below). */
 function paintLive() {
   const m = root.querySelector('.tk-map'), st = root.querySelector('.tk-strip');
-  if (!m || !st || !S.data) return paint();
+  if (S.err || !m || !st || !S.data) return paint(); // an ended link stops the live view
   m.replaceWith(mapView());
   st.replaceWith(strip(S.data.live));
 }

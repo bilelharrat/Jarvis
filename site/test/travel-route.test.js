@@ -216,3 +216,21 @@ test('the shared trip page: photos only of the trip’s own stops; the map from 
   const r = await hit(`${link.body.url}/photo?n=${encodeURIComponent('places/ChIJnotOnThisTrip0/photos/AbCdEfGhIjKlMn')}`);
   assert.equal(r.status, 404, 'not any Google photo on Eden’s key');
 });
+
+test('planning together, the edges: someone taken off can’t rejoin with the old invite, and a suggestion never replaces the organiser’s waiting change', async () => {
+  const owner = await signedIn('organiser-2');
+  const friend = await signedIn('friend-2');
+  const made = await travel(owner, 'sample');
+  const id = made.body.trip.id;
+  const inv = await travel(owner, 'invite-create', { id });
+  const joined = await travel(friend, 'join', { code: inv.body.code, name: 'Sam' });
+  const stop = made.body.trip.days[0].stops[1];
+  await travel(owner, 'propose', { id, title: 'Mine', ops: [{ op: 'time', stop: stop.id, at: '13:30' }] });
+  const busy = await travel(friend, 'shared-propose', { owner: joined.body.owner, trip: id, title: 'Theirs', ops: [{ op: 'time', stop: stop.id, at: '14:00' }] });
+  assert.equal(busy.status, 409);
+  const member = (await travel(owner, 'members', { id })).body.members[0].member;
+  await travel(owner, 'member-remove', { id, member });
+  assert.equal((await travel(friend, 'join', { code: inv.body.code, name: 'Sam' })).status, 403, 'the old invite doesn’t let them back');
+  const again = await travel(owner, 'invite-create', { id });
+  assert.equal((await travel(friend, 'join', { code: again.body.code, name: 'Sam' })).status, 200, 'a new invite does');
+});

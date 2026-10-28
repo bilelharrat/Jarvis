@@ -86,7 +86,7 @@ test('Google Calendar: the person picks a calendar it may write to; each stop an
   const museum = g.actions.find((a) => a.args.event.title === 'Tile Museum').args.event;
   assert.equal(museum.start, '2026-11-28T10:00:00+00:00');
   assert.equal(museum.notes, 'From Ask Eden Travel', 'never the stop’s own notes');
-  assert.equal(account.store.get('tz:trip1'), 'Europe/Lisbon', 'the zone is looked up once');
+  assert.equal(account.store.get('tz:trip1').zone, 'Europe/Lisbon', 'the zone is looked up once, kept with the stop it came from');
   assert.deepEqual(await calOp(account, 'trip-gcal-status', { id: 'trip1' }, g.deps(TRIP)), { on: true, calendar: 'Ana', calendarId: 'primary-cal', synced: 1_800_000_000_000, events: 3, pending: 0 });
 });
 

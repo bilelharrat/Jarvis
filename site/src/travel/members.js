@@ -44,6 +44,9 @@ export async function inviteCreate(account, body) {
   if (!code) throw new ApiError(503, 'unavailable', 'Couldn’t make an invite just now. Try again.');
   const now = account.now();
   await account.storage.put(`tinv:${code}`, { code, trip: id, created: now, expires: now + INVITE_MS });
+  // a new invite is the organiser asking again: anyone they took off may join with it
+  const bans = await account.storage.list({ prefix: `tban:${id}:` });
+  if (bans.size) await account.storage.delete([...bans.keys()]);
   return { code, url: `/join/${code}`, expires: now + INVITE_MS };
 }
 
@@ -59,6 +62,8 @@ export async function memberRemove(account, body) {
   const key = `tmem:${String(body.id || '')}:${String(body.member || '')}`;
   if (!(await account.storage.get(key))) throw new ApiError(404, 'not_found', 'No such person on this trip.');
   await account.storage.delete(key);
+  // and stays off: the trip's invites (14 days) would let them join again, so they're refused until invited back
+  await account.storage.put(`tban:${String(body.id || '')}:${String(body.member || '')}`, { at: account.now() });
   return { removed: true };
 }
 
@@ -91,6 +96,7 @@ export async function memberOp(account, op, body, { tripOp }) {
       if (!ACCOUNT.test(member)) throw new ApiError(400, 'bad_request', 'member');
       const own = ((await account.storage.get('account')) || {}).id;
       if (member === own) throw new ApiError(409, 'own_trip', 'This is your own trip.');
+      if (await account.storage.get(`tban:${x.trip}:${member}`)) throw new ApiError(403, 'removed', 'The organiser took you off this trip. Ask them for a new invite.');
       const trip = await account.storage.get(`trip:${x.trip}`);
       if (!trip) throw new ApiError(404, 'not_found', 'This trip was deleted.');
       const count = (await account.storage.list({ prefix: `tmem:${x.trip}:` })).size;

@@ -142,7 +142,10 @@ export function offsetAt(date, minutes, zone) {
 /** The trip's time zone (IANA), from its first stop Google knows: Places' timeZone, else the Time Zone API at its spot. */
 async function tripZone(account, trip, fetcher) {
   const kept = await account.storage.get(`tz:${trip.id}`);
-  if (kept) return kept;
+  const first = trip.days.flatMap((d) => d.stops).find((s) => s.place && (s.place.id || Number.isFinite(s.place.lat)));
+  const from = first ? (first.place.id || `${first.place.lat},${first.place.lng}`) : '';
+  if (kept && typeof kept === 'object' && kept.from === from) return kept.zone; // still where the trip starts
+  if (kept && typeof kept === 'string' && !from) return kept;
   const key = String(account.env.GOOGLE_MAPS_SERVER_KEY || '').trim();
   const stops = trip.days.flatMap((d) => d.stops);
   let zone = null;
@@ -162,7 +165,7 @@ async function tripZone(account, trip, fetcher) {
     }
   }
   if (!zone) throw new ApiError(409, 'no_time_zone', 'Eden couldn’t tell this trip’s time zone (its places aren’t on Google Maps yet). Add a real place first, or use the calendar link instead.');
-  await account.storage.put(`tz:${trip.id}`, zone);
+  await account.storage.put(`tz:${trip.id}`, { zone: zone, from });
   return zone;
 }
 
@@ -202,7 +205,8 @@ async function googleCalendar(account, deps, calendarId) {
 
 /** What would change in Google: stops new, changed or taken out since the last sync (no call to Google). */
 async function pending(account, tripId, on, deps) {
-  const zone = await account.storage.get(`tz:${tripId}`);
+  const z = await account.storage.get(`tz:${tripId}`);
+  const zone = z && typeof z === 'object' ? z.zone : z; // kept with the stop it came from (tripZone)
   if (!zone) return null;
   const plain = plainTrip((await deps.tripOp(account, 'trip-get', { id: tripId })).trip, tripId);
   const events = on.events || {};
@@ -225,6 +229,9 @@ export async function gcalWrite(account, tripId, deps) {
   const events = { ...(on.events || {}) }; // stop id → { id, sig }
   const seen = new Set();
   let added = 0, updated = 0, removed = 0;
+  // the events made so far are saved even if a later one fails, so a retry updates them instead of making them twice
+  const keepSoFar = () => account.storage.put(GKEY(tripId), { ...on, events, calendarId: cal.id, zone });
+  try {
   for (const [d, day] of trip.days.entries()) {
     for (const s of day.stops) {
       seen.add(s.id);
@@ -247,6 +254,7 @@ export async function gcalWrite(account, tripId, deps) {
     delete events[stop];
     removed++;
   }
+  } catch (e) { await keepSoFar().catch(() => {}); throw e; }
   const rec = { ...on, events, calendar: cal.title || 'Google Calendar', calendarId: cal.id, zone, synced: account.now() };
   await account.storage.put(GKEY(tripId), rec);
   return { on: true, calendar: rec.calendar, zone, synced: rec.synced, added, updated, removed, events: Object.keys(events).length };
@@ -276,7 +284,7 @@ export async function calOp(account, op, body, deps) {
     if (!calendarId) throw new ApiError(400, 'bad_request', 'Pick one of your Google calendars to add the trip to.');
     await googleCalendar(account, deps, calendarId);
     await account.storage.put(GKEY(id), { ...(was || { events: {} }), on: true, calendarId, since: (was && was.since) || account.now() });
-    try { return await gcalWrite(account, id, deps); } catch (e) { if (!was) await account.storage.delete(GKEY(id)); throw e; }
+    try { return await gcalWrite(account, id, deps); } catch (e) { const now = await account.storage.get(GKEY(id)); if (!was && !(now && Object.keys(now.events || {}).length)) await account.storage.delete(GKEY(id)); throw e; } // events already made stay tracked
   }
   if (op === 'trip-gcal-off') {
     if (body.confirm !== true) throw new ApiError(400, 'bad_request', 'Turning off needs confirm: true.');

@@ -60,10 +60,14 @@ export async function extraOp(account, op, body, deps = {}) {
         if (body.terms_accepted !== true) throw new TripError('The traveller has to accept the carrier’s terms first.');
         const kept = await account.storage.get(`rlq:${String(body.offer_id || '')}`);
         if (!kept || now() - kept.at > RAIL_CHECK_MS) throw new TripError('Check the seats and price again first: the last check ran out.', 409, 'check_expired');
-        const people = (Array.isArray(body.passengers) ? body.passengers : []).slice(0, ids.length);
+        // the passengers booked are exactly those whose price was checked (and paid for): never more
+        if (JSON.stringify(kept.passenger_ids) !== JSON.stringify(ids)) throw new TripError('The passengers changed since the price check. Check the seats and price again.', 409, 'check_expired');
+        const people = (Array.isArray(body.passengers) ? body.passengers : []).filter((p) => p && typeof p === 'object').slice(0, ids.length);
         if (people.length !== ids.length) throw new TripError('A first and last name is needed for each passenger.');
         const passengers = ids.map((id, i) => ({ id, type: ADULT, first_name: people[i].first_name, last_name: people[i].last_name }));
         const r = await rail.reserve({ email: body.email, offers, passengers });
+        // Distribusion's own total for the reservation can't be above the checked (and paid) one: then nothing is confirmed
+        if (r.total_price && kept.total && (r.total_price.currency !== kept.total.currency || r.total_price.amount > kept.total.amount + 0.005)) throw new TripError(`The price went up to ${r.total_price.amount} ${r.total_price.currency}: nothing was booked. Check the seats and price again.`, 409, 'price_changed');
         const b = await rail.confirm({ reservation_id: r.reservation_id, first_name: people[0].first_name, last_name: people[0].last_name, email: body.email, terms_accepted: true, passengers }, { confirm: true });
         if (body.id && body.stop && deps.tripOp) await deps.tripOp(account, 'trip-mark-booked', { id: body.id, stop: body.stop, ref: (b.carrier_refs && b.carrier_refs[0]) || b.reservation_id || r.reservation_id, provider: 'Distribusion', via: 'api', cost: kept.total ? { amount: Number(kept.total.amount), currency: kept.total.currency } : undefined, confirm: true }).catch(() => {});
         await account.storage.delete(`rlq:${body.offer_id}`);

@@ -25,8 +25,9 @@ async function load() {
     if (!res.ok) throw new Error(out.error || 'This trip link has ended.');
     S.data = out.trip; S.err = '';
     const today = new Date().toISOString().slice(0, 10);
-    if (S.day === 0) { const i = S.data.days.findIndex((d) => d.date === today); if (i > 0) S.day = i; }
+    if (!S.picked) { const i = S.data.days.findIndex((d) => d.date === today); if (i > 0) S.day = i; } // today, until the guest picks a day
   } catch (e) { S.err = String(e.message || e); }
+  const status = document.getElementById('status'); if (status) status.textContent = S.err ? S.err : `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   paint();
 }
 
@@ -46,7 +47,7 @@ function paint() {
   root.replaceChildren(
     el('header', { class: 'tp-head' }, el('span', { class: 'tp-kicker' }, 'A shared trip'), el('h1', {}, t.title),
       el('div', { class: 'tp-meta' }, `${dayLong(t.days[0].date)} – ${dayLong(t.days[t.days.length - 1].date)} · ${t.days.length} days · ${t.travelers} ${t.travelers === 1 ? 'traveller' : 'travellers'}`)),
-    el('nav', { class: 'tp-days', 'aria-label': 'Days' }, ...t.days.map((x, i) => el('button', { type: 'button', 'aria-pressed': String(i === S.day), onclick: () => { S.day = i; paint(); } }, `Day ${i + 1} · ${dayLong(x.date)}`))),
+    el('nav', { class: 'tp-days', 'aria-label': 'Days' }, ...t.days.map((x, i) => el('button', { type: 'button', 'aria-pressed': String(i === S.day), onclick: () => { S.day = i; S.picked = true; paint(); } }, `Day ${i + 1} · ${dayLong(x.date)}`))),
     ...alerts.map((a) => el('div', { class: 'tp-alert', role: 'note' }, a.text)),
     el('section', { class: 'tp-card tp-day' },
       el('h2', {}, d.title || `Day ${S.day + 1}`),
