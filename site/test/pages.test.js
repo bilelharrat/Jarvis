@@ -665,7 +665,10 @@ test('Ask Eden Travel has its own site, held: without TRAVEL_HOST nothing is ser
   assert.match(csp, /script-src 'self';/);
   assert.match(csp, /font-src https:\/\/fonts\.gstatic\.com/);
   assert.doesNotMatch(csp, /unsafe-inline/);
-  for (const [from, to] of [['https://www.askedentravel.com/?a=1', 'https://askedentravel.com/?a=1'], [`${ORIGIN}/travel`, 'https://askedentravel.com/'], ['https://askedentravel.com/signin', 'https://askeden.com/signin']]) assert.deepEqual(await go(from, on), [301, to], from);
+  for (const [from, to] of [['https://www.askedentravel.com/?a=1', 'https://askedentravel.com/?a=1'], [`${ORIGIN}/travel`, 'https://askedentravel.com/']]) assert.deepEqual(await go(from, on), [301, to], from);
+  // the app lives there: signing in there is askeden.com's sign-in, handed over (eden/site-handoff.js)
+  assert.deepEqual(await go('https://askedentravel.com/signin', on), [302, '/api/web/site-handoff/start']);
+  for (const cta of read('public/travel-home/index.html').matchAll(/class="(?:pill|btn navy)" href="([^"]+)"/g)) assert.equal(cta[1], '/api/web/site-handoff/start');
   for (const p of ['/travel-home/travel-home.css', '/travel-home/features.js', '/travel-home/eden-logo.svg', '/lang/fr-travel-home.js']) {
     const r = await worker.fetch(new Request(`https://askedentravel.com${p}`), on, {});
     assert.equal(r.status, 200, p);

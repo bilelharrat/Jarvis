@@ -42,6 +42,7 @@ import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
 import { safeReturn } from '../../public/signin/return.js';
 import { where } from '../stats/stats.js';
+import { handFinish, handStart } from './site-handoff.js';
 import {
   APPLE_COOKIE,
   LINK_COOKIE,
@@ -178,6 +179,9 @@ export async function web(request, env, ctx, path) {
     if (path === GOOGLE_CALLBACK && method === 'GET') return await googleCallback(request, env);
     if (path === '/api/web/native/apple' && method === 'POST') return await nativeApple(request, env);
     if (path === '/api/web/handoff' && method === 'GET') return await handoff(request, env);
+    // Eden Travel's own address signing in with askeden.com's sign-in (site-handoff.js)
+    if (path === '/api/web/site-handoff/start' && method === 'GET') return await handStart(request, env);
+    if (path === '/api/web/site-handoff/finish' && method === 'GET') return await handFinish(request, env);
     // Back from Stripe (another site, so no Strict cookie yet): a page that moves on (billing.js).
     if (path === '/api/web/billing/return' && method === 'GET') return billingReturn(request);
     // Eden sync (H1), delegates (H14), team spaces (G8): the browser's own session, never a delegate's.

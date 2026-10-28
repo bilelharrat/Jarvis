@@ -36,6 +36,7 @@ import { helpPage } from './help.js';
 import { publishedPage } from '../accounts/published.js';
 import { sharedChatPage } from '../accounts/shared-chats.js';
 import { trackPage } from '../travel/track.js';
+import { handPage, onTravelHost } from './site-handoff.js';
 import { EDEN_FILES, EDEN_HASHES } from './manifest.js';
 import { currentSession } from './session.js';
 import { EDEN_CSP, EDEN_PERMISSIONS, RUNNER_CSP, SESSION_COOKIE, SHEET_PICKER_CSP, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
@@ -124,7 +125,9 @@ export async function edenPage(request, env, path) {
   if (env.ROUTER_HOST && path === '/router/film.mp4') return rangedAsset(env, request, path); // its film
   if (env.ROUTER_HOST && path === '/router/film.jpg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   // Ask Eden Travel's site (public/travel-home/): held until TRAVEL_HOST is set; then askedentravel.com serves it at its front (worker.js)
-  if (env.TRAVEL_HOST && path === '/travel') return page(await asset(env, request, '/travel-home/'), CODE_CSP, { cache: 'public, max-age=300' });
+  // askeden.com's half of the travel address's sign-in (site-handoff.js); there, /signin is that sign-in
+  if (path === '/hand') return handPage(request, env);
+  if (path === '/signin' && onTravelHost(request, env)) return redirect('/api/web/site-handoff/start');
   if (env.TRAVEL_HOST && (path === '/travel-home/travel-home.css' || path === '/travel-home/features.js')) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   if (env.TRAVEL_HOST && path === '/travel-home/eden-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (path === '/pricing') return redirect('/#pricing'); // the front page's plans (public/home/)
@@ -139,11 +142,15 @@ export async function edenPage(request, env, path) {
   if (path === '/edu-home/edu-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   // Eden Travel: signed in and switched on (EDEN_TRAVEL=1), the Eden app opened on Travel beside the chat (travel.js);
   // otherwise the front page. Never in the iPhone app: the page itself keeps Travel behind !IN_APP.
+  // With TRAVEL_HOST set this is askedentravel.com's front (worker.js): signed out, Ask Eden Travel's site
+  // (public/travel-home/), whose buttons sign in with askeden.com's sign-in (site-handoff.js).
   if (path === '/travel') {
     const { session, stale } = await currentSession(request, env);
-    if (String(env.EDEN_TRAVEL || '') !== '1') return Response.redirect(new URL('/', request.url).toString(), 302);
-    if (!session) return byCookie(redirect('/signin?return=%2Ftravel'), stale);
-    return byCookie(appPage(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS })), false);
+    const on = String(env.EDEN_TRAVEL || '') === '1';
+    if (session && on) return byCookie(appPage(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS })), false);
+    if (env.TRAVEL_HOST) return byCookie(page(await asset(env, request, '/travel-home/'), CODE_CSP, { cache: 'private, no-cache' }), stale);
+    if (!on) return Response.redirect(new URL('/', request.url).toString(), 302);
+    return byCookie(redirect('/signin?return=%2Ftravel'), stale);
   }
   // Eden Mail (public/mail-home/): signed out, its page (askedenmail.com's front, with MAIL_HOST set: worker.js); signed in,
   // the Eden app opened on Mail, full screen (app.js). The app stays on askeden.com, where Gmail's sign-in comes back.

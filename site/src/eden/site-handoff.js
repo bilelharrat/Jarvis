@@ -1,0 +1,91 @@
+// Signing in on Eden Travel's own address (askedentravel.com, TRAVEL_HOST) with the askeden.com sign-in: one account,
+// signed in once, and no second passkey, Apple or Google set-up for the other name.
+//
+//   1. <travel>/api/web/site-handoff/start: a random state in this browser's cookie there (__Host-eden-hand, Lax, ten
+//      minutes), and on to askeden.com/hand?s=<its SHA-256>.
+//   2. askeden.com/hand: reached from another site, a page carries no Strict cookie, so it first moves on to itself
+//      (then it's same-site). Signed out: /signin, and back here. Signed in: a one-time code (32 random bytes, a
+//      minute, taken once, kept server-side with the account and the state's hash), sent on to …/finish?code=….
+//   3. <travel>/api/web/site-handoff/finish: the code taken, its state's hash checked against this browser's cookie
+//      (so another site can't sign this browser in to an account of its choosing: a login CSRF), a new browser device
+//      for the account, its session cookie set on the travel address.
+//
+// The other address is only ever TRAVEL_HOST from the Worker's config, never a name from the request; local dev can
+// name both origins (MAIN_ORIGIN, TRAVEL_ORIGIN) since both are localhost there.
+
+import { call, callLink, clientIp, limited } from '../accounts/index.js';
+import { WEB_SESSION_DAYS } from '../accounts/account.js';
+import { ApiError, b64url, randomBytes, sha256Hex, webAllowed } from '../accounts/util.js';
+import { SESSION_COOKIE, SIGNIN_CSP, clearCookie, cookie, cookies, page } from './web.js';
+import { browserName, currentSession } from './session.js';
+
+export const HAND_COOKIE = '__Host-eden-hand';
+const HAND_SECONDS = 600;
+const CODE_SECONDS = 60;
+const CODE = /^[A-Za-z0-9_-]{43}$/;
+
+const go = (location) => new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+export const travelHost = (env) => String(env.TRAVEL_HOST || '').toLowerCase();
+export const onTravelHost = (request, env) => Boolean(travelHost(env)) && new URL(request.url).hostname === travelHost(env);
+const mainOrigin = (env) => String(env.MAIN_ORIGIN || 'https://askeden.com');
+const travelOrigin = (env) => String(env.TRAVEL_ORIGIN || `https://${travelHost(env)}`);
+
+function note(title, text, link, label) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+${link && !label ? `<meta http-equiv="refresh" content="0; url=${link}">` : ''}<title>Eden Travel</title><link rel="stylesheet" href="/signin/signin.css"></head>
+<body><main class="card"><h1>${title}</h1>${text ? `<p>${text}</p>` : ''}${link ? `<p><a class="button" href="${link}">${label || 'Continue'}</a></p>` : ''}</main></body></html>`;
+  return page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'referrer-policy': 'no-referrer' } }), SIGNIN_CSP);
+}
+
+/** 1. On the travel address: the state in this browser, then askeden.com. */
+export async function handStart(request, env) {
+  if (!onTravelHost(request, env)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  const state = b64url(randomBytes(32));
+  const res = go(`${mainOrigin(env)}/hand?s=${await sha256Hex(state)}`);
+  res.headers.append('set-cookie', cookie(HAND_COOKIE, state, { maxAge: HAND_SECONDS, sameSite: 'Lax' }));
+  return res;
+}
+
+/** 2. On askeden.com: the signed-in account's one-time code, sent to the travel address. */
+export async function handPage(request, env) {
+  const host = travelHost(env);
+  const url = new URL(request.url);
+  const s = url.searchParams.get('s') || '';
+  if (!host || onTravelHost(request, env) || !/^[0-9a-f]{64}$/.test(s)) return go('/');
+  const self = `/hand?s=${s}&on=1`;
+  // from another site: no Strict cookie on this load; the same page again, from here, has it
+  if ((request.headers.get('sec-fetch-site') || '') === 'cross-site' && url.searchParams.get('on') !== '1') return note('Opening Eden Travel…', '', self);
+  const { session } = await currentSession(request, env);
+  if (!session) return go(`/signin?return=${encodeURIComponent(self)}`);
+  if (!webAllowed(env, session.account)) return go('/');
+  await limited(env, 'AUTH_RATE', `hand:${session.account}`);
+  const code = b64url(randomBytes(32));
+  await callLink(env, `handoff:site:${code}`, 'stash', { value: { account_id: session.account, s, host }, seconds: CODE_SECONDS });
+  return go(`${travelOrigin(env)}/api/web/site-handoff/finish?code=${code}`);
+}
+
+/** 3. Back on the travel address: the code for this browser's own state, and its session. */
+export async function handFinish(request, env) {
+  if (!onTravelHost(request, env)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  const code = new URL(request.url).searchParams.get('code') || '';
+  const state = cookies(request)[HAND_COOKIE] || '';
+  const again = '/api/web/site-handoff/start';
+  try {
+    await limited(env, 'AUTH_RATE', `handoff:${clientIp(request)}`);
+    if (!CODE.test(code) || !CODE.test(state)) throw new ApiError(400, 'state', 'That sign-in was started in another browser, or ran out.');
+    let kept;
+    try { kept = (await callLink(env, `handoff:site:${code}`, 'take')).body.value; } catch (e) { if (!(e instanceof ApiError)) throw e; throw new ApiError(400, 'expired', 'That sign-in ran out or was already used.'); }
+    if (kept.host !== travelHost(env) || kept.s !== (await sha256Hex(state))) throw new ApiError(400, 'state', 'That sign-in was started in another browser.');
+    if (!webAllowed(env, kept.account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
+    const made = await call(env, kept.account_id, 'web-signin', { account_id: kept.account_id, device: { name: browserName(request), app_version: `${travelHost(env)} (askeden.com sign-in)` } });
+    const res = go('/');
+    res.headers.append('set-cookie', cookie(SESSION_COOKIE, made.token, { maxAge: WEB_SESSION_DAYS * 86400 }));
+    res.headers.append('set-cookie', clearCookie(HAND_COOKIE, 'Lax'));
+    return res;
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    const res = note('Eden Travel couldn’t sign you in', `${error.message} Try again.`, again, 'Sign in again');
+    res.headers.append('set-cookie', clearCookie(HAND_COOKIE, 'Lax'));
+    return res;
+  }
+}
