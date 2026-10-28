@@ -49,6 +49,7 @@ import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { flightOp } from '../travel/flights.js';
 import { payOn, payOp, payRefund } from '../travel/pay.js';
+import { calOp, feedPublicOp, gcalAfterWrite } from '../travel/calsync.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
@@ -147,6 +148,11 @@ export class Account {
       if (op.startsWith('tshare-')) return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
       // Stripe's word that a booking's card is held (eden/billing.js webhook; travel/pay.js checks it with Stripe)
       if (op === 'pay-webhook') return json(await payOp(this, op, await request.json().catch(() => ({})), { flightOp, tripOp }));
+      // the traveller's calendar subscription (travel/calsync.js): the link's code is the key; only while the owner has Plus
+      if (op.startsWith('tcal-')) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This calendar link has ended.');
+        return json(await feedPublicOp(this, op, await request.json().catch(() => ({})), { tripOp }));
+      }
       if (op.startsWith('tlink-')) {
         // the trip shared with the people on it (travel/triplink.js): shown only while its owner has Plus
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This trip link has ended.');
@@ -208,6 +214,8 @@ export class Account {
         }
         // paying for a booking with the traveller's card first (travel/pay.js); with payments on, a hotel isn't booked without it
         if (op.startsWith('trip-pay-')) return json(await payOp(this, op, body, { flightOp, tripOp }));
+        // the trips in the traveller's own calendar: a subscription link, or Google Calendar directly (travel/calsync.js)
+        if (op.startsWith('trip-calfeed') || op.startsWith('trip-gcal-')) return json(await calOp(this, op, body, { tripOp }));
         if (op === 'trip-stays-book' && payOn(this.env)) throw PAY_FIRST;
         // a paid hotel cancelled within its free cancellation: the whole price goes back to the card (travel/pay.js payRefund)
         const stay = op === 'trip-stays-cancel' ? await this.storage.get(`stbk:${String(body.booking_id || '')}`) : null;
@@ -218,6 +226,11 @@ export class Account {
           if (words) out.card_refund_text = words;
         }
         if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
+        // a trip that syncs to Google Calendar is written there again (after the answer, where the platform allows)
+        if (TRIP_WRITES.has(op) && op !== 'trip-delete') {
+          const synced = gcalAfterWrite(this, String(body.id || (out && out.trip && out.trip.id) || ''), { tripOp });
+          if (this.ctx && typeof this.ctx.waitUntil === 'function') this.ctx.waitUntil(synced); else await synced;
+        }
         return json(out);
       }
       switch (op) {
