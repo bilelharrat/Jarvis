@@ -56,6 +56,7 @@ import { togetherMemberOp } from '../travel/together.js';
 import { accuracyFlush, accuracyIndexOp } from '../travel/accuracy.js';
 import { mailWatchDue } from '../travel/mailwatch.js';
 import { spendIndexOp } from '../travel/spend.js';
+import { armPapersReminders, papersRemindersDue } from '../travel/papers.js';
 import { promiseAutoWatch, promiseDue } from '../travel/promise.js';
 import { aiExtraUsd, plusBonusNow } from '../travel/rewards.js';
 import { coversMemberOp, joinedAlertsOp } from '../travel/companions.js';
@@ -258,7 +259,7 @@ export class Account {
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
         // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
         // always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete', 'trip-photos', 'trip-photo-get', 'trip-photo-delete', 'trip-memories', 'trip-memories-share', 'trip-check-reports', 'trip-check-unreport', 'trip-mailwatch-off', 'trip-mailwatch-status', 'trip-mailwatch-drop', 'trip-loyalty', 'trip-loyalty-delete', 'trip-live-end', 'trip-rewards', 'trip-rewards-redeem', 'trip-rewards-undo', 'trip-esims', 'trip-joined-alerts'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete', 'trip-photos', 'trip-photo-get', 'trip-photo-delete', 'trip-memories', 'trip-memories-share', 'trip-check-reports', 'trip-check-unreport', 'trip-mailwatch-off', 'trip-mailwatch-status', 'trip-mailwatch-drop', 'trip-loyalty', 'trip-loyalty-delete', 'trip-live-end', 'trip-rewards', 'trip-rewards-redeem', 'trip-rewards-undo', 'trip-esims', 'trip-joined-alerts', 'trip-papers', 'trip-papers-delete'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
@@ -289,6 +290,8 @@ export class Account {
           await promiseAutoWatch(this, out).catch((e) => console.error('price promise autowatch', e && e.message)); // the Price Promise: new flights watched when asked (travel/promise.js)
         }
         // booking windows: a push the morning bookings open (travel/reminders.js), again whenever stops or windows change
+        // passport and travel-authorisation reminders (travel/papers.js)
+        if (TRIP_WRITES.has(op) || ['trip-papers-save', 'trip-papers-delete', 'trip-entry-check'].includes(op)) await armPapersReminders(this).catch((e) => console.error('papers reminders', e && e.message));
         if (TRIP_WRITES.has(op) || op === 'trip-windows') await armWindowReminders(this).catch((e) => console.error('window reminders', e && e.message));
         return json(out);
       }
@@ -1165,6 +1168,7 @@ export class Account {
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
       fwatch: async () => ((await travelOn()) ? flightWatchDue(this, { tripOp, notify: notifyOwner }) : unscheduleJob(this, 'fwatch')), // a trip's flights: delays, gates, cancellations (travel/watch.js)
       tpayretry: () => payRefundRetry(this), // a card refund that failed, tried again hourly (travel/pay.js)
+      tpap: async () => ((await travelOn()) ? papersRemindersDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'tpap')), // passport and authorisation deadlines (travel/papers.js)
       tlive: async () => ((await travelOn()) ? liveDue(this, { tripOp }) : unscheduleJob(this, 'tlive')), // the travel day's Live Activity by push (travel/liveact.js)
       tmailw: async () => ((await travelOn()) ? mailWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'tmailw')), // new bookings in Eden Mail (travel/mailwatch.js)
       taccflush: () => accuracyFlush(this),

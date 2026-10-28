@@ -14,7 +14,7 @@ export const STORE_APPS = Object.freeze({ [BUNDLE_ID]: PLUS_PRODUCTS, [EDEN_BUND
 export const TRAVEL_BUNDLE_ID = 'com.askeden.travel';
 // every travel push: flight changes, a pickup picked, a hotel or flight cheaper, the re-check before you go (and its rain
 // fix), a booking email forwarded or found in Eden Mail, the morning bookings open
-export const WEB_PUSH_APPS = Object.freeze({ [TRAVEL_BUNDLE_ID]: new Set(['flight', 'pickup', 'price', 'fprice', 'recheck', 'rain', 'inbox', 'tmail', 'window', 'tpay']) });
+export const WEB_PUSH_APPS = Object.freeze({ [TRAVEL_BUNDLE_ID]: new Set(['flight', 'pickup', 'price', 'fprice', 'recheck', 'rain', 'inbox', 'tmail', 'window', 'tpay', 'claim', 'papers', 'price-promise']) });
 export const isWebPushApp = (bundleId) => Object.hasOwn(WEB_PUSH_APPS, String(bundleId));
 export const isStoreApp = (bundleId) => Object.hasOwn(STORE_APPS, String(bundleId));
 /** A Plus product, from its own app (a transaction without bundleId: the Worker checked it already). */

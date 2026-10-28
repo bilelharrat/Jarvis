@@ -57,6 +57,7 @@ import { cardPerkOp } from './cardperk.js';
 import { yearOp } from './yearinreview.js';
 import { coversOp, joinedAlertsOp } from './companions.js';
 import { claimsOp } from './compensation.js';
+import { papersOp } from './papers.js';
 import { rewardsOp } from './rewards.js';
 import { dropTripEsims, esimOp } from './esim.js';
 import { armRecheck } from './recheck.js';
@@ -200,7 +201,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       await dropTripEsims(storage, id); // its eSIMs' install details (esim.js)
       await dropTripAccuracy(account, id); // its reports (accuracy.js)
       await storage.delete(`tdis:${id}`); // its last disruption check (disrupt.js)
-      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`, `fpw:${id}:`, `twrem:${id}:`, `tpres:${id}:`, `tlive:${id}:`]) {
+      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`, `fpw:${id}:`, `twrem:${id}:`, `tpres:${id}:`, `tlive:${id}:`, `tentry:${id}`, `tpaprem:${id}:`]) {
         const keys = [...(await storage.list({ prefix })).keys()];
         for (let i = 0; i < keys.length; i += 128) await storage.delete(keys.slice(i, i + 128));
       }
@@ -432,6 +433,9 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       return await coversOp(account, op, body);
     case 'trip-joined-alerts':
       return await joinedAlertsOp(account, op, body);
+    // travellers' papers and the trip's entry checks, from official rules only (papers.js, entry-rules.js)
+    case 'trip-papers': case 'trip-papers-save': case 'trip-papers-delete': case 'trip-entry-check':
+      return await papersOp(account, op, body);
     // money back for a delayed or cancelled flight (compensation.js): the person sends the claim themselves
     case 'trip-claims': case 'trip-claim-letter':
       return await claimsOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
