@@ -19,6 +19,8 @@
 //   /eden-code         Eden Code's own site (public/eden-code-home/), everyone; askedencode.com when CODE_HOST is set (worker.js)
 //   /router            Eden Router's own site (edenrouter.com's front): the router, its measured numbers, the API to come
 //                      (public/router/), everyone, once ROUTER_HOST is set (held for the owner's OK); its own stylesheet, no script
+//   /travel            Ask Eden Travel's site (askedentravel.com's front, public/travel-home/), everyone, once TRAVEL_HOST is set
+//                      (held: the domain isn't on this Cloudflare account yet, and it goes live only on the owner's word)
 //   /accuracy          "How often AI makes things up": the hallucination chart and how it was measured
 //                      (public/accuracy/), everyone; its own stylesheet, no script
 //   /lang/<file>       the site pages' French (public/lang/: site-i18n.js and its fr-<page>.js files),
@@ -51,7 +53,7 @@ const CODE_CSP = "default-src 'none'; script-src 'self'; style-src 'self' https:
 const SIGNIN_FILES = new Set(['signin.css', 'signin.js', 'return.js']);
 const LINK_FILES = new Set(['link.css', 'link.js']);
 // The site pages' French (public/lang/, site-i18n.js): the script, and one dictionary per page.
-const LANG_FILES = new Set(['site-i18n.js', ...['home', 'signin', 'link', 'jarvis', 'daredevil', 'privacy', 'terms', 'edu-home', 'edu-privacy', 'edu-terms'].map((p) => `fr-${p}.js`)]);
+const LANG_FILES = new Set(['site-i18n.js', ...['home', 'signin', 'link', 'jarvis', 'daredevil', 'privacy', 'terms', 'edu-home', 'edu-privacy', 'edu-terms', 'travel-home'].map((p) => `fr-${p}.js`)]);
 const EDEN = new Set(EDEN_FILES);
 
 const asset = (env, request, path) => env.ASSETS.fetch(new Request(new URL(path, request.url), request));
@@ -121,6 +123,10 @@ export async function edenPage(request, env, path) {
   if (env.ROUTER_HOST && (path === '/router/router.css' || path === '/router/router.js')) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   if (env.ROUTER_HOST && path === '/router/film.mp4') return rangedAsset(env, request, path); // its film
   if (env.ROUTER_HOST && path === '/router/film.jpg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+  // Ask Eden Travel's site (public/travel-home/): held until TRAVEL_HOST is set; then askedentravel.com serves it at its front (worker.js)
+  if (env.TRAVEL_HOST && path === '/travel') return page(await asset(env, request, '/travel-home/'), CODE_CSP, { cache: 'public, max-age=300' });
+  if (env.TRAVEL_HOST && (path === '/travel-home/travel-home.css' || path === '/travel-home/features.js')) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
+  if (env.TRAVEL_HOST && path === '/travel-home/eden-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (path === '/pricing') return redirect('/#pricing'); // the front page's plans (public/home/)
   // Eden for Education's own app (askeden web/chat/edu.html): signed in, the app; signed out, its landing page
   if (path === '/edu' || path === '/edu.html') {

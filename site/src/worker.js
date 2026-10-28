@@ -223,6 +223,21 @@ async function route(request, env, ctx) {
     if (url.hostname !== evesHost && bare === '/eves' && getLike) return Response.redirect(`https://${evesHost}/${url.search}`, 301);
     if (url.hostname === evesHost && getLike && bare === '/') return route(new Request(new URL(`/eves${url.search}`, url), request), env, ctx);
   } else if (evesDoor.test(url.hostname)) return Response.redirect(`https://askeden.com/accuracy${url.search}`, 301);
+  // Ask Eden Travel's own address (askedentravel.com): with TRAVEL_HOST set its site (public/travel-home/) lives there at the front,
+  // www and askeden.com/travel forward to it, and every other path there goes to askeden.com. Unset (held for the owner's word),
+  // the names are doorways to askeden.com.
+  const travelHost = String(env.TRAVEL_HOST || '').toLowerCase();
+  const travelDoor = /^(www\.)?askedentravel\.com$/;
+  if (travelHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${travelHost}`) return Response.redirect(`https://${travelHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== travelHost && bare === '/travel' && getLike) return Response.redirect(`https://${travelHost}/${url.search}`, 301);
+    if (url.hostname === travelHost) {
+      if (getLike && bare === '/') return route(new Request(new URL(`/travel${url.search}`, url), request), env, ctx);
+      // its page, the page's files and the French; the rest is askeden.com's
+      if (!(getLike && (bare === '/travel' || bare.startsWith('/travel-home/') || bare.startsWith('/lang/')))) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
+    }
+  } else if (travelDoor.test(url.hostname)) return Response.redirect('https://askeden.com/', 301);
   // askeden.ai: the same site under its other name, path and query kept
   if (/^(www\.)?askeden\.ai$/.test(url.hostname)) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
   const path = url.pathname.replace(/\/+$/, '') || '/';

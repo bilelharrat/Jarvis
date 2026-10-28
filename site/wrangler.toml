@@ -50,6 +50,10 @@ routes = [
   # Eden Mail's home (MAIL_HOST), once askedenmail.com is a site on this Cloudflare account (TODO.md):
   { pattern = "askedenmail.com", custom_domain = true },
   { pattern = "www.askedenmail.com", custom_domain = true },
+  # Ask Eden Travel's home (TRAVEL_HOST), held: uncomment once askedentravel.com is a site on this Cloudflare account, its DNS
+  # record is set (proxied A @ 192.0.2.1, CNAME www @) and the owner says go (TODO.md):
+  # { pattern = "askedentravel.com/*", zone_name = "askedentravel.com" },
+  # { pattern = "www.askedentravel.com/*", zone_name = "askedentravel.com" },
   # And once askeden.ai is a zone here too (forwards to askeden.com, worker.js):
   # { pattern = "askeden.ai/*", zone_name = "askeden.ai" },
   # { pattern = "www.askeden.ai/*", zone_name = "askeden.ai" },
@@ -90,6 +94,9 @@ MAIL_HOST = "askedenmail.com"
 ROUTER_HOST = "edenrouter.com"
 # EVES at its own address (src/worker.js route): "evesverification.com"; edenverification.com, www and askeden.com/eves forward to it.
 EVES_HOST = "evesverification.com"
+# Ask Eden Travel at its own address (src/worker.js route): "askedentravel.com"; askeden.com/travel and www then forward to it.
+# Held (2026-10-26): the page is built (public/travel-home/) but stays off until the owner says go and the deploy freeze lifts.
+# TRAVEL_HOST = "askedentravel.com"
 FISH_MODEL = "s2.1-pro-free"  # what the owner's own JARVIS voice uses
 VOICE_DAILY_PER_INSTALL = "20000"
 VOICE_DAILY_PER_NETWORK = "40000"
