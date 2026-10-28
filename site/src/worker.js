@@ -39,8 +39,6 @@
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
 // disk image is up, so a half-uploaded release is never offered.
 
-import { travelEmail } from './travel/inbox.js';
-import { travelOn } from './travel/api.js';
 import { api, call } from './accounts/index.js';
 import { PIXEL, openVia, readReceiptToken } from './accounts/receipts.js';
 import { tokenFrom } from './accounts/util.js';
@@ -69,6 +67,8 @@ import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
 import { courseVoice } from './edu/budget.js';
+import { travelEmail } from './travel/inbox.js';
+import { travelOn } from './travel/api.js';
 
 const LATEST = 'latest.json';
 // Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
