@@ -9,6 +9,7 @@
 // person already saw. Stand-in (sample) answers are never pushed as news.
 
 import { disruptionPush, recheckDisruptions } from './disrupt.js';
+import { noteChecks } from './accuracy.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { dayDate } from './trips.js';
 
@@ -111,7 +112,8 @@ export async function recheckDue(account, { tripOp, notify, plus = async () => t
     if (!on || now - due > RECHECK.dayMs) { await storage.put(`tchk:${id}`, { ...(state || {}), ran: now }); continue; } // skipped, not caught up later
     let checks;
     try {
-      ({ checks } = await tripOp(account, 'trip-get', { id }));
+      ({ checks } = await tripOp(account, 'trip-get', { id, recheck: true }));
+      await noteChecks(account, id, trip, checks, { shown: false }).catch((e) => console.error('trip accuracy', e && e.message)); // changed since the last check (accuracy.js)
     } catch (e) {
       console.error('trip recheck', id, e && e.message);
       await storage.put(`tchk:${id}`, { ...(state || {}), ran: now });

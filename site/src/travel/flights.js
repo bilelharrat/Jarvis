@@ -14,6 +14,7 @@
 
 import { ApiError, json } from '../accounts/util.js';
 import { createDuffelClient, createFlightService, DuffelError, FlightInputError, httpStatusFor, tokenInfo } from './vendor-flights.js';
+import { applyLoyalty } from './loyalty.js';
 
 export const FLIGHT_ACTIONS = ['search', 'check', 'review', 'book', 'order', 'cancel_quote', 'cancel_confirm', 'pay_quote', 'pay'];
 export const flightsOn = (env) => String(env?.EDEN_FLIGHTS || '') === '1';
@@ -50,11 +51,8 @@ export async function flightOp(account, op, body = {}, deps = {}) {
   const seen = new Map(saved.seen), checks = new Map(saved.checks);
   const before = { seen: new Map([...seen].map(([k, v]) => [k, JSON.stringify(v)])), checks: new Map([...checks].map(([k, v]) => [k, JSON.stringify(v)])) };
   let client;
-  const svc = createFlightService({
-    now: () => account.now(),
-    state: { seen, checks },
-    client: () => (client ??= createDuffelClient({ env, fetch: deps.fetch, baseUrl: deps.baseUrl, sleep: deps.sleep, log: deps.log || ((line) => console.log(JSON.stringify(line))) })),
-  });
+  const duffel = () => (client ??= createDuffelClient({ env, fetch: deps.fetch, baseUrl: deps.baseUrl, sleep: deps.sleep, log: deps.log || ((line) => console.log(JSON.stringify(line))) }));
+  const svc = createFlightService({ now: () => account.now(), state: { seen, checks }, client: duffel });
   const run = { search: 'search', check: 'check', review: 'review', book: 'book', order: 'order', cancel_quote: 'cancelQuote', cancel_confirm: 'cancelConfirm', pay_quote: 'payQuote', pay: 'pay' }[action];
   try {
     // Eden books every flight on one Duffel account: an order is reachable only from the account that booked it
@@ -62,7 +60,12 @@ export async function flightOp(account, op, body = {}, deps = {}) {
     // account that asked its quote (tcq:<cancellation>, account.js)
     if (['order', 'cancel_quote', 'pay_quote', 'pay'].includes(action) && !(await storage.get(`ford:${String(body.order_id ?? '')}`)) && !(await storage.get(`tpayby:${String(body.order_id ?? '')}`))) throw new ApiError(404, 'not_found', 'There is no such flight booking in your Eden.');
     if (action === 'cancel_confirm' && !(await storage.get(`tcq:${String(body.cancellation_id ?? '')}`))) throw new ApiError(404, 'not_found', 'Ask for the cancellation quote again, then confirm.');
+    // the passengers' saved frequent-flyer numbers, on airlines this fare takes, sent before the order (travel/loyalty.js);
+    // `loyalty: false` books without them. An unusable check is left for the core to refuse.
+    const c = action === 'book' && body.confirm === true && body.loyalty !== false ? checks.get(String(body.check_id ?? '')) : null;
+    const loyalty = c && !c.used && account.now() <= c.expires && Array.isArray(body.passengers) && body.passengers.length === c.passenger_ids.length ? await applyLoyalty(account, duffel(), c, body.passengers) : [];
     const out = await svc[run](body);
+    if (loyalty.length && out) out.loyalty = loyalty;
     if (action === 'book' && out && out.order_id) await storage.put(`ford:${out.order_id}`, { at: account.now() });
     return out;
   } catch (e) {

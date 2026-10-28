@@ -20,8 +20,12 @@
 //   trip-memories         { id }                         → the recap (recap() below), with { share }
 //   trip-memories-share   { id, share: true|false }      → { share }
 // A member (members.js, the organiser's object asked by the Worker), only while share is on:
-//   tmember-memories      { trip, member }               → the recap
+//   tmember-memories      { trip, member }               → the recap (each photo `mine` when this member added it)
 //   tmember-memory-photo  { trip, member, photo, size? } → as trip-photo-get
+//   tmember-photo-add     { trip, member, …as trip-photo-add } → { photo }  (the same types, sizes and caps; it counts
+//                         against the organiser's 200 a trip and 500 MB, and is tagged with who added it)
+//   tmember-photo-delete  { trip, member, photo }        → { deleted }  (their own photos only; the organiser deletes any)
+// A photo a member added keeps `by` (their account) and `by_name` (their name on the trip then); the recap says "added by".
 // GET /api/chat/travel/memory-photo?id=<trip>&p=<photo>[&size=thumb][&owner=<organiser>] → the bytes (memoryPhotoRoute).
 
 import { ApiError } from '../accounts/util.js';
@@ -133,7 +137,7 @@ export function recap(trip, photos = [], money = null, { now = Date.now() } = {}
   const placed = [], undated = [];
   for (const p of [...photos].sort((a, b) => String(a.taken_at || '').localeCompare(String(b.taken_at || '')) || a.added - b.added)) {
     const where = dayFor(trip, p);
-    const item = { id: p.id, name: p.name, caption: p.caption || '', taken_at: p.taken_at || null, lat: p.lat ?? null, lng: p.lng ?? null, on_map: located(p), thumb: Boolean(p.thumb), w: p.w || null, h: p.h || null };
+    const item = { id: p.id, name: p.name, caption: p.caption || '', taken_at: p.taken_at || null, lat: p.lat ?? null, lng: p.lng ?? null, on_map: located(p), thumb: Boolean(p.thumb), w: p.w || null, h: p.h || null, added_by: p.by ? 'member' : 'organiser', by_name: p.by ? p.by_name || 'Someone on the trip' : null };
     if (!where) { undated.push(item); continue; }
     item.day = where.day;
     item.day_by = where.by;
@@ -197,6 +201,8 @@ async function tripOf(storage, id) {
 const photosOf = async (storage, id) => [...(await storage.list({ prefix: `tmph:${id}:` })).values()].sort((a, b) => a.added - b.added);
 const shareOf = async (storage, id) => Boolean(((await storage.get(`tmemo:${id}`)) || {}).share);
 
+const dropPhoto = (storage, key, photo) => storage.delete([key, `tmpht:${photo.id}`, ...[...Array(photo.chunks).keys()].map((n) => `tmphb:${photo.id}:${n}`)]);
+
 async function photoBytes(storage, id, photoId, size) {
   if (!PHOTO_ID.test(String(photoId || ''))) throw new ApiError(404, 'not_found', 'There is no such photo.');
   const photo = await storage.get(`tmph:${id}:${photoId}`);
@@ -216,7 +222,7 @@ async function photoBytes(storage, id, photoId, size) {
   return { photo, type: photo.type, data: toB64(bytes) };
 }
 
-async function photoAdd(account, body) {
+async function photoAdd(account, body, by = null) {
   const storage = account.storage;
   const id = tripId(body.id);
   const trip = await tripOf(storage, id);
@@ -235,7 +241,7 @@ async function photoAdd(account, body) {
   const all = [...(await storage.list({ prefix: 'tmph:' })).values()];
   if (all.filter((p) => p.trip === id).length >= PHOTOS.perTrip) throw new ApiError(409, 'too_many', `A trip keeps at most ${PHOTOS.perTrip} photos.`);
   const used = all.reduce((t, p) => t + p.bytes + (p.thumb || 0), 0);
-  if (used + bytes.length + (thumb ? thumb.length : 0) > PHOTOS.accountBytes) throw new ApiError(409, 'too_many', 'Your Eden Travel photos are full. Delete some first.');
+  if (used + bytes.length + (thumb ? thumb.length : 0) > PHOTOS.accountBytes) throw new ApiError(409, 'too_many', by ? 'The organiser’s Eden Travel photos are full. Ask them to make room.' : 'Your Eden Travel photos are full. Delete some first.');
   const point = cleanPoint(body.lat, body.lng);
   const day = body.day == null || body.day === '' ? null : Number(body.day);
   const w = Number(body.w), h = Number(body.h);
@@ -246,6 +252,7 @@ async function photoAdd(account, body) {
     day: Number.isInteger(day) && day >= 0 && day < trip.days.length ? day : null,
     w: Number.isInteger(w) && w > 0 && w < 100000 ? w : null, h: Number.isInteger(h) && h > 0 && h < 100000 ? h : null,
     caption: clean(body.caption, PHOTOS.caption), added: account.now(),
+    ...(by ? { by: by.member, by_name: clean(by.name, 40) || 'Someone on the trip' } : {}),
   };
   const put = { [`tmph:${id}:${photo.id}`]: photo };
   for (let n = 0; n < photo.chunks; n++) put[`tmphb:${photo.id}:${n}`] = bytes.slice(n * PHOTOS.chunk, (n + 1) * PHOTOS.chunk).buffer;
@@ -287,7 +294,7 @@ export async function memoriesOp(account, op, body, { tripOp } = {}) {
       const key = `tmph:${id}:${String(body.photo || '')}`;
       const photo = PHOTO_ID.test(String(body.photo || '')) ? await storage.get(key) : null;
       if (!photo) throw new ApiError(404, 'not_found', 'There is no such photo.');
-      await storage.delete([key, `tmpht:${photo.id}`, ...[...Array(photo.chunks).keys()].map((n) => `tmphb:${photo.id}:${n}`)]);
+      await dropPhoto(storage, key, photo);
       return { deleted: true };
     }
     case 'trip-memories': {
@@ -316,10 +323,31 @@ async function recapFor(account, id, { tripOp }) {
 /** The organiser's object, asked by the Worker for a member: only someone on the trip, only while sharing is on. */
 export async function memoriesMemberOp(account, op, body, { tripOp } = {}) {
   const trip = String(body.trip || ''), member = String(body.member || '');
-  if (!TRIP_ID.test(trip) || !ACCOUNT.test(member) || !(await account.storage.get(`tmem:${trip}:${member}`))) throw new ApiError(404, 'not_found', 'You’re not on this trip any more.');
+  const m = TRIP_ID.test(trip) && ACCOUNT.test(member) ? await account.storage.get(`tmem:${trip}:${member}`) : null;
+  if (!m) throw new ApiError(404, 'not_found', 'You’re not on this trip any more.');
   if (!(await shareOf(account.storage, trip))) throw new ApiError(403, 'not_shared', 'The organiser hasn’t shared this trip’s memories.');
-  if (op === 'tmember-memories') return { ...(await recapFor(account, trip, { tripOp })), share: true, shared: true };
-  if (op === 'tmember-memory-photo') return photoBytes(account.storage, trip, body.photo, body.size);
+  // another member's account id never leaves the organiser's object: a member sees names, and `mine` on their own photos
+  const strip = ({ by, ...p }) => ({ ...p, mine: by === member });
+  if (op === 'tmember-memories') {
+    const r = await recapFor(account, trip, { tripOp });
+    const mine = new Set((await photosOf(account.storage, trip)).filter((p) => p.by === member).map((p) => p.id));
+    for (const p of [...r.photos, ...r.undated]) p.mine = mine.has(p.id);
+    return { ...r, share: true, shared: true };
+  }
+  if (op === 'tmember-memory-photo') { const got = await photoBytes(account.storage, trip, body.photo, body.size); return { ...got, photo: strip(got.photo) }; }
+  if (op === 'tmember-photo-add') {
+    const { trip: _t, member: _m, by: _b, by_name: _n, ...args } = body;
+    const out = await photoAdd(account, { ...args, id: trip }, { member, name: m.name });
+    return { photo: strip(out.photo) };
+  }
+  if (op === 'tmember-photo-delete') {
+    const key = `tmph:${trip}:${String(body.photo || '')}`;
+    const photo = PHOTO_ID.test(String(body.photo || '')) ? await account.storage.get(key) : null;
+    if (!photo) throw new ApiError(404, 'not_found', 'There is no such photo.');
+    if (photo.by !== member) throw new ApiError(403, 'forbidden', 'Only the person who added a photo, or the organiser, can delete it.');
+    await dropPhoto(account.storage, key, photo);
+    return { deleted: true };
+  }
   throw new ApiError(404, 'not_found', 'Not found');
 }
 

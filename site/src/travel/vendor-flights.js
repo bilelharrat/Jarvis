@@ -201,6 +201,8 @@ function createDuffelClient(opts) {
     searchOffers: async (data, o = {}) => call("POST", "/air/offer_requests", { body: data, kind: "search", query: { return_offers: true, supplier_timeout: o.supplierTimeoutMs ?? 2e4 } }),
     getOffer: async (offerId, o = {}) => call("GET", `/air/offers/${id(offerId, "offer")}`, { query: { return_available_services: o.services ? true : void 0 } }),
     seatMaps: async (offerId) => call("GET", "/air/seat_maps", { query: { offer_id: decodeURIComponent(id(offerId, "offer")) } }),
+    // loyalty numbers go on the offer's passenger before the order (Duffel's guide "Adding Loyalty Programme Accounts")
+    updateOfferPassenger: async (offerId, passengerId, data) => call("PATCH", `/air/offers/${id(offerId, "offer")}/passengers/${id(passengerId, "passenger")}`, { body: data }),
     createOrder: async (input) => call("POST", "/air/orders", { body: input }),
     getOrder: async (orderId) => call("GET", `/air/orders/${id(orderId, "order")}`),
     createPayment: async (input) => call("POST", "/air/payments", { body: input }),

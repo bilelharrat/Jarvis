@@ -6,13 +6,15 @@
 // trip  { id, title, destination, start: 'YYYY-MM-DD', travelers, budget: { amount, currency } | null, access: { step_free } | null,
 //         days: [{ title, stops }], rev, created, updated }
 // stop  { id, kind, place: { id, name, lat, lng }, at: 'HH:MM', minutes, mode, cost: { amount, currency } | null,
-//         nights, link, booked: null | { kind, ref, provider, via, at }, note }
+//         nights, link, booked: null | { kind, ref, provider, via, at }, note, owner }
 //   kind: visit, stay, transport (a flight, train, bus, ferry, car hire), rental (skis, golf clubs, a bike), activity, meal.
 //   mode: how you get to this stop from the one before (maps.js MODES). nights: a stay's nights. link: the provider's
 //   https page to book it on (Eden's browser or the person's own). booked: set only by the person's "Mark as booked".
+//   owner: who on the trip is looking after this stop (an account id or a guest id from money.js peopleOf), or null.
 //
 // ops   { op: 'add', day, stop, index? } · { op: 'remove', stop } · { op: 'move', stop, day, index? }
 //       { op: 'time', stop, at } · { op: 'edit', stop, minutes?, mode?, note?, cost? } · { op: 'title', day, title }
+//       { op: 'owner', stop, owner } (owner: one of the trip's people, or null; applyOps is handed their ids as `people`)
 
 import { ApiError } from '../accounts/util.js';
 import { MODES } from './maps.js';
@@ -31,6 +33,7 @@ const text = (s, cap) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, ca
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const STOP_ID = /^[a-z0-9-]{1,40}$/;
+const PERSON = /^([0-9a-f-]{36}|g-[0-9a-f]{8})$/; // an Eden account, or a guest the organiser named (money.js)
 
 export const minutesOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 export const hhmm = (mins) => `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
@@ -71,7 +74,7 @@ export function cleanStop(s, newId) {
   const nights = s.nights == null ? null : Number(s.nights);
   if (nights !== null && (!Number.isInteger(nights) || nights < 1 || nights > 60)) throw bad('nights must be 1 to 60.');
   const booked = isObj(s.booked) ? cleanBooking(s.booked, kind) : null;
-  return { id, kind, place: cleanPlace(s.place), at: s.at, minutes, mode, cost: money(s.cost, 'A stop’s cost'), nights: kind === 'stay' ? nights : null, link: cleanLink(s.link), booked, note: text(s.note, TRIP.note) };
+  return { id, kind, place: cleanPlace(s.place), at: s.at, minutes, mode, cost: money(s.cost, 'A stop’s cost'), nights: kind === 'stay' ? nights : null, link: cleanLink(s.link), booked, note: text(s.note, TRIP.note), owner: PERSON.test(String(s.owner ?? '')) ? String(s.owner) : null };
 }
 
 // A provider's booking page: https only, no credentials in it.
@@ -139,7 +142,8 @@ const locked = (stop, what) => new TripError(`${stop.place.name} is booked, so E
 
 // The trip after these ops, or a TripError; the trip passed in is never changed. Returns
 // { trip, changed: { stopId: 'new' | 'moved' | 'removed' | 'edited' } } so a preview can mark them.
-export function applyOps(trip, ops, { newId }) {
+// `people`: the ids of the trip's people (money.js peopleOf), needed only by the owner op.
+export function applyOps(trip, ops, { newId, people = null }) {
   if (!Array.isArray(ops) || ops.length < 1 || ops.length > TRIP.ops) throw bad(`ops must be a list of 1 to ${TRIP.ops} operations.`);
   const next = structuredClone(trip);
   const changed = {};
@@ -150,7 +154,7 @@ export function applyOps(trip, ops, { newId }) {
       case 'add': {
         const d = dayIndex(next, o.day);
         if (next.days[d].stops.length >= TRIP.stops) throw bad(`Day ${d + 1} already has ${TRIP.stops} stops.`);
-        const stop = cleanStop({ ...o.stop, id: undefined, booked: undefined }, newId);
+        const stop = cleanStop({ ...o.stop, id: undefined, booked: undefined, owner: people && people.has(String(o.stop?.owner ?? '')) ? o.stop.owner : null }, newId);
         next.days[d].stops.push(stop);
         changed[stop.id] = 'new';
         break;
@@ -199,8 +203,15 @@ export function applyOps(trip, ops, { newId }) {
         next.days[d].title = text(o.title, TRIP.title) || next.days[d].title;
         break;
       }
+      case 'owner': { // who looks after it: a booked stop too (nothing about the booking changes)
+        const { stop } = find(next, String(o.stop));
+        if (o.owner != null && !(people && people.has(String(o.owner)))) throw bad('owner must be one of the people on this trip (or null).');
+        stop.owner = o.owner == null ? null : String(o.owner);
+        mark(stop.id, 'edited');
+        break;
+      }
       default:
-        throw bad('op must be add, remove, move, time, edit or title.');
+        throw bad('op must be add, remove, move, time, edit, title or owner.');
     }
   }
   next.days.forEach(sortDay);

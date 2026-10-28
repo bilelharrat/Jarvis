@@ -6,6 +6,7 @@
 //
 // What was last told is kept per flight (`fwsnap:<ident>:<date>`), so a change is pushed once.
 
+import { liveFlightNews } from './liveact.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { cleanIdent } from './flightaware.js';
 import { dayDate } from './trips.js';
@@ -137,6 +138,8 @@ export async function flightWatchDue(account, { tripOp, notify }) {
       delay: news.some((n) => /delay/.test(n.title)) || !snap ? Math.max(0, flight.delay_minutes.departure || 0) : snap.delay || 0,
       done, checked_at: now, next: now + (leaves - now <= WATCH.nearBeforeMs ? WATCH.nearMs : WATCH.farMs),
     });
+    // the travel day's Live Activity: the new gate or delay pushed to it (liveact.js; reads the saved result above)
+    if (news.length) await liveFlightNews(account, { trip: f.trip, date: f.date, news }, { tripOp }).catch((e) => console.error('live activity', e && e.message));
   }
   // the soonest of each flight's own next look
   let next = Infinity;

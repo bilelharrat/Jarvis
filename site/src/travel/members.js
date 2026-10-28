@@ -15,12 +15,20 @@
 //                                    shared-leave { owner, trip }
 //                                    shared-money · shared-expense-add · shared-expense-delete · shared-chat · shared-chat-post
 //                                    · shared-decisions { owner, trip, … } (money.js, as this member)
+//                                    shared-memories · shared-photo-add · shared-photo-delete { owner, trip, … } (memories.js,
+//                                    only while the organiser shares memories; a photo posts to /api/chat/travel?doc=1)
+//                                    shared-discover { owner, trip, kind } · shared-nearby { owner, trip, lat, lng, kind, minutes }
+//                                    (discover.js on the organiser's object, so the organiser's Plus covers it; its "Add" is a
+//                                    shared-propose, never an edit)
 //   organiser's object, from the Worker (no device: the Worker vouches for the member's account):
 //                                    tmember-join { code, member, name } · tmember-get { trip, member }
 //                                    tmember-propose { trip, member, title, reason, ops } · tmember-leave { trip, member }
+//                                    tmember-discover { trip, member, kind } · tmember-nearby { trip, member, lat, lng, kind, minutes }
+//                                    tmember-memories · tmember-memory-photo · tmember-photo-add · tmember-photo-delete (memories.js)
 
 import { ApiError } from '../accounts/util.js';
 import { CODE, ask, index, newCode } from './track.js';
+import { memoriesMemberOp } from './memories.js';
 
 export const MEMBERS_MAX = 12;
 const INVITE_MS = 14 * 86400_000;
@@ -126,6 +134,18 @@ export async function memberOp(account, op, body, { tripOp }) {
       const { trip: _t, member: _m, ...args } = body;
       return tripOp(account, op.replace('tmember-', 'trip-'), { ...args, id: body.trip }, { by: member });
     }
+    // Discover and Near me (discover.js) on the organiser's object: what a member finds, they suggest (tmember-propose)
+    case 'tmember-discover': {
+      await membership(account, body.trip, member);
+      return tripOp(account, 'trip-discover', { id: body.trip, kind: body.kind });
+    }
+    case 'tmember-nearby': {
+      await membership(account, body.trip, member);
+      return tripOp(account, 'trip-nearby', { lat: body.lat, lng: body.lng, kind: body.kind, minutes: body.minutes });
+    }
+    // the trip's memories, while the organiser shares them (memories.js checks membership and the switch)
+    case 'tmember-memories': case 'tmember-memory-photo': case 'tmember-photo-add': case 'tmember-photo-delete':
+      return memoriesMemberOp(account, op, body, { tripOp });
     case 'tmember-leave': {
       await account.storage.delete(`tmem:${String(body.trip || '')}:${member}`);
       return { left: true };
@@ -156,7 +176,8 @@ export async function memberApi(env, who, action, args, { call }) {
       return ask(env, String(args.owner || ''), 'tmember-get', { trip: args.trip, member: who.account });
     case 'shared-propose':
       return ask(env, String(args.owner || ''), 'tmember-propose', { trip: args.trip, member: who.account, title: args.title, reason: args.reason, ops: args.ops });
-    case 'shared-money': case 'shared-expense-add': case 'shared-expense-delete': case 'shared-chat': case 'shared-chat-post': case 'shared-decisions': {
+    case 'shared-money': case 'shared-expense-add': case 'shared-expense-delete': case 'shared-chat': case 'shared-chat-post': case 'shared-decisions':
+    case 'shared-photo-add': case 'shared-photo-delete': case 'shared-discover': case 'shared-nearby': {
       const { owner, ...rest } = args;
       return ask(env, String(owner || ''), action.replace('shared-', 'tmember-'), { ...rest, member: who.account });
     }

@@ -47,6 +47,11 @@ import { dropTripDocs, inboxOp, storedMail } from './inbox.js';
 import { discoverOp } from './discover.js';
 import { moneyOp } from './money.js';
 import { planOp } from './plan.js';
+import { togetherOp, tripPeople } from './together.js';
+import { mailWatchOp } from './mailwatch.js';
+import { liveOp } from './liveact.js';
+import { loyaltyOp } from './loyalty.js';
+import { accuracyOp, dropTripAccuracy, noteChecks, noteWindow } from './accuracy.js';
 import { activitiesOp } from './activities.js';
 import { dropTripPhotos, memoriesOp } from './memories.js';
 import { flightPriceDrops, flightWatches, fpwatchOp } from './fpwatch.js';
@@ -121,7 +126,10 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const { id, trip } = await load();
       const prop = await storage.get(`tprop:${id}`);
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
-      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id), flight_price_drops: await flightPriceDrops(account, id), flight_watches: await flightWatches(account, id) };
+      const checks = await check(trip);
+      // checks shown, for the accuracy counts (accuracy.js); a re-check counts its own (recheck.js, shown: false)
+      if (!body.recheck) await noteChecks(account, id, trip, checks).catch((e) => console.error('trip accuracy', e && e.message));
+      return { trip: { id, ...trip }, checks, proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id), flight_price_drops: await flightPriceDrops(account, id), flight_watches: await flightWatches(account, id) };
     }
     case 'trip-read': { // the trip alone, no checks run (each check can be a paid lookup): for the calendar files
       const { id, trip } = await load();
@@ -153,8 +161,9 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       // its documents, money and group chat (inbox.js, money.js)
       await dropTripDocs(storage, id);
       await dropTripPhotos(storage, id); // its memories (memories.js)
+      await dropTripAccuracy(account, id); // its reports (accuracy.js)
       await storage.delete(`tdis:${id}`); // its last disruption check (disrupt.js)
-      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`, `fpw:${id}:`, `twrem:${id}:`]) {
+      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`, `fpw:${id}:`, `twrem:${id}:`, `tpres:${id}:`, `tlive:${id}:`]) {
         const keys = [...(await storage.list({ prefix })).keys()];
         for (let i = 0; i < keys.length; i += 128) await storage.delete(keys.slice(i, i + 128));
       }
@@ -163,7 +172,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-edit': {
       const { id, trip } = await load();
       if (body.rev !== undefined && body.rev !== trip.rev) throw new TripError('This trip changed on another device. Reload it and try again.', 409, 'stale');
-      const { trip: after, changed } = applyOps(trip, body.ops, { newId });
+      const { trip: after, changed } = applyOps(trip, body.ops, { newId, people: await tripPeople(account, id) });
       const saved = await save(id, trip, after);
       return { trip: { id, ...saved }, checks: await check(saved), changed };
     }
@@ -174,7 +183,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
         const waiting = await storage.get(`tprop:${id}`);
         if (waiting && waiting.by !== 'member' && waiting.base_rev === trip.rev && now() - waiting.created < PROPOSAL_MS) throw new TripError('The organiser has another change waiting. Suggest yours once they’ve decided on it.', 409, 'busy');
       }
-      const { trip: after, changed } = applyOps(trip, body.ops, { newId });
+      const { trip: after, changed } = applyOps(trip, body.ops, { newId, people: await tripPeople(account, id) });
       const [before, checks] = await Promise.all([check(trip), check(after)]);
       const proposal = {
         id: hex(6),
@@ -197,7 +206,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       if (!prop || !PROP_ID.test(String(body.proposal)) || prop.id !== body.proposal) throw new TripError('That proposal is gone. Ask Eden again.', 409, 'gone');
       if (prop.base_rev !== trip.rev) throw new TripError('The trip changed after Eden proposed this. Ask Eden again.', 409, 'stale');
       if (now() - prop.created > PROPOSAL_MS) throw new TripError('That proposal is more than a day old. Ask Eden again.', 409, 'gone');
-      const { changed } = applyOps(trip, prop.ops, { newId }); // the rules again, on today's trip (a booking may have locked a stop)
+      const { changed } = applyOps(trip, prop.ops, { newId, people: await tripPeople(account, id) }); // the rules again, on today's trip (a booking may have locked a stop)
       const saved = await save(id, trip, prop.after);
       return { trip: { id, ...saved }, checks: await check(saved), changed };
     }
@@ -365,9 +374,26 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     // a flight's price watched before it's booked (fpwatch.js)
     case 'trip-fwatch-on': case 'trip-fwatch-off':
       return await fpwatchOp(account, op, body, { fetch: deps.fetch });
+    // who's looking now, and a copy of the trip (together.js)
+    case 'trip-presence-beat': case 'trip-copy':
+      return await togetherOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
     // smarter planning (plan.js)
-    case 'trip-optimize': case 'trip-windows':
-      return await planOp(account, op, body, { maps, cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    case 'trip-optimize': case 'trip-windows': {
+      const out = await planOp(account, op, body, { maps, cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+      if (op === 'trip-windows') await noteWindow(account, String(body.id || ''), out).catch(() => {}); // a booking window shown (accuracy.js)
+      return out;
+    }
+    // the Travel app's Live Activity: its push tokens, or the person ending it (liveact.js)
+    case 'trip-live-token': case 'trip-live-end':
+      return await liveOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // new bookings in Eden Mail, watched (mailwatch.js), and frequent-flyer numbers (loyalty.js)
+    case 'trip-mailwatch-on': case 'trip-mailwatch-off': case 'trip-mailwatch-status': case 'trip-mailwatch-drop': case 'trip-mail-found':
+      return await mailWatchOp(account, op, body);
+    case 'trip-loyalty': case 'trip-loyalty-save': case 'trip-loyalty-delete':
+      return await loyaltyOp(account, op, body);
+    // "This was wrong" on a check (accuracy.js)
+    case 'trip-check-report': case 'trip-check-reports': case 'trip-check-unreport':
+      return await accuracyOp(account, op, body, { check });
     case 'trip-hero': {
       const q = String(body.q || '').replace(/\s+/g, ' ').trim().slice(0, 100);
       if (q.length < 2) throw new TripError('q: the destination.');
