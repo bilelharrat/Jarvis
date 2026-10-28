@@ -179,3 +179,23 @@ test('a travel push goes to Apple under the travel app’s topic; anything else 
     ['https://api.push.apple.com', 'com.askeden.jarvis'],
   ]);
 });
+
+test('another site can’t loop the handoff (each pass would push a real browser out); a browser already signed in here gets no second device', async () => {
+  const refused = await hit(`${TRAVEL}/api/web/site-handoff/start`, { headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(refused.status, 200);
+  assert.equal(cookieValue(refused, '__Host-eden-hand'), '', 'no state, no code');
+  assert.match(await refused.text(), /Sign in from Eden Travel itself/);
+  const session = await signedIn();
+  const once = async (travelCookie) => {
+    const start = await hit(`${TRAVEL}/api/web/site-handoff/start`, { headers: { 'sec-fetch-site': 'same-origin' } });
+    const state = cookieValue(start, '__Host-eden-hand');
+    const to = new URL(start.headers.get('location'));
+    const minted = await hit(`${MAIN}/hand?s=${to.searchParams.get('s')}&on=1`, { headers: { 'sec-fetch-site': 'same-origin' }, cookie: `__Host-eden=${session}` });
+    return hit(minted.headers.get('location'), { cookie: [`__Host-eden-hand=${state}`, travelCookie ? `__Host-eden=${travelCookie}` : null].filter(Boolean).join('; ') });
+  };
+  const first = await once(null);
+  const travelSession = cookieValue(first, '__Host-eden');
+  assert.ok(travelSession);
+  const again = await once(travelSession);
+  assert.equal(cookieValue(again, '__Host-eden'), '', 'the same account again: the session it has is kept');
+});

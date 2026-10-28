@@ -27,8 +27,10 @@ const CODE = /^[A-Za-z0-9_-]{43}$/;
 const go = (location) => new Response(null, { status: 302, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
 export const travelHost = (env) => String(env.TRAVEL_HOST || '').toLowerCase();
 export const onTravelHost = (request, env) => Boolean(travelHost(env)) && new URL(request.url).hostname === travelHost(env);
-const mainOrigin = (env) => String(env.MAIN_ORIGIN || 'https://askeden.com');
-const travelOrigin = (env) => String(env.TRAVEL_ORIGIN || `https://${travelHost(env)}`);
+// https only, except a local dev origin (http://localhost, http://*.localhost)
+const origin = (v, fallback) => { const o = String(v || fallback); return /^https:\/\/|^http:\/\/([a-z0-9-]+\.)?localhost(:\d+)?$/.test(o) ? o : fallback; };
+const mainOrigin = (env) => origin(env.MAIN_ORIGIN, 'https://askeden.com');
+const travelOrigin = (env) => origin(env.TRAVEL_ORIGIN, `https://${travelHost(env)}`);
 
 function note(title, text, link, label) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -40,6 +42,10 @@ ${link && !label ? `<meta http-equiv="refresh" content="0; url=${link}">` : ''}<
 /** 1. On the travel address: the state in this browser, then askeden.com. */
 export async function handStart(request, env) {
   if (!onTravelHost(request, env)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  // only a load this site's own page or the app starts: another site looping a popup through here would make a new
+  // browser sign-in each time and push the account's real browsers out (an account keeps 10)
+  const site = request.headers.get('sec-fetch-site');
+  if (site && site !== 'same-origin' && site !== 'none') return note('Open Eden Travel', 'Sign in from Eden Travel itself.', '/', 'Go to Eden Travel');
   const state = b64url(randomBytes(32));
   const res = go(`${mainOrigin(env)}/hand?s=${await sha256Hex(state)}`);
   res.headers.append('set-cookie', cookie(HAND_COOKIE, state, { maxAge: HAND_SECONDS, sameSite: 'Lax' }));
@@ -77,6 +83,13 @@ export async function handFinish(request, env) {
     try { kept = (await callLink(env, `handoff:site:${code}`, 'take')).body.value; } catch (e) { if (!(e instanceof ApiError)) throw e; throw new ApiError(400, 'expired', 'That sign-in ran out or was already used.'); }
     if (kept.host !== travelHost(env) || kept.s !== (await sha256Hex(state))) throw new ApiError(400, 'state', 'That sign-in was started in another browser.');
     if (!webAllowed(env, kept.account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
+    // this browser already signed in here to the same account: no second browser device
+    const here = await currentSession(request, env).catch(() => ({ session: null }));
+    if (here.session && here.session.account === kept.account_id) {
+      const same = note('Opening Eden Travel…', '', '/');
+      same.headers.append('set-cookie', clearCookie(HAND_COOKIE, 'Lax'));
+      return same;
+    }
     const made = await call(env, kept.account_id, 'web-signin', { account_id: kept.account_id, device: { name: browserName(request), app_version: `${travelHost(env)} (askeden.com sign-in)` } });
     // a page that moves on, not a redirect: this load came from another site, and a browser holds a Strict cookie back
     // from the rest of a chain that started there (the next load, started here, has it)

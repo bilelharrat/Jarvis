@@ -84,6 +84,8 @@ export async function stayOp(account, op, body, deps = {}) {
       }
       case 'trip-stays-cancel': {
         if (body.confirm !== true) throw new TripError('stays-cancel needs confirm: true (the person pressed Cancel booking).');
+        // Eden books on one Duffel account for everyone: only a booking this account made can be cancelled from it
+        if (!(await account.storage.get(`stbk:${String(body.booking_id)}`))) throw new TripError('There is no such hotel booking in your Eden Travel.', 404, 'not_found');
         const b = await stays.cancel(body.booking_id, { confirm: true });
         await account.storage.delete(`stbk:${String(body.booking_id)}`);
         return b;

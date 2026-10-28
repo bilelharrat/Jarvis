@@ -55,7 +55,7 @@ function paint() {
         el('div', {}, el('b', {}, s.place.name),
           el('div', { class: 'tp-meta' }, [KIND[s.kind], hm(s.minutes), s.nights ? `${s.nights} nights` : null, s.booked ? 'Booked' : null].filter(Boolean).join(' · ')),
           check('Getting there', s.travel), check('Hours', s.hours)))))),
-    pts.length ? el('img', { class: 'tp-map', alt: `Map of Day ${S.day + 1}`, src: `/t/${code}/map?p=${encodeURIComponent(pts.join('|'))}&w=640&h=320&style=day` }) : null,
+    pts.length ? el('img', { class: 'tp-map', alt: `Map of Day ${S.day + 1}`, src: `/t/${code}/map?day=${S.day}` }) : null,
     el('div', { class: 'tp-acts' }, el('a', { class: 'tp-btn', href: `/t/${code}/calendar.ics`, download: 'trip.ics' }, 'Add to my calendar')),
     el('p', { class: 'tp-note' }, `Shared by the trip’s organiser. This page always shows the trip as it is now${t.checked_at ? `, last checked ${String(t.checked_at).slice(0, 16).replace('T', ' ')} UTC` : ''}.`));
 }

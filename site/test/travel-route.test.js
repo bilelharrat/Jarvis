@@ -163,3 +163,15 @@ test('a trip shared with the people on it: the plan and its checks, never prices
   await travel(session, 'link-revoke', { code: listed.body.links[0].code });
   assert.equal((await hit(`${link.body.url}/data`)).status, 404, 'an ended link shows nothing');
 });
+
+test('without Plus a trip link can still be ended (and stops showing), and a trip deleted', async () => {
+  const session = await signedIn();
+  const made = await travel(session, 'sample');
+  const link = await travel(session, 'link-create', { id: made.body.trip.id });
+  env.TRAVEL_PLUS = '1';
+  assert.equal((await hit(`${link.body.url}/data`)).status, 404, 'its owner has no Plus: the link shows nothing');
+  assert.equal((await travel(session, 'links', {})).status, 200);
+  assert.equal((await travel(session, 'link-revoke', { code: link.body.code })).status, 200);
+  assert.equal((await travel(session, 'delete', { id: made.body.trip.id })).status, 200);
+  assert.equal((await travel(session, 'sample')).status, 402);
+});

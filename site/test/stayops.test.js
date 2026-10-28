@@ -63,3 +63,11 @@ test('price protection: cheaper before free cancellation ends → one push and E
   clock.t = Date.parse('2027-05-11T00:00:00Z');
   assert.deepEqual(await priceDrops(a, 't1'), [], 'past free cancellation: no rebook offer');
 });
+
+test('a hotel booking is cancelled only from the account that made it (Eden books on one Duffel account for everyone)', async () => {
+  const a = account({ t: Date.parse('2027-04-01T09:00:00Z') });
+  const stays = fakeStays({ now: '400.00' });
+  await assert.rejects(stayOp(a, 'trip-stays-cancel', { booking_id: 'bok_1', confirm: true }, { stays }), /no such hotel booking/);
+  a.m.set('stbk:bok_1', { booking_id: 'bok_1' });
+  assert.equal((await stayOp(a, 'trip-stays-cancel', { booking_id: 'bok_1', confirm: true }, { stays })).status, 'cancelled');
+});

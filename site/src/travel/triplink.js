@@ -12,7 +12,7 @@
 //   anyone with the link (the Worker): tlink-view { code }
 //   GET /t/<code>                 the page (public/travel-trip/), noindex
 //   GET /t/<code>/data            → tlink-view
-//   GET /t/<code>/map?p=…         the day's map picture (only while the link is live)
+//   GET /t/<code>/map?day=N       that day's map picture, from its own stops (only while the link is live)
 //   GET /t/<code>/calendar.ics    the trip as a calendar file (ics.js)
 //   GET /t/<file>                 the page's own files (TRIP_FILES)
 
@@ -131,14 +131,19 @@ export async function tripLinkPage(request, env, path, { tripToIcs } = {}) {
     const { account } = await index(env, code, 'tshare-index-get');
     if (part === 'data') return withHeaders(json(await ask(env, account, 'tlink-view', { code })), NOINDEX);
     if (part === 'map') {
-      await ask(env, account, 'tlink-view', { code }); // the link must still be live
-      return withHeaders(await flightMapImage(env, new URL(request.url)), NOINDEX);
+      // the day's own stops only (built here from the trip, never points from the request): not a map of anywhere on Eden's key
+      const view = await ask(env, account, 'tlink-view', { code });
+      const day = view.trip.days[Math.max(0, Math.min(view.trip.days.length - 1, Number(new URL(request.url).searchParams.get('day')) || 0))];
+      const pts = (day ? day.stops : []).filter((x) => Number.isFinite(x.place.lat) && Number.isFinite(x.place.lng)).slice(0, 25).map((x) => `${x.place.lat},${x.place.lng}`);
+      if (!pts.length) throw new ApiError(404, 'not_found', 'No stop on the map that day.');
+      const built = new URL(`https://map.invalid/?p=${encodeURIComponent(pts.join('|'))}&w=640&h=320&style=day`);
+      return withHeaders(await flightMapImage(env, built), NOINDEX);
     }
     if (!tripToIcs) throw new ApiError(404, 'not_found', 'Not found');
     const out = await ask(env, account, 'tlink-view', { code, raw: true });
     // the people on the trip get the plan only: no notes (they can hold references), links, costs or bookings
     const t = out.tripRaw;
-    const plain = { ...t, days: t.days.map((d) => ({ ...d, stops: d.stops.map((x) => ({ id: x.id, kind: x.kind, at: x.at, minutes: x.minutes, nights: x.nights, place: { name: x.place.name, lat: x.place.lat, lng: x.place.lng } })) })) };
+    const plain = { title: t.title, start: t.start, days: t.days.map((d) => ({ title: d.title, stops: d.stops.map((x) => ({ id: x.id, kind: x.kind, at: x.at, minutes: x.minutes, nights: x.nights, place: { name: x.place.name, lat: x.place.lat, lng: x.place.lng } })) })) }; // named fields only
     const ics = tripToIcs(plain, { id: code, now: Date.now() });
     return new Response(ics, { headers: { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': 'attachment; filename="trip.ics"', 'cache-control': 'private, no-cache', ...NOINDEX } });
   } catch (e) {

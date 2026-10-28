@@ -142,7 +142,11 @@ export class Account {
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       // Eden Travel's guest tracking links (travel/track.js): the link's code is the key; no device signs these
       if (op.startsWith('tshare-')) return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
-      if (op.startsWith('tlink-')) return json(await linkPublicOp(this, op, await request.json().catch(() => ({})), { tripOp })); // the trip shared with the people on it (travel/triplink.js)
+      if (op.startsWith('tlink-')) {
+        // the trip shared with the people on it (travel/triplink.js): shown only while its owner has Plus
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This trip link has ended.');
+        return json(await linkPublicOp(this, op, await request.json().catch(() => ({})), { tripOp }));
+      }
       if (op.startsWith('share-')) return await sharedChatsOp(this, op, request); // shared chats, /s/<id> (shared-chats.js, askeden Q3)
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
       if (op.startsWith('cmerge-')) return await chatMergeOp(this, op, request); // another sign-in's chats copied into the account that proved it (chat-sync.js)
@@ -182,7 +186,8 @@ export class Account {
         if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.');
         // Eden Travel is part of Eden Plus (the owner's decision, 2026-10-28): without it the list answers empty with
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) {
+        // ending a shared link, listing links and deleting a trip are always the person's, Plus or not
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete'].includes(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }

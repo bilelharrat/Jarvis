@@ -25,6 +25,8 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   // the in-flight map's picture (maps.js): a Google Static Map fetched with the server's key
   if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo') {
     if (request.method !== 'GET') throw new ApiError(405, 'bad_request', 'GET');
+    // pictures on Eden's Google key: for Eden Travel's members only (the list answers plus: false without Plus)
+    if ((await call(env, who.account, 'trip-list', {}, who.token)).plus === false) throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
     try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, new URL(request.url), { fetch: deps.fetch }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : 502, e.code, e.message); throw e; }
   }
   if (path === '/api/chat/travel/calendar') {
