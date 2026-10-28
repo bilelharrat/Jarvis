@@ -13,7 +13,10 @@ export const EDEN_APP_ID = 'com.askeden.eden';
 // Eden for Education's iPhone app (askeden ios/ EdenEdu target): the same native sign-in, the same accounts
 // (its App ID is grouped with com.askeden.jarvis on developer.apple.com, so Apple gives the same user id).
 export const EDU_APP_ID = 'com.askeden.edu';
-export const EDEN_APP_IDS = [EDEN_APP_ID, EDU_APP_ID];
+// Ask Eden Travel's iPhone app (askeden ios/ EdenTravel target, a web view of askedentravel.com): the same native sign-in
+// at askeden.com, whose handoff goes on to the travel address (eden/site-handoff.js). Its App ID is grouped the same way.
+export const TRAVEL_APP_ID = 'com.askeden.travel';
+export const EDEN_APP_IDS = [EDEN_APP_ID, EDU_APP_ID, TRAVEL_APP_ID];
 
 let cachedKeys = null; // { at, keys }
 let lastForced = 0; // when an unknown kid last made the keys be read again

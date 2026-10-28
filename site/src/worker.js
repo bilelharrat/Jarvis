@@ -521,6 +521,10 @@ export function appSiteAssociation(env, host = '') {
   if (env.EDU_HOST && host === String(env.EDU_HOST).toLowerCase()) {
     return json({ applinks: { details: [{ appIDs: [`${team}.com.askeden.edu`], components: [{ '/': '/api/*', exclude: true }, { '/': '/signin*', exclude: true }, { '/': '/lti/*', exclude: true }, { '/': '/*' }] }] }, webcredentials: { apps: [`${team}.com.askeden.edu`] } }, 200, { 'cache-control': 'public, max-age=3600' });
   }
+  // Eden Travel's own address (TRAVEL_HOST) belongs wholly to Ask Eden Travel's app (askeden ios/ EdenTravel)
+  if (env.TRAVEL_HOST && host === String(env.TRAVEL_HOST).toLowerCase()) {
+    return json({ applinks: { details: [{ appIDs: [`${team}.com.askeden.travel`], components: [{ '/': '/api/*', exclude: true }, { '/': '/signin*', exclude: true }, { '/': '/f/*', exclude: true }, { '/': '/*' }] }] } }, 200, { 'cache-control': 'public, max-age=3600' });
+  }
   const body = {
     applinks: {
       details: [{
@@ -542,7 +546,7 @@ export function appSiteAssociation(env, host = '') {
         ],
       }],
     },
-    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`] },
+    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`, `${team}.com.askeden.travel`] }, // Ask Eden Travel's app signs in here too (its passkeys are askeden.com's)
   };
   return json(body, 200, { 'cache-control': 'public, max-age=3600' });
 }

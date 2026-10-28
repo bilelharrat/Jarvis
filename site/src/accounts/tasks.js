@@ -35,7 +35,7 @@
 // This module imports nothing from accounts/index.js (it imports the account object, which
 // imports this): chat.js hands in `call` and `limited`.
 
-import { ApiError, isPhone, json } from './util.js';
+import { ApiError, WEB_PUSH_APPS, isPhone, isWebPushApp, json } from './util.js';
 import { costOf, priceOf } from './proxy.js';
 import { serviceAiReady, serviceFetch } from './service-ai.js';
 import { GONE, MAX_PAYLOAD, pushReady, sendPush } from './apns.js';
@@ -480,7 +480,10 @@ export async function notifyOwner(account, { title, body, data = {}, local = fal
   const now = account.now();
   let sent = 0;
   for (const d of await account.devices()) {
-    if (!d.apns_token || !isPhone(d.kind) || (d.expires && d.expires <= now)) continue;
+    if (!d.apns_token || (d.expires && d.expires <= now)) continue;
+    // a web device in an app of its own (Ask Eden Travel) hears only that app's kinds; the apps' phones hear everything
+    const webApp = d.kind === 'web' && isWebPushApp(d.apns_topic);
+    if (webApp ? !WEB_PUSH_APPS[d.apns_topic].has(data.kind) : !isPhone(d.kind)) continue;
     try {
       const checked = await account.pushCheck({ apns_token: d.apns_token, push_type: 'alert' });
       let text = cut(oneLine(body), 240);
@@ -489,7 +492,7 @@ export async function notifyOwner(account, { title, body, data = {}, local = fal
         text = cut(text, Math.floor(text.length / 2));
         payload = taskPush(title, text, data);
       }
-      const r = await send({ apns_token: checked.token, apns_env: d.apns_env, push_type: 'alert', priority: 10, collapse_id: data.approval || data.task || undefined, body: payload });
+      const r = await send({ apns_token: checked.token, apns_env: d.apns_env, apns_topic: webApp ? d.apns_topic : undefined, push_type: 'alert', priority: 10, collapse_id: data.approval || data.task || undefined, body: payload });
       if (GONE.has(r.reason) || r.status === 410) await account.pushGone({ apns_token: checked.token });
       else if (r.status === 200) sent += 1;
     } catch (e) {

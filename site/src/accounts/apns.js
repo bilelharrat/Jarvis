@@ -3,7 +3,7 @@
 // token made once and used for 50 minutes, HTTP/2 to api.push.apple.com (Workers speak it),
 // and Apple's answer passed back as it is.
 
-import { BUNDLE_ID, TEAM_ID, b64ToBytes, b64url, b64urlText } from './util.js';
+import { BUNDLE_ID, TEAM_ID, isWebPushApp, b64ToBytes, b64url, b64urlText } from './util.js';
 
 const HOSTS = { production: 'https://api.push.apple.com', sandbox: 'https://api.sandbox.push.apple.com' };
 const TOKEN_MS = 50 * 60 * 1000;
@@ -33,7 +33,9 @@ export function forgetProviderToken() {
 // One push. Returns { status, apns_id?, reason? }.
 export async function sendPush(env, push, fetcher = fetch) {
   const kind = ['alert', 'background', 'liveactivity'].includes(push.push_type) ? push.push_type : 'alert';
-  const topic = kind === 'liveactivity' ? `${BUNDLE_ID}.push-type.liveactivity` : BUNDLE_ID;
+  // an app around a web page that registered its own topic (util.js WEB_PUSH_APPS), else the Eden Secretary app
+  const app = kind !== 'liveactivity' && isWebPushApp(push.apns_topic) ? push.apns_topic : BUNDLE_ID;
+  const topic = kind === 'liveactivity' ? `${BUNDLE_ID}.push-type.liveactivity` : app;
   const headers = {
     authorization: `bearer ${await providerToken(env)}`,
     'apns-topic': topic,

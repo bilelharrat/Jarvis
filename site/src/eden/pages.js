@@ -127,7 +127,11 @@ export async function edenPage(request, env, path) {
   // Ask Eden Travel's site (public/travel-home/): held until TRAVEL_HOST is set; then askedentravel.com serves it at its front (worker.js)
   // askeden.com's half of the travel address's sign-in (site-handoff.js); there, /signin is that sign-in
   if (path === '/hand') return handPage(request, env);
-  if (path === '/signin' && onTravelHost(request, env)) return redirect('/api/web/site-handoff/start');
+  if (path === '/signin' && onTravelHost(request, env)) {
+    // signed in here already (Ask Eden Travel's iPhone app opens /signin first): the app, not a second sign-in
+    const { session } = await currentSession(request, env);
+    return redirect(session ? '/' : '/api/web/site-handoff/start');
+  }
   if (env.TRAVEL_HOST && (path === '/travel-home/travel-home.css' || path === '/travel-home/features.js')) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   if (env.TRAVEL_HOST && path === '/travel-home/eden-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (path === '/pricing') return redirect('/#pricing'); // the front page's plans (public/home/)

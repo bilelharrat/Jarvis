@@ -9,6 +9,11 @@ export const EDEN_BUNDLE_ID = 'com.askeden.eden';
 export const EDEN_PLUS_PRODUCTS = ['com.askeden.eden.plus.monthly', 'com.askeden.eden.plus.yearly'];
 /** The apps that sell Plus through the App Store, and their products. */
 export const STORE_APPS = Object.freeze({ [BUNDLE_ID]: PLUS_PRODUCTS, [EDEN_BUNDLE_ID]: EDEN_PLUS_PRODUCTS });
+// Ask Eden Travel for iPhone (askeden/ios EdenTravel): a web view of askedentravel.com, whose web device registers for
+// push itself (POST /api/web/push) and gets the travel pushes (flight changes, a pickup picked) under its own APNs topic.
+export const TRAVEL_BUNDLE_ID = 'com.askeden.travel';
+export const WEB_PUSH_APPS = Object.freeze({ [TRAVEL_BUNDLE_ID]: new Set(['flight', 'pickup']) });
+export const isWebPushApp = (bundleId) => Object.hasOwn(WEB_PUSH_APPS, String(bundleId));
 export const isStoreApp = (bundleId) => Object.hasOwn(STORE_APPS, String(bundleId));
 /** A Plus product, from its own app (a transaction without bundleId: the Worker checked it already). */
 export function isPlusPurchase(tx) {

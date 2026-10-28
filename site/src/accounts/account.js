@@ -15,6 +15,7 @@ import {
   cleanVersion,
   deviceKind,
   isPhone,
+  isWebPushApp,
   json,
   makeToken,
   newDevice,
@@ -186,6 +187,7 @@ export class Account {
         case 'promo-grant': return json(await grantPromo(this, body)); // a promo code's days, once per code (promo.js)
         case 'delete': return json(await this.deleteAll());
         case 'device-update': return json(await this.updateDevice(device, body));
+        case 'app-push': return json(await this.webPush(device, body)); // an app around askeden's pages registers for push (Ask Eden Travel)
         case 'device-delete': return json(await this.deleteDevice(device, body.id));
         case 'add-device': return json(await this.addLinkedDevice(device, body));
         case 'browsers-signout': return json(await this.webSignOut(device, body));
@@ -463,6 +465,20 @@ export class Account {
     }
     await this.storage.put(`dev:${device.id}`, device);
     return {};
+  }
+
+  // A browser inside an app of its own (Ask Eden Travel for iPhone, util.js WEB_PUSH_APPS) gives its push token and the
+  // app's topic; only that app's pushes go to it (tasks.js notifyOwner). Its own device only, never a delegate's.
+  async webPush(device, body) {
+    if (device.kind !== 'web' || device.grant) throw new ApiError(403, 'forbidden', 'Only a browser in an Eden app registers this way.');
+    if (body.apns_token === null) {
+      device.apns_topic = null;
+      return this.updateDevice(device, { apns_token: null });
+    }
+    if (!isWebPushApp(body.app)) throw new ApiError(400, 'bad_request', "That app doesn't get pushes this way.");
+    if (typeof body.apns_token !== 'string') throw new ApiError(400, 'bad_request', "That isn't a push token.");
+    device.apns_topic = body.app;
+    return this.updateDevice(device, { apns_token: body.apns_token, apns_env: body.apns_env });
   }
 
   async deleteDevice(caller, id) {

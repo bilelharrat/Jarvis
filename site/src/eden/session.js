@@ -156,6 +156,8 @@ export async function web(request, env, ctx, path) {
     if (path === '/api/web/link' && method === 'POST') return await linkStart(request, env);
     if (path === '/api/web/link/poll' && method === 'POST') return await linkPoll(request, env);
     if (path === '/api/web/session' && method === 'GET') return await session(request, env);
+    // Ask Eden Travel's iPhone app registers this browser for push (account.js webPush)
+    if (path === '/api/web/push' && method === 'POST') return await webPush(request, env);
     if (path === '/api/web/account' && method === 'GET') return await accountView(request, env);
     if (path === '/api/web/account/delete' && method === 'POST') return await deleteWebAccount(request, env);
     if (path === '/api/web/signout' && method === 'POST') return await signOut(request, env);
@@ -292,6 +294,12 @@ async function session(request, env) {
     acting: as && grant ? actingView(as) : null,
     acting_ended: Boolean(found && found.ended),
   });
+}
+
+async function webPush(request, env) {
+  const who = await signedIn(request, env);
+  const body = await readJson(request);
+  return json(await call(env, who.account, 'app-push', { apns_token: body.apns_token, apns_env: body.apns_env, app: body.app }, who.token));
 }
 
 async function accountView(request, env) {
