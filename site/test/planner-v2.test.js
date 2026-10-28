@@ -8,7 +8,7 @@ import { checkTrip } from '../src/travel/checks.js';
 import { forecast, localClock } from '../src/travel/weather.js';
 import { afterDark, extraOp } from '../src/travel/extraops.js';
 import { armRecheck, newAlerts, recheckDue, recheckTimes } from '../src/travel/recheck.js';
-import { allowedLicence, heroFor, heroImage, heroImageAllowed, plainText } from '../src/travel/hero.js';
+import { allowedLicence, licenceDeed, heroFor, heroImage, heroImageAllowed, plainText } from '../src/travel/hero.js';
 
 const T0 = Date.parse('2026-10-27T12:00:00Z');
 const jsonRes = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -35,7 +35,7 @@ const ROUTES_SAMPLE = {
 };
 
 test('transit lines: each ride from the Routes steps, only what Google sent', () => {
-  assert.deepEqual(transitLines(ROUTES_SAMPLE.routes[0]), [{ vehicle: 'Tram', vehicle_type: 'TRAM', name: '28E', headsign: 'Campo Ourique (Prazeres)', from: 'Martim Moniz', to: 'Graça', stops: 6, departs: '2026-10-28T09:12:00Z', departs_text: '09:12' }]);
+  assert.deepEqual(transitLines(ROUTES_SAMPLE.routes[0]), [{ vehicle: 'Tram', vehicle_type: 'TRAM', name: '28E', headsign: 'Campo Ourique (Prazeres)', from: 'Martim Moniz', to: 'Graça', stops: 6 }], 'no departure times: the route is for now, not the trip');
   assert.deepEqual(transitLines({ legs: [{ steps: [{ travelMode: 'TRANSIT', transitDetails: { transitLine: { name: 'Linha Verde', vehicle: { type: 'SUBWAY' } } } }] }] }), [{ vehicle: 'SUBWAY', vehicle_type: 'SUBWAY', name: 'Linha Verde' }]);
   assert.deepEqual(transitLines({}), []);
 });
@@ -146,11 +146,30 @@ test('the re-check times: a week before, the day before, each morning at 07:00 U
   assert.deepEqual(recheckTimes({ start: '2026-11-10', days: [] }), []);
 });
 
+test('the re-check times: 07:00 where the trip is, once its time zone is known', async () => {
+  assert.equal(new Date(recheckTimes(ROME, 'Europe/Rome')[2]).toISOString(), '2026-11-10T06:00:00.000Z');
+  assert.equal(new Date(recheckTimes({ ...ROME, start: '2026-07-10' }, 'America/New_York')[2]).toISOString(), '2026-07-10T11:00:00.000Z');
+  assert.equal(new Date(recheckTimes(ROME, 'Not/AZone')[2]).toISOString(), '2026-11-10T07:00:00.000Z', 'a zone it can’t read: UTC');
+  const a = fakeAccount({ t: Date.parse('2026-10-27T12:00:00Z') }, { r1: ROME });
+  await a.storage.put('tz:r1', { zone: 'Europe/Rome', from: 'x' });
+  assert.equal(await armRecheck(a), Date.parse('2026-11-03T06:00:00Z'));
+});
+
+test('the re-check: one missed by more than a day (the job was off) is skipped, not run late', async () => {
+  const a = fakeAccount({ t: Date.parse('2026-11-05T07:00:00Z') }, { r1: ROME });
+  await a.storage.put('tchk:r1', { alerts: [], ran: Date.parse('2026-10-20T00:00:00Z') });
+  let looked = 0;
+  await recheckDue(a, { tripOp: async () => { looked++; return { checks: { maps: 'google', days: [], alerts: [] } }; }, notify: async () => {} });
+  assert.equal(looked, 0);
+  assert.equal(alarmAt(a), Date.parse('2026-11-09T07:00:00Z'));
+});
+
 test('the re-check job: one push per new alert, never twice; then the next time; done after the trip', async () => {
   const clock = { t: Date.parse('2026-10-27T12:00:00Z') };
   const a = fakeAccount(clock, { r1: ROME });
   const closed = { kind: 'closed_that_day', stop: 's-x', day: 0, text: 'Vatican Museums: closed on Sundays.' };
-  const late = { kind: 'late', stop: 's-y', day: 1, text: 'Colosseum: you’d arrive at 10:20, 20 min after the planned 10:00.' };
+  const late = { kind: 'closed_that_day', stop: 's-y', day: 1, text: 'Colosseum: closed that day.' };
+  const tight = { kind: 'late', stop: 's-w', day: 1, text: 'the plan’s own timing: not news' };
   const hours = { kind: 'out_of_hours', stop: 's-z', day: 1, text: 'Borghese: open 09:00–19:00 on Wednesday; the visit is 18:30–19:30.' };
   let alerts = [closed];
   const tripOp = async (_a, op, body) => { assert.equal(op, 'trip-get'); assert.equal(body.id, 'r1'); return { checks: { maps: 'google', days: [], alerts } }; };
@@ -166,7 +185,7 @@ test('the re-check job: one push per new alert, never twice; then the next time;
   assert.equal(pushes.length, 0, 'nothing changed: no push');
   assert.equal(alarmAt(a), Date.parse('2026-11-09T07:00:00Z'));
 
-  alerts = [closed, late, hours];
+  alerts = [closed, late, hours, tight];
   clock.t = Date.parse('2026-11-09T07:00:05Z');
   await recheckDue(a, { tripOp, notify });
   assert.equal(pushes.length, 1, 'one push for the two new alerts');
@@ -181,13 +200,13 @@ test('the re-check job: one push per new alert, never twice; then the next time;
   clock.t = Date.parse('2026-11-11T07:00:00Z');
   await recheckDue(a, { tripOp, notify });
   assert.equal(alarmAt(a), undefined, 'the trip is over: no more re-checks');
-  assert.deepEqual(newAlerts(['late:s-y:1'], [late, closed]), [closed]);
+  assert.deepEqual(newAlerts(['closed_that_day:s-y:1'], [late, closed]), [closed]);
 });
 
 test('the re-check: no baseline yet only sets one; stand-in answers and no Plus push nothing; a trip made late skips past times', async () => {
   const clock = { t: Date.parse('2026-11-03T07:00:00Z') };
   const a = fakeAccount(clock, { r1: ROME });
-  const alert = { kind: 'late', stop: 's-y', day: 1, text: 'late' };
+  const alert = { kind: 'out_of_hours', stop: 's-y', day: 1, text: 'out of hours' };
   const pushes = [];
   const notify = async (_a, n) => { pushes.push(n); };
   let maps = 'google';
@@ -195,7 +214,7 @@ test('the re-check: no baseline yet only sets one; stand-in answers and no Plus 
   const tripOp = async () => { looked++; return { checks: { maps, days: [], alerts: [alert] } }; };
   await recheckDue(a, { tripOp, notify });
   assert.equal(pushes.length, 0, 'the first look only sets what the person knows');
-  assert.deepEqual(a.m.get('tchk:r1').alerts, ['late:s-y:1']);
+  assert.deepEqual(a.m.get('tchk:r1').alerts, ['out_of_hours:s-y:1']);
 
   const b = fakeAccount(clock, { r1: ROME });
   await b.storage.put('tchk:r1', { alerts: [] });
@@ -279,4 +298,10 @@ test('place photos go up to 1600 px wide', async () => {
   assert.equal(asked.searchParams.get('maxWidthPx'), '1200');
   await placePhoto({ GOOGLE_MAPS_SERVER_KEY: 'k' }, new URL(`https://askeden.com/api/chat/travel/photo?n=${name}&w=4000`), { fetch });
   assert.equal(asked.searchParams.get('maxWidthPx'), '1600');
+});
+
+test('a CC BY credit always links its licence: from Commons, else built from the name', () => {
+  assert.equal(licenceDeed('CC BY-SA 2.0 de'), 'https://creativecommons.org/licenses/by-sa/2.0/de/');
+  assert.equal(licenceDeed('CC BY 4.0'), 'https://creativecommons.org/licenses/by/4.0/');
+  assert.equal(licenceDeed('Public domain'), null);
 });

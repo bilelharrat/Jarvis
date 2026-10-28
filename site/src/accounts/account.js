@@ -1057,16 +1057,19 @@ export class Account {
 
   // The one alarm, shared (schedule.js): artifacts' expiry, scheduled Gmail sends, tasks' checks.
   async alarm() {
+    // Eden Travel's jobs look things up on paid services: only while the account has Plus. Lapsed, the watches stop
+    // (a trip write arms them again); the re-check skips its turn
+    const travelOn = async () => String(this.env.TRAVEL_PLUS ?? '1') === '0' || (await this.planNow().catch(() => ({}))).active;
     await runAlarms(this, {
       artifacts: () => this.artifactSweep(),
       mail: (job) => mailDue(this, job),
       task: (job) => taskDue(this, job),
       autodraft: () => autodraftDue(this),
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
-      fwatch: () => flightWatchDue(this, { tripOp, notify: notifyOwner }), // a trip's flights: delays, gates, cancellations (travel/watch.js)
-      pwatch: () => stayWatchDue(this, { notify: notifyOwner }), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
+      fwatch: async () => ((await travelOn()) ? flightWatchDue(this, { tripOp, notify: notifyOwner }) : unscheduleJob(this, 'fwatch')), // a trip's flights: delays, gates, cancellations (travel/watch.js)
+      pwatch: async () => ((await travelOn()) ? stayWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
       // each trip re-checked a week before, the day before and each morning; what changed pushed once (travel/recheck.js)
-      tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: async () => String(this.env.TRAVEL_PLUS ?? '1') === '0' || (await this.planNow()).active }),
+      tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: travelOn }),
     });
   }
 

@@ -124,11 +124,11 @@ export async function sharePublicOp(account, op, body, deps) {
       if (hit && hit.until > now) return hit.v;
       const v = { from, ...(await pickupOptions({ maps, flight: live.flight, airport: live.to, origin: live.from, from, now })) };
       await account.storage.put(ck, { v, until: now + OPTIONS_MS });
-      await account.storage.put(`${key}:opts`, v); // what a pick refers to
+      await account.storage.put(`tsho:${code}`, v); // what a pick refers to
       return v;
     }
     case 'tshare-pick': {
-      const opts = await account.storage.get(`${key}:opts`);
+      const opts = await account.storage.get(`tsho:${code}`);
       const o = opts && opts.options[Number(body.index)];
       if (!o) throw new ApiError(409, 'stale', 'Show the pickup options again, then pick one.');
       const name = text(body.name, 40) || 'Your driver';

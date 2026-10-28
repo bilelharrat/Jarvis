@@ -116,6 +116,10 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
       return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id) };
     }
+    case 'trip-read': { // the trip alone, no checks run (each check can be a paid lookup): for the calendar files
+      const { id, trip } = await load();
+      return { trip: { id, ...trip } };
+    }
     case 'trip-create':
       return await create(body.trip, { find: true });
     case 'trip-sample':

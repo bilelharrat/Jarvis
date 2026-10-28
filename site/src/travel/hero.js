@@ -50,6 +50,13 @@ export function allowedLicence(shortName) {
   return null;
 }
 
+/** The licence's deed, built from its short name when Commons gives none (CC BY and BY-SA must link it). */
+export function licenceDeed(licence) {
+  const m = /^CC (BY(?:-SA)?) (\d\.\d)(?:\s+([a-z]{2,3}))?$/i.exec(String(licence || '').trim());
+  if (m) return `https://creativecommons.org/licenses/${m[1].toLowerCase()}/${m[2]}/${m[3] ? `${m[3].toLowerCase()}/` : ''}`;
+  if (/^(CC0|CC-?Zero)/i.test(String(licence || ''))) return 'https://creativecommons.org/publicdomain/zero/1.0/';
+  return null;
+}
 const attributionFree = (licence) => /^(CC0|CC-?Zero|public domain)/i.test(licence);
 
 async function getJson(fetcher, url) {
@@ -95,7 +102,8 @@ export async function heroFor(env, query, { fetch: fetcher = globalThis.fetch, n
   try { thumb = new URL(String(ii.thumburl || '')); } catch { return null; }
   thumb.search = ''; // Wikimedia's tracking query, not part of the file
   if (thumb.protocol !== 'https:' || !HOSTS.has(thumb.hostname) || !THUMB.test(thumb.pathname)) return null;
-  const licenceUrl = /^https?:\/\//.test(value('LicenseUrl')) ? value('LicenseUrl').replace(/^http:/, 'https:') : null;
+  const licenceUrl = /^https?:\/\//.test(value('LicenseUrl')) ? value('LicenseUrl').replace(/^http:/, 'https:') : licenceDeed(licence);
+  if (!licenceUrl && !attributionFree(licence)) return null; // a CC BY credit without its link isn't one
   return {
     url: thumb.href,
     width: Number(ii.thumbwidth) || null,

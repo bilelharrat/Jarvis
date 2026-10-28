@@ -210,7 +210,7 @@ async function pending(account, tripId, on, deps) {
   const z = await account.storage.get(`tz:${tripId}`);
   const zone = z && typeof z === 'object' ? z.zone : z; // kept with the stop it came from (tripZone)
   if (!zone) return null;
-  const plain = plainTrip((await deps.tripOp(account, 'trip-get', { id: tripId })).trip, tripId);
+  const plain = plainTrip((await deps.tripOp(account, 'trip-read', { id: tripId })).trip, tripId);
   const events = on.events || {};
   let n = 0;
   const seen = new Set();
@@ -223,7 +223,7 @@ async function pending(account, tripId, on, deps) {
 export async function gcalWrite(account, tripId, deps) {
   const on = await account.storage.get(GKEY(tripId));
   if (!on) return null;
-  const raw = (await deps.tripOp(account, 'trip-get', { id: tripId })).trip;
+  const raw = (await deps.tripOp(account, 'trip-read', { id: tripId })).trip;
   const zone = await tripZone(account, { ...raw, id: tripId }, deps.fetch || fetch); // the places' Google ids: for the zone only
   const trip = plainTrip(raw, tripId); // what Google is given: named fields only
   const { api, cal } = await googleCalendar(account, deps, on.calendarId);
@@ -279,7 +279,7 @@ export async function calOp(account, op, body, deps) {
   }
   if (op === 'trip-gcal-sync') {
     if (body.confirm !== true) throw new ApiError(400, 'bad_request', 'Syncing to Google Calendar needs confirm: true (the person pressed it).');
-    await deps.tripOp(account, 'trip-get', { id }); // a trip of this account (404 otherwise)
+    await deps.tripOp(account, 'trip-read', { id }); // a trip of this account (404 otherwise)
     const was = await account.storage.get(GKEY(id));
     // the calendar the person picked (the first time); later updates write to the same one
     const calendarId = (was && was.calendarId) || String(body.calendarId || '');

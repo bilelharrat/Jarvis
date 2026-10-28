@@ -144,8 +144,9 @@ function googleMaps(key, fetcher, now) {
 // a place open all day has one period with no close.
 // A transit route's rides, in order, from Routes API steps (RouteLegStep.transitDetails: transitLine { name, nameShort,
 // vehicle { type, name { text } } }, stopDetails { departureStop { name }, arrivalStop { name }, departureTime },
-// localizedValues.departureTime.time.text, headsign, stopCount). Only the fields Google sent: a missing one stays out.
-//   → [{ vehicle, vehicle_type, name, headsign, from, to, stops, departs, departs_text }]
+// headsign, stopCount). Only the fields Google sent: a missing one stays out. No departure times: the route is asked for
+// now, not for the hour of the trip, so its times would be for the wrong day.
+//   → [{ vehicle, vehicle_type, name, headsign, from, to, stops }]
 export function transitLines(route) {
   const out = [];
   for (const leg of route?.legs || []) {
@@ -161,8 +162,6 @@ export function transitLines(route) {
         from: sd.departureStop?.name,
         to: sd.arrivalStop?.name,
         stops: Number.isInteger(t.stopCount) ? t.stopCount : undefined,
-        departs: sd.departureTime, // RFC 3339, UTC
-        departs_text: t.localizedValues?.departureTime?.time?.text, // Google's local clock time, as it would show it
       };
       out.push(Object.fromEntries(Object.entries(ride).filter(([, x]) => x !== undefined && x !== null && x !== '').map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 120) : x])));
     }

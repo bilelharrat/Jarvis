@@ -48,7 +48,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   }
   if (path === '/api/chat/travel/calendar') {
     const id = new URL(request.url).searchParams.get('id') || '';
-    const got = await call(env, who.account, 'trip-get', { id }, who.token);
+    const got = await call(env, who.account, 'trip-read', { id }, who.token);
     return new Response(tripToIcs(got.trip, { id, now: Date.now() }), { headers: { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': `attachment; filename="${String(got.trip.title || 'trip').replace(/[^A-Za-z0-9 _-]+/g, '').trim().slice(0, 60) || 'trip'}.ics"`, 'cache-control': 'private, no-cache' } });
   }
   if (request.method === 'GET') {
@@ -59,7 +59,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   const body = await readBody(request, 256 * 1024);
   if (MEMBER_ACTIONS.has(body.action)) {
     const args0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
-    if (body.action === 'join') await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    if (['join', 'shared-get', 'shared-propose'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`);
     return json(await memberApi(env, who, body.action, args0, { call }));
   }
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);

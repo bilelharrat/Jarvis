@@ -64,7 +64,7 @@ function fakeAccount() {
 function google({ scopes = ['https://www.googleapis.com/auth/calendar.events'] } = {}) {
   const g = { actions: [], n: 0, scopes };
   g.deps = (trip) => ({
-    tripOp: async (_a, op, body) => { if (op === 'trip-get' && body.id === 'trip1') return { trip: g.trip || trip }; throw Object.assign(new Error('There is no such trip.'), { status: 404 }); },
+    tripOp: async (_a, op, body) => { if ((op === 'trip-read' || op === 'trip-get') && body.id === 'trip1') return { trip: g.trip || trip }; throw Object.assign(new Error('There is no such trip.'), { status: 404 }); },
     google: async () => ({ email: 'ana@example.com', scopes: g.scopes, calendar: () => ({ calendars: async () => [{ id: 'cal-shared', title: 'Work', readOnly: true }, { id: 'primary-cal', title: 'Ana', primary: true }] }) }),
     calendarAction: async (_api, action, args) => { g.actions.push({ action, args }); if (action === 'create') return { event: { id: `ev${++g.n}` } }; return {}; },
     fetch: async (url) => { g.lookups = (g.lookups || 0) + 1; return /places\.googleapis/.test(url) ? Response.json({ timeZone: { id: 'Europe/Lisbon' } }) : Response.json({ status: 'ZERO_RESULTS' }); },

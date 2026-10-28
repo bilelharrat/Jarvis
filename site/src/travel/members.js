@@ -59,8 +59,11 @@ export async function memberRemove(account, body) {
   const key = `tmem:${String(body.id || '')}:${String(body.member || '')}`;
   if (!(await account.storage.get(key))) throw new ApiError(404, 'not_found', 'No such person on this trip.');
   await account.storage.delete(key);
-  // and stays off: the trip's invites (14 days) would let them join again, so they're refused until invited back
-  await account.storage.put(`tban:${String(body.id || '')}:${String(body.member || '')}`, { at: account.now() });
+  // and stays off: the trip's invites (14 days) would let them join again, so those are refused to them; a new invite
+  // (the organiser asking them back) isn't
+  const id = String(body.id || '');
+  const invites = [...(await account.storage.list({ prefix: 'tinv:' })).values()].filter((x) => x.trip === id).map((x) => x.code);
+  await account.storage.put(`tban:${id}:${String(body.member || '')}`, { at: account.now(), invites });
   return { removed: true };
 }
 
@@ -95,7 +98,7 @@ export async function memberOp(account, op, body, { tripOp }) {
       if (member === own) throw new ApiError(409, 'own_trip', 'This is your own trip.');
       // someone taken off may come back only through an invite made after that (the organiser asking them again)
       const ban = await account.storage.get(`tban:${x.trip}:${member}`);
-      if (ban && x.created <= ban.at) throw new ApiError(403, 'removed', 'The organiser took you off this trip. Ask them for a new invite.');
+      if (ban && (Array.isArray(ban.invites) ? ban.invites.includes(code) : x.created <= ban.at)) throw new ApiError(403, 'removed', 'The organiser took you off this trip. Ask them for a new invite.');
       if (ban) await account.storage.delete(`tban:${x.trip}:${member}`);
       const trip = await account.storage.get(`trip:${x.trip}`);
       if (!trip) throw new ApiError(404, 'not_found', 'This trip was deleted.');
