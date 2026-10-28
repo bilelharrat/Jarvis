@@ -47,6 +47,9 @@ import { dropTripDocs, inboxOp, storedMail } from './inbox.js';
 import { discoverOp } from './discover.js';
 import { moneyOp } from './money.js';
 import { planOp } from './plan.js';
+import { activitiesOp } from './activities.js';
+import { dropTripPhotos, memoriesOp } from './memories.js';
+import { flightPriceDrops, flightWatches, fpwatchOp } from './fpwatch.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
@@ -118,7 +121,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const { id, trip } = await load();
       const prop = await storage.get(`tprop:${id}`);
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
-      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id) };
+      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id), flight_price_drops: await flightPriceDrops(account, id), flight_watches: await flightWatches(account, id) };
     }
     case 'trip-read': { // the trip alone, no checks run (each check can be a paid lookup): for the calendar files
       const { id, trip } = await load();
@@ -149,7 +152,9 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       }
       // its documents, money and group chat (inbox.js, money.js)
       await dropTripDocs(storage, id);
-      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`]) {
+      await dropTripPhotos(storage, id); // its memories (memories.js)
+      await storage.delete(`tdis:${id}`); // its last disruption check (disrupt.js)
+      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`, `fpw:${id}:`, `twrem:${id}:`]) {
         const keys = [...(await storage.list({ prefix })).keys()];
         for (let i = 0; i < keys.length; i += 128) await storage.delete(keys.slice(i, i + 128));
       }
@@ -351,6 +356,15 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     // money and the trip's chat (money.js): `deps.by` is a member's account, set only by members.js
     case 'trip-money': case 'trip-expense-add': case 'trip-expense-delete': case 'trip-people': case 'trip-chat': case 'trip-chat-post': case 'trip-decisions':
       return await moneyOp(account, op, body, { by: deps.by || null, cache, fetch: deps.fetch });
+    // tours and tickets (activities.js: Viator, GetYourGuide; off until their keys)
+    case 'trip-activities':
+      return await activitiesOp(account, op, body, { cache, fetch: deps.fetch });
+    // memories after the trip (memories.js)
+    case 'trip-photo-add': case 'trip-photos': case 'trip-photo-get': case 'trip-photo-edit': case 'trip-photo-delete': case 'trip-memories': case 'trip-memories-share':
+      return await memoriesOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // a flight's price watched before it's booked (fpwatch.js)
+    case 'trip-fwatch-on': case 'trip-fwatch-off':
+      return await fpwatchOp(account, op, body, { fetch: deps.fetch });
     // smarter planning (plan.js)
     case 'trip-optimize': case 'trip-windows':
       return await planOp(account, op, body, { maps, cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });

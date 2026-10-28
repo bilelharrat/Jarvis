@@ -8,6 +8,7 @@
 // re-check) and when the last re-check ran. A re-check with nothing saved yet only sets it: no push about what the
 // person already saw. Stand-in (sample) answers are never pushed as news.
 
+import { disruptionPush, recheckDisruptions } from './disrupt.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { dayDate } from './trips.js';
 
@@ -117,10 +118,10 @@ export async function recheckDue(account, { tripOp, notify, plus = async () => t
       continue;
     }
     const alerts = pushable(checks);
-    if (state && Array.isArray(state.alerts)) {
-      const push = recheckPush(trip, id, newAlerts(state.alerts, alerts));
-      if (push) await notify(account, push);
-    }
+    // rain on an outdoor stop, a place closed that day: a fix proposed, pushed with what changed (disrupt.js)
+    const dis = await recheckDisruptions(account, id, trip, checks, { tripOp }).catch(() => null);
+    const push = disruptionPush(trip, id, state && Array.isArray(state.alerts) ? newAlerts(state.alerts, alerts) : [], dis);
+    if (push) await notify(account, push);
     await storage.put(`tchk:${id}`, { alerts: alerts.map(alertKey), ran: now });
   }
   let next = Infinity;

@@ -50,6 +50,9 @@ import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { memberOp } from '../travel/members.js';
 import { inboxOp } from '../travel/inbox.js';
+import { memoriesMemberOp } from '../travel/memories.js';
+import { armFlightPriceWatch, flightPriceWatchDue } from '../travel/fpwatch.js';
+import { armWindowReminders, windowRemindersDue } from '../travel/reminders.js';
 import { flightOp } from '../travel/flights.js';
 import { payOn, payOp, payRefund, payRefundRetry } from '../travel/pay.js';
 import { calOp, feedPublicOp, tripZone } from '../travel/calsync.js';
@@ -165,7 +168,9 @@ export class Account {
       // planning together (travel/members.js): the Worker vouches for the member's account; the organiser's Plus covers them
       if (op.startsWith('tmember-')) {
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This shared trip isn’t available now.');
-        return json(await memberOp(this, op, await request.json().catch(() => ({})), { tripOp }));
+        const mbody = await request.json().catch(() => ({}));
+        if (op === 'tmember-memories' || op === 'tmember-memory-photo') return json(await memoriesMemberOp(this, op, mbody, { tripOp })); // shared memories (travel/memories.js)
+        return json(await memberOp(this, op, mbody, { tripOp }));
       }
       // a booking email forwarded to the person's Eden Travel address (travel/inbox.js): the Worker's email handler found the
       // account from the address's code; kept only while they have Plus
@@ -232,7 +237,7 @@ export class Account {
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
         // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
         // always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete', 'trip-photos', 'trip-photo-get', 'trip-photo-delete', 'trip-memories', 'trip-memories-share'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
@@ -256,7 +261,10 @@ export class Account {
           if (out && out.trip && out.trip.id && !(await this.storage.get(`tz:${out.trip.id}`))) await tripZone(this, out.trip, fetch).catch(() => {});
           await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
           await armRecheck(this, out).catch((e) => console.error('trip recheck', e && e.message)); // re-checked before you go (travel/recheck.js)
+          await armFlightPriceWatch(this).catch((e) => console.error('flight price watch', e && e.message)); // its flights' prices (travel/fpwatch.js)
         }
+        // booking windows: a push the morning bookings open (travel/reminders.js), again whenever stops or windows change
+        if (TRIP_WRITES.has(op) || op === 'trip-windows') await armWindowReminders(this).catch((e) => console.error('window reminders', e && e.message));
         return json(out);
       }
       switch (op) {
@@ -1088,6 +1096,8 @@ export class Account {
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
       fwatch: async () => ((await travelOn()) ? flightWatchDue(this, { tripOp, notify: notifyOwner }) : unscheduleJob(this, 'fwatch')), // a trip's flights: delays, gates, cancellations (travel/watch.js)
       tpayretry: () => payRefundRetry(this), // a card refund that failed, tried again hourly (travel/pay.js)
+      fpwatch: async () => ((await travelOn()) ? flightPriceWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'fpwatch')), // unbooked flights cheaper now (travel/fpwatch.js)
+      twrem: async () => ((await travelOn()) ? windowRemindersDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'twrem')), // the morning bookings open (travel/reminders.js)
       pwatch: async () => ((await travelOn()) ? stayWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
       // each trip re-checked a week before, the day before and each morning; what changed pushed once (travel/recheck.js)
       tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: travelOn }),

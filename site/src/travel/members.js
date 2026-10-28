@@ -160,6 +160,8 @@ export async function memberApi(env, who, action, args, { call }) {
       const { owner, ...rest } = args;
       return ask(env, String(owner || ''), action.replace('shared-', 'tmember-'), { ...rest, member: who.account });
     }
+    case 'shared-memories':
+      return ask(env, String(args.owner || ''), 'tmember-memories', { trip: args.trip, member: who.account });
     case 'shared-leave':
       await ask(env, String(args.owner || ''), 'tmember-leave', { trip: args.trip, member: who.account }).catch(() => {});
       return call(env, who.account, 'trip-joined-drop', { owner: args.owner, trip: args.trip }, who.token);
