@@ -35,6 +35,7 @@ const ESTIMATE = 'A straight-line estimate: not checked';
 const HOW = { walk: 'on foot', transit: 'by public transport', drive: 'by car', taxi: 'by taxi' };
 const TIGHT = 10; // minutes of slack under which a connection is tight
 const LATE = 5; // minutes late before it counts
+const FAR = 12 * 60; // a leg between two stops on one day that long means a stop is in the wrong place, not that you're late
 
 export const PACE = { fullStops: 5, rushedStops: 7, fullBusy: 9 * 60, rushedMove: 150 };
 
@@ -187,6 +188,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
         const t = await travelOf(stops[k - 1], s, s.mode);
         if (!t) badges.travel = { status: 'look', text: 'No map point for one of these stops, so the travel time isn’t checked.', source: null, checked_at: null };
         else if (t.error) badges.travel = { status: 'unknown', text: t.error, source: null, checked_at: null };
+        else if (t.minutes > FAR) badges.travel = { status: 'look', text: `Not checked: the travel time (${t.minutes} min) can’t be right between one day’s stops, so ${stops[k - 1].place.name} or ${s.place.name} is probably in the wrong place. Search for it again.`, source: t.source, checked_at: t.checked_at };
         else {
           move += t.minutes;
           arrive = (leave ?? at) + t.minutes;

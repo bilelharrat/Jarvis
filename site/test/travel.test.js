@@ -628,3 +628,25 @@ test('a whole trip planned in one card: its named places are found near the dest
   assert.ok(!seen.some((q) => /BA500/.test(q)), 'a flight is not a place to look up');
   assert.deepEqual(seen.slice(1).sort(), ['Belem Tower, Lisbon', 'Cervejaria Ramiro, Lisbon']);
 });
+
+test('stand-in maps answer for Lisbon only: a Tokyo "hotel" is never "A hotel in Baixa"', async () => {
+  const m = standinMaps(() => NOW);
+  assert.deepEqual(await m.search('hotel'), []);
+  assert.deepEqual(await m.search('Hotel near Shinjuku station'), []);
+  assert.deepEqual(await m.search('hotel', { lat: 35.69, lng: 139.70 }), []); // near Tokyo
+  assert.equal((await m.search('hotel in Lisbon'))[0].id, 'standin:baixa-hotel');
+  assert.equal((await m.search('hotel', { lat: 38.71, lng: -9.14 }))[0].id, 'standin:baixa-hotel');
+  assert.equal((await m.search('Jerónimos'))[0].id, 'standin:jeronimos');
+});
+
+test('a leg too long for one day says a stop is in the wrong place, never "you’d arrive 85877 min late"', async () => {
+  const trip = cleanTrip(sampleTrip(NOW), { newId, now: NOW });
+  const far = { lat: 35.69, lng: 139.70 };
+  const maps = { ...standinMaps(() => NOW), travel: async () => ({ minutes: 85877, mode: 'walk', standin: false, source: 'test', checked_at: new Date(NOW).toISOString() }) };
+  trip.days[0].stops[0].place = { ...trip.days[0].stops[0].place, ...far };
+  const c = await checkTrip(trip, maps);
+  assert.ok(!c.alerts.some((a) => a.kind === 'late'));
+  const b = c.days[0].stops[1].badges.travel;
+  assert.equal(b.status, 'look');
+  assert.match(b.text, /wrong place/);
+});

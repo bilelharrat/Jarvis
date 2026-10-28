@@ -62,6 +62,8 @@ const STANDIN = {
   'standin:lis-airport': { name: 'Lisbon airport', area: 'Lisbon', lat: 38.7742, lng: -9.1342, hours: null },
 };
 
+const LISBON = { lat: 38.7223, lng: -9.1393 };
+const GENERIC = new Set(['hotel', 'hotels', 'restaurant', 'restaurants', 'cafe', 'cafes', 'coffee', 'dinner', 'lunch', 'breakfast', 'museum', 'airport', 'market', 'the', 'and', 'your', 'near', 'stay', 'old', 'town', 'city', 'centre', 'center']);
 export class MapsError extends Error {
   constructor(code, message) {
     super(message);
@@ -90,11 +92,16 @@ export function standinMaps(now = () => Date.now()) {
       if (!p) throw new MapsError('not_found', `No stand-in place ${id}. Stand-in ids: ${Object.keys(STANDIN).join(', ')}.`);
       return p;
     },
-    async search(text) {
+    // the samples are all in Lisbon: never an answer for anywhere else (a Tokyo "hotel" once became "A hotel in Baixa"), and
+    // a generic word alone (hotel, restaurant, café) matches nothing unless the search is about Lisbon
+    async search(text, near = {}) {
+      if (Number.isFinite(near && near.lat) && distanceKm(near, LISBON) > 100) return [];
       const words = String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\W+/).filter((w) => w.length > 2);
+      const lisbon = words.some((w) => w === 'lisbon' || w === 'lisboa') || Number.isFinite(near && near.lat);
+      if (!lisbon && !words.some((w) => !GENERIC.has(w))) return [];
       const plain = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
       return Object.keys(STANDIN)
-        .map((id) => ({ id, hits: words.filter((w) => plain(`${STANDIN[id].name} ${STANDIN[id].area}`).includes(w)).length }))
+        .map((id) => ({ id, hits: words.filter((w) => (lisbon || !GENERIC.has(w)) && plain(`${STANDIN[id].name} ${STANDIN[id].area}`).includes(w)).length }))
         .filter((r) => r.hits > 0)
         .sort((a, b) => b.hits - a.hits)
         .slice(0, 5)
