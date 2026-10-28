@@ -159,6 +159,9 @@ async function stripe(env, method, path, params = null, { idempotency = null, ra
   return out;
 }
 
+/** Stripe's REST API for the rest of the site (travel/pay.js: a booking's card hold, its capture or release). */
+export const stripeRequest = (env, method, path, params, opts) => stripe(env, method, path, params, opts);
+
 /** An address Stripe sent back for the browser to open: Stripe's own, or the fake's in dev. */
 function stripePage(env, url, host) {
   const text = String(url || '');
@@ -278,7 +281,7 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
 
 // Where Stripe sends the browser back, and where that goes next: fixed places, nothing taken
 // from the address but which one.
-const RETURNS = { success: '/#account?billing=success', credits: '/#account?billing=credits', cancelled: '/#account?billing=cancelled', portal: '/#account' };
+const RETURNS = { success: '/#account?billing=success', credits: '/#account?billing=credits', cancelled: '/#account?billing=cancelled', portal: '/#account', trip: '/travel#trip-paid', 'trip-cancelled': '/travel#trip-pay-cancelled' }; // trip: a booking's payment (travel/pay.js)
 
 /**
  * GET /api/web/billing/return?to=success|cancelled|portal. Coming back from Stripe's site is a
@@ -465,6 +468,12 @@ async function handle(env, event) {
   };
   switch (event.type) {
     case 'checkout.session.completed': {
+      // a booking's card hold (travel/pay.js): the account books, then charges or releases it
+      if (object.mode === 'payment' && object.metadata && object.metadata.kind === 'travel') {
+        const account = accountIn(object.client_reference_id, object.metadata.account_id);
+        if (!account) return { ignored: 'no_account' };
+        return call(env, account, 'pay-webhook', { pay_id: String(object.metadata.pay_id || ''), session: String(object.id || '') });
+      }
       if (object.mode === 'payment') return creditsPaid(env, object, apply);
       if (object.mode !== 'subscription' || !idOf(object.subscription)) return { ignored: 'not_a_subscription' };
       const account = accountIn(object.client_reference_id, object.metadata && object.metadata.account_id);

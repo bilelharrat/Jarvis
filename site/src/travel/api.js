@@ -7,6 +7,7 @@
 //   GET  /api/chat/travel/map?a=lat,lng&b=lat,lng → the in-flight map's picture (maps.js flightMapImage)
 //   GET  /api/chat/travel/photo?n=places/…/photos/…&w=240 → a stop's Google photo (maps.js placePhoto)
 //   POST /api/chat/travel { action, args }
+//     pay-start, pay-complete, pay-status, pay-latest: a booking paid with the traveller's card first (pay.js)
 //     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, flight-live, mail-scan, mail-preview, mail-import, share-create, shares, share-revoke, link-create, links, link-revoke, stays-search, stays-rates, stays-quote, stays-book, stays-cancel, ground-search, ground-stations, weather, entry
 //   GET  /api/chat/travel/calendar?id=<id>  → the trip as a calendar file (ics.js)
 // Each action is the account object's `trip-<action>` (travel/ops.js).
@@ -15,7 +16,7 @@ import { ApiError, json } from '../accounts/util.js';
 import { MapsError, flightMapImage, placePhoto } from './maps.js';
 import { tripToIcs } from './ics.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
@@ -46,5 +47,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'ground-search' || body.action.startsWith('flight')) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
   // Eden Mail reads: held to the turn rate; `local` only from wrangler dev with a fake Google (as tasks.js)
   if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `turn:${who.account}`); args.local = local; }
+  // where Stripe sends the traveller back: this very address (askedentravel.com or askeden.com), never one the page names
+  if (body.action === 'pay-start') args.origin = new URL(request.url).origin;
   return json(await call(env, who.account, `trip-${body.action}`, args, who.token));
 }

@@ -48,6 +48,7 @@ import { stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { flightOp } from '../travel/flights.js';
+import { payOn, payOp } from '../travel/pay.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
@@ -76,6 +77,8 @@ const HOLD_MS = 15 * 60_000;
 // pushes, buy, read or write sync, use the relay, or approve any link. It may use the Eden Secretary
 // voice only through hosted Eden (Read aloud, talk mode: eden: true), on the account's daily
 // voice allowance like the apps.
+// With traveller payments on (travel/pay.js), a booking that Ask Eden's Duffel balance pays for goes through a card hold first.
+const PAY_FIRST = new ApiError(402, 'pay_first', 'Pay for this booking first: Eden holds your card, books, then charges it.');
 const WEB_FORBIDDEN = new Set(['delete', 'device-update', 'push-check', 'subscription', 'sync-get', 'sync-put', 'sync-delete', 'sync-wipe']);
 // Eden's artifacts (HTML the page previews): kept a few hours, then gone (an alarm).
 // Stored in pieces small enough for any Durable Object storage (128 KiB a value).
@@ -142,6 +145,8 @@ export class Account {
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       // Eden Travel's guest tracking links (travel/track.js): the link's code is the key; no device signs these
       if (op.startsWith('tshare-')) return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
+      // Stripe's word that a booking's card is held (eden/billing.js webhook; travel/pay.js checks it with Stripe)
+      if (op === 'pay-webhook') return json(await payOp(this, op, await request.json().catch(() => ({})), { flightOp, tripOp }));
       if (op.startsWith('tlink-')) {
         // the trip shared with the people on it (travel/triplink.js): shown only while its owner has Plus
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This trip link has ended.');
@@ -181,7 +186,7 @@ export class Account {
       if (op.startsWith('ad-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Background Auto Drafts are the owner’s.'); return json(await autodraftOp(this, op, body)); } // Auto Drafts in the background (autodrafts.js)
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
-      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
+      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); if (payOn(this.env) && ((op === 'flight-book' && body.hold !== true) || op === 'flight-pay')) throw PAY_FIRST; return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
       if (op.startsWith('trip-')) {
         if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.');
         // Eden Travel is part of Eden Plus (the owner's decision, 2026-10-28): without it the list answers empty with
@@ -191,6 +196,9 @@ export class Account {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
+        // paying for a booking with the traveller's card first (travel/pay.js); with payments on, a hotel isn't booked without it
+        if (op.startsWith('trip-pay-')) return json(await payOp(this, op, body, { flightOp, tripOp }));
+        if (op === 'trip-stays-book' && payOn(this.env)) throw PAY_FIRST;
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
         if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
         return json(out);
