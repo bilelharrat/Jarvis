@@ -183,8 +183,12 @@ export async function trackPage(request, env, path) {
     await slowDown(env, 'API_RATE', `trk-ip:${ip}`);
     const { account } = await index(env, code, 'tshare-index-get');
     if (part === 'map') {
-      await ask(env, account, 'tshare-view', { code }); // the link must still be live
-      return withHeaders(await flightMapImage(env, new URL(request.url)), NOINDEX);
+      // this flight's own route only (its two airports, from FlightAware), never points from the request: not a map of
+      // anywhere on Eden's Google key for anyone holding a link
+      const view = await ask(env, account, 'tshare-view', { code });
+      const l = view.live || {};
+      if (!l.from || !l.to || !Number.isFinite(l.from.lat) || !Number.isFinite(l.to.lat)) throw new ApiError(404, 'not_found', 'No route to draw yet.');
+      return withHeaders(await flightMapImage(env, new URL(`https://map.invalid/?a=${l.from.lat},${l.from.lng}&b=${l.to.lat},${l.to.lng}`)), NOINDEX);
     }
     if (part === 'data' && request.method === 'GET') return withHeaders(json(await ask(env, account, 'tshare-view', { code })), NOINDEX);
     if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'POST');

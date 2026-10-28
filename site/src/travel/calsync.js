@@ -96,13 +96,15 @@ export async function feedPublicOp(account, op, body, { tripOp }) {
   const code = String(body.code || '');
   const rec = FEED_CODE.test(code) ? await account.storage.get(`tcf:${code}`) : null;
   if (!rec || op !== 'tcal-feed') throw new ApiError(404, 'not_found', 'This calendar link was switched off.');
-  const list = (await tripOp(account, 'trip-list', {})).trips || [];
+  // the trips as stored, read directly: a calendar app polls this often, and the full trip view would re-check every
+  // stop's hours and travel times against Google each time (about $4 a day for one account with a few trips)
+  const all = [...(await account.storage.list({ prefix: 'trip:' }))].slice(0, 50);
   const trips = [];
-  for (const t of list.slice(0, 50)) {
+  for (const [key, x] of all) {
+    const t = { id: key.slice(5) };
     try {
       // named fields only, as the trip link's calendar (triplink.js): a subscription link gets copied into other apps and
       // kept, and a stop's note can hold a booking reference, so no notes, links, costs or bookings
-      const x = (await tripOp(account, 'trip-get', { id: t.id })).trip;
       trips.push({ id: t.id, title: x.title, start: x.start, days: x.days.map((d) => ({ title: d.title, stops: d.stops.map((st) => ({ id: st.id, kind: st.kind, at: st.at, minutes: st.minutes, nights: st.nights, place: { name: st.place.name, lat: st.place.lat, lng: st.place.lng } })) })) });
     } catch { /* a trip gone meanwhile */ }
   }

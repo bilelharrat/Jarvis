@@ -67,7 +67,9 @@ export async function extraOp(account, op, body, deps = {}) {
         const passengers = ids.map((id, i) => ({ id, type: ADULT, first_name: people[i].first_name, last_name: people[i].last_name }));
         const r = await rail.reserve({ email: body.email, offers, passengers });
         // Distribusion's own total for the reservation can't be above the checked (and paid) one: then nothing is confirmed
-        if (r.total_price && kept.total && (r.total_price.currency !== kept.total.currency || r.total_price.amount > kept.total.amount + 0.005)) throw new TripError(`The price went up to ${r.total_price.amount} ${r.total_price.currency}: nothing was booked. Check the seats and price again.`, 409, 'price_changed');
+        // with a card hold (pay.js) the hold is the ceiling, not a later re-check's price
+        const ceiling = body.held && Number.isFinite(Number(body.held.amount)) ? { amount: Number(body.held.amount), currency: String(body.held.currency || '').toUpperCase() } : kept.total;
+        if (r.total_price && ceiling && (r.total_price.currency !== ceiling.currency || r.total_price.amount > ceiling.amount + 0.005)) throw new TripError(`The price went up to ${r.total_price.amount} ${r.total_price.currency}: nothing was booked. Check the seats and price again.`, 409, 'price_changed');
         const b = await rail.confirm({ reservation_id: r.reservation_id, first_name: people[0].first_name, last_name: people[0].last_name, email: body.email, terms_accepted: true, passengers }, { confirm: true });
         if (body.id && body.stop && deps.tripOp) await deps.tripOp(account, 'trip-mark-booked', { id: body.id, stop: body.stop, ref: (b.carrier_refs && b.carrier_refs[0]) || b.reservation_id || r.reservation_id, provider: 'Distribusion', via: 'api', cost: kept.total ? { amount: Number(kept.total.amount), currency: kept.total.currency } : undefined, confirm: true }).catch(() => {});
         await account.storage.delete(`rlq:${body.offer_id}`);

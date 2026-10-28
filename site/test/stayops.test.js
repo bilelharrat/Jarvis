@@ -71,3 +71,10 @@ test('a hotel booking is cancelled only from the account that made it (Eden book
   a.m.set('stbk:bok_1', { booking_id: 'bok_1' });
   assert.equal((await stayOp(a, 'trip-stays-cancel', { booking_id: 'bok_1', confirm: true }, { stays })).status, 'cancelled');
 });
+
+test('a hotel quote is kept for payment even when the room list is older than two hours, at the quote’s own price', async () => {
+  const a = account({ t: Date.parse('2027-04-01T09:00:00Z') });
+  const stays = { ...fakeStays({ now: '400.00' }), quote: async () => ({ quote_id: 'quo_9', total: '412.00', currency: 'EUR', accommodation: acc }) };
+  await stayOp(a, 'trip-stays-quote', { rate_id: 'rat_never_listed' }, { stays });
+  assert.equal(a.m.get('stq:quo_9').total, '412.00');
+});

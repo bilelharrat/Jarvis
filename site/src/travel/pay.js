@@ -67,7 +67,7 @@ async function priceOf(account, kind, args, { flightOp }) {
 async function book(account, rec, { flightOp, tripOp }) {
   if (rec.kind === 'flight') return flightOp(account, 'flight-book', { ...rec.args, confirm: true });
   if (rec.kind === 'flight_pay') return flightOp(account, 'flight-pay', { ...rec.args, confirm: true });
-  if (rec.kind === 'rail') return tripOp(account, 'trip-rail-book', { ...rec.args, confirm: true });
+  if (rec.kind === 'rail') return tripOp(account, 'trip-rail-book', { ...rec.args, held: { amount: rec.cents / 100, currency: rec.currency }, confirm: true }); // never above what the card holds
   return tripOp(account, 'trip-stays-book', { ...rec.args, confirm: true });
 }
 

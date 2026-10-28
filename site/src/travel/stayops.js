@@ -62,7 +62,8 @@ export async function stayOp(account, op, body, deps = {}) {
         const kept = await account.storage.get(`strt:${String(body.rate_id)}`);
         const fresh = kept && now() - kept.at < PRICE_WATCH.keepRatesMs ? kept : null;
         // the quote's own price (Duffel's live check), not the rate's earlier one: that is what Duffel takes, and what the card is held for
-        if (fresh) await account.storage.put(`stq:${q.quote_id}`, { ...fresh, total: q.total ?? fresh.total, currency: q.currency || fresh.currency, rate_id: body.rate_id, at: now() });
+        // always kept for the payment and booking that follow: the quote's own price; the room and cancellation when known
+        await account.storage.put(`stq:${q.quote_id}`, { ...(fresh || { room: null, cancellation: null, accommodation: q.accommodation }), total: q.total, currency: q.currency, rate_id: body.rate_id, at: now() });
         return { ...q, room: fresh ? fresh.room : null, cancellation: fresh ? fresh.cancellation : null };
       }
       case 'trip-stays-book': {

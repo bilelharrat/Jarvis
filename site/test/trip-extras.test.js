@@ -316,3 +316,14 @@ test('a train: the passengers booked are the ones checked, and a higher price at
   await assert.rejects(extraOp(account, 'trip-rail-book', { ...two, passenger_ids: ['p1'], passengers: [{ first_name: 'A', last_name: 'B' }] }, deps), /price went up/);
   await assert.rejects(extraOp(account, 'trip-rail-book', { ...two, passenger_ids: ['p1'], passengers: [null] }, deps), /name is needed/, 'a clear message, not a crash');
 });
+
+test('a train paid by card is never booked above the amount held, whatever a later re-check says', async () => {
+  const { extraOp } = await import('../src/travel/extraops.js');
+  const m = new Map();
+  const account = { env: {}, now: () => 1e12, storage: { get: async (k) => m.get(k), put: async (k, v) => m.set(k, v), delete: async (k) => m.delete(k) } };
+  let vacancy = 60;
+  const rail = { vacancy: async () => ({ vacant: true, total_price: { amount: vacancy, currency: 'EUR' } }), reserve: async () => ({ reservation_id: 'R1', total_price: { amount: 60, currency: 'EUR' } }), confirm: async () => ({ carrier_refs: ['X'] }) };
+  await extraOp(account, 'trip-rail-check', { offer_id: 'o1', passenger_ids: ['p1'] }, { rail, tripOp: async () => ({}) }); // re-checked at 60 after paying 48
+  const args = { offer_id: 'o1', passenger_ids: ['p1'], passengers: [{ first_name: 'A', last_name: 'B' }], email: 'a@b.co', terms_accepted: true, confirm: true, held: { amount: 48, currency: 'EUR' } };
+  await assert.rejects(extraOp(account, 'trip-rail-book', args, { rail, tripOp: async () => ({}) }), /price went up/);
+});
