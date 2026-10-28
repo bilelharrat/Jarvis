@@ -577,3 +577,19 @@ test('day map: many points fit in the frame; one point gets a street-level view'
   assert.ok(v.zoom >= 11 && v.zoom <= 14, `a Lisbon day, got zoom ${v.zoom}`);
   assert.equal(fitPoints([{ lat: 38.7, lng: -9.14 }]).zoom, 14);
 });
+
+test('live maps on: a sample place is still labelled a sample, never "checked by Google"; the map picture takes size, centre, zoom and style', async () => {
+  const { mapsFor, flightMapImage } = await import('../src/travel/maps.js');
+  const maps = mapsFor({ GOOGLE_MAPS_SERVER_KEY: 'k' }, { fetch: async () => { throw new Error('no Google call for a sample'); } });
+  const p = await maps.place('standin:tiles');
+  assert.deepEqual([p.standin, /Stand-in/.test(p.source)], [true, true]);
+  const seen = [];
+  const fetch = async (url) => { seen.push(new URL(String(url))); return new Response(new Uint8Array([137, 80]), { headers: { 'content-type': 'image/png' } }); };
+  const res = await flightMapImage({ GOOGLE_MAPS_SERVER_KEY: 'k' }, new URL('https://x/api/chat/travel/map?p=38.71,-9.14|38.70,-9.20&w=400&h=300&style=day&z=13&c=38.705,-9.17'), { fetch });
+  assert.equal(res.headers.get('x-map-zoom'), '13');
+  assert.equal(seen[0].searchParams.get('size'), '400x300');
+  assert.equal(seen[0].searchParams.get('center'), '38.705,-9.17');
+  assert.ok(seen[0].searchParams.getAll('style').some((x) => x.includes('poi.business')), 'the light day style');
+  await flightMapImage({ GOOGLE_MAPS_SERVER_KEY: 'k' }, new URL('https://x/api/chat/travel/map?p=38.71,-9.14&w=9999&z=99'), { fetch });
+  assert.equal(seen[1].searchParams.get('size'), '640x320', 'sizes clamped; a silly zoom falls back to the fitted one');
+});

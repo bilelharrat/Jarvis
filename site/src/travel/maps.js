@@ -108,6 +108,8 @@ function googleMaps(key, fetcher, now) {
     mode: 'google',
     async place(id) {
       const pid = String(id || '');
+      // a sample place (the Lisbon sample trip) stays a sample with live maps on: never shown as checked by Google
+      if (pid.startsWith('standin:') && STANDIN[pid]) return standinMaps(now).place(pid);
       if (!/^[A-Za-z0-9_-]{10,300}$/.test(pid)) throw new MapsError('not_found', 'That is not a Google place id.');
       return placeView(await call(`${PLACES}/places/${pid}`, { headers: headers(PLACE_FIELDS) }));
     },
@@ -177,6 +179,8 @@ export const STANDIN_IDS = Object.keys(STANDIN);
 export const MAP_SIZE = { w: 640, h: 320, pad: 48 };
 const STATIC = 'https://maps.googleapis.com/maps/api/staticmap';
 const DARK = ['element:geometry|color:0x0b1a2e', 'element:labels|visibility:off', 'feature:water|element:geometry|color:0x050f1c', 'feature:administrative.country|element:geometry.stroke|color:0x2b4a70', 'feature:landscape|element:geometry|color:0x12253d', 'feature:road|visibility:off', 'feature:poi|visibility:off', 'feature:transit|visibility:off'];
+const DAY_LIGHT = ['feature:poi.business|visibility:simplified', 'feature:water|element:geometry|color:0xa8d4f0', 'feature:landscape.natural|element:geometry|color:0xebeef2', 'feature:park|element:geometry|color:0xd8ead3'];
+const DAY_DARK = ['element:geometry|color:0x1b222c', 'element:labels.text.fill|color:0xb0b8c4', 'element:labels.text.stroke|color:0x1b222c', 'feature:water|element:geometry|color:0x0d1b2a', 'feature:road|element:geometry|color:0x2c3545', 'feature:road.arterial|element:geometry|color:0x374254', 'feature:poi.park|element:geometry|color:0x1e2d24'];
 
 /** Web Mercator world pixels at zoom z (256-pixel tiles), as Google draws them. */
 export function worldPx(lat, lng, z) {
@@ -226,9 +230,17 @@ export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fet
   const listed = url.searchParams.get('p');
   const pts = listed ? listed.split('|').slice(0, 25).map(point) : [point(url.searchParams.get('a')), point(url.searchParams.get('b'))];
   if (!pts.length || pts.some((p) => !p)) throw new MapsError('bad_request', 'a and b (or p) must be lat,lng.');
-  const { center, zoom } = fitPoints(pts);
-  const q = new URLSearchParams({ center: `${center.lat},${center.lng}`, zoom: String(zoom), size: `${MAP_SIZE.w}x${MAP_SIZE.h}`, scale: '2', maptype: 'roadmap', key });
-  for (const s of DARK) q.append('style', s);
+  const w = Math.min(640, Math.max(200, Number(url.searchParams.get('w')) || MAP_SIZE.w));
+  const h = Math.min(640, Math.max(200, Number(url.searchParams.get('h')) || MAP_SIZE.h));
+  const fitted = fitPoints(pts, { w, h, pad: MAP_SIZE.pad });
+  const cOverride = point(url.searchParams.get('c'));
+  const zOverride = Number(url.searchParams.get('z'));
+  const center = cOverride || fitted.center;
+  const zoom = Number.isFinite(zOverride) && zOverride >= 1 && zOverride <= 18 ? Math.round(zOverride) : fitted.zoom;
+  const styleMode = url.searchParams.get('style') || 'flight';
+  const styles = styleMode === 'day' ? DAY_LIGHT : styleMode === 'day-dark' ? DAY_DARK : DARK;
+  const q = new URLSearchParams({ center: `${center.lat},${center.lng}`, zoom: String(zoom), size: `${w}x${h}`, scale: '2', maptype: 'roadmap', key });
+  for (const s of styles) q.append('style', s);
   let res;
   try { res = await fetcher(`${STATIC}?${q}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
   if (!res.ok || !String(res.headers.get('content-type') || '').startsWith('image/')) throw new MapsError('unavailable', `Google Maps answered ${res.status}.`);

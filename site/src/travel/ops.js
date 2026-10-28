@@ -240,7 +240,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-mail-preview':
     case 'trip-mail-import': {
       const { id, trip } = await load();
-      const mail = deps.mail || (await mailIn(account, body.local === true));
+      const mail = deps.mail || (await mailIn(account, body.local === true, body.demo_mail === true, trip));
       const candidate = async (messageId, index = null) => {
         const parts = messageParts(await mail.full(messageId));
         return bookingsIn(parts).map((b, i) => ({ message: messageId, index: i, subject: parts.subject, from: parts.from, received: parts.date, booking: b, match: matchBooking(trip, b) })).filter((c) => index === null || c.index === index);
@@ -312,15 +312,67 @@ export function changeList(before, after, changed) {
 }
 
 // Eden Mail as the trip ops read it: search ids, and one message in full.
-async function mailIn(account, local) {
+async function mailIn(account, local, demoMail = false, trip = null) {
   const { googleInAccount, gmailScopesOk } = await import('../accounts/schedule.js');
   let google;
-  try { google = await googleInAccount(account, { local }); } catch { throw new TripError('Connect Gmail in Eden Mail first, so Eden can read your confirmations.', 409, 'not_connected'); }
-  if (!gmailScopesOk(google.scopes)) throw new TripError('Eden Mail can’t read your mail yet: connect Gmail in Mail.', 409, 'not_connected');
+  try { google = await googleInAccount(account, { local }); } catch {
+    if (local && demoMail && trip) return sampleMailBox(trip);
+    throw new TripError('Connect Gmail in Eden Mail first, so Eden can read your confirmations.', 409, 'not_connected');
+  }
+  if (!gmailScopesOk(google.scopes)) {
+    if (local && demoMail && trip) return sampleMailBox(trip);
+    throw new TripError('Eden Mail can’t read your mail yet: connect Gmail in Mail.', 409, 'not_connected');
+  }
   const api = google.gmail();
   return {
     async search(query, limit) { const r = await api.search({ query, limit }); return (r.messages || r || []).map((m) => m.id).filter(Boolean); },
     full: (id) => google.gmailMessage(id),
+  };
+}
+
+function sampleMailBox(trip) {
+  const d0 = trip.start || '2026-10-16';
+  const d1 = new Date(Date.parse(`${d0}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
+  const b64 = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const msg = (id, subject, from, date, jsonLd, plain) => ({
+    id,
+    payload: {
+      headers: [{ name: 'Subject', value: subject }, { name: 'From', value: from }, { name: 'Date', value: date }],
+      parts: [
+        { mimeType: 'text/plain', body: { data: b64(plain) } },
+        { mimeType: 'text/html', body: { data: b64(`<html><body><script type="application/ld+json">${JSON.stringify(jsonLd)}</script><p>${plain}</p></body></html>`) } },
+      ],
+    },
+  });
+  const box = {
+    'msg-hotel-baixa': msg(
+      'msg-hotel-baixa',
+      'Booking confirmed: Hotel da Baixa Lisbon (Ref HB-48210)',
+      'reservations@hoteldabaixa.com',
+      'Mon, 12 Oct 2026 09:14:00 +0000',
+      { '@context': 'https://schema.org', '@type': 'LodgingReservation', reservationNumber: 'HB-48210', reservationStatus: 'https://schema.org/ReservationConfirmed', checkinTime: `${d0}T15:00:00`, checkoutTime: `${d1}T11:00:00`, totalPrice: '660', priceCurrency: 'EUR', reservationFor: { '@type': 'LodgingBusiness', name: 'Your hotel in Baixa', address: { streetAddress: 'Rua da Prata 231, Lisbon' } } },
+      `Your stay at Hotel da Baixa is confirmed. Booking reference: HB-48210. Check-in ${d0}. Total EUR 660.`
+    ),
+    'msg-ba-502': msg(
+      'msg-ba-502',
+      'British Airways e-ticket receipt BA 502 LHR to LIS (Ref 6Y4K9L)',
+      'ba.e-ticket@email.ba.com',
+      'Mon, 12 Oct 2026 08:40:00 +0000',
+      { '@context': 'https://schema.org', '@type': 'FlightReservation', reservationNumber: '6Y4K9L', reservationStatus: 'https://schema.org/ReservationConfirmed', totalPrice: '368', priceCurrency: 'EUR', reservationFor: { '@type': 'Flight', flightNumber: 'BA 502', seller: { name: 'British Airways' }, departureAirport: { iataCode: 'LHR', name: 'London Heathrow' }, arrivalAirport: { iataCode: 'LIS', name: 'Arrive in Lisbon' }, departureTime: `${d0}T08:15:00`, arrivalTime: `${d0}T10:30:00` } },
+      `British Airways booking confirmation 6Y4K9L. Flight BA 502 LHR to LIS on ${d0} at 10:30.`
+    ),
+    'msg-ramiro': msg(
+      'msg-ramiro',
+      'Table reservation confirmed: Dinner in Chiado / Cervejaria Ramiro (Ref RM-9921)',
+      'bookings@cervejariaramiro.pt',
+      'Tue, 13 Oct 2026 14:20:00 +0000',
+      { '@context': 'https://schema.org', '@type': 'FoodEstablishmentReservation', reservationNumber: 'RM-9921', reservationStatus: 'https://schema.org/ReservationConfirmed', startTime: `${d0}T19:30:00`, partySize: 2, reservationFor: { '@type': 'FoodEstablishment', name: 'Dinner in Chiado', address: { streetAddress: 'Chiado, Lisbon' } } },
+      `Reservation confirmed for 2 guests on ${d0} at 19:30. Reference: RM-9921.`
+    ),
+  };
+  return {
+    async search() { return Object.keys(box); },
+    async full(id) { return box[id] || box['msg-hotel-baixa']; },
   };
 }
 
