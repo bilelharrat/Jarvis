@@ -69,6 +69,7 @@ import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
 import { courseVoice } from './edu/budget.js';
 import { travelEmail } from './travel/inbox.js';
 import { travelOn } from './travel/api.js';
+import { adminTravelBeta, betaPage } from './travel/beta.js';
 
 const LATEST = 'latest.json';
 // Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
@@ -273,7 +274,8 @@ async function route(request, env, ctx) {
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
     if (path === '/api/admin/stats') return adminStats(request, env); // the owner's dashboard (stats/admin.js)
-    if (path === '/api/admin/travel-refunds') return adminTravelRefunds(request, env); // the owner's dashboard: Travel refunds (stats/admin.js)
+    if (path === '/api/admin/travel-refunds') return adminTravelRefunds(request, env);
+    if (path === '/api/admin/travel-beta' || path === '/api/admin/travel-beta/image') return adminTravelBeta(request, env, path); // the beta's invites and reports (travel/beta.js) // the owner's dashboard: Travel refunds (stats/admin.js)
     if (path === '/api/stats/error' && request.method === 'POST') return clientError(request, env, ctx); // a browser's error report (stats/stats.js)
     if (path === '/api/news' || path.startsWith('/api/news/')) { // Eden News (news/api.js); null while EDEN_NEWS is off
       const news = await newsApi(request, env, ctx, path);
@@ -287,6 +289,8 @@ async function route(request, env, ctx) {
     const tracked = await edenPage(request, env, path);
     if (tracked) return tracked;
   }
+  // the private beta's page and its forms (travel/beta.js checks the Origin itself)
+  if (path === '/travel/beta' || path.startsWith('/travel/beta/')) { const b = await betaPage(request, env, path); if (b) return b; }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
   }

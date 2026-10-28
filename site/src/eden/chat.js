@@ -70,6 +70,7 @@ import { CHECKS_SKIPPED, answerCheck, checkModels, checksFor, checksWorst, hasSy
 import { hostedEves, hostedEvesEstimate, stopHostedEves } from './eves.js';
 import { capabilityOverrides, cleanAdjustments, taskClass } from '../../public/eden/learned-model.js';
 import { STAGES, TOP_MODEL, autopilotStage, autopilotState, monthBounds, stageExclusions, steppedLevel } from '../../public/eden/autopilot-model.js';
+import { betaApi } from '../travel/beta.js';
 import {
   DEFAULT_CLASSIFIER_MODEL,
   MODELS,
@@ -626,6 +627,7 @@ export async function chatApi(request, env, ctx, path) {
     if (path === '/api/chat/courses' || path.startsWith('/api/chat/courses/')) return json(await coursesApi(request, env, who, path, { call, limited, readBody })); // Eden for Education (edu/course.js)
     if (path === '/api/chat/tasks') return await tasksApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // G3 (accounts/tasks.js)
     if (path === '/api/chat/flights' || path === '/api/chat/flights/status') return await flightsApi(request, env, who, path, { call, limited, readBody }); // flights through Duffel, off unless EDEN_FLIGHTS=1 (travel/flights.js)
+    if (path === '/api/chat/travel/beta') return await betaApi(request, env, who, { call, limited, readBody }); // the private beta (travel/beta.js)
     if (path === '/api/chat/travel') return await travelApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // Eden Travel, off unless EDEN_TRAVEL=1 (travel/api.js)
     const route = `${request.method} ${path}`;
     switch (route) {

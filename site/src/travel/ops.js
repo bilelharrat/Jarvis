@@ -31,6 +31,8 @@
 // trip-shares {} → { shares }   trip-share-revoke { code } → { revoked }
 // trip-plan { request, constraints? }         → { trip, checks, changes, unresolved, sources, model, costs }  (a new trip drafted by the
 //                                               search model, checked and fixed on Google: planner.js; nothing saved)
+// trip-plan-start { request, constraints? } → { job }; trip-plan-status { job, after } → { events, result? }; trip-plan-cancel
+//                                               { job }: the same plan as a job, its steps shown as they happen (planjob.js)
 // trip-hero { q }                             → { hero }                   (the destination's licensed Commons photo or null: hero.js, kept 30 days)
 // trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
@@ -41,6 +43,7 @@ import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from '
 import { distanceKm, mapsFor } from './maps.js';
 import { capsFor, spendMeter } from './spend.js';
 import { PLAN, cleanPlanArgs, planTrip } from './planner.js';
+import { planJobOp, roomForPlan } from './planjob.js';
 import { index, shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
 import { priceDrops, stayOp } from './stayops.js';
@@ -70,6 +73,8 @@ import { activitiesOp } from './activities.js';
 import { dropTripPhotos, memoriesOp } from './memories.js';
 import { flightPriceDrops, flightWatches, fpwatchOp } from './fpwatch.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
+import { holidayLookup } from './holidays.js';
+import { ptoOp } from './pto.js';
 
 export const TRIP_HISTORY = 20;
 export const PROPOSAL_MS = 24 * 3600_000;
@@ -116,7 +121,8 @@ export async function tripOp(account, op, body = {}, deps = {}) {
   const meter = deps.meter || spendMeter(account); // Google spend counted and capped (spend.js)
   const maps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now, meter });
   const cache = cacheIn(storage, now, () => armCacheSweep(account));
-  const check = (trip) => checkTrip(trip, maps, { cache, now });
+  // holidays: a public holiday on a stop's date (holidays.js, OpenHolidays API) beside Google's own date-specific hours
+  const check = (trip) => checkTrip(trip, maps, { cache, now, holidays: holidayLookup({ env: account.env, fetch: deps.fetch, cache, now }) });
   // trip-get: the same trip opened again within CHECKS_REUSE minutes gets the same checks (with their checked_at), no
   // lookups at all; keyed on the trip's content, so any change (on any path) checks again. Not after a cap held part.
   const reuseMs = Math.max(0, Number(account.env?.TRAVEL_CHECKS_REUSE_MIN ?? CHECKS_REUSE_MIN)) * 60_000;
@@ -448,6 +454,9 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     // mobile data for the trip (esim.js: Airalo; off until its keys); an order only through pay.js
     case 'trip-esim': case 'trip-esim-check': case 'trip-esim-order': case 'trip-esims':
       return await esimOp(account, op, body, { cache, fetch: deps.fetch });
+    // the best time to go: public holidays for the days-off planner (pto.js)
+    case 'trip-pto-holidays':
+      return await ptoOp(account, op, body, { cache, fetch: deps.fetch });
     // the Travel app's Live Activity: its push tokens, or the person ending it (liveact.js)
     case 'trip-live-token': case 'trip-live-end':
       return await liveOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
@@ -473,16 +482,23 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       return out;
     }
     // a new trip: drafted by the best search model, then Google's checks and Eden's fixes (planner.js); its own Google cap
-    case 'trip-plan': {
+    case 'trip-plan': case 'trip-plan-start': case 'trip-plan-status': case 'trip-plan-cancel': {
+      // each plan on its own Google meter and cap (a job started again after a restart gets a fresh one)
+      const plan = (b, more = {}) => {
+        const planMeter = deps.meter || spendMeter(account, { caps: { ...capsFor(account.env), openUsd: Number(account.env?.TRAVEL_PLAN_GOOGLE_USD) > 0 ? Number(account.env.TRAVEL_PLAN_GOOGLE_USD) : PLAN.googleUsd } });
+        const planMaps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now, meter: planMeter });
+        return planTrip(b, { env: account.env || {}, maps: planMaps, cache, now, fetch: deps.fetch || globalThis.fetch, meter: planMeter, ...more });
+      };
+      if (op === 'trip-plan-status' || op === 'trip-plan-cancel') return await planJobOp(account, op, body, { run: plan, now });
       // plans a day per account (each pays the search model): TRAVEL_PLANS_A_DAY, default PLAN.daily
-      cleanPlanArgs(body); // its words checked before a plan is counted
+      const args = cleanPlanArgs(body); // its words checked before a plan is counted
+      if (op === 'trip-plan-start') roomForPlan(account); // and two at once at most
       const day = new Date(now()).toISOString().slice(0, 10), cap = Number(account.env?.TRAVEL_PLANS_A_DAY) > 0 ? Number(account.env.TRAVEL_PLANS_A_DAY) : PLAN.daily;
       const used = (await storage.get('tplan:count')) || {};
       if (used.day === day && used.n >= cap) throw new TripError(`That’s ${cap} plan${cap === 1 ? '' : 's'} today, Eden’s daily limit. Plan more tomorrow, or start a trip by hand.`, 429, 'rate_limited');
       await storage.put('tplan:count', { day, n: used.day === day ? used.n + 1 : 1 });
-      const planMeter = deps.meter || spendMeter(account, { caps: { ...capsFor(account.env), openUsd: Number(account.env?.TRAVEL_PLAN_GOOGLE_USD) > 0 ? Number(account.env.TRAVEL_PLAN_GOOGLE_USD) : PLAN.googleUsd } });
-      const planMaps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now, meter: planMeter });
-      return await planTrip(body, { env: account.env || {}, maps: planMaps, cache, now, fetch: deps.fetch || globalThis.fetch, meter: planMeter });
+      if (op === 'trip-plan-start') return await planJobOp(account, op, args, { run: plan, now });
+      return await plan(body);
     }
     case 'trip-places': {
       const q = String(body.text || '').trim();

@@ -45,6 +45,7 @@ import { currentSession } from './session.js';
 import { EDEN_CSP, EDEN_PERMISSIONS, RUNNER_CSP, SESSION_COOKIE, SHEET_PICKER_CSP, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
 import { safeReturn } from '../../public/signin/return.js';
 import { travelAccuracyPage } from '../travel/accuracy-page.js';
+import { travelGate } from '../travel/beta.js';
 
 // The legal pages: static text and the sign-in page's stylesheet, and the language script (/lang/, French), nothing else.
 const LEGAL_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -156,7 +157,11 @@ export async function edenPage(request, env, path) {
   if (path === '/travel') {
     const { session, stale } = await currentSession(request, env);
     const on = String(env.EDEN_TRAVEL || '') === '1';
-    if (session && on) return byCookie(appPage(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS })), false);
+    if (session && on) {
+      const gated = await travelGate(request, env, session); // the private beta (travel/beta.js): its page for someone not invited
+      if (gated) return byCookie(gated, false);
+      return byCookie(appPage(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS })), false);
+    }
     if (env.TRAVEL_HOST) return byCookie(page(await asset(env, request, '/travel-home/'), CODE_CSP, { cache: 'private, no-cache' }), stale);
     if (!on) return Response.redirect(new URL('/', request.url).toString(), 302);
     return byCookie(redirect('/signin?return=%2Ftravel'), stale);

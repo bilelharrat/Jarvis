@@ -20,10 +20,15 @@
 //    checks again. Anything still wrong is in `unresolved` with Google's own words, never kept silently.
 //
 // Budget per plan: PLAN (tokens, web searches, Google dollars on its own meter, time).
+//
+// As a job (planjob.js: trip-plan-start / trip-plan-status), `progress` gets each step as it happens, so the wait shows the
+// work: a first sketch (Gemini 3.8 Flash, low thinking, no search: about 6 s, about $0.002; marked "not checked yet" and
+// replaced by the draft), the draft's stops, each place as Google Maps answers it, each change Eden or the repair made.
 
 import { CACHE, FRESH, checkTrip, noCache } from './checks.js';
 import { MapsError, distanceKm } from './maps.js';
 import { KINDS, TRIP, TripError, cleanTrip, dayDate, hhmm, minutesOf, money, weekday } from './trips.js';
+import { holidayLookup } from './holidays.js';
 
 export const PLAN = {
   // the owner's choice (2026-10-28): Gemini with Google Search drafts; Gemini 3.8 Flash if Argon fails; GPT-6.1 Sol + web
@@ -32,7 +37,12 @@ export const PLAN = {
   model: 'gpt-6.1-sol', effort: 'medium', // the OpenAI step's model
   draftTokens: 16_000, repairTokens: 8_000, // output caps, reasoning included
   draftSearches: 10, repairSearches: 4, // web_search calls (max_tool_calls)
-  draftMs: 120_000, repairMinMs: 25_000, deadlineMs: 150_000, // Gemini 4 Argon with Google Search drafts in about 80 s (2026-10-28)
+  draftMs: 95_000, repairMinMs: 25_000, deadlineMs: 150_000, // Gemini 4 Argon with Google Search drafts in about 80 s (2026-10-28)
+  // the next model after a timeout or a draft that didn't search (the full run, 2026-10-28: 3 of 40 Argon drafts timed out
+  // at 120 s, 14 of 37 made no Google Search query; Flash with search answered in 34 s p50, 52 s p90): what's left, at
+  // most fallbackMs, keeping reserveMs for Google's checks; under fallbackMinMs left, no further try
+  fallbackMs: 60_000, fallbackMinMs: 20_000, reserveMs: 12_000,
+  retryMs: 700, // a Places lookup that failed (a 503) is asked once more after this
   googleUsd: 1.5, // this plan's Google spend (spend.js meter's per-open cap); the account's daily cap still holds
   places: 30, km: 80, request: 2000,
   daily: 20, // plans an account makes a day (ops.js; TRAVEL_PLANS_A_DAY)
@@ -43,7 +53,13 @@ export const PLAN = {
   // $4 / $20) and Google Search grounding per query (Gemini pricing page; counted on the high side)
   gemini: { 'gemini-4-argon': [2, 10], 'gemini-3.8-flash': [0.75, 3.75] }, groundUsd: 0.014,
   fallbackModel: 'claude-sonnet-5-5',
+  // the first sketch while the draft runs (job only): measured 2026-10-28 on two days in Florence, 4.9–6.4 s, 230 tokens
+  // in, about 550 out with thoughts; with full TRIP_SCHEMA and search Flash took 19–126 s, so the sketch is slim and unsearched
+  sketchModel: 'gemini-3.8-flash', sketchTokens: 3000, sketchMs: 25_000,
 };
+const LABEL = { 'gemini-4-argon': 'Gemini 4 Argon', 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'gpt-6.1-sol': 'GPT-6.1 Sol' };
+/** "Gemini 4 Argon + Google Search": the model and the search it drafts with. */
+export const modelLabel = (m) => (m ? `${LABEL[m] || m}${String(m).startsWith('gemini') ? ' + Google Search' : String(m).startsWith('gpt') ? ' + web search' : ''}` : 'Eden’s model (no web search)');
 const RESPONSES = 'https://api.openai.com/v1/responses';
 const PACES = ['relaxed', 'normal', 'packed'];
 const MODES = ['walk', 'transit', 'drive', 'taxi'];
@@ -156,7 +172,7 @@ function userText({ request, constraints: c }) {
 export class PlanError extends TripError {}
 
 /** One Responses API call with web search and a JSON schema answer → { json, citations, searches, usage, usd }. */
-async function askSearchModel(key, { system, user, schema, name, maxTokens, maxSearches, ms, fetch: f }) {
+async function askSearchModel(key, { system, user, schema, name, maxTokens, maxSearches, ms, fetch: f, signal }) {
   let res;
   try {
     res = await f(RESPONSES, {
@@ -168,10 +184,10 @@ async function askSearchModel(key, { system, user, schema, name, maxTokens, maxS
         input: [{ role: 'developer', content: system }, { role: 'user', content: user }],
         text: { format: { type: 'json_schema', name, schema, strict: true } },
       }),
-      signal: AbortSignal.timeout(ms),
+      signal: until(ms, signal),
     });
   } catch (e) {
-    throw new PlanError(e && e.name === 'TimeoutError' ? 'The planner took too long. Try again, or ask for fewer days.' : 'The planner could not be reached.', 504, 'unavailable');
+    throw failedCall(e, signal);
   }
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new PlanError(`The planner answered ${res.status}${out.error && out.error.message ? `: ${String(out.error.message).slice(0, 160)}` : ''}.`, 502, 'unavailable');
@@ -188,19 +204,25 @@ async function askSearchModel(key, { system, user, schema, name, maxTokens, maxS
   return { json, citations, searches, usage, usd };
 }
 
+// the call's own time limit, and the job's Cancel
+const until = (ms, signal) => (signal ? AbortSignal.any([AbortSignal.timeout(ms), signal]) : AbortSignal.timeout(ms));
+const stopped = () => new PlanError('Planning stopped.', 499, 'cancelled');
+const failedCall = (e, signal) => (signal && signal.aborted ? stopped()
+  : new PlanError(e && e.name === 'TimeoutError' ? 'The planner took too long. Try again, or ask for fewer days.' : 'The planner could not be reached.', 504, 'unavailable'));
+
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
 /** One Gemini call grounded with Google Search, answering JSON in the trip's shape → { json, citations, searches, usage, usd, model }. */
-async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetch: f }) {
+async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetch: f, signal, search = true, thinking = null }) {
   const call = (json) => f(`${GEMINI}/${model}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: `${system}\n\nAnswer with JSON only, in exactly this shape (JSON Schema):\n${JSON.stringify(schema)}` }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
-      tools: [{ google_search: {} }],
-      generationConfig: { maxOutputTokens: maxTokens, ...(json ? { responseMimeType: 'application/json', responseJsonSchema: schema } : {}) },
+      ...(search ? { tools: [{ google_search: {} }] } : {}),
+      generationConfig: { maxOutputTokens: maxTokens, ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}), ...(json ? { responseMimeType: 'application/json', responseJsonSchema: schema } : {}) },
     }),
-    signal: AbortSignal.timeout(ms),
+    signal: until(ms, signal),
   });
   let res;
   try {
@@ -208,7 +230,7 @@ async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetc
     // a model that won't take a JSON schema beside Google Search: asked again for JSON in its words
     if (res.status === 400) res = await call(false);
   } catch (e) {
-    throw new PlanError(e && e.name === 'TimeoutError' ? 'The planner took too long. Try again, or ask for fewer days.' : 'The planner could not be reached.', 504, 'unavailable');
+    throw failedCall(e, signal);
   }
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new PlanError(`The planner answered ${res.status}${out.error && out.error.message ? `: ${String(out.error.message).slice(0, 160)}` : ''}.`, 502, 'unavailable');
@@ -231,12 +253,12 @@ async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetc
 }
 
 /** No OpenAI key: the service's own model (service-ai.js) drafts, without web search. */
-async function askServiceModel(env, { system, user, schema, maxTokens, ms, fetch: f }) {
+async function askServiceModel(env, { system, user, schema, maxTokens, ms, fetch: f, signal }) {
   const [{ serviceFetch }, { priceOf }] = await Promise.all([import('../accounts/service-ai.js'), import('../accounts/proxy.js')]);
   let res;
   try {
-    res = await serviceFetch(env, { model: String(env.TRAVEL_PLAN_FALLBACK_MODEL || PLAN.fallbackModel), max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], output_config: { format: { type: 'json_schema', schema } } }, { signal: AbortSignal.timeout(ms), ...(f ? { fetch: f } : {}) });
-  } catch { throw new PlanError('The planner could not be reached.', 504, 'unavailable'); }
+    res = await serviceFetch(env, { model: String(env.TRAVEL_PLAN_FALLBACK_MODEL || PLAN.fallbackModel), max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], output_config: { format: { type: 'json_schema', schema } } }, { signal: until(ms, signal), ...(f ? { fetch: f } : {}) });
+  } catch (e) { throw failedCall(e, signal); }
   if (!res) throw new PlanError('Eden’s planner isn’t set up here (no model key).', 503, 'not_set_up');
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new PlanError(`The planner answered ${res.status}.`, 502, 'unavailable');
@@ -245,6 +267,31 @@ async function askServiceModel(env, { system, user, schema, maxTokens, ms, fetch
   let json;
   try { json = JSON.parse((out.content || []).filter((b) => b && b.type === 'text').map((b) => b.text).join('').replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw new PlanError('The planner’s answer could not be read.', 502, 'unreadable'); }
   return { json, citations: [], searches: 0, usage, usd: (usage.input * pin + usage.output * pout) / 1e6, model: String(out.model || PLAN.fallbackModel) };
+}
+
+// ── the first sketch (a job's wait only): real names at sensible times from what the model knows, nothing searched ──
+
+export const SKETCH_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['title', 'start', 'days'],
+  properties: { title: { type: 'string' }, start: { type: 'string', description: 'YYYY-MM-DD' }, days: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'stops'], properties: {
+    title: { type: 'string' },
+    stops: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['at', 'name', 'kind', 'minutes'], properties: { at: { type: 'string' }, name: { type: 'string' }, kind: { type: 'string', enum: KINDS }, minutes: { type: 'integer' } } } },
+  } } } },
+};
+const sketchSystem = (today) => `You sketch trips for Eden Travel in seconds. Today is ${today}. A first sketch only, shown while the full plan is checked: real, named places at sensible local times, in time order each day. Never put a place on a day it is usually closed. Day 1 is the start date. Answer only JSON in this shape:\n${JSON.stringify(SKETCH_SCHEMA)}`;
+
+/** The sketch → { title, start, days: [{ title, date, stops: [{ at, name, kind, minutes }] }], model, usd, usage }. */
+export async function sketchTrip(key, args, { today, fetch: f, signal }) {
+  const r = await askGemini(key, PLAN.sketchModel, { system: sketchSystem(today), user: userText(args), schema: SKETCH_SCHEMA, maxTokens: PLAN.sketchTokens, ms: PLAN.sketchMs, fetch: f, signal, search: false, thinking: 'low' });
+  const c = args.constraints;
+  const start = c.start || (DATE.test(String(r.json.start)) ? String(r.json.start) : null);
+  const days = (Array.isArray(r.json.days) ? r.json.days : []).slice(0, c.days || TRIP.days).map((d, i) => ({
+    title: text(isObj(d) && d.title, TRIP.title) || `Day ${i + 1}`,
+    date: start ? dayDate({ start }, i) : null,
+    stops: (isObj(d) && Array.isArray(d.stops) ? d.stops : []).filter((x) => isObj(x) && text(x.name, 120) && TIME.test(String(x.at))).slice(0, TRIP.stops)
+      .map((x) => ({ at: String(x.at), name: text(x.name, 120), kind: KINDS.includes(x.kind) ? x.kind : 'visit', minutes: Number.isInteger(x.minutes) && x.minutes > 0 && x.minutes <= 1440 ? x.minutes : 60 })),
+  }));
+  return { title: text(r.json.title, TRIP.title), start, days, model: r.model, usd: r.usd, usage: r.usage, searches: 0 };
 }
 
 // ── the draft → a trip cleanTrip takes (the model's slips mended, never invented) ──
@@ -297,15 +344,32 @@ export const sameName = (asked, google) => {
   return !a.length || !g.length || a.filter((w) => hit(w, g)).length * 2 > a.length || (g.length && g.every((w) => hit(w, a)));
 };
 
+const median = (xs) => { const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+const middle = (pts) => (pts.length ? { lat: median(pts.map((p) => p.lat)), lng: median(pts.map((p) => p.lng)) } : null);
+
+/**
+ * Where the trip is, from the destination's search: a hit named like it with no opening hours (a city has none), never a
+ * business that shares its name ("Barcelona" is also a restaurant in Palo Alto). null: none like that; findPlaces then
+ * takes the middle of the stops' own hits.
+ */
+export function destinationPoint(destination, hits) {
+  const city = String(destination || '').split(',')[0].trim();
+  const h = (hits || []).find((x) => x && Number.isFinite(x.lat) && !Array.isArray(x.hours) && sameName(city, x.name));
+  return h ? { lat: h.lat, lng: h.lng } : null;
+}
+
 /**
  * Looks up each stop that isn't a getting-there stop, one place per search, near the destination (and a stop's own
- * address or city). → Map stop id → { hit } | { none: true } | { error, held? }; stops found get Google's id and point.
+ * address or city). → { found: Map stop id → { hit } | { none: true } | { error, held? }, center }; stops found get
+ * Google's id and point. The center is the destination's point unless most stops' own hits are far from it (one wrong
+ * geocode must not remove a whole plan): then the middle of those hits. A hit counts as near when it is near the center
+ * or the middle of its own day's other hits (three or more).
  */
-async function findPlaces(trip, maps, cache, center) {
+async function findPlaces(trip, maps, cache, center0, found1 = null) {
   const memo = new Map();
   const found = new Map();
   const todo = [];
-  for (const day of trip.days) for (const s of day.stops) {
+  trip.days.forEach((day, d) => { for (const s of day.stops) {
     if (s.kind === 'transport' || s.place.id) continue;
     if (todo.length >= PLAN.places) { found.set(s.id, { error: 'Not looked up: the trip has more places than Eden checks in one plan.' }); continue; }
     // always with the city (a square or a church shares its name with many towns: "Piazza della Repubblica" in Signa
@@ -313,22 +377,35 @@ async function findPlaces(trip, maps, cache, center) {
     const city = String(s.place.city || trip.destination || '').trim();
     const addr = String(s.place.address || '').trim();
     const parts = [s.place.name, addr && addr.toLowerCase() !== s.place.name.toLowerCase() ? addr : '', city && !`${s.place.name} ${addr}`.toLowerCase().includes(city.split(',')[0].toLowerCase()) ? city : ''].filter(Boolean);
-    todo.push({ s, q: parts.join(', ') });
-  }
-  await Promise.all(todo.map(async ({ s, q }) => {
-    if (!memo.has(q)) memo.set(q, maps.search(q, center || {}).then((hits) => ({ hits }), (e) => ({ e })));
-    const r = await memo.get(q);
-    if (r.e) { found.set(s.id, { error: r.e instanceof MapsError ? r.e.message : 'The map lookup failed.', held: r.e && r.e.code === 'capped' }); return; }
-    // of the hits near the destination: the one whose name matches, nearest first (a same-name place in the next town loses)
-    const near = r.hits.filter((h) => Number.isFinite(h.lat) && (!center || distanceKm(h, center) < PLAN.km));
+    todo.push({ s, d, q: parts.join(', ') });
+  } });
+  const answers = await Promise.all(todo.map(async (x) => {
+    // a failed lookup (a 503) asked once more; a cap isn't
+    const look = () => maps.search(x.q, center0 || {});
+    if (!memo.has(x.q)) memo.set(x.q, look().catch(async (e) => { if (e && e.code === 'capped') throw e; await new Promise((res) => setTimeout(res, PLAN.retryMs)); return look(); }).then((hits) => ({ hits }), (e) => ({ e })));
+    return { ...x, r: await memo.get(x.q) };
+  }));
+  // each stop's hit named like it (any distance), to see where the plan really is
+  const named = answers.map((a) => ((a.r.hits || []).find((h) => Number.isFinite(h.lat) && sameName(a.s.place.name, h.name)) ? { d: a.d, p: a.r.hits.find((h) => Number.isFinite(h.lat) && sameName(a.s.place.name, h.name)) } : null)).filter(Boolean);
+  let center = center0;
+  if (named.length >= 2 && (!center || named.filter((x) => distanceKm(x.p, center) < PLAN.km).length * 2 < named.length)) center = middle(named.map((x) => x.p));
+  const dayMid = new Map();
+  for (const d of new Set(named.map((x) => x.d))) { const pts = named.filter((x) => x.d === d).map((x) => x.p); if (pts.length >= 3) dayMid.set(d, middle(pts)); }
+  const isNear = (h, d) => !center || distanceKm(h, center) < PLAN.km || (dayMid.has(d) && distanceKm(h, dayMid.get(d)) < PLAN.km);
+  await Promise.all(answers.map(async ({ s, d, q, r }) => {
+    const asked = { ...s.place };
+    const done = (x) => { found.set(s.id, x); if (found1) found1(s.id, asked, x); };
+    if (r.e) { done({ error: r.e instanceof MapsError ? r.e.message : 'The map lookup failed.', held: r.e && r.e.code === 'capped' }); return; }
+    // of the hits near the trip: the one whose name matches, nearest first (a same-name place in the next town loses)
+    const near = r.hits.filter((h) => Number.isFinite(h.lat) && isNear(h, d));
     const rank = (h) => (sameName(s.place.name, h.name) ? 0 : 1e6) + (center ? distanceKm(h, center) : 0);
     const hit = near.sort((x, y) => rank(x) - rank(y))[0];
-    if (!hit) { found.set(s.id, { none: true, q }); return; }
-    found.set(s.id, { hit, asked: s.place.name });
+    if (!hit) { done({ none: true, q }); return; }
     s.place = { id: hit.id, name: hit.name, lat: hit.lat, lng: hit.lng };
+    done({ hit, asked: asked.name });
     await seed(cache, hit);
   }));
-  return found;
+  return { found, center };
 }
 
 // The search answer already has the place's hours and status: kept in the checks' cache (checks.js lookups, keys ps1:/ph1:)
@@ -338,7 +415,7 @@ async function seed(cache, p) {
   const stamp = { source: p.source, checked_at: p.checked_at, standin: false };
   const pick = (keys) => Object.fromEntries(keys.filter((k) => k in p).map((k) => [k, p[k]]));
   await cache.put(`ps1:${p.id}`, { ...pick(['id', 'name', 'address', 'lat', 'lng', 'url', 'access']), ...stamp }, FRESH.stable, CACHE.keepMs);
-  await cache.put(`ph1:${p.id}`, { ...pick(['status', 'hours', 'price', 'price_level', 'website', 'photo']), ...stamp }, Math.min(...FRESH.hours.map(([, a]) => a)), CACHE.keepMs);
+  await cache.put(`ph1:${p.id}`, { ...pick(['status', 'hours', 'week', 'country', 'price', 'price_level', 'website', 'photo']), ...stamp }, Math.min(...FRESH.hours.map(([, a]) => a)), CACHE.keepMs);
 }
 
 // ── hours ──
@@ -354,6 +431,74 @@ export function weekText(hit) {
   if (!hit || !Array.isArray(hit.hours)) return 'no hours listed on Google Maps';
   const order = [1, 2, 3, 4, 5, 6, 0];
   return order.map((d) => { const h = hit.hours.filter((x) => x.day === d); return `${DAY_NAMES[d].slice(0, 3)} ${h.length ? h.map((x) => `${x.open}–${x.close}`).join(', ') : 'closed'}`; }).join('; ');
+}
+
+/**
+ * One place as Google Maps answered it, for a job's live list: ok true (open then), false (a problem Eden fixes next or
+ * lists), null (found, no hours to check against, or not looked up). `at`/`minutes`: the stop as drafted.
+ */
+export function placeNote(trip, d, stop, r) {
+  const date = dayDate(trip, d), wd = DAY_NAMES[weekday(date)].slice(0, 3);
+  if (r.error) return { ok: null, text: r.held ? 'not checked: today’s map checks for your account are used up' : r.error };
+  if (r.none) return { ok: false, text: `not found on Google Maps near ${trip.destination || 'the destination'}` };
+  const hit = r.hit;
+  if (hit.status === 'closed_permanently') return { ok: false, text: 'closed for good on Google Maps' };
+  const spans = spansOn(hit, date);
+  if (stop.kind && isEvent(stop, hit)) { const h = Array.isArray(hit.hours) ? hit.hours.filter((x) => x.day === weekday(date)).map((x) => `${x.open}–${x.close}`).join(', ') : ''; return { ok: null, text: EVENT_WORDS(h) }; }
+  const hours = Array.isArray(hit.hours) ? hit.hours.filter((h) => h.day === weekday(date)).map((h) => `${h.open}–${h.close}`).join(', ') : '';
+  const matched = sameName(r.asked, hit.name) ? '' : ` (Google Maps found “${hit.name}” for “${r.asked}”)`;
+  if (spans === null) return { ok: null, text: `found on Google Maps, no hours listed${matched}` };
+  if (!spans.length) return { ok: false, text: `closed ${wd} on Google Maps${matched}` };
+  const at = minutesOf(stop.at);
+  if (fitsHours(spans, at, stop.minutes)) return { ok: true, text: `open ${wd} ${hours}${matched}` };
+  return { ok: false, text: `open ${wd} ${hours}, not ${stop.at}–${hhmm(Math.min(at + stop.minutes, 24 * 60 - 1))}${matched}` };
+}
+
+// ── shows and events: Google's hours are the venue's (a box office), not the event's ──
+
+// (not "opera" alone: Florence's Museo dell'Opera del Duomo; not "arena" or "amphitheatre": visited by day, with real hours)
+// a theatre's 10:00–18:00 is its box office: "O" by Cirque du Soleil at 21:00 was re-timed to 15:45 (full run, rw-13)
+const VENUE = /\b(theat(?:re|er)s?|teatro|th[eé][aâ]tre|opera house|concert hall|philharmoni\w*|symphony hall|auditori\w*|playhouse|stadium|stadio|estadio|cirque|circus|cabaret|jazz club|comedy club|music hall|kabukiza|kabuki|tablao)\b/i;
+/** An event, not a place with opening hours: an activity, or a visit to a performance venue. */
+export const isEvent = (stop, hit = null) => stop.kind === 'activity' || (stop.kind === 'visit' && VENUE.test(`${(stop.place && stop.place.name) || stop.name || ''} ${(hit && hit.name) || ''}`));
+const EVENT_WORDS = (hours) => `Event time from the draft’s source; Google’s hours${hours ? ` (${hours})` : ''} are the venue’s, not the event’s.`;
+/** Events' hours badges say so, and their "closed then" alerts go: Eden never re-times or removes an event for them. In place. */
+export function eventHours(trip, checks, hits) {
+  const events = new Set();
+  for (const d of trip.days) for (const s of d.stops) if (isEvent(s, hits.get(s.id))) events.add(s.id);
+  if (!events.size) return checks;
+  checks.days.forEach((day, d) => { for (const c of day.stops || []) {
+    if (!events.has(c.stop)) continue;
+    const b = c.badges && c.badges.hours;
+    const hit = hits.get(c.stop);
+    const hours = hit && Array.isArray(hit.hours) ? hit.hours.filter((h) => h.day === weekday(dayDate(trip, d))).map((h) => `${h.open}–${h.close}`).join(', ') : '';
+    if (b && b.status !== 'unknown') c.badges.hours = { status: 'look', text: EVENT_WORDS(hours), source: b.source, checked_at: b.checked_at, event: true };
+    if (Array.isArray(c.alerts)) c.alerts = c.alerts.filter((k) => k !== 'closed_that_day' && k !== 'out_of_hours');
+  } });
+  checks.alerts = checks.alerts.filter((a) => !(events.has(a.stop) && (a.kind === 'closed_that_day' || a.kind === 'out_of_hours')));
+  return checks;
+}
+
+// ── legs the checks couldn't really check ──
+
+const LEG_MAX = 12 * 60; // minutes: no leg between one day's stops takes longer (a Kyoto plan showed 77,955 min late)
+const CAPPED_WORDS = 'Not checked: today’s map checks for your account are used up.';
+/**
+ * A travel time Google didn't give (a spending cap held it back, so checks.js put a straight-line estimate there) or one
+ * no day's stops could take: shown as not checked, never "late", and Eden's fixes don't act on it. In place; → checks.
+ */
+export function trustLegs(checks) {
+  const dropped = new Set();
+  for (const day of checks.days || []) for (const c of day.stops || []) {
+    const t = c.badges && c.badges.travel;
+    if (!t || !Number.isFinite(t.minutes)) continue;
+    const estimate = Boolean(t.held) && (t.status === 'sample' || /straight-line estimate/i.test(String(t.source || '')));
+    if (!estimate && t.minutes <= LEG_MAX) continue;
+    c.badges.travel = { status: 'unknown', text: estimate ? CAPPED_WORDS : `Not checked: Google’s travel time (${t.minutes} min) can’t be right between one day’s stops.`, source: null, checked_at: null, ...(t.held ? { held: t.held } : {}) };
+    if (Array.isArray(c.alerts) && c.alerts.includes('late')) { c.alerts = c.alerts.filter((k) => k !== 'late'); dropped.add(c.stop); }
+  }
+  if (dropped.size) checks.alerts = checks.alerts.filter((a) => !(a.kind === 'late' && dropped.has(a.stop)));
+  return checks;
 }
 
 // ── Eden's own fixes ──
@@ -488,12 +633,16 @@ function problemsOf(trip, checks) {
 /**
  * trip-plan. deps: { maps, cache, now, fetch, env } (ops.js hands in the account's maps on the plan's own meter and the
  * checks' cache; `draft`: skip the search model's draft and verify this one). Nothing is stored except the cache's map
- * answers.
+ * answers. A job's own (planjob.js): `progress(event)` for each step, `signal` its Cancel, `sketch` a first sketch while
+ * the draft runs. Events: stage { stage, text } · sketch { model, title, days } · draft { model, days, searches } ·
+ * place { stop, day, name, ok, text, source, checked_at } · change { stop, what, name, why, from, to, by, source, checked_at }.
  */
-export async function planTrip(body, { env = {}, maps, cache = noCache, now = () => Date.now(), fetch: f = globalThis.fetch, meter = null, draft: given = null } = {}) {
+export async function planTrip(body, { env = {}, maps, cache = noCache, now = () => Date.now(), fetch: f = globalThis.fetch, meter = null, draft: given = null, progress = null, signal = null, sketch: wantSketch = false } = {}) {
   const t0 = now();
   const started = Date.now();
   const left = () => PLAN.deadlineMs - (Date.now() - started);
+  const emit = (ev) => { if (progress) try { progress({ ...ev, t: Date.now() - started }); } catch { /* the job's record, not the plan */ } };
+  const alive = () => { if (signal && signal.aborted) throw stopped(); };
   const args = cleanPlanArgs(body);
   const today = new Date(t0).toISOString().slice(0, 10);
   const system = plannerSystem(today);
@@ -502,37 +651,68 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
   // the order to try: Gemini with Google Search first (owner, 2026-10-28), then GPT-6.1 Sol with web search; each only with its key
   const order = (String(env.TRAVEL_PLAN_MODELS || '').trim() ? String(env.TRAVEL_PLAN_MODELS).split(',').map((x) => x.trim()) : PLAN.models)
     .filter((m) => (m.startsWith('gemini') ? Boolean(gkey) && !off(env, 'EDEN_GEMINI') : Boolean(key) && !off(env, 'EDEN_OPENAI')));
-  const spend = { usd: 0, searches: 0, tokens: { input: 0, output: 0, reasoning: 0 }, calls: 0 };
+  const spend = { usd: 0, searches: 0, tokens: { input: 0, output: 0, reasoning: 0 }, calls: 0, sketch: 0 };
   let model = order[0] || PLAN.fallbackModel;
   const tried = [];
   const count = (r) => { spend.usd += r.usd || 0; spend.searches += r.searches || 0; spend.calls++; for (const k of ['input', 'output', 'reasoning']) spend.tokens[k] += (r.usage && r.usage[k]) || 0; };
   const ask = async (o) => {
     // the model that answered the draft also answers the repair; a failure moves to the next in the order
     const list = tried.length ? [model, ...order.filter((m) => m !== model)] : order;
-    let last = null;
-    for (const m of list.length ? list : [null]) {
+    let last = null, unsearched = null; // `unsearched`: the first answer that didn't search, kept in case none does
+    for (const [i, m] of (list.length ? list : [null]).entries()) {
+      alive();
+      // a later model gets what's left (a timeout falls back to the next model, it doesn't end the plan)
+      const ms = i === 0 ? o.ms : Math.min(PLAN.fallbackMs, left() - PLAN.reserveMs);
+      if (i > 0 && ms < PLAN.fallbackMinMs) break;
+      if (o.stage) emit({ type: 'stage', stage: o.stage, model: m, text: o.say(m, last, unsearched) });
+      const user = unsearched ? `${o.user}\n\nSearch Google for every place’s opening days and hours before you answer: an answer without searching can’t be used.` : o.user;
       try {
-        const r = !m ? await askServiceModel(env, { ...o, fetch: f === globalThis.fetch ? undefined : f })
-          : m.startsWith('gemini') ? await askGemini(gkey, m, { ...o, fetch: f })
-          : await askSearchModel(key, { ...o, fetch: f });
+        const r = !m ? await askServiceModel(env, { ...o, user, ms, fetch: f === globalThis.fetch ? undefined : f, signal })
+          : m.startsWith('gemini') ? await askGemini(gkey, m, { ...o, user, ms, fetch: f, signal })
+          : await askSearchModel(key, { ...o, user, ms, fetch: f, signal });
+        count(r);
+        // the draft must rest on a search (owner, 2026-10-28): one that didn't goes to the next model, told to search
+        if (o.ground && m && !r.searches) {
+          tried.push(`${m}: no_search`);
+          if (!unsearched) unsearched = { r, m };
+          last = null;
+          continue;
+        }
         model = r.model || m || model;
         tried.push(model);
-        count(r);
         return r;
       } catch (e) {
         if (e.usd) count(e);
         last = e;
         tried.push(`${m}: ${e.code || 'failed'}`);
-        if (e.code === 'incomplete') throw e; // too big a trip for any of them
+        if (e.code === 'incomplete' || e.code === 'cancelled') throw e; // too big a trip for any of them; or Cancel
       }
     }
+    if (unsearched) { model = unsearched.m; tried.push(model); return { ...unsearched.r, unsearched: true }; }
     throw last;
   };
 
+  // 0. a job's first sketch, beside the draft (shown until the draft arrives; dropped if the draft comes first)
+  let drafted = false;
+  const sketchCtl = new AbortController();
+  const sketchP = wantSketch && gkey && !given && !off(env, 'EDEN_GEMINI') && !off(env, 'TRAVEL_PLAN_SKETCH')
+    ? sketchTrip(gkey, args, { today, fetch: f, signal: signal ? AbortSignal.any([signal, sketchCtl.signal]) : sketchCtl.signal }).then((r) => {
+      spend.usd += r.usd; spend.sketch += r.usd; spend.calls++;
+      for (const k of ['input', 'output', 'reasoning']) spend.tokens[k] += r.usage[k] || 0;
+      if (!drafted && r.days.some((d) => d.stops.length)) emit({ type: 'sketch', model: r.model, label: LABEL[r.model] || r.model, title: r.title, start: r.start, days: r.days });
+    }, () => {}) // no sketch: the wait shows the draft's progress only
+    : null;
+
   // 1. draft (`given`: a draft in TRIP_SCHEMA's shape from elsewhere, verified and fixed the same way: the eval, checks)
-  const draft = given ? { json: given, citations: [] } : await ask({ system, user: userText(args), schema: TRIP_SCHEMA, name: 'trip', maxTokens: PLAN.draftTokens, maxSearches: PLAN.draftSearches, ms: Math.min(PLAN.draftMs, left()) });
+  const prev = () => LABEL[tried[tried.length - 1]?.split(':')[0]] || 'The first model';
+  const said = (m, last, unsearched) => `${last ? `${prev()} didn’t answer (${last.code || 'failed'}). ` : unsearched ? `${prev()} answered without searching Google. ` : ''}Drafting with ${modelLabel(m)}`;
+  const draft = given ? { json: given, citations: [] } : await ask({ system, user: userText(args), schema: TRIP_SCHEMA, name: 'trip', maxTokens: PLAN.draftTokens, maxSearches: PLAN.draftSearches, ms: Math.min(PLAN.draftMs, left()), stage: 'drafting', say: said, ground: true });
+  drafted = true;
+  sketchCtl.abort();
+  alive();
   const newId = () => `s-${hex(4)}`;
   const { trip: raw, src } = draftTrip(draft.json, args, newId);
+  emit({ type: 'draft', model: given ? null : model, label: given ? null : LABEL[model] || model, searches: spend.searches, title: raw.title, start: raw.start, days: raw.days.map((d, i) => ({ title: d.title, date: dayDate(raw, i), stops: d.stops.map((x) => ({ id: x.id, at: x.at, minutes: x.minutes, kind: x.kind, name: x.place.name })) })) });
   const sources = new Map();
   for (const c of draft.citations) if (!sources.has(c.url)) sources.set(c.url, { url: c.url, title: c.title, stops: [] });
   const note = (id, url) => { if (!url) return; if (!sources.has(url)) sources.set(url, { url, title: '', stops: [] }); sources.get(url).stops.push(id); };
@@ -542,10 +722,34 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
   const changes = [];
   const unresolved = [];
   const hits = new Map(); // stop id → Google's place
-  const dest = raw.destination ? (await maps.search(raw.destination).catch(() => []))[0] : null;
-  const center = dest && Number.isFinite(dest.lat) ? { lat: dest.lat, lng: dest.lng } : null;
+  let told = 0, toldCap = false; // changes already sent as events; the cap said once
+  const tell = () => {
+    for (; told < changes.length; told++) {
+      const c = changes[told];
+      emit({ type: 'change', stop: c.stop, what: c.what, name: c.name, was_name: c.was_name || null, asked: c.asked || null, why: c.why, from: c.from || null, to: c.to || null, by: c.by, source: (c.evidence && c.evidence.source) || null, checked_at: (c.evidence && c.evidence.checked_at) || null });
+    }
+  };
+  const places = raw.days.reduce((n, d) => n + d.stops.filter((x) => x.kind !== 'transport').length, 0);
+  emit({ type: 'stage', stage: 'checking', text: `Checking ${Math.min(places, PLAN.places)} place${places === 1 ? '' : 's'} on Google Maps: open that day and at that time, not closed for good` });
+  let center = raw.destination ? destinationPoint(raw.destination, await maps.search(raw.destination).catch(() => [])) : null;
+  let kept = 0; // stops Google didn't find, kept unchecked because most of the plan wasn't found (never an empty plan)
   const locate = async (trip) => {
-    const found = await findPlaces(trip, maps, cache, center);
+    // each place as Google answers it (the stop's day and time as they stand)
+    const onFound = (id, asked, r) => {
+      const f1 = findStop(trip, id);
+      if (!f1) return;
+      const n = placeNote(trip, f1.d, { at: f1.s.at, minutes: f1.s.minutes, kind: f1.s.kind, name: asked.name }, r.hit ? { ...r, asked: asked.name } : r);
+      emit({ type: 'place', stop: id, day: f1.d, at: f1.s.at, name: r.hit ? r.hit.name : asked.name, ok: n.ok, text: n.text, source: r.hit ? r.hit.source : r.none ? 'Google Maps (Places API)' : null, checked_at: r.hit ? r.hit.checked_at : r.none ? new Date(now()).toISOString() : null });
+    };
+    const got = await findPlaces(trip, maps, cache, center, onFound);
+    const found = got.found;
+    center = got.center;
+    alive();
+    // most of the places not found: something is wrong with where Eden looked, not with the plan; kept, said, not removed
+    const looked = [...found.values()].filter((r) => r.hit || r.none).length, none = [...found.values()].filter((r) => r.none).length;
+    const keepNone = looked >= 2 && none * 2 > looked;
+    const held = [...found.values()].filter((r) => r.held).length;
+    if (held && !toldCap) { toldCap = true; emit({ type: 'stage', stage: 'capped', text: `${CAPPED_WORDS} ${held} place${held === 1 ? '' : 's'} not looked up: listed below as not checked.` }); }
     for (const [id, r] of found) {
       const f = findStop(trip, id);
       if (!f) continue;
@@ -557,6 +761,9 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
         } else if (!sameName(r.asked, r.hit.name)) {
           changes.push({ stop: id, name: r.hit.name, asked: r.asked, what: 'matched', by: 'eden', to: { day: f.d, at: f.s.at }, why: `Google Maps found “${r.hit.name}” for “${r.asked}”: check it’s the place you mean.`, evidence: { text: r.hit.address || '', source: r.hit.source, checked_at: r.hit.checked_at } });
         }
+      } else if (r.none && keepNone) {
+        kept++;
+        unresolved.push({ stop: id, name: f.s.place.name, day: f.d, at: f.s.at, kind: 'not_found', text: `Google Maps found no place by that name near ${trip.destination || 'the destination'}. Most of this plan’s places weren’t found, so Eden kept them, unchecked, instead of emptying the plan.`, source: 'Google Maps (Places API)', checked_at: new Date(now()).toISOString() });
       } else if (r.none) {
         trip.days[f.d].stops.splice(f.i, 1);
         changes.push({ stop: id, name: f.s.place.name, what: 'removed', by: 'eden', from: { day: f.d, at: f.s.at }, why: `Google Maps found no place by that name near ${trip.destination || 'the destination'}, so it isn’t in the plan.`, evidence: { text: `Searched: “${r.q}”.`, source: 'Google Maps (Places API)', checked_at: new Date(now()).toISOString() } });
@@ -566,22 +773,30 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
     }
   };
   await locate(raw);
+  tell();
   const clean = () => { const t = cleanTrip(raw, { newId, now: t0 }); for (const d of t.days) for (const s of d.stops) delete s.owner; return t; };
   let trip = clean();
-  const check = () => checkTrip(trip, maps, { cache, now });
+  // public holidays on the plan's dates (holidays.js) beside Google's own date-specific hours, as every trip's checks
+  const holidays = holidayLookup({ env, fetch: f, cache, now });
+  const check = async () => eventHours(trip, trustLegs(await checkTrip(trip, maps, { cache, now, holidays })), hits);
+  emit({ type: 'stage', stage: 'timing', text: 'Checking travel times between stops and the day’s pace on Google Maps' });
   let checks = await check();
+  alive();
+  if (checks.spend && !toldCap) emit({ type: 'stage', stage: 'capped', text: `${CAPPED_WORDS} ${checks.spend.held} answer${checks.spend.held === 1 ? '' : 's'} held back: those show as not checked.` });
 
   // 3. Eden's own fixes, then (if still wrong) one repair round, then Eden's fixes on what the repair changed
   const fixAndCheck = async () => {
     const made = fixTrip(trip, checks, hits);
-    if (made.length) { changes.push(...made); checks = await check(); }
+    if (made.length) { changes.push(...made); tell(); checks = await check(); }
   };
   await fixAndCheck();
+  alive();
   let repaired = false;
   const problems = problemsOf(trip, checks).filter((p) => !unresolved.some((u) => u.stop === p.stop));
   if (problems.length && left() >= PLAN.repairMinMs) {
     try {
-      const r = await ask({ system, user: repairText(trip, problems, hits), schema: REPAIR_SCHEMA, name: 'repair', maxTokens: PLAN.repairTokens, maxSearches: PLAN.repairSearches, ms: left() - 8000 });
+      const r = await ask({ system, user: repairText(trip, problems, hits), schema: REPAIR_SCHEMA, name: 'repair', maxTokens: PLAN.repairTokens, maxSearches: PLAN.repairSearches, ms: left() - 8000,
+        stage: 'repairing', say: (m) => `${problems.length} stop${problems.length === 1 ? '' : 's'} Eden couldn’t fix itself: asking ${modelLabel(m)} to replace, re-time or move ${problems.length === 1 ? 'it' : 'them'}` });
       repaired = true;
       for (const c of r.citations) if (!sources.has(c.url)) sources.set(c.url, { url: c.url, title: c.title, stops: [] });
       const failing = new Set(problems.map((p) => p.stop));
@@ -607,7 +822,7 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
           const old = f.s.place.name;
           f.s.place = { name: text(e.place.name, 120), address: text(e.place.address, 200) || null, city: text(e.place.city, 80) || null };
           if (e.kind && KINDS.includes(e.kind)) f.s.kind = e.kind;
-          if (e.note != null) f.s.note = text(e.note, TRIP.note);
+          f.s.note = e.note != null ? text(e.note, TRIP.note) : ''; // the old place's note never stays on the new one
           hits.delete(e.stop);
           note(e.stop, httpsUrl(e.source_url));
           replaced.push(e.stop);
@@ -618,9 +833,11 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
         if (day !== f.d) { trip.days[f.d].stops.splice(f.i, 1); trip.days[day].stops.push(f.s); }
         sortDay(trip.days[day]);
       }
+      tell();
       if (replaced.length) {
         // the new places looked up on Google like the rest (a replacement Google can't find is removed)
         await locate(trip);
+        tell();
         trip = cleanTrip(trip, { newId, now: t0 });
         for (const d of trip.days) for (const s of d.stops) delete s.owner;
         for (const c of changes) if (c.what === 'replaced') { const f = findStop(trip, c.stop); if (f) c.name = f.s.place.name; } // Google's name
@@ -628,10 +845,12 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
       checks = await check();
       await fixAndCheck();
     } catch (e) {
-      if (!(e instanceof PlanError)) throw e;
+      if (!(e instanceof PlanError) || e.code === 'cancelled') throw e;
       // the repair failing leaves the draft as Eden fixed it: what's wrong is listed below
     }
   }
+  tell();
+  if (sketchP) await sketchP; // its cost counted (it ended long ago, or was stopped when the draft came)
 
   // anything still wrong: listed with Google's reason, never kept silently
   for (const p of problemsOf(trip, checks)) if (!unresolved.some((u) => u.stop === p.stop)) unresolved.push({ stop: p.stop, name: p.name, day: p.day, at: p.at, kind: p.kind, text: p.text, source: p.source, checked_at: p.checked_at, hours: hits.has(p.stop) ? weekText(hits.get(p.stop)) : null });
@@ -647,11 +866,11 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
     sources: [...sources.values()].map((s) => ({ ...s, stops: s.stops.filter((id) => live.has(id)) })).slice(0, 60),
     notes: text(draft.json.notes, 1200),
     model,
-    searched: order.length > 0 && !given, // drafted by a model with web or Google Search
+    searched: order.length > 0 && !given && !draft.unsearched, // drafted by a model that searched (web or Google Search)
     repaired,
-    costs: { model_usd: round(spend.usd), web_searches: spend.searches, tokens: spend.tokens, model_calls: spend.calls, google_usd: google, google_calls: meter ? meter.calls : null, total_usd: round(spend.usd + (google || 0)) },
+    costs: { model_usd: round(spend.usd), ...(sketchP ? { sketch_usd: round(spend.sketch) } : {}), web_searches: spend.searches, tokens: spend.tokens, model_calls: spend.calls, google_usd: google, google_calls: meter ? meter.calls : null, total_usd: round(spend.usd + (google || 0)) },
     took_ms: Date.now() - started,
-    ...(order.length ? {} : { note: `No Gemini or OpenAI key here: drafted by ${model} without web search, then checked on Google Maps the same way.` }),
+    ...(order.length && !checks.spend && !kept && !draft.unsearched ? {} : { note: [order.length ? '' : `No Gemini or OpenAI key here: drafted by ${model} without web search, then checked on Google Maps the same way.`, draft.unsearched ? `No model searched the web for this draft (each was asked): its hours come from what ${LABEL[model] || model} knows; Google Maps checked every place.` : '', kept ? `Google Maps didn’t find ${kept} of this plan’s places near ${trip.destination || 'the destination'}: they’re kept, unchecked, and listed below.` : '', checks.spend ? `${CAPPED_WORDS} ${checks.spend.held} map answer${checks.spend.held === 1 ? '' : 's'} weren’t checked; they say so on the trip.` : ''].filter(Boolean).join(' ') }),
     ...(tried.some((t) => t.includes(":")) ? { tried } : {}), // a model that failed before the one that answered
   };
 }

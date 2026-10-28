@@ -13,14 +13,19 @@ import { placesSku } from './spend.js';
 
 const PLACES = 'https://places.googleapis.com/v1';
 const ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos,accessibilityOptions,websiteUri';
+const BASE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos,accessibilityOptions,websiteUri';
+// + the country (addressComponents: Essentials) and the next 7 days' actual hours with their special days
+// (currentOpeningHours: Enterprise, the tier regularOpeningHours already bills), for date-specific checks (holidays.js).
+// Field tiers read 2026-10-28: https://developers.google.com/maps/documentation/places/web-service/data-fields
+const PLACE_FIELDS = `${BASE_FIELDS},addressComponents,currentOpeningHours`;
 // a place in two parts, each cached for its own time (checks.js): what hardly changes (name, where, its access: Pro SKU),
-// and what does (status and hours: Enterprise SKU, so the website, price level and photo, Enterprise or free, ride along)
+// and what does (status and hours: Enterprise SKU, so the website, price level, photo and country, Enterprise or less,
+// ride along at no extra cost)
 const STABLE_FIELDS = 'id,displayName,formattedAddress,location,googleMapsUri,accessibilityOptions';
-const HOURS_FIELDS = 'id,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,websiteUri,photos';
+const HOURS_FIELDS = 'id,businessStatus,regularOpeningHours,currentOpeningHours,utcOffsetMinutes,priceLevel,websiteUri,photos,addressComponents';
 const PART_FIELDS = { all: PLACE_FIELDS, stable: STABLE_FIELDS, hours: HOURS_FIELDS };
-// for Discover and Near me (discover.js): the place, its rating, and whether it is open right now
-const RATED_FIELDS = `${PLACE_FIELDS},rating,userRatingCount,currentOpeningHours.openNow,currentOpeningHours.nextCloseTime,primaryTypeDisplayName,editorialSummary`;
+// for Discover and Near me (discover.js): the place, its rating, and whether it is open right now (not the week)
+const RATED_FIELDS = `${BASE_FIELDS},rating,userRatingCount,currentOpeningHours.openNow,currentOpeningHours.nextCloseTime,primaryTypeDisplayName,editorialSummary`;
 const MATRIX = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix';
 const ROUTE_FIELDS = 'routes.duration,routes.distanceMeters';
 const TRANSIT_FIELDS = 'routes.legs.steps.travelMode,routes.legs.steps.transitDetails';
@@ -255,10 +260,54 @@ export function fromGooglePlace(g, checkedAt) {
     // what Google lists of its access (true, false, or not said): for step-free trips
     access: g.accessibilityOptions ? { entrance: g.accessibilityOptions.wheelchairAccessibleEntrance ?? null, restroom: g.accessibilityOptions.wheelchairAccessibleRestroom ?? null, seating: g.accessibilityOptions.wheelchairAccessibleSeating ?? null, parking: g.accessibilityOptions.wheelchairAccessibleParking ?? null } : null,
     photo: photoOf(g.photos),
+    ...countryOf(g.addressComponents),
+    ...(weekOf(g, checkedAt) || {}),
     standin: false,
     source: 'Google Maps (Places API)',
     checked_at: checkedAt,
   };
+}
+
+// the place's country (ISO 3166-1 alpha-2, Google's addressComponents shortText of type 'country'): { country } or {}
+function countryOf(parts) {
+  const c = Array.isArray(parts) ? parts.find((x) => Array.isArray(x?.types) && x.types.includes('country')) : null;
+  return c && /^[A-Z]{2}$/.test(c.shortText || '') ? { country: c.shortText } : {};
+}
+
+// The next 7 days' actual hours (currentOpeningHours: "the next seven days (including today) incorporating any special
+// opening hours"; periods' points carry the place's local date; specialDays are the dates whose hours differ, e.g.
+// Christmas). Read 2026-10-28: https://developers.google.com/maps/documentation/places/web-service/reference/rest/v1/places
+//   → { week: { from, to, days: { 'YYYY-MM-DD': [{ open, close }] }, special: ['YYYY-MM-DD'], closed_week } } or null
+// Only from a full answer (weekdayDescriptions, one a day, come with it): Discover asks for openNow alone. Google leaves an
+// empty periods list out, so no periods at all means closed every day of the window (closed_week: perhaps seasonal).
+export function weekOf(g, checkedAt) {
+  const c = g?.currentOpeningHours;
+  if (!c || !Array.isArray(c.weekdayDescriptions) || !c.weekdayDescriptions.length) return null;
+  const two = (n) => String(n ?? 0).padStart(2, '0');
+  const ymd = (d) => (d && Number.isInteger(d.year) ? `${d.year}-${two(d.month)}-${two(d.day)}` : null);
+  // the window starts on the place's local date when Google answered (its utcOffsetMinutes; else the UTC date)
+  const t0 = Date.parse(checkedAt);
+  if (!Number.isFinite(t0)) return null;
+  const local = new Date(t0 + (Number.isFinite(g.utcOffsetMinutes) ? g.utcOffsetMinutes : 0) * 60_000);
+  const dates = [0, 1, 2, 3, 4, 5, 6].map((i) => new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + i)).toISOString().slice(0, 10));
+  const days = Object.fromEntries(dates.map((d) => [d, []]));
+  const dateOf = (pt) => ymd(pt.date) || dates.find((d) => new Date(`${d}T00:00:00Z`).getUTCDay() === pt.day) || null;
+  const at = (pt) => `${two(pt.hour)}:${two(pt.minute)}`;
+  const periods = Array.isArray(c.periods) ? c.periods.filter((p) => p && p.open) : [];
+  if (periods.length === 1 && !periods[0].close) for (const d of dates) days[d].push({ open: '00:00', close: '23:59' }); // open all week
+  else {
+    for (const p of periods) {
+      if (!p.close) continue;
+      const od = dateOf(p.open), cd = dateOf(p.close);
+      if (!od || !days[od]) continue;
+      const open = at(p.open);
+      let close = at(p.close);
+      if (cd && cd !== od && close > open) close = '23:59'; // a period running into a later day: open to the day's end
+      days[od].push({ open, close });
+    }
+  }
+  const special = (Array.isArray(c.specialDays) ? c.specialDays : []).map((s) => ymd(s?.date)).filter((d) => d && days[d]);
+  return { week: { from: dates[0], to: dates[6], days, special, closed_week: dates.every((d) => !days[d].length) } };
 }
 
 // the place's first Google photo: its resource name (fetched through the Worker, /api/chat/travel/photo) and who took

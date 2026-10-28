@@ -15,6 +15,7 @@
 // be, FRESH). Past a spending cap (spend.js) no new call is made: the last answer is shown with its own checked_at and
 // `held`, or, never checked, a place says so and a leg gets a straight-line estimate shown as a sample.
 
+import { dayLabel, stopCountry } from './holidays.js';
 import { MapsError, standinMaps } from './maps.js';
 import { HELD } from './spend.js';
 import { dayDate, hhmm, minutesOf, weekday } from './trips.js';
@@ -27,7 +28,8 @@ const DAY = 86400_000;
 // Answers are kept CACHE.keepMs, and past these ages shown only while a cap holds new checks back.
 export const FRESH = { stable: 30 * DAY, hours: [[2 * DAY, DAY], [14 * DAY, 3 * DAY], [Infinity, 7 * DAY]], walk: 7 * DAY, transit: DAY, drive: 6 * 3600_000, taxi: 6 * 3600_000 };
 const STABLE_KEYS = ['id', 'name', 'address', 'lat', 'lng', 'url', 'access'];
-const HOURS_KEYS = ['status', 'hours', 'price', 'price_level', 'website', 'photo'];
+// week: the next 7 days' actual hours from when it was asked (maps.js weekOf), special days included; country: for holidays
+const HOURS_KEYS = ['status', 'hours', 'week', 'country', 'price', 'price_level', 'website', 'photo'];
 const pick = (p, keys) => Object.fromEntries(keys.filter((k) => k in p).map((k) => [k, p[k]]));
 const ESTIMATE = 'A straight-line estimate: not checked';
 const HOW = { walk: 'on foot', transit: 'by public transport', drive: 'by car', taxi: 'by taxi' };
@@ -154,7 +156,8 @@ export function lookups(maps, cache, { now = () => Date.now() } = {}) {
 }
 
 
-export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now() } = {}) {
+// holidays: holidays.js holidayLookup (cc, date) → a public holiday or null; none: no holiday checks
+export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now(), holidays = null } = {}) {
   const look = lookups(maps, cache, { now });
   const placeOf = (stop, date) => look.place(stop, date);
   const travelOf = (from, to, mode) => look.travel(from, to, mode, { lessWalking: Boolean(trip.access && trip.access.step_free) && mode === 'transit' });
@@ -209,9 +212,14 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       if (!p) badges.hours = { status: 'look', text: 'Not linked to a map place, so its hours aren’t checked.', source: null, checked_at: null };
       else if (p.error) badges.hours = { status: 'unknown', text: p.error, source: null, checked_at: null, ...(p.held ? { held: p.held } : {}) };
       else {
-        const h = hoursCheck(p, date, at, s.minutes);
+        // a public holiday there that day (never for a sample place); a source that didn't answer says nothing
+        const holiday = holidays && !p.standin ? await holidays(stopCountry(p, trip), date).catch(() => null) : null;
+        const h = hoursCheck(p, date, at, s.minutes, { holiday });
         if (h.alert) stopAlerts.push({ kind: h.alert, stop: s.id, day: d, text: `${s.place.name}: ${h.text}` });
         badges.hours = { status: p.standin ? 'sample' : h.status, text: h.text, source: p.source, checked_at: p.checked_at };
+        if (h.special) badges.hours.special = h.special; // the date's hours are Google's holiday hours
+        if (h.holiday) badges.hours.holiday = h.holiday; // { date, name, country, country_name, source, checked_at }
+        if (h.seasonal) badges.hours.seasonal = true;
         if (p.held) badges.hours.held = p.held;
       }
 
@@ -283,24 +291,57 @@ export function stayFor(trip, d) {
   return today ? { ...today, arrival: true } : null;
 }
 
-// Whether the place is open for this visit: closed for good, closed that weekday, or the visit
-// starting before it opens or running past its close.
-export function hoursCheck(p, date, at, minutes) {
+// Whether the place is open for this visit: closed for good, closed that day, or the visit starting before it opens or
+// running past its close. Within Google's 7-day window (p.week, maps.js weekOf) the date's actual hours count, and a
+// special day (Christmas…) wins over the weekly hours; beyond it the weekly hours, with a 'look' when that date is a
+// public holiday (`holiday`, holidays.js) or Google shows the place shut all of the coming week (perhaps seasonal).
+// Never "closed" unless Google says so.
+export function hoursCheck(p, date, at, minutes, { holiday = null } = {}) {
   if (p.status === 'closed_permanently') return { status: 'warn', alert: 'closed', text: 'closed for good.' };
   if (p.status === 'closed_temporarily') return { status: 'warn', alert: 'closed', text: 'closed for now.' };
+  const end = at + minutes;
+  const fitsIn = (list) => list.find((h) => {
+    const o = minutesOf(h.open), c = minutesOf(h.close) <= o ? 24 * 60 : minutesOf(h.close);
+    return at >= o && end <= c;
+  });
+  const span = (list) => list.map((h) => `${h.open}–${h.close}`).join(', ');
+  const visit = `the visit is ${hhmm(at)}–${hhmm(Math.min(end, 24 * 60 - 1))}`;
+  const hol = holiday ? { holiday } : {};
+  const w = p.week && p.week.days && Array.isArray(p.week.days[date]) ? p.week : null;
+
+  // within Google's window: that date's own hours
+  if (w) {
+    const list = w.days[date];
+    const label = dayLabel(date);
+    if (w.special.includes(date)) {
+      const head = `holiday hours on ${label} · Google`;
+      if (!list.length) return { status: 'warn', alert: 'closed_that_day', special: true, ...hol, text: `${head}: closed that day.` };
+      const fits = fitsIn(list);
+      if (fits) return { status: 'ok', special: true, ...hol, text: `${head}: open ${fits.open}–${fits.close}.` };
+      return { status: 'warn', alert: 'out_of_hours', special: true, ...hol, text: `${head}: open ${span(list)}; ${visit}.` };
+    }
+    // a public holiday Google lists no special hours for: its hours stand, worth a look
+    const note = holiday ? ` ${label} is a public holiday in ${holiday.country_name} (${holiday.name} · ${holiday.source}); Google lists no holiday hours for it: check before you go.` : '';
+    if (!list.length) return { status: 'warn', alert: 'closed_that_day', ...hol, text: `Google shows it closed on ${label}.${note}` };
+    const fits = fitsIn(list);
+    if (fits) return { status: holiday ? 'look' : 'ok', ...hol, text: `open ${fits.open}–${fits.close} on ${label}.${note}` };
+    return { status: 'warn', alert: 'out_of_hours', ...hol, text: `open ${span(list)} on ${label}; ${visit}.${note}` };
+  }
+
   if (!Array.isArray(p.hours)) return { status: 'look', text: 'No opening hours listed: an outdoor place, or check before you go.' };
   const wd = weekday(date);
   const today = p.hours.filter((h) => h.day === wd);
   const dayName = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
-  if (!today.length) return { status: 'warn', alert: 'closed_that_day', text: `closed on ${dayName}s.` };
-  const end = at + minutes;
-  const fits = today.find((h) => {
-    const o = minutesOf(h.open), c = minutesOf(h.close) <= o ? 24 * 60 : minutesOf(h.close);
-    return at >= o && end <= c;
-  });
-  if (fits) return { status: 'ok', text: `open ${fits.open}–${fits.close} on ${dayName}.` };
-  const span = today.map((h) => `${h.open}–${h.close}`).join(', ');
-  return { status: 'warn', alert: 'out_of_hours', text: `open ${span} on ${dayName}; the visit is ${hhmm(at)}–${hhmm(Math.min(end, 24 * 60 - 1))}.` };
+  const r = !today.length ? { status: 'warn', alert: 'closed_that_day', text: `closed on ${dayName}s.` }
+    : fitsIn(today) ? { status: 'ok', text: `open ${fitsIn(today).open}–${fitsIn(today).close} on ${dayName}.` }
+    : { status: 'warn', alert: 'out_of_hours', text: `open ${span(today)} on ${dayName}; ${visit}.` };
+  // beyond the window: what the weekly hours can't tell
+  const notes = [];
+  if (holiday) notes.push(`${dayLabel(date, { weekday: false })} is a public holiday in ${holiday.country_name} (${holiday.name} · ${holiday.source}): hours may differ — Google shows regular hours only.`);
+  const seasonal = Boolean(p.week && p.week.closed_week && today.length);
+  if (seasonal) notes.push(`Google shows it closed every day from ${dayLabel(p.week.from)} to ${dayLabel(p.week.to)}, though its regular hours say open: it may be seasonal. Check before you go.`);
+  if (!notes.length) return r;
+  return { ...r, status: r.status === 'ok' ? 'look' : r.status, ...hol, ...(seasonal ? { seasonal } : {}), text: `${notes.join(' ')} Regular hours: ${r.text}` };
 }
 
 export function pace(stops, move, busy, late) {

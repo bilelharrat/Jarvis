@@ -177,6 +177,8 @@ export class Account {
       }
       // Stripe's word that a booking's card is held (eden/billing.js webhook; travel/pay.js checks it with Stripe)
       // the owner's list of refunds and payments to look at (travel/pay.js, the object tpayflags:global), and resolving one
+      // the private beta's invites, reports and waitlist (travel/beta.js, the object tbeta:global)
+      if (op.startsWith('tbeta-')) { const { betaIndexOp } = await import('../travel/beta.js'); return json(await betaIndexOp(this, op, await request.json().catch(() => ({})))); } // loaded here: beta.js reaches session.js, which needs this file first
       if (op.startsWith('tpayflag-')) return json(await payFlagIndexOp(this, op, await request.json().catch(() => ({}))));
       if (op === 'tpayadmin-resolve') return json(await payResolve(this, await request.json().catch(() => ({}))));
       if (op === 'pay-webhook') return json(await payOp(this, op, await request.json().catch(() => ({})), { flightOp, tripOp }));

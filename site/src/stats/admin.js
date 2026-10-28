@@ -40,7 +40,7 @@ export async function adminSession(request, env) {
 
 const notFound = () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
-const ADMIN_FILES = new Set(['admin.js', 'admin.css']);
+const ADMIN_FILES = new Set(['admin.js', 'admin.css', 'travel-beta.js']);
 export const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /** /admin and its two files. null: not an admin path. */
