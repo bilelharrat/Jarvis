@@ -42,6 +42,7 @@ import { receiptOp } from './receipts.js';
 import { autodraftDue, autodraftOp } from './autodrafts.js';
 import { notifyOwner, taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
+import { armFlightWatch, flightWatchDue } from '../travel/watch.js';
 import { sharePublicOp } from '../travel/track.js';
 import { flightOp } from '../travel/flights.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
@@ -51,6 +52,7 @@ import { playCap, playOp, withPlayPlan } from './play-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 import { aiSpend } from '../stats/stats.js';
 
+const TRIP_WRITES = new Set(['trip-create', 'trip-sample', 'trip-update', 'trip-delete', 'trip-edit', 'trip-apply', 'trip-undo', 'trip-mark-booked', 'trip-unbook', 'trip-mail-import']); // re-arm the flight watch (travel/watch.js)
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
 export const WEB_SESSION_DAYS = 30; // a browser's sign-in at askeden.com ends after this
@@ -172,7 +174,12 @@ export class Account {
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
       if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
-      if (op.startsWith('trip-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.'); return json(await tripOp(this, op, body)); } // Eden Travel (travel/ops.js)
+      if (op.startsWith('trip-')) {
+        if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.');
+        const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
+        if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
+        return json(out);
+      }
       switch (op) {
         case 'get': return json(await this.view(device));
         case 'whoami': return json({ account_id: (await this.storage.get('account')).id, device: this.publicDevice(device, device.id) });
@@ -982,6 +989,7 @@ export class Account {
       task: (job) => taskDue(this, job),
       autodraft: () => autodraftDue(this),
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
+      fwatch: () => flightWatchDue(this, { tripOp, notify: notifyOwner }), // a trip's flights: delays, gates, cancellations (travel/watch.js)
     });
   }
 

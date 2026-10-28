@@ -4,7 +4,9 @@
 // Every rate below was read from the issuer's own card page on the date in `checked`, and only
 // what the page states is here: a figure the page doesn't give is null and shown as "not stated",
 // never filled in from memory. A point's value is given only where the issuer states one
-// (`value.how` says on what terms). Rates change: a check older than STALE_DAYS is flagged.
+// (`value.how` says on what terms). Rates change: a check older than STALE_DAYS is flagged, and
+// scripts/check-card-rates.mjs re-reads each page (headless Chrome) for the issuer's own words in `says`: all found, the
+// date moves on; one missing, the card is reported for a person to re-read.
 //
 // Categories: hotel, flight (booked with the hotel or airline directly), travel (other travel:
 // trains, ferries, car hire, taxis), dining, other. `portal` is the issuer's own travel site,
@@ -23,6 +25,7 @@ export const CARDS = [
     value: null, annual_fee: 95, ftf: 0,
     notes: ['Hotels and flights booked directly fall under “2x on all other travel”.'],
     source: 'https://creditcards.chase.com/rewards-credit-cards/sapphire/preferred', checked: '2026-10-26',
+    says: ['5x points on chase travel', '3x points on dining', '2x points on all other travel', '1x points on all other purchases'],
   },
   {
     id: 'chase-sapphire-reserve', name: 'Chase Sapphire Reserve', issuer: 'Chase', aliases: ['sapphire reserve', 'csr'],
@@ -32,6 +35,7 @@ export const CARDS = [
     value: { cents: 1, how: 'when redeemed through Chase Travel' }, annual_fee: 795, ftf: 0,
     notes: ['The page lists no separate rate for other travel (trains, car hire), so it is counted at 1x.'],
     source: 'https://creditcards.chase.com/rewards-credit-cards/sapphire/reserve', checked: '2026-10-26',
+    says: ['8x points on all purchases through chase travel', '4x points on flights booked direct', '4x points on hotels booked direct', '3x points on dining worldwide', '1x points on all other purchases'],
   },
   {
     id: 'capital-one-venture-x', name: 'Capital One Venture X', issuer: 'Capital One', aliases: ['venture x'],
@@ -41,6 +45,7 @@ export const CARDS = [
     value: null, annual_fee: 395, ftf: 0,
     notes: [],
     source: 'https://www.capitalone.com/credit-cards/venture-x/', checked: '2026-10-26',
+    says: ['10x miles on hotels rental cars booked through capital one travel', 'vacation rentals booked through capital one travel', '2x miles on all other purchases'],
   },
   {
     id: 'capital-one-venture', name: 'Capital One Venture', issuer: 'Capital One', aliases: ['venture', 'venture rewards', 'capital one venture card'],
@@ -50,15 +55,17 @@ export const CARDS = [
     value: { cents: 1, how: 'toward travel, as the issuer’s own calculator shows (52,800 miles = $528)', implied: true }, annual_fee: 95, ftf: 0,
     notes: [],
     source: 'https://www.capitalone.com/credit-cards/venture/', checked: '2026-10-26',
+    says: ['earn unlimited 2x miles per dollar on every purchase', 'earn 5x miles on hotels vacation rentals and rental cars booked through capital one travel'],
   },
   {
     id: 'amex-gold', name: 'American Express Gold Card', issuer: 'American Express', aliases: ['amex gold', 'gold card'],
     unit: 'Membership Rewards points',
     rates: { hotel: 1, flight: 3, travel: 1, dining: 4, other: 1 },
-    portal: [{ site: 'Amex Travel', rate: 5, what: 'prepaid hotels through AmexTravel.com' }],
+    portal: [{ site: 'Amex Travel', rate: 5, what: 'prepaid hotels through AmexTravel.com' }, { site: 'Amex Travel', rate: 2, what: 'prepaid car rentals through AmexTravel.com' }],
     value: null, annual_fee: null, ftf: null,
     notes: ['Restaurants: 4x on up to $50K a year. Flights: 3x booked directly with the airline or through Amex Travel.', 'The page as read did not show the annual fee or the foreign transaction fee.'],
     source: 'https://www.americanexpress.com/us/credit-cards/card/gold-card/', checked: '2026-10-26',
+    says: ['4x points at restaurants worldwide', '3x points on flights booked through amextravel com or amex travel app or directly through airlines', '5x points on prepaid hotels booked through amextravel com', '2x points on prepaid car rentals', 'earn 1x membership rewards points'],
   },
 ];
 

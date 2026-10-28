@@ -5,24 +5,25 @@
 //   GET  /api/chat/travel            → trip-list
 //   GET  /api/chat/travel?id=<id>    → trip-get
 //   GET  /api/chat/travel/map?a=lat,lng&b=lat,lng → the in-flight map's picture (maps.js flightMapImage)
+//   GET  /api/chat/travel/photo?n=places/…/photos/…&w=240 → a stop's Google photo (maps.js placePhoto)
 //   POST /api/chat/travel { action, args }
 //     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, flight-live, mail-scan, mail-preview, mail-import, share-create, shares, share-revoke
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
-import { MapsError, flightMapImage } from './maps.js';
+import { MapsError, flightMapImage, placePhoto } from './maps.js';
 
 const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
 export async function travelApi(request, env, who, path, { call, limited, readBody, local = false, ...deps }) {
-  if (!travelOn(env) || (path !== '/api/chat/travel' && path !== '/api/chat/travel/map')) throw new ApiError(404, 'not_found', 'Not found');
+  if (!travelOn(env) || !['/api/chat/travel', '/api/chat/travel/map', '/api/chat/travel/photo'].includes(path)) throw new ApiError(404, 'not_found', 'Not found');
   await limited(env, 'API_RATE', who.account);
   // the in-flight map's picture (maps.js): a Google Static Map fetched with the server's key
-  if (path === '/api/chat/travel/map') {
+  if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo') {
     if (request.method !== 'GET') throw new ApiError(405, 'bad_request', 'GET');
-    try { return await flightMapImage(env, new URL(request.url), { fetch: deps.fetch }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : 502, e.code, e.message); throw e; }
+    try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, new URL(request.url), { fetch: deps.fetch }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : 502, e.code, e.message); throw e; }
   }
   if (request.method === 'GET') {
     const id = new URL(request.url).searchParams.get('id');

@@ -30,7 +30,7 @@ export const noCache = { get: async () => undefined, put: async () => {} };
 export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now() } = {}) {
   const placeOf = async (stop) => {
     if (!stop.place.id) return null;
-    const key = `p:${maps.mode}:${stop.place.id}`;
+    const key = `p2:${maps.mode}:${stop.place.id}`; // p2: with the place's photo
     const hit = await cache.get(key);
     if (hit) return hit;
     try {
@@ -122,7 +122,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       busy += s.minutes;
       leave = Math.max(at, arrive) + s.minutes;
       alerts.push(...stopAlerts);
-      out.push({ stop: s.id, arrive: hhmm(Math.max(0, arrive)), leave: hhmm(Math.min(leave, 24 * 60 - 1)), badges, alerts: stopAlerts.map((a) => a.kind) });
+      out.push({ stop: s.id, photo: p && !p.error && p.photo ? p.photo : null, arrive: hhmm(Math.max(0, arrive)), leave: hhmm(Math.min(leave, 24 * 60 - 1)), badges, alerts: stopAlerts.map((a) => a.kind) });
     }
     tripCost += cost;
     days.push({ day: d, date, stops: out, pace: pace(stops.length, move, busy + move, late), move_minutes: move, cost: { amount: round(cost), currency } });

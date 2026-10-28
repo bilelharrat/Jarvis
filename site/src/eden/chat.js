@@ -618,7 +618,7 @@ export async function chatApi(request, env, ctx, path) {
       const vw = await gate(request, env, { video: true });
       return await videoApi(request, env, vw, { cfg: await hostedFor(env, vw, cfg, request), call, limited });
     }
-    if (path === '/api/chat/travel/map') return await travelApi(request, env, await gate(request, env, { header: false }), path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) });
+    if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo') return await travelApi(request, env, await gate(request, env, { header: false }), path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) });
     const who = await gate(request, env);
     cfg = await hostedFor(env, who, cfg, request); // the models this asker has keys for (providers.js)
     if (path === '/api/chat/publish' || path.startsWith('/api/chat/published')) return await publishedApi(request, env, who, path); // G10 (accounts/published.js)

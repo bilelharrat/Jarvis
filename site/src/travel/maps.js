@@ -10,8 +10,9 @@
 
 const PLACES = 'https://places.googleapis.com/v1';
 const ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri';
+const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos';
 const TIMEOUT = 8000;
+const PHOTO_NAME = /^places\/[A-Za-z0-9_-]{10,300}\/photos\/[A-Za-z0-9_-]{10,1000}$/;
 
 export const MODES = ['walk', 'transit', 'drive', 'taxi'];
 const GOOGLE_MODE = { walk: 'WALK', transit: 'TRANSIT', drive: 'DRIVE', taxi: 'DRIVE' };
@@ -157,10 +158,20 @@ export function fromGooglePlace(g, checkedAt) {
     price: null, // Google gives a price level, not a price; prices come from the trip or a booking
     price_level: g.priceLevel || null,
     url: g.googleMapsUri || null,
+    photo: photoOf(g.photos),
     standin: false,
     source: 'Google Maps (Places API)',
     checked_at: checkedAt,
   };
+}
+
+// the place's first Google photo: its resource name (fetched through the Worker, /api/chat/travel/photo) and who took
+// it, which Google requires shown with it
+function photoOf(photos) {
+  const p = Array.isArray(photos) ? photos.find((x) => x && PHOTO_NAME.test(x.name || '')) : null;
+  if (!p) return null;
+  const by = (p.authorAttributions || [])[0] || {};
+  return { name: p.name, by: by.displayName || null, by_url: /^https:\/\//.test(by.uri || '') ? by.uri : null };
 }
 
 export function distanceKm(a, b) {
@@ -245,4 +256,19 @@ export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fet
   try { res = await fetcher(`${STATIC}?${q}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
   if (!res.ok || !String(res.headers.get('content-type') || '').startsWith('image/')) throw new MapsError('unavailable', `Google Maps answered ${res.status}.`);
   return new Response(res.body, { headers: { 'content-type': res.headers.get('content-type'), 'cache-control': 'private, max-age=86400', 'x-map-center': `${center.lat},${center.lng}`, 'x-map-zoom': String(zoom), 'x-content-type-options': 'nosniff' } });
+}
+
+// A place's photo (stop thumbnails): Google Places photo media fetched with the server's key, so the key never reaches
+// the page. `n` is the photo's resource name from a place lookup; `w` its width.
+export async function placePhoto(env, url, { fetch: fetcher = globalThis.fetch } = {}) {
+  const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
+  if (!key) throw new MapsError('not_set_up', 'Photos need Google Maps on Eden’s server.');
+  const name = url.searchParams.get('n') || '';
+  if (!PHOTO_NAME.test(name)) throw new MapsError('bad_request', 'n must be a Google place photo name.');
+  const w = Math.min(800, Math.max(80, Math.round(Number(url.searchParams.get('w')) || 240)));
+  let res;
+  try { res = await fetcher(`${PLACES}/${name}/media?maxWidthPx=${w}&key=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
+  if (res.status === 404 || res.status === 400) throw new MapsError('not_found', 'Google has no such photo now.');
+  if (!res.ok || !String(res.headers.get('content-type') || '').startsWith('image/')) throw new MapsError('unavailable', `Google Maps answered ${res.status}.`);
+  return new Response(res.body, { headers: { 'content-type': res.headers.get('content-type'), 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' } });
 }
