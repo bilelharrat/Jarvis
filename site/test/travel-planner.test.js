@@ -199,7 +199,7 @@ test('a failed repair call leaves Eden’s fixes and lists the rest; a draft err
   await assert.rejects(planTrip({ request: 'Florence' }, { env: { OPENAI_API_KEY: 'k' }, maps: fakeMaps(), fetch: bad.fetch, now: () => T0 }), (e) => e.code === 'unavailable' && /401/.test(e.message));
 });
 
-test('no OpenAI key: the service model drafts without search, and the result says so', async () => {
+test('no Gemini or OpenAI key: the service model drafts without search, and the result says so', async () => {
   const draft = { title: 'Florence', destination: 'Florence', start: '2026-11-03', travelers: 1, notes: '', days: [{ title: 'Tue', stops: [stop('visit', 'Uffizi Gallery', '10:00', 120)] }] };
   const seen = [];
   const fetch = async (url, init) => {
@@ -211,7 +211,7 @@ test('no OpenAI key: the service model drafts without search, and the result say
   };
   const r = await planTrip({ request: 'A Tuesday in Florence' }, { env: { ANTHROPIC_API_KEY: 'a' }, maps: fakeMaps(), fetch, now: () => T0 });
   assert.equal(r.searched, false);
-  assert.match(r.note, /No OpenAI key here: drafted by claude-sonnet-5-5 without web search/);
+  assert.match(r.note, /No Gemini or OpenAI key here: drafted by claude-sonnet-5-5 without web search/);
   assert.equal(r.unresolved.length, 0);
   assert.equal(seen.length, 1);
 });
@@ -286,4 +286,45 @@ test('a place is searched with its city, and the matching hit nearest the destin
   const stop = r.trip.days[0].stops.find((s) => /Repubblica/.test(s.place.name));
   assert.equal(stop.place.id, 'g-flo', 'Florence’s square, not Signa’s');
   assert.ok(!r.changes.some((c) => c.what === 'matched'), 'no "check it’s the place you mean" for an exact name');
+});
+
+// Gemini's generateContent with Google Search: the answer in a candidate's text, the sources in its grounding
+function fakeGemini(answers) {
+  const seen = [];
+  const fetch = async (url, init) => {
+    const m = /models\/([^:]+):generateContent/.exec(String(url));
+    if (!m) throw new Error(`unexpected ${url}`);
+    const body = JSON.parse(init.body);
+    seen.push({ model: m[1], body, key: init.headers['x-goog-api-key'] });
+    const a = answers.shift();
+    if (a && a.status) return new Response(JSON.stringify({ error: { message: 'down' } }), { status: a.status });
+    return new Response(JSON.stringify({
+      candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '```json\n' + JSON.stringify(a) + '\n```' }] }, groundingMetadata: { webSearchQueries: ['uffizi monday'], groundingChunks: [{ web: { uri: 'https://www.uffizi.it/en/the-uffizi', title: 'uffizi.it' } }] } }],
+      usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 800, thoughtsTokenCount: 200 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  return { fetch, seen };
+}
+
+test('Gemini 4 Argon with Google Search drafts first (owner, 2026-10-28): its sources kept, its cost counted', async () => {
+  const draft = { title: 'Florence', destination: 'Florence', start: '2026-11-03', travelers: 1, notes: '', days: [{ title: 'Tue', stops: [stop('visit', 'Uffizi Gallery', '10:00', 120)] }] };
+  const g = fakeGemini([draft]);
+  const r = await planTrip({ request: 'A Tuesday in Florence' }, { env: { GEMINI_API_KEY: 'g', OPENAI_API_KEY: 'k' }, maps: fakeMaps(), fetch: g.fetch, now: () => T0 });
+  assert.equal(g.seen[0].model, 'gemini-4-argon');
+  assert.deepEqual(g.seen[0].body.tools, [{ google_search: {} }]);
+  assert.equal(r.model, 'gemini-4-argon');
+  assert.equal(r.searched, true);
+  assert.ok(r.sources.some((s) => s.url === 'https://www.uffizi.it/en/the-uffizi'));
+  assert.ok(r.costs.model_usd > 0);
+});
+
+test('Gemini down: Gemini 3.8 Flash, then GPT-6.1 Sol; the result says what failed', async () => {
+  const draft = { title: 'Florence', destination: 'Florence', start: '2026-11-03', travelers: 1, notes: '', days: [{ title: 'Tue', stops: [stop('visit', 'Uffizi Gallery', '10:00', 120)] }] };
+  const g = fakeGemini([{ status: 503 }, { status: 503 }]);
+  const ai = fakeOpenAI([draft]);
+  const fetch = (u, i) => (/generativelanguage/.test(String(u)) ? g.fetch(u, i) : ai.fetch(u, i));
+  const r = await planTrip({ request: 'A Tuesday in Florence' }, { env: { GEMINI_API_KEY: 'g', OPENAI_API_KEY: 'k' }, maps: fakeMaps(), fetch, now: () => T0 });
+  assert.deepEqual(g.seen.map((s) => s.model), ['gemini-4-argon', 'gemini-3.8-flash']);
+  assert.equal(r.model, 'gpt-6.1-sol');
+  assert.deepEqual(r.tried.slice(0, 2), ['gemini-4-argon: unavailable', 'gemini-3.8-flash: unavailable']);
 });

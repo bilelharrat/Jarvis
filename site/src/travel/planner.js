@@ -26,16 +26,22 @@ import { MapsError, distanceKm } from './maps.js';
 import { KINDS, TRIP, TripError, cleanTrip, dayDate, hhmm, minutesOf, money, weekday } from './trips.js';
 
 export const PLAN = {
-  model: 'gpt-6.1-sol', effort: 'medium', // the best measured search model (2026-10-27 hard bake-off; 2026-10-28 travel pilot)
+  // the owner's choice (2026-10-28): Gemini with Google Search drafts; Gemini 3.8 Flash if Argon fails; GPT-6.1 Sol + web
+  // search only if both Gemini models fail (env TRAVEL_PLAN_MODELS orders them; the travel eval measures each)
+  models: ['gemini-4-argon', 'gemini-3.8-flash', 'gpt-6.1-sol'],
+  model: 'gpt-6.1-sol', effort: 'medium', // the OpenAI step's model
   draftTokens: 16_000, repairTokens: 8_000, // output caps, reasoning included
   draftSearches: 10, repairSearches: 4, // web_search calls (max_tool_calls)
-  draftMs: 75_000, repairMinMs: 25_000, deadlineMs: 100_000,
+  draftMs: 120_000, repairMinMs: 25_000, deadlineMs: 150_000, // Gemini 4 Argon with Google Search drafts in about 80 s (2026-10-28)
   googleUsd: 1.5, // this plan's Google spend (spend.js meter's per-open cap); the account's daily cap still holds
   places: 30, km: 80, request: 2000,
   daily: 20, // plans an account makes a day (ops.js; TRAVEL_PLANS_A_DAY)
   // GPT-6.1 Sol list prices: $2 / $10 per million tokens (askeden src/models.ts); web search $0.01 a call (askeden
   // src/chat/stream.ts OPENAI_SEARCH_USD)
   inUsd: 2, outUsd: 10, searchUsd: 0.01,
+  // Gemini list prices per million tokens (askeden src/models.ts; Argon's introductory price runs to 2026-11-30, then
+  // $4 / $20) and Google Search grounding per query (Gemini pricing page; counted on the high side)
+  gemini: { 'gemini-4-argon': [2, 10], 'gemini-3.8-flash': [0.75, 3.75] }, groundUsd: 0.014,
   fallbackModel: 'claude-sonnet-5-5',
 };
 const RESPONSES = 'https://api.openai.com/v1/responses';
@@ -180,6 +186,48 @@ async function askSearchModel(key, { system, user, schema, name, maxTokens, maxS
   let json;
   try { json = JSON.parse(parts.map((p) => p.text).join('')); } catch { throw Object.assign(new PlanError('The planner’s answer could not be read.', 502, 'unreadable'), { usage, usd, searches }); }
   return { json, citations, searches, usage, usd };
+}
+
+const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
+/** One Gemini call grounded with Google Search, answering JSON in the trip's shape → { json, citations, searches, usage, usd, model }. */
+async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetch: f }) {
+  const call = (json) => f(`${GEMINI}/${model}:generateContent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: `${system}\n\nAnswer with JSON only, in exactly this shape (JSON Schema):\n${JSON.stringify(schema)}` }] },
+      contents: [{ role: 'user', parts: [{ text: user }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { maxOutputTokens: maxTokens, ...(json ? { responseMimeType: 'application/json', responseJsonSchema: schema } : {}) },
+    }),
+    signal: AbortSignal.timeout(ms),
+  });
+  let res;
+  try {
+    res = await call(true);
+    // a model that won't take a JSON schema beside Google Search: asked again for JSON in its words
+    if (res.status === 400) res = await call(false);
+  } catch (e) {
+    throw new PlanError(e && e.name === 'TimeoutError' ? 'The planner took too long. Try again, or ask for fewer days.' : 'The planner could not be reached.', 504, 'unavailable');
+  }
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new PlanError(`The planner answered ${res.status}${out.error && out.error.message ? `: ${String(out.error.message).slice(0, 160)}` : ''}.`, 502, 'unavailable');
+  const cand = (out.candidates || [])[0] || {};
+  const g = cand.groundingMetadata || {};
+  const citations = (g.groundingChunks || []).map((c) => c && c.web).filter((w) => w && httpsUrl(w.uri)).map((w) => ({ url: httpsUrl(w.uri), title: text(w.title, 160) }));
+  const searches = Array.isArray(g.webSearchQueries) ? g.webSearchQueries.length : 0;
+  const u = out.usageMetadata || {};
+  const usage = { input: u.promptTokenCount || 0, output: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), reasoning: u.thoughtsTokenCount || 0 };
+  const [pin, pout] = PLAN.gemini[model] || PLAN.gemini['gemini-4-argon'];
+  const usd = (usage.input * pin + usage.output * pout) / 1e6 + (searches ? PLAN.groundUsd * searches : 0);
+  if (cand.finishReason === 'MAX_TOKENS') throw Object.assign(new PlanError('The planner ran out of room for this trip. Ask for fewer days.', 502, 'incomplete'), { usage, usd, searches });
+  const said = ((cand.content && cand.content.parts) || []).filter((x) => x && typeof x.text === 'string' && !x.thought).map((x) => x.text).join('');
+  let json;
+  try { json = JSON.parse(said.replace(/^[\s\S]*?```(?:json)?\s*|\s*```[\s\S]*$/g, '').trim() || said); } catch {
+    const m = said.match(/\{[\s\S]*\}/);
+    try { json = JSON.parse(m ? m[0] : ''); } catch { throw Object.assign(new PlanError('The planner’s answer could not be read.', 502, 'unreadable'), { usage, usd, searches }); }
+  }
+  return { json, citations, searches, usage, usd, model };
 }
 
 /** No OpenAI key: the service's own model (service-ai.js) drafts, without web search. */
@@ -450,17 +498,35 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
   const today = new Date(t0).toISOString().slice(0, 10);
   const system = plannerSystem(today);
   const key = String(env.OPENAI_API_KEY || '').trim();
-  const search = Boolean(key) && !off(env, 'EDEN_OPENAI');
+  const gkey = String(env.GEMINI_API_KEY || '').trim();
+  // the order to try: Gemini with Google Search first (owner, 2026-10-28), then GPT-6.1 Sol with web search; each only with its key
+  const order = (String(env.TRAVEL_PLAN_MODELS || '').trim() ? String(env.TRAVEL_PLAN_MODELS).split(',').map((x) => x.trim()) : PLAN.models)
+    .filter((m) => (m.startsWith('gemini') ? Boolean(gkey) && !off(env, 'EDEN_GEMINI') : Boolean(key) && !off(env, 'EDEN_OPENAI')));
   const spend = { usd: 0, searches: 0, tokens: { input: 0, output: 0, reasoning: 0 }, calls: 0 };
-  let model = PLAN.model;
+  let model = order[0] || PLAN.fallbackModel;
+  const tried = [];
   const count = (r) => { spend.usd += r.usd || 0; spend.searches += r.searches || 0; spend.calls++; for (const k of ['input', 'output', 'reasoning']) spend.tokens[k] += (r.usage && r.usage[k]) || 0; };
   const ask = async (o) => {
-    try {
-      const r = search ? await askSearchModel(key, { ...o, fetch: f }) : await askServiceModel(env, { ...o, fetch: f === globalThis.fetch ? undefined : f });
-      if (r.model) model = r.model;
-      count(r);
-      return r;
-    } catch (e) { if (e.usd) count(e); throw e; }
+    // the model that answered the draft also answers the repair; a failure moves to the next in the order
+    const list = tried.length ? [model, ...order.filter((m) => m !== model)] : order;
+    let last = null;
+    for (const m of list.length ? list : [null]) {
+      try {
+        const r = !m ? await askServiceModel(env, { ...o, fetch: f === globalThis.fetch ? undefined : f })
+          : m.startsWith('gemini') ? await askGemini(gkey, m, { ...o, fetch: f })
+          : await askSearchModel(key, { ...o, fetch: f });
+        model = r.model || m || model;
+        tried.push(model);
+        count(r);
+        return r;
+      } catch (e) {
+        if (e.usd) count(e);
+        last = e;
+        tried.push(`${m}: ${e.code || 'failed'}`);
+        if (e.code === 'incomplete') throw e; // too big a trip for any of them
+      }
+    }
+    throw last;
   };
 
   // 1. draft (`given`: a draft in TRIP_SCHEMA's shape from elsewhere, verified and fixed the same way: the eval, checks)
@@ -581,10 +647,11 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
     sources: [...sources.values()].map((s) => ({ ...s, stops: s.stops.filter((id) => live.has(id)) })).slice(0, 60),
     notes: text(draft.json.notes, 1200),
     model,
-    searched: search,
+    searched: order.length > 0 && !given, // drafted by a model with web or Google Search
     repaired,
     costs: { model_usd: round(spend.usd), web_searches: spend.searches, tokens: spend.tokens, model_calls: spend.calls, google_usd: google, google_calls: meter ? meter.calls : null, total_usd: round(spend.usd + (google || 0)) },
     took_ms: Date.now() - started,
-    ...(search ? {} : { note: `No OpenAI key here: drafted by ${model} without web search, then checked on Google Maps the same way.` }),
+    ...(order.length ? {} : { note: `No Gemini or OpenAI key here: drafted by ${model} without web search, then checked on Google Maps the same way.` }),
+    ...(tried.some((t) => t.includes(":")) ? { tried } : {}), // a model that failed before the one that answered
   };
 }
