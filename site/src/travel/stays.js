@@ -12,6 +12,13 @@
 // Every answer carries `source` and `checked_at`. Amounts stay the decimal strings Duffel sends ("799.00"), so
 // nothing is rounded on the way to the card.
 //
+// Hotel loyalty (read 2026-10-28; loyalty.js has the quotes): the quote's `supported_loyalty_programme`
+// (duffel.com/docs/api/v2/quotes/create-quote) names the one programme a booking of it can earn with, and Create booking
+// takes one `loyalty_programme_account_number` (duffel.com/docs/api/v2/bookings/create-booking), sent "only when the
+// quote has a supported_loyalty_programme indicated" or Duffel errors. Rates carry the same field in Duffel's samples
+// (shown as a hint; the quote's is the one that decides). The rate's `loyalty_programme_required` is in the samples
+// but undocumented, so it isn't read.
+//
 // Left out on purpose (not documented, or not needed yet): Duffel's error codes for Stays (the pages list none, so
 // errors map by HTTP status), the full set of board_type / payment_type values (only samples: room_only, pay_now),
 // any radius limit, and cancel (POST /stays/bookings/{id}/actions/cancel exists; not wired until it is asked for).
@@ -124,6 +131,7 @@ export function staysFor(env = {}, { fetch: fetcher = globalThis.fetch, now = ()
         check_in: data.check_in_date ?? null,
         check_out: data.check_out_date ?? null,
         accommodation: accView(data.accommodation),
+        loyalty_programme: typeof data.supported_loyalty_programme === 'string' ? data.supported_loyalty_programme : null, // the one a booking of this quote earns with
         mode,
         source: SOURCE,
         checked_at: stamp(),
@@ -183,7 +191,7 @@ export function checkDates(checkIn, checkOut, nowMs = Date.now()) {
   return nights;
 }
 
-function bookingBody({ quote_id, guests, email, phone_number, special_requests }) {
+function bookingBody({ quote_id, guests, email, phone_number, special_requests, loyalty_programme_account_number }) {
   const name = (v) => typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 60;
   if (!Array.isArray(guests) || guests.length < 1 || guests.length > 18 || !guests.every((g) => g && name(g.given_name) && name(g.family_name))) throw bad('guests must list each guest’s given_name and family_name.');
   if (typeof email !== 'string' || !EMAIL.test(email.trim())) throw bad('email must be the lead guest’s email address.');
@@ -197,6 +205,11 @@ function bookingBody({ quote_id, guests, email, phone_number, special_requests }
   };
   // Duffel forwards these to the hotel and asks for nothing medical or sensitive in them; the card says so.
   if (special_requests && special_requests.trim()) body.accommodation_special_requests = special_requests.trim();
+  // only stayops sends one, and only when the quote named a programme (Duffel errors otherwise)
+  if (loyalty_programme_account_number != null) {
+    if (typeof loyalty_programme_account_number !== 'string' || !/^[A-Z0-9]{4,20}$/.test(loyalty_programme_account_number)) throw bad('loyalty_programme_account_number must be 4 to 20 letters or digits.');
+    body.loyalty_programme_account_number = loyalty_programme_account_number;
+  }
   return body;
 }
 
@@ -234,6 +247,7 @@ function rateView(r) {
     conditions: (Array.isArray(r.conditions) ? r.conditions : []).map((c) => ({ title: c.title || null, description: c.description || null })),
     cancellation: cancellation(r.cancellation_timeline, r.total_amount, r.total_currency),
     expires_at: r.expires_at || null,
+    loyalty_programme: typeof r.supported_loyalty_programme === 'string' ? r.supported_loyalty_programme : null,
   };
 }
 

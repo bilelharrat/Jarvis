@@ -145,3 +145,89 @@ test('applyLoyalty: a name longer than Duffel takes (20) is skipped, not cut', a
   assert.deepEqual(out, []);
   assert.deepEqual(calls, ['get']);
 });
+
+// ---- hotel programmes (Duffel Stays): saved per guest and programme, one number per booking, only when the quote names it ----
+import { HOTEL_PROGRAMMES, hotelLoyaltyFor } from '../src/travel/loyalty.js';
+import { stayOp } from '../src/travel/stayops.js';
+import { staysFor } from '../src/travel/stays.js';
+
+test('hotel numbers: only programmes Duffel lists, per guest + programme, masked, deleted by id', async () => {
+  const a = account();
+  await assert.rejects(save(a, { given_name: 'Alicia', family_name: 'Quartermaine', programme: 'starwood_preferred', number: '12345678' }), /Duffel Stays lists/);
+  await assert.rejects(save(a, { given_name: 'Alicia', family_name: 'Quartermaine', programme: 'marriott_bonvoy', number: '1' }), /4 to 20/);
+  let r = await save(a, { given_name: 'Alicia', family_name: 'Quartermaine', programme: 'marriott_bonvoy', number: '201 154 908' });
+  r = await save(a, { given_name: 'alicia', family_name: 'QUARTERMAINE', programme: 'Marriott_Bonvoy', number: '201154999' });
+  r = await save(a, { given_name: 'Alicia', family_name: 'Quartermaine', airline: 'BA', number: '12901014' });
+  assert.equal(r.hotel_accounts.length, 1, 'same guest + programme: replaced');
+  assert.deepEqual({ ...r.hotel_accounts[0], id: 'x', added: 'x' }, { id: 'x', given_name: 'alicia', family_name: 'QUARTERMAINE', programme: 'marriott_bonvoy', programme_name: 'Marriott Bonvoy', number: '•••• 4999', added: 'x' });
+  assert.equal(r.accounts.length, 1, 'flight numbers kept apart');
+  assert.ok(!JSON.stringify(r).includes('201154999'));
+  assert.equal(r.hotel_programmes.length, Object.keys(HOTEL_PROGRAMMES).length);
+  r = await loyaltyOp(a, 'trip-loyalty-delete', { id: r.hotel_accounts[0].id });
+  assert.equal(r.hotel_accounts.length, 0);
+  assert.equal(r.accounts.length, 1);
+});
+
+test('hotel matching: the quote’s programme only, first guest in order with a number; unknown or none → nothing', () => {
+  const saved = [
+    { programme: 'hilton_honors', given_name: 'Bob', family_name: 'Q', number: 'H1111111' },
+    { programme: 'marriott_bonvoy', given_name: 'Bob', family_name: 'Q', number: 'M2222222' },
+    { programme: 'marriott_bonvoy', given_name: 'Alicia', family_name: 'Quartermaine', number: 'M3333333' },
+  ];
+  const guests = [{ given_name: 'Carol', family_name: 'Z' }, { given_name: 'bob', family_name: 'q' }, { given_name: 'Alicia', family_name: 'Quartermaine' }];
+  assert.deepEqual(hotelLoyaltyFor(saved, guests, 'marriott_bonvoy'), { number: 'M2222222', programme: 'marriott_bonvoy', name: 'Marriott Bonvoy', guest: 'Bob Q', masked: '•••• 2222' });
+  assert.equal(hotelLoyaltyFor(saved, guests, 'world_of_hyatt'), null, 'no guest has one');
+  assert.equal(hotelLoyaltyFor(saved, guests, null), null, 'the quote names none');
+  assert.equal(hotelLoyaltyFor(saved, guests, 'made_up_rewards'), null, 'one Duffel doesn’t list');
+});
+
+test('a stay: the quote card says what it earns with; the booking sends the number only for the quote’s programme', async () => {
+  const a = account();
+  a.env = {};
+  await save(a, { given_name: 'Alicia', family_name: 'Quartermaine', programme: 'marriott_bonvoy', number: '201154908' });
+  const booked = [];
+  const stays = (programme) => ({
+    quote: async () => ({ quote_id: 'quo_1', total: '400.00', currency: 'EUR', accommodation: { name: 'H' }, loyalty_programme: programme }),
+    book: async (x) => { booked.push(x); return { booking_id: 'bok_1', reference: 'R1', accommodation: { name: 'H' } }; },
+  });
+  const BOOK = { quote_id: 'quo_1', guests: [{ given_name: 'Alicia', family_name: 'Quartermaine' }], email: 'a@b.co', phone_number: '+15555550100', confirm: true };
+
+  let q = await stayOp(a, 'trip-stays-quote', { rate_id: 'rat_1' }, { stays: stays('marriott_bonvoy') });
+  assert.deepEqual(q.loyalty, { programme: 'marriott_bonvoy', name: 'Marriott Bonvoy', saved: [{ guest: 'Alicia Quartermaine', number: '•••• 4908' }] });
+  let b = await stayOp(a, 'trip-stays-book', { ...BOOK }, { stays: stays('marriott_bonvoy') });
+  assert.equal(booked[0].loyalty_programme_account_number, '201154908');
+  assert.deepEqual(b.loyalty, { programme: 'marriott_bonvoy', name: 'Marriott Bonvoy', guest: 'Alicia Quartermaine', number: '•••• 4908' });
+  assert.ok(!JSON.stringify(b).includes('201154908'));
+
+  q = await stayOp(a, 'trip-stays-quote', { rate_id: 'rat_1' }, { stays: stays('hilton_honors') });
+  assert.deepEqual(q.loyalty, { programme: 'hilton_honors', name: 'Hilton Honors', saved: [] }, 'earns with Hilton, none saved');
+  b = await stayOp(a, 'trip-stays-book', { ...BOOK, loyalty_programme_account_number: '201154908' }, { stays: stays('hilton_honors') });
+  assert.equal(booked[1].loyalty_programme_account_number, undefined, 'a Marriott number never goes to a Hilton rate, nor one the request names');
+  assert.equal(b.loyalty, undefined);
+
+  q = await stayOp(a, 'trip-stays-quote', { rate_id: 'rat_1' }, { stays: stays(null) });
+  assert.equal(q.loyalty, null, 'the quote names no programme: nothing claimed');
+  await stayOp(a, 'trip-stays-book', { ...BOOK }, { stays: stays(null) });
+  assert.equal(booked[2].loyalty_programme_account_number, undefined);
+});
+
+test('stays.js: the quote’s supported_loyalty_programme read; the number goes in Create booking’s body only when given', async () => {
+  const sent = [];
+  const fetch = async (url, init) => {
+    const body = init.body ? JSON.parse(init.body).data : null;
+    sent.push([url, body]);
+    const data = url.endsWith('/stays/quotes')
+      ? { id: 'quo_ABCDEF1', total_amount: '400.00', total_currency: 'EUR', supported_loyalty_programme: 'duffel_hotel_group_rewards', accommodation: { name: 'Duffel Test Hotel' } }
+      : { id: 'bok_ABCDEF1', reference: 'R1', status: 'confirmed', loyalty_programme_account_number: body.loyalty_programme_account_number ?? null };
+    return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const s = staysFor({ EDEN_STAYS: '1', DUFFEL_TOKEN: TOKEN }, { fetch });
+  assert.equal((await s.quote('rat_ABCDEF1')).loyalty_programme, 'duffel_hotel_group_rewards');
+  const base = { quote_id: 'quo_ABCDEF1', guests: [{ given_name: 'A', family_name: 'B' }], email: 'a@b.co', phone_number: '+15555550100', confirm: true };
+  const b = await s.book({ ...base, loyalty_programme_account_number: '201154908' });
+  assert.equal(sent[1][1].loyalty_programme_account_number, '201154908');
+  assert.ok(!JSON.stringify(b).includes('201154908'), 'the booking view doesn’t echo the number');
+  await s.book(base);
+  assert.ok(!('loyalty_programme_account_number' in sent[2][1]));
+  await assert.rejects(s.book({ ...base, loyalty_programme_account_number: 'x' }), /4 to 20/);
+});

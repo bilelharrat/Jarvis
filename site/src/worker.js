@@ -55,7 +55,7 @@ import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
 import { assetLinks } from './eden/android.js';
 import { LANDING_CSP, SESSION_COOKIE, baseline, cookies, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
 import { clientError, observe } from './stats/stats.js';
-import { adminPage, adminStats } from './stats/admin.js';
+import { adminPage, adminStats, adminTravelRefunds } from './stats/admin.js';
 
 export { Account, Identity, Link, Space } from './accounts/index.js';
 export { Promo } from './accounts/promo.js';
@@ -271,6 +271,7 @@ async function route(request, env, ctx) {
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
     if (path === '/api/admin/stats') return adminStats(request, env); // the owner's dashboard (stats/admin.js)
+    if (path === '/api/admin/travel-refunds') return adminTravelRefunds(request, env); // the owner's dashboard: Travel refunds (stats/admin.js)
     if (path === '/api/stats/error' && request.method === 'POST') return clientError(request, env, ctx); // a browser's error report (stats/stats.js)
     if (path === '/api/news' || path.startsWith('/api/news/')) { // Eden News (news/api.js); null while EDEN_NEWS is off
       const news = await newsApi(request, env, ctx, path);

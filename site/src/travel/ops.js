@@ -50,6 +50,7 @@ import { planOp } from './plan.js';
 import { togetherOp, tripPeople } from './together.js';
 import { mailWatchOp } from './mailwatch.js';
 import { liveOp } from './liveact.js';
+import { armCacheSweep } from './cachesweep.js';
 import { loyaltyOp } from './loyalty.js';
 import { accuracyOp, dropTripAccuracy, noteChecks, noteWindow } from './accuracy.js';
 import { activitiesOp } from './activities.js';
@@ -64,7 +65,8 @@ const PROP_ID = /^[0-9a-f]{12}$/;
 const hex = (bytes) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
-function cacheIn(storage, now) {
+function cacheIn(storage, now, onFirstPut = null) {
+  let armed = false;
   return {
     async get(key) {
       const hit = await storage.get(`tcache:${key}`);
@@ -75,6 +77,7 @@ function cacheIn(storage, now) {
     },
     async put(key, v, ms) {
       await storage.put(`tcache:${key}`, { v, until: now() + ms });
+      if (onFirstPut && !armed) { armed = true; await onFirstPut(); } // the daily sweep of expired entries (cachesweep.js), armed once a request
     },
   };
 }
@@ -86,7 +89,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
   const now = () => account.now();
   const storage = account.storage;
   const maps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now });
-  const cache = cacheIn(storage, now);
+  const cache = cacheIn(storage, now, () => armCacheSweep(account));
   const check = (trip) => checkTrip(trip, maps, { cache, now });
   const newId = () => `s-${hex(4)}`;
 

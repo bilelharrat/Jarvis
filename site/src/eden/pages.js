@@ -44,6 +44,7 @@ import { EDEN_FILES, EDEN_HASHES } from './manifest.js';
 import { currentSession } from './session.js';
 import { EDEN_CSP, EDEN_PERMISSIONS, RUNNER_CSP, SESSION_COOKIE, SHEET_PICKER_CSP, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
 import { safeReturn } from '../../public/signin/return.js';
+import { travelAccuracyPage } from '../travel/accuracy-page.js';
 
 // The legal pages: static text and the sign-in page's stylesheet, and the language script (/lang/, French), nothing else.
 const LEGAL_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -151,6 +152,7 @@ export async function edenPage(request, env, path) {
   // otherwise the front page. Never in the iPhone app: the page itself keeps Travel behind !IN_APP.
   // With TRAVEL_HOST set this is askedentravel.com's front (worker.js): signed out, Ask Eden Travel's site
   // (public/travel-home/), whose buttons sign in with askeden.com's sign-in (site-handoff.js).
+  if (path.startsWith('/travel/accuracy')) { const acc = await travelAccuracyPage(request, env, path); if (acc) return acc; } // Eden Travel's check accuracy (travel/accuracy-page.js): public, an hour at the edge, noindex until TRAVEL_ACCURACY_INDEX=1
   if (path === '/travel') {
     const { session, stale } = await currentSession(request, env);
     const on = String(env.EDEN_TRAVEL || '') === '1';

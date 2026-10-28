@@ -58,7 +58,8 @@ import { armLive, liveDue } from '../travel/liveact.js';
 import { armFlightPriceWatch, flightPriceWatchDue } from '../travel/fpwatch.js';
 import { armWindowReminders, windowRemindersDue } from '../travel/reminders.js';
 import { flightOp } from '../travel/flights.js';
-import { payOn, payOp, payRefund, payRefundRetry } from '../travel/pay.js';
+import { payFlagIndexOp, payOn, payOp, payRefund, payRefundRetry, payResolve, paySweep } from '../travel/pay.js';
+import { cacheSweepDue } from '../travel/cachesweep.js';
 import { calOp, feedPublicOp, tripZone } from '../travel/calsync.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
@@ -165,6 +166,9 @@ export class Account {
         return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
       }
       // Stripe's word that a booking's card is held (eden/billing.js webhook; travel/pay.js checks it with Stripe)
+      // the owner's list of refunds and payments to look at (travel/pay.js, the object tpayflags:global), and resolving one
+      if (op.startsWith('tpayflag-')) return json(await payFlagIndexOp(this, op, await request.json().catch(() => ({}))));
+      if (op === 'tpayadmin-resolve') return json(await payResolve(this, await request.json().catch(() => ({}))));
       if (op === 'pay-webhook') return json(await payOp(this, op, await request.json().catch(() => ({})), { flightOp, tripOp }));
       // the traveller's calendar subscription (travel/calsync.js): the link's code is the key; only while the owner has Plus
       if (op.startsWith('tcal-')) {
@@ -1106,7 +1110,9 @@ export class Account {
       tpayretry: () => payRefundRetry(this), // a card refund that failed, tried again hourly (travel/pay.js)
       tlive: async () => ((await travelOn()) ? liveDue(this, { tripOp }) : unscheduleJob(this, 'tlive')), // the travel day's Live Activity by push (travel/liveact.js)
       tmailw: async () => ((await travelOn()) ? mailWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'tmailw')), // new bookings in Eden Mail (travel/mailwatch.js)
-      taccflush: () => accuracyFlush(this), // this account's accuracy counts, sent at most hourly (travel/accuracy.js)
+      taccflush: () => accuracyFlush(this),
+      tpaysweep: () => paySweep(this, { flightOp, tripOp, notify: notifyOwner }), // a payment stuck mid-booking: settled even after Plus lapses (travel/pay.js)
+      tcachesweep: () => cacheSweepDue(this), // expired cached lookups, daily (travel/cachesweep.js) // this account's accuracy counts, sent at most hourly (travel/accuracy.js)
       fpwatch: async () => ((await travelOn()) ? flightPriceWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'fpwatch')), // unbooked flights cheaper now (travel/fpwatch.js)
       twrem: async () => ((await travelOn()) ? windowRemindersDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'twrem')), // the morning bookings open (travel/reminders.js)
       pwatch: async () => ((await travelOn()) ? stayWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)

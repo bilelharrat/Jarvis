@@ -5,13 +5,16 @@
 //
 //   trip-stays-search { id, stop } | { lat, lng, check_in, check_out } (+ adults, rooms, radius_km)   → stays.search
 //   trip-stays-rates  { search_result_id }   → stays.rates (each rate's cancellation kept for the booking that follows)
-//   trip-stays-quote  { rate_id }            → stays.quote, with that rate's cancellation
+//   trip-stays-quote  { rate_id }            → stays.quote, with that rate's cancellation and `loyalty`: the programme the
+//                                              quote earns with and the saved numbers for it (masked), or null
 //   trip-stays-book   { quote_id, guests, email, phone_number, special_requests?, id?, stop?, confirm: true }
-//                       → the booking; with id + stop, that stop marked booked (via api) and watched for a lower price
+//                       → the booking; with id + stop, that stop marked booked (via api) and watched for a lower price.
+//                         A guest's saved number for the quote's programme goes with it (loyalty.js); `loyalty` says whose
 //   trip-stays-cancel { booking_id, confirm: true }
 //   alarm kind 'pwatch' (account.js): stayWatchDue
 
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
+import { hotelLoyaltyFor, hotelLoyaltyView } from './loyalty.js';
 import { StaysError, priceDrop, staysFor } from './stays.js';
 import { TripError, dayDate } from './trips.js';
 
@@ -63,13 +66,16 @@ export async function stayOp(account, op, body, deps = {}) {
         const fresh = (await account.storage.get(`strt:${String(body.rate_id)}`)) || null;
         // the quote's own price (Duffel's live check), not the rate's earlier one: that is what Duffel takes, and what the card is held for
         // always kept for the payment and booking that follow: the quote's own price; the room and cancellation when known
-        await account.storage.put(`stq:${q.quote_id}`, { ...(fresh || { room: null, cancellation: null, accommodation: q.accommodation }), total: q.total, currency: q.currency, rate_id: body.rate_id, at: now() });
-        return { ...q, room: fresh ? fresh.room : null, cancellation: fresh ? fresh.cancellation : null };
+        await account.storage.put(`stq:${q.quote_id}`, { ...(fresh || { room: null, cancellation: null, accommodation: q.accommodation }), total: q.total, currency: q.currency, rate_id: body.rate_id, loyalty_programme: q.loyalty_programme || null, at: now() });
+        return { ...q, room: fresh ? fresh.room : null, cancellation: fresh ? fresh.cancellation : null, loyalty: await hotelLoyaltyView(account, q.loyalty_programme) };
       }
       case 'trip-stays-book': {
         if (body.confirm !== true) throw new TripError('stays-book needs confirm: true (the person pressed Book).');
-        const b = await stays.book({ ...body, confirm: true });
         const q = (await account.storage.get(`stq:${String(body.quote_id)}`)) || {};
+        // the quote's own programme, as Duffel named it; never one from the request
+        const loyal = hotelLoyaltyFor((await account.storage.get('tloyalh')) || [], body.guests, q.loyalty_programme);
+        const { loyalty_programme_account_number: _ignored, ...rest } = body;
+        const b = await stays.book({ ...rest, ...(loyal ? { loyalty_programme_account_number: loyal.number } : {}), confirm: true });
         if (body.id && body.stop && deps.tripOp) {
           await deps.tripOp(account, 'trip-mark-booked', { id: body.id, stop: body.stop, ref: b.reference || b.booking_id, provider: (b.accommodation && b.accommodation.name) || 'Duffel Stays', via: 'api', cost: q.total ? { amount: Number(q.total), currency: q.currency } : undefined, confirm: true }).catch(() => {});
         }
@@ -83,7 +89,7 @@ export async function stayOp(account, op, body, deps = {}) {
           created: now(), drop: null,
         });
         await armStayWatch(account);
-        return b;
+        return loyal ? { ...b, loyalty: { programme: loyal.programme, name: loyal.name, guest: loyal.guest, number: loyal.masked } } : b;
       }
       case 'trip-stays-cancel': {
         if (body.confirm !== true) throw new TripError('stays-cancel needs confirm: true (the person pressed Cancel booking).');

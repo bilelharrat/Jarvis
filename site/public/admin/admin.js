@@ -220,8 +220,50 @@ function render(data) {
   const lastTd = main.querySelectorAll('td:nth-child(2)');
   lastTd.forEach((td) => { if (td.querySelector('.err')) td.classList.add('wrap'); });
 
+  // Eden Travel's card payments to sort out by hand (src/travel/pay.js flags)
+  main.append(...travelSection(data.travel || {}));
+
   // Unlimited accounts and the fine print
   main.append(el('p', { class: 'note', style: 'margin-top:28px', text: `${data.unlimited || 0} email${data.unlimited === 1 ? '' : 's'} on unlimited AI. ${st.live === false ? 'Stripe is in test mode. ' : ''}${st.partial ? 'Stripe history was cut short (very many transactions). ' : ''}App Store sales aren’t included yet.` }));
+}
+
+const WHY = { refund_failed: 'Refund failing', refund_currency: 'Other currency', stuck: 'Stuck booking' };
+const cents = (n, cur) => { try { return (Number(n) / 100).toLocaleString(undefined, { style: 'currency', currency: cur }); } catch { return `${cur || ''} ${(Number(n) / 100).toFixed(2)}`; } };
+
+/** Travel refunds: one row per open flag, each with Mark resolved (after it's sorted in Stripe or with the provider). */
+function travelSection(t) {
+  const note = 'Eden Travel card payments Eden couldn’t finish on its own. Sort each out in Stripe (or with the provider), then mark it resolved; that changes nothing at Stripe.';
+  if (t.ready === false) return section('Travel refunds', note, card(null, empty(`Couldn’t read the flags${t.error ? ` (${t.error})` : ''}.`)));
+  const rows = (t.flags || []).map((f) => {
+    const button = el('button', { type: 'button', text: 'Mark resolved' });
+    button.addEventListener('click', () => resolveFlag(f, button));
+    return [
+      el('span', { class: 'err', title: f.account, text: f.account_short || '' }),
+      el('div', {}, f.title || f.kind || '', el('div', { class: 'note', text: [f.booking, f.pay_id].filter(Boolean).join(' · ') })),
+      Number.isFinite(f.cents) ? cents(f.cents, f.currency) : '',
+      f.currency || '',
+      el('div', {}, el('span', { class: `pill${f.gave_up || f.why === 'stuck' ? ' red' : ''}`, text: WHY[f.why] || f.why }), el('div', { class: 'note', text: f.text || '' })),
+      f.since ? ago(f.since) : '',
+      int(f.tries),
+      button,
+    ];
+  });
+  const out = section('Travel refunds', note, card(null, rows.length ? table(['Account', 'Booking', 'Amount', 'Currency', 'Why', 'Since', 'Tries', ''], rows) : empty('Nothing to sort out.')));
+  out.at(-1).querySelectorAll('td:nth-child(2), td:nth-child(5)').forEach((td) => td.classList.add('wrap'));
+  return out;
+}
+
+async function resolveFlag(f, button) {
+  if (!window.confirm(`Mark ${f.title || 'this payment'} resolved? Only once it's sorted in Stripe or with the provider.`)) return;
+  button.disabled = true;
+  try {
+    const r = await fetch('/api/admin/travel-refunds', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: f.account, pay_id: f.pay_id }) });
+    if (!r.ok) throw new Error(`The server said ${r.status}.`);
+    await load();
+  } catch (error) {
+    button.disabled = false;
+    window.alert(`Couldn’t mark it resolved. ${error.message}`);
+  }
 }
 
 let loading = false;

@@ -5,11 +5,16 @@
 // The numbers: stats.js's events (D1, from the day it was deployed), Stripe's balance
 // transactions and subscriptions (all of history), GitHub's release download counts (all of
 // history, the installers only), and Eden Messenger's own counts when MESSENGER_STATS_URL is set.
+//
+// Travel refunds: Eden Travel's card payments the owner must sort out by hand (travel/pay.js flags: a refund that keeps
+// failing, a refund in another currency, a payment stuck mid-booking), from the global index tpayflags:global;
+// GET /api/admin/travel-refunds lists them, POST { account, pay_id, note? } marks one resolved (nothing is charged or refunded).
 
 import { call } from '../accounts/index.js';
 import { currentSession } from '../eden/session.js';
 import { json } from '../accounts/util.js';
 import { schema } from './stats.js';
+import { FLAGS } from '../travel/pay.js';
 
 const emails = (v) => String(v || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
 const adminCache = new Map(); // account → { until, ok }
@@ -261,16 +266,57 @@ export async function adminStats(request, env) {
   return res;
 }
 
+/** One op on an account's object by its name, without a device (the account's Worker-only ops; as track.js's ask). */
+async function askObject(env, name, op, body = {}) {
+  const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(name));
+  const response = await stub.fetch(`https://account/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const out = await response.json().catch(() => ({}));
+  if (response.status >= 400) throw new Error(out.error || `account ${response.status}`);
+  return out;
+}
+
+/** The open travel payment flags, newest last; the account id shortened for the page (the full one is kept for resolving). */
+async function travelRefunds(env) {
+  if (!env.ACCOUNTS) return { ready: false, flags: [] };
+  const { flags } = await askObject(env, FLAGS, 'tpayflag-list');
+  return { ready: true, flags: (flags || []).map((f) => ({ ...f, account_short: String(f.account || '').slice(0, 8) })) };
+}
+
+/** GET /api/admin/travel-refunds: the open flags. POST { account, pay_id, note? }: one marked resolved. 404 for anyone but the owner. */
+export async function adminTravelRefunds(request, env) {
+  const session = await adminSession(request, env);
+  if (!session) return notFound();
+  let out;
+  try {
+    if (request.method === 'GET') out = await travelRefunds(env);
+    else if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const account = String(body.account || ''), payId = String(body.pay_id || '');
+      if (!/^[0-9a-f-]{8,64}$/i.test(account) || !/^[0-9a-f]{24}$/.test(payId)) return json({ error: 'account and pay_id' }, 400);
+      out = await askObject(env, account, 'tpayadmin-resolve', { pay_id: payId, by: `owner (${String(session.account).slice(0, 8)})`, note: String(body.note || '').slice(0, 300) });
+    } else return new Response('Method not allowed', { status: 405 });
+  } catch (error) {
+    out = { error: String((error && error.message) || 'Failed').slice(0, 200) };
+    const res = json(out, 502);
+    res.headers.set('cache-control', 'no-store');
+    return res;
+  }
+  const res = json(out);
+  res.headers.set('cache-control', 'no-store');
+  return res;
+}
+
 /** Everything the dashboard shows, for the periods `url` names. */
 export async function collect(env, url) {
   const b = bounds(url);
   const fresh = url.searchParams.get('fresh') === '1';
   if (fresh) outside.clear();
-  const [events, stripe, github, messenger] = await Promise.all([
+  const [events, stripe, github, messenger, travel] = await Promise.all([
     eventNumbers(env, b).catch((error) => ({ ready: false, error: String(error && error.message).slice(0, 200) })),
     cached(`stripe:${PERIODS.map((p) => b[p]).join(':')}`, () => stripeNumbers(env, b)),
     cached('github', () => githubNumbers(env)),
     cached(`messenger:${b.today}`, () => messengerNumbers(env, b)),
+    travelRefunds(env).catch((error) => ({ ready: false, flags: [], error: String(error && error.message).slice(0, 200) })),
   ]);
-  return { at: Date.now(), bounds: b, users_before: Number(env.USERS_BEFORE_STATS) || null, unlimited: emails(env.UNLIMITED_EMAILS).length, events, stripe, github, messenger };
+  return { at: Date.now(), bounds: b, users_before: Number(env.USERS_BEFORE_STATS) || null, unlimited: emails(env.UNLIMITED_EMAILS).length, events, stripe, github, messenger, travel };
 }

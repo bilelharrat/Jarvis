@@ -12,6 +12,12 @@
 //
 //   4. A paid booking cancelled (account.js): payRefund gives the card back what the provider gives back: a hotel's whole
 //      price within its free cancellation, a flight's refund as the airline quoted it (Duffel refunds Ask Eden's balance).
+//   5. Stuck in the middle (the Worker restarted between the hold and the booking's answer): paySweep, alarm 'tpaysweep'
+//      every 15 minutes while a payment is pending or booking. It never books again: it finds what was made (Stripe, the
+//      provider, this account's own booking records), then charges for it, or releases the hold and tells the traveller.
+//   6. What the owner must sort out by hand (a card refund that keeps failing, a refund in another currency, a payment the
+//      sweep couldn't settle) is listed in the global object `tpayflags:global` (as accuracy.js's tacc:global), shown on
+//      the owner's dashboard (stats/admin.js "Travel refunds"), and cleared there with Mark resolved (tpayadmin-resolve).
 // kind: flight (an instant booking: flights.js book), flight_pay (paying a held one: flights.js pay), stay (stayops.js),
 // rail (a train or bus through Distribusion: extraops.js).
 // On only with TRAVEL_PAY = "1" and Stripe's key and webhook secret set (eden/billing.js); then the account refuses those
@@ -31,6 +37,11 @@ const ID = /^[0-9a-f]{24}$/;
 // Stripe's currencies without minor units (Duffel's amounts arrive here in hundredths either way)
 const ZERO_DECIMAL = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']);
 const THREE_DECIMAL = new Set(['BHD', 'JOD', 'KWD', 'OMR', 'TND']);
+export const FLAGS = 'tpayflags:global';
+const SWEEP = 'tpaysweep', SWEEP_MS = 15 * 60_000;
+// pending: Stripe's Checkout lasts CHECKOUT_MINUTES (+1), so not stuck before it ends; booking: a provider answers in well
+// under a minute; a hold left longer than holdMaxMs is released rather than booked late; `tries`: sweeps before the owner is asked
+export const STUCK = { pendingMs: (CHECKOUT_MINUTES + 5) * 60_000, bookingMs: 10 * 60_000, holdMaxMs: 60 * 60_000, tries: 4 };
 
 const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const money = (cents, cur) => { try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency: cur }).format(cents / 100); } catch { return `${cur} ${(cents / 100).toFixed(2)}`; } };
@@ -112,6 +123,7 @@ export async function payOp(account, op, body = {}, deps = {}) {
     }, { idempotency: `tpay-${id}` });
     const rec = { id, kind, args, title: p.title, cents: p.cents, fee, currency, amount, session: String(session.id), status: 'pending', created: account.now() };
     await account.storage.put({ [KEY(id)]: rec, [LAST]: id });
+    await armPaySweep(account); // a payment left in the middle is settled (paySweep)
     return { required: true, pay_id: id, url: session.url, total_text: money(p.cents + fee, currency) };
   }
   if (op === 'trip-pay-status' || op === 'trip-pay-latest') {
@@ -149,7 +161,7 @@ async function complete(account, op, body, deps) {
       await save({ status: 'failed', error: 'The amount held wasn’t the booking’s. Nothing was charged or booked.', args: null });
       return view(rec);
     }
-    await save({ status: 'booking', intent: pi.id });
+    await save({ status: 'booking', intent: pi.id, booking_at: account.now() }); // from here the sweep looks for what was made
     let result;
     try {
       result = await book(account, rec, deps);
@@ -191,6 +203,7 @@ export async function payRefundRetry(account, deps = {}) {
   for (const [key, rec] of await account.storage.list({ prefix: 'tpay:' })) {
     const f = rec && rec.refund_failed;
     if (!f || typeof f !== 'object' || f.gave_up || rec.refunded) continue;
+    const id = key.slice(5);
     try {
       const made = await stripe('GET', `/refunds?payment_intent=${encodeURIComponent(rec.intent)}&limit=10`).catch(() => null);
       const done = made && Array.isArray(made.data) && made.data.some((r) => r && r.status !== 'failed' && r.status !== 'canceled' && r.metadata && r.metadata.pay_id === key.slice(5));
@@ -202,6 +215,7 @@ export async function payRefundRetry(account, deps = {}) {
       if (f.tries >= RETRY_TRIES) f.gave_up = true; else more = true;
     }
     await account.storage.put(key, rec);
+    await syncFlag(account, id, rec, deps); // cleared once refunded; the tries (and gave_up) for the owner otherwise
   }
   if (more) await scheduleJob(account, RETRY, RETRY, account.now() + RETRY_MS);
   else await unscheduleJob(account, RETRY);
@@ -214,8 +228,9 @@ export async function payRefund(account, booking, cents, deps = {}) {
   const want = Math.min(Math.max(0, Math.round(Number(cents) || 0)), rec.cents + rec.fee);
   if (!want) return 'The booking had no refund, so nothing goes back to your card.';
   if (deps.currency && deps.currency !== rec.currency) { // refunded in another currency: the owner sorts it, never a guess at a rate
-    Object.assign(rec, { refund_review: { cents: want, currency: deps.currency } });
+    Object.assign(rec, { refund_review: { cents: want, currency: deps.currency, booking: String(booking), since: account.now() } });
     await account.storage.put(KEY(id), rec);
+    await syncFlag(account, id, rec, deps);
     return 'The booking is cancelled; its refund came back in another currency, so Eden will refund your card by hand.';
   }
   const stripe = deps.stripe || ((method, path, params, opts) => stripeRequest(account.env || {}, method, path, params, opts));
@@ -223,12 +238,249 @@ export async function payRefund(account, booking, cents, deps = {}) {
     await stripe('POST', '/refunds', { payment_intent: rec.intent, amount: stripeAmount(want, rec.currency), metadata: { pay_id: id, booking: String(booking) } }, { idempotency: `tpay-refund-${id}` });
   } catch (e) {
     console.error('travel refund failed', id, e && e.message);
-    Object.assign(rec, { refund_failed: { cents: want, booking: String(booking), tries: 1 } });
+    Object.assign(rec, { refund_failed: { cents: want, booking: String(booking), tries: 1, since: account.now() } });
     await account.storage.put(KEY(id), rec);
+    await syncFlag(account, id, rec, deps);
     await scheduleJob(account, RETRY, RETRY, account.now() + RETRY_MS).catch(() => {}); // tried again (payRefundRetry)
     return 'The booking is cancelled; the refund to your card didn’t go through yet. Eden will sort it out.';
   }
   Object.assign(rec, { refunded: want, status: want >= rec.cents + rec.fee ? 'refunded' : 'paid' });
   await account.storage.put(KEY(id), rec);
   return `${money(want, rec.currency)} goes back to your card.`;
+}
+
+/* ---------- a payment stuck in the middle (alarm 'tpaysweep') ---------- */
+
+/** The sweep armed (pay-start, and again by the sweep itself while a payment is in the middle). Never throws. */
+export async function armPaySweep(account, at = account.now() + SWEEP_MS) {
+  await scheduleJob(account, SWEEP, SWEEP, at).catch((e) => console.error('travel pay sweep not armed', e && e.message));
+}
+
+/**
+ * Alarm 'tpaysweep' (account.js): each payment pending or booking for longer than STUCK allows, settled without booking
+ * again. `deps`: { flightOp, tripOp, stripe?, notify?, index? }. → [{ pay_id, action, status }]
+ */
+export async function paySweep(account, deps = {}) {
+  const stripe = deps.stripe || ((method, path, params, opts) => stripeRequest(account.env || {}, method, path, params, opts));
+  const d = { ...deps, stripe };
+  const now = account.now();
+  const out = [];
+  let middle = false;
+  for (const [key, rec] of await account.storage.list({ prefix: 'tpay:' })) {
+    const id = key.slice(5);
+    if (!ID.test(id) || !rec || typeof rec !== 'object' || (rec.status !== 'pending' && rec.status !== 'booking')) continue;
+    if (rec.sweep_review || rec.swept) continue; // the owner's to settle (flagged), or settled by them
+    if (account.paying && account.paying.has(id)) { middle = true; continue; } // being completed right now
+    try {
+      const r = await settle(account, id, rec, d, now);
+      if (r) out.push({ pay_id: id, ...r });
+    } catch (e) {
+      console.error('travel pay sweep', id, e && e.message);
+    }
+    const after = await account.storage.get(key);
+    if (after && (after.status === 'pending' || after.status === 'booking') && !after.sweep_review) middle = true;
+  }
+  if (middle) await scheduleJob(account, SWEEP, SWEEP, now + SWEEP_MS);
+  else await unscheduleJob(account, SWEEP);
+  return out;
+}
+
+const tell = (account, deps, title, body, id) => (deps.notify ? deps.notify(account, { title, body, data: { kind: 'tpay', pay_id: id } }).catch(() => 0) : 0);
+
+async function settle(account, id, rec, deps, now) {
+  const save = (patch) => { Object.assign(rec, patch); return account.storage.put(KEY(id), rec); };
+  if (rec.status === 'pending') {
+    if (now - rec.created < STUCK.pendingMs) return null; // still on Stripe's page
+    // the page and Stripe's webhook both missed: the same step they would have taken (it checks Stripe, then books once)
+    if (now - rec.created <= STUCK.holdMaxMs) { const v = await complete(account, 'trip-pay-complete', { pay_id: id }, deps); return { action: 'completed', status: v.status }; }
+    // over an hour with nothing done: never booked this late; a hold on the card is released
+    const session = await deps.stripe('GET', `/checkout/sessions/${encodeURIComponent(rec.session)}?expand[]=payment_intent`);
+    const pi = session.payment_intent && typeof session.payment_intent === 'object' ? session.payment_intent : null;
+    if (pi && pi.status === 'requires_capture') {
+      await deps.stripe('POST', `/payment_intents/${encodeURIComponent(pi.id)}/cancel`, { cancellation_reason: 'abandoned' });
+      await save({ status: 'failed', intent: pi.id, error: 'The booking wasn’t made in time, so the hold on your card was released. Nothing was charged.', args: null });
+      await tell(account, deps, 'Your booking didn’t go through', `${rec.title}: it wasn’t booked in time, so the hold on your card is released. Nothing was charged.`, id);
+      return { action: 'released', status: 'failed' };
+    }
+    if (session.status === 'expired' || (pi && pi.status === 'canceled')) {
+      await save({ status: 'failed', error: 'The payment wasn’t finished in time. Nothing was charged or booked.', args: null });
+      return { action: 'expired', status: 'failed' };
+    }
+    return review(account, id, rec, deps, now, `Stripe says the checkout is ${session.status || 'unknown'}${pi ? `, its payment ${pi.status}` : ''}; Eden can’t settle it.`);
+  }
+
+  // booking: the card was held and the booking asked for; its answer never came back
+  const since = rec.booking_at || rec.created;
+  if (now - since < STUCK.bookingMs) return null;
+  const pi = await deps.stripe('GET', `/payment_intents/${encodeURIComponent(rec.intent)}`);
+  if (pi.status === 'canceled') { // released already (the booking failed); only the record was left behind
+    await save({ status: 'failed', error: 'The booking didn’t go through. Nothing was charged.', args: null });
+    await tell(account, deps, 'Your booking didn’t go through', `${rec.title}: it wasn’t booked, and nothing was charged.`, id);
+    return { action: 'released', status: 'failed' };
+  }
+  const found = await findBooking(account, rec, since, deps);
+  if (pi.status === 'succeeded') { // charged: the hold is captured only after the booking is made, so it was
+    await save({ status: 'paid', result: found.result || null, args: null, paid: now });
+    if (found.booking) await account.storage.put(`tpayby:${found.booking}`, id);
+    else return review(account, id, rec, deps, now, `Charged and booked, but the booking’s number was lost (${PROVIDER[rec.kind]}).`, 'paid');
+    return { action: 'finished', status: 'paid' };
+  }
+  if (pi.status !== 'requires_capture' || found.state === 'error') {
+    rec.sweep_tries = (rec.sweep_tries || 0) + 1;
+    if (rec.sweep_tries < STUCK.tries) { await save({}); return { action: 'later', status: rec.status }; }
+    if (pi.status !== 'requires_capture') return review(account, id, rec, deps, now, `Stripe says the hold is ${pi.status}; Eden can’t settle it.`);
+  }
+  if (found.state === 'made') {
+    await deps.stripe('POST', `/payment_intents/${encodeURIComponent(pi.id)}/capture`, {}, { idempotency: `tpay-capture-${id}` });
+    await save({ status: 'paid', result: found.result || null, args: null, paid: now });
+    if (found.booking) await account.storage.put(`tpayby:${found.booking}`, id);
+    await tell(account, deps, 'Your booking is confirmed', `${rec.title}: booked, and ${money(rec.cents + rec.fee, rec.currency)} was charged to your card.`, id);
+    if (!found.booking) return review(account, id, rec, deps, now, `Charged and booked, but the booking’s number was lost (${PROVIDER[rec.kind]}).`, 'paid');
+    return { action: 'finished', status: 'paid' };
+  }
+  // not made (the provider says so), or no sign of it: the hold goes; never booked a second time
+  await deps.stripe('POST', `/payment_intents/${encodeURIComponent(pi.id)}/cancel`, { cancellation_reason: 'abandoned' });
+  if (found.state === 'none') {
+    await save({ status: 'failed', error: 'The booking didn’t go through, so the hold on your card was released. Nothing was charged.', args: null });
+    await tell(account, deps, 'Your booking didn’t go through', `${rec.title}: it wasn’t booked, so the hold on your card is released. Nothing was charged.`, id);
+    return { action: 'released', status: 'failed' };
+  }
+  await save({ status: 'failed', error: 'Eden couldn’t confirm the booking was made, so the hold on your card was released. Nothing was charged.', args: null });
+  await tell(account, deps, 'Eden couldn’t confirm your booking', `${rec.title}: Eden couldn’t confirm it was booked, so the hold on your card is released and nothing was charged. If a confirmation still reaches you, Eden will be in touch.`, id);
+  return review(account, id, rec, deps, now, `Hold released, but the booking may exist at ${PROVIDER[rec.kind]} (asked ${new Date(since).toISOString().slice(0, 16).replace('T', ' ')} UTC, no answer kept).`, 'failed');
+}
+
+const PROVIDER = { flight: 'Duffel', flight_pay: 'Duffel', stay: 'Duffel Stays', rail: 'Distribusion' };
+
+/** The owner asked to look (sweep_review): the record kept as it is, flagged in the global index. */
+async function review(account, id, rec, deps, now, why, status = rec.status) {
+  rec.sweep_review = { why, since: now, tries: rec.sweep_tries || 0, booking: (rec.result && (rec.result.order_id || rec.result.booking_id || rec.result.reservation_id)) || null };
+  await account.storage.put(KEY(id), rec);
+  await syncFlag(account, id, rec, deps);
+  return { action: 'review', status };
+}
+
+/**
+ * Whether the booking asked for at `since` was made. No provider call carries an idempotency key or Eden's reference, so
+ * what is asked: a held flight's order (Duffel: paid or not), else this account's own records of bookings made since.
+ * → { state: 'made', booking?, result? } | { state: 'none' } (the provider says not) | { state: 'unknown' } | { state: 'error' }
+ */
+async function findBooking(account, rec, since, deps) {
+  const storage = account.storage;
+  const args = rec.args || {};
+  const linked = async (b) => Boolean(await storage.get(`tpayby:${b}`));
+  try {
+    if (rec.kind === 'flight_pay') {
+      const o = await deps.flightOp(account, 'flight-order', { order_id: args.order_id });
+      if (o.status === 'confirmed') return { state: 'made', booking: o.order_id, result: o };
+      return { state: 'none' }; // still on hold (not paid), or cancelled
+    }
+    if (rec.kind === 'flight') { // flights.js keeps ford:<order> { at } for each order this account books
+      const made = [];
+      for (const [k, v] of await storage.list({ prefix: 'ford:' })) {
+        if (!v || !(v.at >= since) || (await linked(k.slice(5)))) continue;
+        const o = await deps.flightOp(account, 'flight-order', { order_id: k.slice(5) });
+        if (o.status === 'confirmed') made.push(o); // a held booking of its own is on_hold
+      }
+      return made.length === 1 ? { state: 'made', booking: made[0].order_id, result: made[0] } : { state: 'unknown' };
+    }
+    if (rec.kind === 'stay') { // stayops.js keeps stbk:<booking> with the quote's hotel and total
+      const q = (await storage.get(`stq:${String(args.quote_id || '')}`)) || {};
+      const made = [];
+      for (const [, b] of await storage.list({ prefix: 'stbk:' })) {
+        if (!b || !(b.created >= since) || (await linked(b.booking_id))) continue;
+        if (q.accommodation && b.accommodation && q.accommodation.id && b.accommodation.id !== q.accommodation.id) continue;
+        if (q.total && (Number(b.total) !== Number(q.total) || b.currency !== q.currency)) continue;
+        made.push(b);
+      }
+      return made.length === 1 ? { state: 'made', booking: made[0].booking_id, result: { booking_id: made[0].booking_id, reference: made[0].reference, check_in: made[0].check_in, check_out: made[0].check_out } } : { state: 'unknown' };
+    }
+    if (rec.kind === 'rail') { // extraops.js deletes the price check rlq:<offer> only once Distribusion confirmed the booking
+      return (await storage.get(`rlq:${String(args.offer_id || '')}`)) ? { state: 'unknown' } : { state: 'made' };
+    }
+  } catch (e) {
+    console.error('travel pay sweep lookup', rec.id, e && e.message);
+    return { state: 'error' };
+  }
+  return { state: 'unknown' };
+}
+
+/* ---------- the owner's flags (the global index, stats/admin.js) ---------- */
+
+/** What the owner must sort out on this payment, or null. */
+export function flagOf(rec) {
+  if (!rec || typeof rec !== 'object') return null;
+  const f = rec.refund_failed;
+  if (f && typeof f === 'object') return { why: 'refund_failed', text: f.gave_up ? 'The card refund failed for a day; Eden stopped trying.' : 'The card refund failed; Eden tries again hourly.', booking: f.booking || null, cents: f.cents, currency: rec.currency, since: f.since || null, tries: f.tries || 1, gave_up: Boolean(f.gave_up) };
+  const r = rec.refund_review;
+  if (r && typeof r === 'object') return { why: 'refund_currency', text: `The provider refunded in ${r.currency}; the card was charged in ${rec.currency}. Refund the card by hand.`, booking: r.booking || null, cents: r.cents, currency: r.currency, since: r.since || null, tries: 0, gave_up: false };
+  const s = rec.sweep_review;
+  if (s && typeof s === 'object') return { why: 'stuck', text: s.why, booking: s.booking || null, cents: rec.cents + rec.fee, currency: rec.currency, since: s.since || null, tries: s.tries || 0, gave_up: false };
+  return null;
+}
+
+/** The global index, by the account namespace's object FLAGS (no device: the Worker's and accounts' own calls only). */
+async function askIndex(env, op, body) {
+  const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(FLAGS));
+  const response = await stub.fetch(`https://account/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const out = await response.json().catch(() => ({}));
+  if (response.status >= 400) throw new ApiError(response.status, out.code || 'error', out.error || 'Something went wrong.');
+  return out;
+}
+
+/** This payment's flag in the global index: set while it has one, cleared when it hasn't. Never throws (logged). */
+async function syncFlag(account, id, rec, deps = {}) {
+  try {
+    const index = deps.index || ((op, body) => askIndex(account.env || {}, op, body));
+    const accountId = ((await account.storage.get('account')) || {}).id;
+    const flag = flagOf(rec);
+    await index(flag ? 'tpayflag-set' : 'tpayflag-clear', { account: accountId, pay_id: id, ...(flag ? { flag: { ...flag, title: rec.title, kind: rec.kind, status: rec.status } } : {}) });
+  } catch (e) {
+    console.error('travel pay flag not indexed', id, e && e.message);
+  }
+}
+
+const ACCOUNT_ID = /^[0-9a-f-]{8,64}$/i;
+const str = (v, n) => (v === null || v === undefined ? null : String(v).slice(0, n));
+const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : null);
+
+/** The index's ops (account.js, op tpayflag-*): set, clear, list. Refused in a person's own object. */
+export async function payFlagIndexOp(account, op, body = {}) {
+  if (await account.storage.get('account')) throw new ApiError(404, 'not_found', 'Not found');
+  if (op === 'tpayflag-list') {
+    const flags = [...(await account.storage.list({ prefix: 'tpf:', limit: 500 })).values()].sort((a, b) => (a.since || 0) - (b.since || 0));
+    return { flags };
+  }
+  const acc = String(body.account || ''), pid = String(body.pay_id || '');
+  if (!ACCOUNT_ID.test(acc) || !ID.test(pid)) throw new ApiError(400, 'bad_request', 'account and pay_id.');
+  const key = `tpf:${acc}:${pid}`;
+  if (op === 'tpayflag-clear') { await account.storage.delete(key); return { cleared: true }; }
+  if (op !== 'tpayflag-set') throw new ApiError(404, 'not_found', 'Not found');
+  const f = body.flag && typeof body.flag === 'object' ? body.flag : {};
+  if (!['refund_failed', 'refund_currency', 'stuck'].includes(f.why)) throw new ApiError(400, 'bad_request', 'flag.why');
+  await account.storage.put(key, {
+    account: acc, pay_id: pid, why: f.why, text: str(f.text, 300), booking: str(f.booking, 80), cents: int(f.cents), currency: str(f.currency, 3),
+    since: int(f.since), tries: int(f.tries) || 0, gave_up: Boolean(f.gave_up), title: str(f.title, 160), kind: str(f.kind, 12), status: str(f.status, 12), at: account.now(),
+  });
+  return { ok: true };
+}
+
+/**
+ * The owner's Mark resolved (stats/admin.js, through the Worker: op tpayadmin-resolve { pay_id, by?, note? }): the flag
+ * kept in the payment's history (resolved), then cleared here and in the index. Nothing is charged or refunded by it.
+ */
+export async function payResolve(account, body = {}, deps = {}) {
+  if (!(await account.storage.get('account'))) throw new ApiError(404, 'not_found', 'Not found');
+  const id = String(body.pay_id || '');
+  const rec = ID.test(id) ? await account.storage.get(KEY(id)) : null;
+  if (!rec) throw new ApiError(404, 'not_found', 'No such payment.');
+  const flag = flagOf(rec);
+  if (flag) {
+    rec.resolved = [...(Array.isArray(rec.resolved) ? rec.resolved : []), { ...flag, at: account.now(), by: String(body.by || 'owner').slice(0, 120), note: String(body.note || '').slice(0, 300) }].slice(-10);
+    // a payment left in the middle stays as the owner left it: the sweep doesn't take it up again
+    Object.assign(rec, { refund_failed: null, refund_review: null, sweep_review: null }, flag.why === 'stuck' && (rec.status === 'pending' || rec.status === 'booking') ? { swept: true } : {});
+    await account.storage.put(KEY(id), rec);
+  }
+  await syncFlag(account, id, rec, deps); // cleared in the index either way (a stale entry too)
+  return { resolved: Boolean(flag), pay_id: id, why: flag ? flag.why : null };
 }
