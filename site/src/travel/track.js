@@ -27,10 +27,10 @@ export const SHARE_MAX = 10; // live shares an account keeps at once
 const KEEP_MS = 3 * 86400_000;
 const AFTER_LANDING_MS = 2 * 3600_000;
 export const TRACK_FILES = new Set(['track.js', 'track.css', 'trip-tools.js']);
-const NOINDEX = { 'x-robots-tag': 'noindex, nofollow, noarchive', 'referrer-policy': 'no-referrer' };
+export const NOINDEX = { 'x-robots-tag': 'noindex, nofollow, noarchive', 'referrer-policy': 'no-referrer' };
 export const TRACK_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-const ALPHA = 'abcdefghijkmnpqrstuvwxyz23456789'; // no l/o/0/1 to misread when read aloud
-const newCode = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => ALPHA[b % ALPHA.length]).join('');
+export const ALPHA = 'abcdefghijkmnpqrstuvwxyz23456789'; // no l/o/0/1 to misread when read aloud
+export const newCode = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => ALPHA[b % ALPHA.length]).join('');
 const text = (s, n) => String(s ?? '').replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** The share once its flight is known to have landed: gone 2 hours later. */
@@ -149,23 +149,23 @@ const notifyStub = async () => 0;
 
 /* ---------- the Worker's side ---------- */
 
-async function ask(env, name, op, body = {}) {
+export async function ask(env, name, op, body = {}) {
   const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(name));
   const response = await stub.fetch(`https://account/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const out = await response.json().catch(() => ({}));
   if (response.status >= 400) throw new ApiError(response.status, out.code || 'error', out.error || 'Something went wrong.');
   return out;
 }
-const index = (env, code, op, body) => ask(env, `trk:${code}`, op, body);
+export const index = (env, code, op, body) => ask(env, `trk:${code}`, op, body); // a code's account (trip links use it too: triplink.js)
 
-async function slowDown(env, binding, key) {
+export async function slowDown(env, binding, key) {
   const limiter = env[binding];
   if (!limiter) return;
   const { success } = await limiter.limit({ key });
   if (!success) throw new ApiError(429, 'slow_down', 'Too many tries; wait a minute.', { 'retry-after': '60' });
 }
 
-const asset = (env, request, path) => env.ASSETS.fetch(new Request(new URL(path, request.url), request));
+export const asset = (env, request, path) => env.ASSETS.fetch(new Request(new URL(path, request.url), request));
 
 /** GET/POST /f/…: the page, its files and its data. Null: not ours. */
 export async function trackPage(request, env, path) {

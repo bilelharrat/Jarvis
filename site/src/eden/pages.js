@@ -36,6 +36,8 @@ import { helpPage } from './help.js';
 import { publishedPage } from '../accounts/published.js';
 import { sharedChatPage } from '../accounts/shared-chats.js';
 import { trackPage } from '../travel/track.js';
+import { tripLinkPage } from '../travel/triplink.js';
+import { tripToIcs } from '../travel/ics.js';
 import { handPage, onTravelHost } from './site-handoff.js';
 import { EDEN_FILES, EDEN_HASHES } from './manifest.js';
 import { currentSession } from './session.js';
@@ -197,7 +199,8 @@ export async function edenPage(request, env, path) {
   if (artifact) return artifactPage(request, env, artifact[1]);
   const published = /^\/p\/([^/]+)$/.exec(path); // a published page (G10): its owner, or anyone with the link
   if (published) return publishedPage(request, env, published[1], () => currentSession(request, env));
-  if (path.startsWith('/f/')) { const tracked = await trackPage(request, env, path); if (tracked) return tracked; } // a shared flight tracker (travel/track.js): anyone with the link, noindex
+  if (path.startsWith('/f/')) { const tracked = await trackPage(request, env, path); if (tracked) return tracked; }
+  if (path.startsWith('/t/')) { const shared = await tripLinkPage(request, env, path, { tripToIcs }); if (shared) return shared; } // a trip shared with the people on it (travel/triplink.js): anyone with the link, noindex // a shared flight tracker (travel/track.js): anyone with the link, noindex
   if (path.startsWith('/s/')) return sharedChatPage(request, env, path); // a shared chat (askeden Q3): anyone with the link, noindex
   // Linking a Mac from the browser (public/link/; session.js linkMac): signed in only.
   const linkFile = /^\/link\/([\w.-]+)$/.exec(path);

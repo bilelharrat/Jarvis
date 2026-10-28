@@ -74,7 +74,7 @@ test('pickup: three real places near the terminal, the drive in traffic, when to
 });
 
 function world() {
-  const env = { EDEN_TRAVEL: '1' };
+  const env = { EDEN_TRAVEL: '1', TRAVEL_PLUS: '0' };
   env.ACCOUNTS = namespace(Account, env);
   const owner = { storage: new Storage(), env, t: T0, now() { return this.t; } };
   owner.storage.put('account', { id: 'owner-1' });

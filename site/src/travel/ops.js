@@ -37,6 +37,9 @@ import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, clea
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { distanceKm, mapsFor } from './maps.js';
 import { shareCreate, shareList, shareRevoke } from './track.js';
+import { linkCreate, linkList, linkRevoke } from './triplink.js';
+import { priceDrops, stayOp } from './stayops.js';
+import { extraOp } from './extraops.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
@@ -108,7 +111,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const { id, trip } = await load();
       const prop = await storage.get(`tprop:${id}`);
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
-      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()) };
+      return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id) };
     }
     case 'trip-create':
       return await create(body.trip, { find: true });
@@ -284,6 +287,16 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-share-create': return await shareCreate(account, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
     case 'trip-shares': return await shareList(account);
     case 'trip-share-revoke': return await shareRevoke(account, body);
+    // the trip shared with the people on it (triplink.js): a read-only page, always the trip as it is now
+    case 'trip-link-create': return await linkCreate(account, body);
+    case 'trip-links': return await linkList(account, body);
+    case 'trip-link-revoke': return await linkRevoke(account, body);
+    // hotels through Duffel Stays, and the price watch on what was booked (stayops.js)
+    case 'trip-stays-search': case 'trip-stays-rates': case 'trip-stays-quote': case 'trip-stays-book': case 'trip-stays-cancel':
+      return await stayOp(account, op, body, { ...deps, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // ferries, trains and buses, car hire; each day's weather; the official entry advice (extraops.js)
+    case 'trip-ground-search': case 'trip-ground-stations': case 'trip-weather': case 'trip-entry':
+      return await extraOp(account, op, body, { cache, fetch: deps.fetch });
     case 'trip-places': {
       const q = String(body.text || '').trim();
       if (q.length < 2) throw new TripError('text: what to look for.');

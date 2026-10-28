@@ -44,7 +44,9 @@ import { autodraftDue, autodraftOp } from './autodrafts.js';
 import { notifyOwner, taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
 import { armFlightWatch, flightWatchDue } from '../travel/watch.js';
+import { stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
+import { linkPublicOp } from '../travel/triplink.js';
 import { flightOp } from '../travel/flights.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
@@ -53,7 +55,7 @@ import { playCap, playOp, withPlayPlan } from './play-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 import { aiSpend } from '../stats/stats.js';
 
-const TRIP_WRITES = new Set(['trip-create', 'trip-sample', 'trip-update', 'trip-delete', 'trip-edit', 'trip-apply', 'trip-undo', 'trip-mark-booked', 'trip-unbook', 'trip-mail-import']); // re-arm the flight watch (travel/watch.js)
+const TRIP_WRITES = new Set(['trip-stays-book', 'trip-create', 'trip-sample', 'trip-update', 'trip-delete', 'trip-edit', 'trip-apply', 'trip-undo', 'trip-mark-booked', 'trip-unbook', 'trip-mail-import']); // re-arm the flight watch (travel/watch.js)
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
 export const WEB_SESSION_DAYS = 30; // a browser's sign-in at askeden.com ends after this
@@ -140,6 +142,7 @@ export class Account {
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       // Eden Travel's guest tracking links (travel/track.js): the link's code is the key; no device signs these
       if (op.startsWith('tshare-')) return json(await sharePublicOp(this, op, await request.json().catch(() => ({})), { tripOp, notify: notifyOwner }));
+      if (op.startsWith('tlink-')) return json(await linkPublicOp(this, op, await request.json().catch(() => ({})), { tripOp })); // the trip shared with the people on it (travel/triplink.js)
       if (op.startsWith('share-')) return await sharedChatsOp(this, op, request); // shared chats, /s/<id> (shared-chats.js, askeden Q3)
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
       if (op.startsWith('cmerge-')) return await chatMergeOp(this, op, request); // another sign-in's chats copied into the account that proved it (chat-sync.js)
@@ -174,9 +177,15 @@ export class Account {
       if (op.startsWith('ad-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Background Auto Drafts are the owner’s.'); return json(await autodraftOp(this, op, body)); } // Auto Drafts in the background (autodrafts.js)
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
-      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
+      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
       if (op.startsWith('trip-')) {
         if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.');
+        // Eden Travel is part of Eden Plus (the owner's decision, 2026-10-28): without it the list answers empty with
+        // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) {
+          if (op === 'trip-list') return json({ trips: [], plus: false });
+          throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
+        }
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
         if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
         return json(out);
@@ -1006,6 +1015,7 @@ export class Account {
       autodraft: () => autodraftDue(this),
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
       fwatch: () => flightWatchDue(this, { tripOp, notify: notifyOwner }), // a trip's flights: delays, gates, cancellations (travel/watch.js)
+      pwatch: () => stayWatchDue(this, { notify: notifyOwner }), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
     });
   }
 

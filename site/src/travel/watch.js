@@ -81,6 +81,29 @@ export function flightNews(before, f) {
   return out;
 }
 
+/**
+ * Eden's fix for a late flight (the concierge: Eden has it ready, the person applies it): the rest of that day's stops,
+ * those not booked, moved later by the delay (rounded up to 5 minutes), as a proposal the person sees in Eden noticed.
+ * Null when nothing after the flight can move.
+ */
+export function delayFix(trip, f, delayMin) {
+  const di = trip.days.findIndex((_, i) => dayDate(trip, i) === f.date);
+  if (di < 0 || !(delayMin > 0)) return null;
+  const stops = trip.days[di].stops;
+  const k = stops.findIndex((s) => s.id === f.stop);
+  const shift = Math.ceil(delayMin / 5) * 5;
+  const ops = [];
+  for (const s of stops.slice(k + 1)) {
+    if (s.booked) continue; // a booked stop keeps its time: the person decides
+    const [h, m] = s.at.split(':').map(Number);
+    const t = h * 60 + m + shift;
+    if (t > 23 * 60 + 55) continue;
+    ops.push({ op: 'time', stop: s.id, at: `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` });
+  }
+  if (!ops.length) return null;
+  return { id: f.trip, by: 'eden', title: `${f.ident} is ${delayMin} min late: the rest of Day ${di + 1} ${shift} min later`, reason: `FlightAware shows ${f.ident} leaving ${delayMin} minutes late, so each stop after it that isn’t booked moves ${shift} minutes later. Booked stops keep their times.`, ops };
+}
+
 /** The job: look at each flight that needs it, push what changed, set the next look. */
 export async function flightWatchDue(account, { tripOp, notify }) {
   const now = account.now();
@@ -98,7 +121,15 @@ export async function flightWatchDue(account, { tripOp, notify }) {
       continue;
     }
     const news = flightNews(snap, flight);
-    for (const n of news) await notify(account, { title: n.title, body: n.body, data: { kind: 'flight', trip: f.trip, stop: f.stop, ident: f.ident } });
+    // a later departure: Eden has the day's fix ready as a proposal (applied only by the person)
+    const late = news.some((n) => / is delayed /.test(n.title)) ? Math.max(0, (flight.delay_minutes && flight.delay_minutes.departure) || 0) : 0;
+    let fixed = false;
+    if (late) {
+      const trip = await account.storage.get(`trip:${f.trip}`);
+      const fix = trip ? delayFix(trip, f, late) : null;
+      if (fix) fixed = await tripOp(account, 'trip-propose', fix).then(() => true).catch(() => false);
+    }
+    for (const n of news) await notify(account, { title: n.title, body: fixed && / is delayed /.test(n.title) ? `${n.body} Eden has the rest of the day moved later, ready for you to apply in Eden Travel.` : n.body, data: { kind: 'flight', trip: f.trip, stop: f.stop, ident: f.ident } });
     const leaves = Date.parse(flight.departure.estimated || flight.departure.scheduled || '') || dayStart(f.date);
     const done = flight.state === 'landed' || flight.state === 'cancelled';
     await account.storage.put(key, {

@@ -32,7 +32,7 @@ beforeEach(() => {
     if (url.startsWith('https://appleid.apple.com/auth/keys')) return Response.json({ keys: [appleJwk] });
     throw new Error(`unexpected fetch ${url}`);
   };
-  env = makeEnv({ EDEN_TRAVEL: '1' });
+  env = makeEnv({ EDEN_TRAVEL: '1', TRAVEL_PLUS: '0' }) // the Plus gate has its own test below;
 });
 after(() => {
   globalThis.fetch = realFetch;
@@ -120,4 +120,46 @@ test('/travel: the Eden app when signed in with Travel on; the front page otherw
   env = makeEnv(); // EDEN_TRAVEL unset
   const s2 = await signedIn();
   assert.equal((await hit('/travel', { session: s2 })).status, 302);
+});
+
+test('Eden Travel is part of Plus: without it the list is empty with plus: false, and trip actions are refused', async () => {
+  env.TRAVEL_PLUS = '1';
+  const session = await signedIn();
+  const list = await chat(session);
+  assert.equal(list.status, 200);
+  assert.deepEqual(await list.json(), { trips: [], plus: false });
+  const made = await travel(session, 'sample');
+  assert.equal(made.status, 402);
+  assert.equal(made.body.code, 'plus_required');
+});
+
+test('a trip shared with the people on it: the plan and its checks, never prices, references or notes; a calendar file; it can be ended', async () => {
+  const session = await signedIn();
+  const made = await travel(session, 'sample');
+  const id = made.body.trip.id;
+  const stop = made.body.trip.days[0].stops[0];
+  await travel(session, 'mark-booked', { id, stop: stop.id, ref: 'SECRET-REF-1', provider: 'Some Hotel', cost: { amount: 321, currency: 'EUR' }, confirm: true });
+  const link = await travel(session, 'link-create', { id });
+  assert.equal(link.status, 200, JSON.stringify(link.body));
+  assert.match(link.body.url, /^\/t\/[a-z0-9]{12}$/);
+  const data = await hit(`${link.body.url}/data`);
+  assert.equal(data.status, 200);
+  assert.match(data.headers.get('x-robots-tag'), /noindex/);
+  const text = await data.text();
+  const view = JSON.parse(text).trip;
+  assert.equal(view.title, made.body.trip.title);
+  assert.equal(view.days[0].stops[0].booked, true);
+  for (const secret of ['SECRET-REF-1', '321', 'Some Hotel', '"cost"', '"link"', '"note"']) assert.ok(!text.includes(secret), `the guest view leaves out ${secret}`);
+  const ics = await hit(`${link.body.url}/calendar.ics`);
+  assert.equal(ics.headers.get('content-type'), 'text/calendar; charset=utf-8');
+  const cal = await ics.text();
+  assert.match(cal, /^BEGIN:VCALENDAR\r\n/);
+  assert.ok(!cal.includes('SECRET-REF-1'));
+  const own = await chat(session, { path: `/api/chat/travel/calendar?id=${id}` });
+  assert.equal(own.status, 200);
+  assert.match(await own.text(), /BEGIN:VEVENT/);
+  const listed = await travel(session, 'links', { id });
+  assert.equal(listed.body.links.length, 1);
+  await travel(session, 'link-revoke', { code: listed.body.links[0].code });
+  assert.equal((await hit(`${link.body.url}/data`)).status, 404, 'an ended link shows nothing');
 });

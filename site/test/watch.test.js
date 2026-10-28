@@ -76,3 +76,27 @@ test('no FlightAware key: nothing is scheduled', async () => {
   a.env = {};
   assert.equal(await armFlightWatch(a), null);
 });
+
+test('a late flight: Eden proposes the rest of the day later (booked stops keep their times), and the push says so', async () => {
+  const { delayFix } = await import('../src/travel/watch.js');
+  const t = { title: 'London', start: '2026-11-03', days: [{ stops: [
+    { id: 's-a', kind: 'transport', at: '08:30', place: { name: 'EK1 Dubai → London' } },
+    { id: 's-b', kind: 'stay', at: '14:00', place: { name: 'The Savoy' }, booked: { ref: 'X' } },
+    { id: 's-c', kind: 'meal', at: '19:02', place: { name: 'Dinner' } },
+  ] }] };
+  const fix = delayFix(t, { trip: 't1', stop: 's-a', ident: 'EK1', date: '2026-11-03' }, 42);
+  assert.deepEqual(fix.ops, [{ op: 'time', stop: 's-c', at: '19:47' }], 'rounded up to 45 min; the booked stay stays');
+  assert.equal(fix.by, 'eden');
+  assert.match(fix.title, /EK1 is 42 min late/);
+  assert.equal(delayFix(t, { trip: 't1', stop: 's-c', ident: 'EK1', date: '2026-11-03' }, 30), null, 'nothing after it');
+  const clock = { t: Date.parse('2026-11-03T01:00:00Z') };
+  const m = new Map([['trip:t1', t], ['fwsnap:EK1:2026-11-03', { delay: 0, state: 'scheduled', next: 0 }]]);
+  const account = { env: { FLIGHTAWARE_API_KEY: 'k' }, now: () => clock.t, storage: { get: async (k) => m.get(k), put: async (k, v) => m.set(k, v), list: async ({ prefix }) => new Map([...m].filter(([k]) => k.startsWith(prefix))), setAlarm: async () => {} } };
+  const calls = [];
+  const pushes = [];
+  const flight = { ident: 'EK1', state: 'delayed', origin: { tz: 'Asia/Dubai', city: 'Dubai' }, departure: { scheduled: '2026-11-03T04:30:00Z', estimated: '2026-11-03T05:12:00Z' }, delay_minutes: { departure: 42 } };
+  const tripOp = async (_a, op, body) => { calls.push(op); if (op === 'trip-flight') return { flight }; if (op === 'trip-propose') { assert.equal(body.ops[0].stop, 's-c'); return { proposal: { id: 'p' } }; } throw new Error(op); };
+  await flightWatchDue(account, { tripOp, notify: async (_a, n) => { pushes.push(n); return 1; } });
+  assert.deepEqual(calls, ['trip-flight', 'trip-propose']);
+  assert.match(pushes[0].body, /ready for you to apply in Eden Travel/);
+});
