@@ -79,6 +79,7 @@ export async function stayOp(account, op, body, deps = {}) {
           accommodation: { id: acc.id || null, name: acc.name || null, lat: acc.lat ?? null, lng: acc.lng ?? null },
           check_in: b.check_in, check_out: b.check_out, adults: Array.isArray(body.guests) ? body.guests.length : 1, rooms: body.rooms || 1,
           total: q.total || null, currency: q.currency || null, free_until: (q.cancellation && q.cancellation.free_until) || null,
+          room: q.room || null, refunds: (q.cancellation && Array.isArray(q.cancellation.refunds) ? q.cancellation.refunds : []), // the refund timeline: a later cancel's card refund
           created: now(), drop: null,
         });
         await armStayWatch(account);
@@ -96,6 +97,15 @@ export async function stayOp(account, op, body, deps = {}) {
         throw new TripError('Unknown hotel op.', 404, 'not_found');
     }
   } catch (e) { throw asTripError(e); }
+}
+
+/** What a cancel of booking `b` gives back now (minor units of its currency): the whole price while free, else the
+ *  timeline's step for now (Duffel refunds that much to Eden's balance), else nothing. */
+export function refundNow(b, now) {
+  if (!b || !b.total) return 0;
+  if (b.free_until && now < Date.parse(b.free_until)) return Math.round(Number(b.total) * 100);
+  const step = (b.refunds || []).find((r) => now < Date.parse(r.before) && (!r.currency || r.currency === b.currency));
+  return step ? Math.round(Number(step.amount) * 100) : 0;
 }
 
 /** The price watch's job: once a day while any booking can still be cancelled for free. */
@@ -125,13 +135,26 @@ export async function stayWatchDue(account, { notify, stays: given, fetch } = {}
     try {
       const found = await stays.search({ lat: b.accommodation.lat, lng: b.accommodation.lng, radius_km: 1, check_in: b.check_in, check_out: b.check_out, adults: b.adults, rooms: b.rooms });
       const same = found.results.find((r) => r.accommodation && r.accommodation.id === b.accommodation.id);
-      if (same) fresh = { total: same.cheapest.total, currency: same.cheapest.currency, rate_id: null, search_result_id: same.search_result_id };
+      // like for like: the same room (when known) at a rate that can still be cancelled for free, never the hotel's
+      // cheapest non-refundable or other room
+      if (same) {
+        const all = await stays.rates(same.search_result_id);
+        let best = null;
+        for (const room of all.rooms || []) {
+          if (b.room && room.name !== b.room) continue;
+          for (const r of room.rates || []) {
+            if (r.currency !== b.currency || !(r.cancellation && r.cancellation.free_until && Date.parse(r.cancellation.free_until) > now)) continue;
+            if (!best || Number(r.total) < Number(best.total)) best = r;
+          }
+        }
+        if (best) fresh = { total: best.total, currency: best.currency, rate_id: best.rate_id, search_result_id: same.search_result_id };
+      }
     } catch { continue; } // Duffel down: tomorrow
     if (!fresh) continue;
     const d = priceDrop({ total: b.total, currency: b.currency, free_until: b.free_until }, fresh, now);
     if (!d.cheaper) { if (b.drop) { b.drop = null; await account.storage.put(key, b); } continue; }
     const told = b.drop && Number(b.drop.total) <= Number(fresh.total);
-    b.drop = { total: fresh.total, by: d.by, search_result_id: fresh.search_result_id, rate_id: null, checked_at: new Date(now).toISOString() };
+    b.drop = { total: fresh.total, by: d.by, search_result_id: fresh.search_result_id, rate_id: fresh.rate_id, checked_at: new Date(now).toISOString() };
     await account.storage.put(key, b);
     if (!told && notify) await notify(account, { title: `${b.accommodation.name || 'Your hotel'} is cheaper now`, body: `${d.by} ${b.currency} less for the same dates on Duffel Stays. Free cancellation until ${String(b.free_until).slice(0, 16).replace('T', ' ')} UTC: Eden can rebook it for you in Eden Travel.`, data: { kind: 'price', trip: b.trip, stop: b.stop } });
   }

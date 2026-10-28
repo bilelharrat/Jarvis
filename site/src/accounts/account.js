@@ -45,12 +45,12 @@ import { notifyOwner, taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
 import { armFlightWatch, flightWatchDue } from '../travel/watch.js';
 import { armRecheck, recheckDue } from '../travel/recheck.js';
-import { stayWatchDue } from '../travel/stayops.js';
+import { refundNow, stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { memberOp } from '../travel/members.js';
 import { flightOp } from '../travel/flights.js';
-import { payOn, payOp, payRefund } from '../travel/pay.js';
+import { payOn, payOp, payRefund, payRefundRetry } from '../travel/pay.js';
 import { calOp, feedPublicOp } from '../travel/calsync.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
@@ -202,10 +202,13 @@ export class Account {
       if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); if (payOn(this.env) && ((op === 'flight-book' && body.hold !== true) || op === 'flight-pay')) throw PAY_FIRST;
         const out = await flightOp(this, op, body);
         // a paid flight cancelled: the airline's quoted refund goes back to the traveller's card (travel/pay.js payRefund)
-        if (op === 'flight-cancel_quote' && out.cancellation_id) await this.storage.put(`tcq:${out.cancellation_id}`, { order_id: out.order_id, refund: out.refund ?? 0 });
+        if (op === 'flight-cancel_quote' && out.cancellation_id) await this.storage.put(`tcq:${out.cancellation_id}`, { order_id: out.order_id, refund: out.refund ?? 0, refund_to: out.refund_to ?? null, refund_currency: out.refund_currency ?? null });
         if (op === 'flight-cancel_confirm' && out.cancelled) {
           const q = await this.storage.get(`tcq:${String(body.cancellation_id || '')}`);
-          const words = await payRefund(this, out.order_id, q ? q.refund : 0);
+          // only money Duffel gives back to Eden's balance goes to the card, in the currency the card paid; airline
+          // credits or vouchers are the traveller's with the airline
+          const cash = q && q.refund_to === 'balance';
+          const words = await payRefund(this, out.order_id, cash ? q.refund : 0, { currency: q && q.refund_currency });
           if (words) out.card_refund_text = words;
         }
         return json(out);
@@ -227,10 +230,12 @@ export class Account {
         if ((op === 'trip-stays-book' || op === 'trip-rail-book') && payOn(this.env)) throw PAY_FIRST;
         // a paid hotel cancelled within its free cancellation: the whole price goes back to the card (travel/pay.js payRefund)
         const stay = op === 'trip-stays-cancel' ? await this.storage.get(`stbk:${String(body.booking_id || '')}`) : null;
+        // a trip deleted: its events come out of Google Calendar first (afterwards nothing could reach them)
+        if (op === 'trip-delete' && (await this.storage.get(`trip:${String(body.id || '')}`))) await calOp(this, 'trip-gcal-off', { id: String(body.id), confirm: true }, { tripOp }).catch((e) => console.error('gcal off on delete', e && e.message));
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
         if (stay && stay.total) {
-          const free = stay.free_until && this.now() < Date.parse(stay.free_until);
-          const words = await payRefund(this, String(body.booking_id), free ? Math.round(Number(stay.total) * 100) : 0);
+          // the whole price while free, else the timeline's step (what Duffel gives back to Eden's balance)
+          const words = await payRefund(this, String(body.booking_id), refundNow(stay, this.now()));
           if (words) out.card_refund_text = words;
         }
         if (TRIP_WRITES.has(op)) {
@@ -1067,6 +1072,7 @@ export class Account {
       autodraft: () => autodraftDue(this),
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
       fwatch: async () => ((await travelOn()) ? flightWatchDue(this, { tripOp, notify: notifyOwner }) : unscheduleJob(this, 'fwatch')), // a trip's flights: delays, gates, cancellations (travel/watch.js)
+      tpayretry: () => payRefundRetry(this), // a card refund that failed, tried again hourly (travel/pay.js)
       pwatch: async () => ((await travelOn()) ? stayWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
       // each trip re-checked a week before, the day before and each morning; what changed pushed once (travel/recheck.js)
       tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: travelOn }),

@@ -57,7 +57,13 @@ export async function flightOp(account, op, body = {}, deps = {}) {
   });
   const run = { search: 'search', check: 'check', review: 'review', book: 'book', order: 'order', cancel_quote: 'cancelQuote', cancel_confirm: 'cancelConfirm', pay_quote: 'payQuote', pay: 'pay' }[action];
   try {
-    return await svc[run](body);
+    // Eden books every flight on one Duffel account: an order is reachable only from the account that booked it
+    // (ford:<order>), a cancellation only from the account that asked its quote (tcq:<cancellation>, account.js)
+    if (['order', 'cancel_quote', 'pay_quote', 'pay'].includes(action) && !(await storage.get(`ford:${String(body.order_id ?? '')}`))) throw new ApiError(404, 'not_found', 'There is no such flight booking in your Eden.');
+    if (action === 'cancel_confirm' && !(await storage.get(`tcq:${String(body.cancellation_id ?? '')}`))) throw new ApiError(404, 'not_found', 'Ask for the cancellation quote again, then confirm.');
+    const out = await svc[run](body);
+    if (action === 'book' && out && out.order_id) await storage.put(`ford:${out.order_id}`, { at: account.now() });
+    return out;
   } catch (e) {
     if (e instanceof DuffelError) throw new ApiError(httpStatusFor(e), e.code, e.message, {}, e.requestId ? { requestId: e.requestId } : {});
     if (e instanceof FlightInputError) throw new ApiError(400, 'input', e.message);

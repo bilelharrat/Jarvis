@@ -20,6 +20,7 @@
 
 import { ApiError } from '../accounts/util.js';
 import { stripeRequest } from '../eden/billing.js';
+import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 
 export const payOn = (env) => String(env?.TRAVEL_PAY || '') === '1' && Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 export const PAY_KINDS = ['flight', 'flight_pay', 'stay', 'rail'];
@@ -179,19 +180,49 @@ async function complete(account, op, body, deps) {
  * (in the booking's currency, never more than was charged), once per cancellation. No payment of Eden's: nothing to do.
  * Returns words for the page, or null.
  */
+const RETRY = 'tpayretry', RETRY_MS = 3600_000, RETRY_TRIES = 24;
+
+/** Alarm 'tpayretry' (account.js): card refunds that failed, tried again hourly with the same idempotency key (Stripe
+ *  makes it once); after a day of failures it stays flagged (refund_failed.gave_up) for the owner. */
+export async function payRefundRetry(account, deps = {}) {
+  const stripe = deps.stripe || ((method, path, params, opts) => stripeRequest(account.env || {}, method, path, params, opts));
+  let more = false;
+  for (const [key, rec] of await account.storage.list({ prefix: 'tpay:' })) {
+    const f = rec && rec.refund_failed;
+    if (!f || typeof f !== 'object' || f.gave_up || rec.refunded) continue;
+    try {
+      await stripe('POST', '/refunds', { payment_intent: rec.intent, amount: stripeAmount(f.cents, rec.currency), metadata: { pay_id: key.slice(5), booking: f.booking } }, { idempotency: `tpay-refund-${key.slice(5)}` });
+      Object.assign(rec, { refund_failed: null, refunded: f.cents, status: f.cents >= rec.cents + rec.fee ? 'refunded' : 'paid' });
+    } catch (e) {
+      console.error('travel refund retry failed', key, e && e.message);
+      f.tries = (f.tries || 1) + 1;
+      if (f.tries >= RETRY_TRIES) f.gave_up = true; else more = true;
+    }
+    await account.storage.put(key, rec);
+  }
+  if (more) await scheduleJob(account, RETRY, RETRY, account.now() + RETRY_MS);
+  else await unscheduleJob(account, RETRY);
+}
+
 export async function payRefund(account, booking, cents, deps = {}) {
   const id = booking ? await account.storage.get(`tpayby:${booking}`) : null;
   const rec = id ? await account.storage.get(KEY(id)) : null;
   if (!rec || !rec.intent || rec.status !== 'paid' || rec.refunded) return null;
   const want = Math.min(Math.max(0, Math.round(Number(cents) || 0)), rec.cents + rec.fee);
   if (!want) return 'The booking had no refund, so nothing goes back to your card.';
+  if (deps.currency && deps.currency !== rec.currency) { // refunded in another currency: the owner sorts it, never a guess at a rate
+    Object.assign(rec, { refund_review: { cents: want, currency: deps.currency } });
+    await account.storage.put(KEY(id), rec);
+    return 'The booking is cancelled; its refund came back in another currency, so Eden will refund your card by hand.';
+  }
   const stripe = deps.stripe || ((method, path, params, opts) => stripeRequest(account.env || {}, method, path, params, opts));
   try {
     await stripe('POST', '/refunds', { payment_intent: rec.intent, amount: stripeAmount(want, rec.currency), metadata: { pay_id: id, booking: String(booking) } }, { idempotency: `tpay-refund-${id}` });
   } catch (e) {
     console.error('travel refund failed', id, e && e.message);
-    Object.assign(rec, { refund_failed: true });
+    Object.assign(rec, { refund_failed: { cents: want, booking: String(booking), tries: 1 } });
     await account.storage.put(KEY(id), rec);
+    await scheduleJob(account, RETRY, RETRY, account.now() + RETRY_MS).catch(() => {}); // tried again (payRefundRetry)
     return 'The booking is cancelled; the refund to your card didn’t go through yet. Eden will sort it out.';
   }
   Object.assign(rec, { refunded: want, status: want >= rec.cents + rec.fee ? 'refunded' : 'paid' });

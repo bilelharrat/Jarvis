@@ -39,6 +39,7 @@ export async function extraOp(account, op, body, deps = {}) {
         if (op === 'trip-ground-stations') return mode === 'ferry' ? { ports: await p.ports(body.query) } : { stations: await p.stations(body.query) };
         if (mode === 'car') {
           // car hire: pick up at from on date, give back at to (default: the same place) on return_date (default: the next day)
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) || !Number.isFinite(Date.parse(`${body.date}T00:00:00Z`))) throw new TripError('Which day? A date as YYYY-MM-DD.', 400, 'bad_request');
           const back = body.return_date || new Date(Date.parse(`${body.date}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
           const c = await p.search({ pickup: body.from, dropoff: body.to || body.from, from: body.date, to: back, driver_age: body.driver_age ?? 30 });
           return { mode, options: Array.isArray(c) ? c : c.options || [] };

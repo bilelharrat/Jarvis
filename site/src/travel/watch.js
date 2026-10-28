@@ -131,7 +131,7 @@ export async function flightWatchDue(account, { tripOp, notify }) {
     }
     for (const n of news) await notify(account, { title: n.title, body: fixed && / is delayed /.test(n.title) ? `${n.body} Eden has the rest of the day moved later, ready for you to apply in Eden Travel.` : n.body, data: { kind: 'flight', trip: f.trip, stop: f.stop, ident: f.ident } });
     const leaves = Date.parse(flight.departure.estimated || flight.departure.scheduled || '') || dayStart(f.date);
-    const done = flight.state === 'landed' || flight.state === 'cancelled';
+    const done = flight.state === 'landed' || flight.state === 'cancelled' || (flight.state === 'diverted' && Boolean(flight.arrival && (flight.arrival.actual || flight.arrival.actual_on || flight.arrival.actual_in))); // diverted and down somewhere: nothing more to watch
     await account.storage.put(key, {
       state: flight.state, gate: flight.departure.gate || (snap && snap.gate) || null, terminal: flight.departure.terminal || (snap && snap.terminal) || null,
       delay: news.some((n) => /delay/.test(n.title)) || !snap ? Math.max(0, flight.delay_minutes.departure || 0) : snap.delay || 0,

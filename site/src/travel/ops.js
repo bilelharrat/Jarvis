@@ -37,7 +37,7 @@ import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, cleanIdent, flightAwareFor } from './flightaware.js';
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { distanceKm, mapsFor } from './maps.js';
-import { shareCreate, shareList, shareRevoke } from './track.js';
+import { index, shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
 import { priceDrops, stayOp } from './stayops.js';
 import { extraOp } from './extraops.js';
@@ -137,6 +137,12 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       // its members, and anyone taken off it (members.js): the trip is gone for them too
       const theirs = [...(await storage.list({ prefix: `tmem:${id}:` })).keys(), ...(await storage.list({ prefix: `tban:${id}:` })).keys()];
       if (theirs.length) await storage.delete(theirs);
+      // its invites, and their codes in the index (members.js)
+      for (const [k, x] of await storage.list({ prefix: 'tinv:' })) {
+        if (x.trip !== id) continue;
+        await storage.delete(k);
+        if (!x.revoked) await index(account.env, x.code, 'tshare-index-drop', {}).catch(() => {});
+      }
       return { deleted: true };
     }
     case 'trip-edit': {

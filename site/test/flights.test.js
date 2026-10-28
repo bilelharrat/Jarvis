@@ -38,6 +38,11 @@ test('search → check → book across separate requests: the check is kept in t
     const order = await flightOp(acct, 'flight-book', { ...book, confirm: true }, deps);
     assert.match(order.order_id, /^ord_/);
     assert.ok(order.booking_reference);
+    // the order is this account's: another account can't read, quote, pay or cancel it (one Duffel account for everyone)
+    assert.equal((await flightOp(acct, 'flight-order', { order_id: order.order_id }, deps)).order_id, order.order_id);
+    const other = account();
+    for (const op of ['flight-order', 'flight-cancel_quote', 'flight-pay_quote']) await assert.rejects(flightOp(other, op, { order_id: order.order_id }, deps), (e) => e.status === 404, op);
+    await assert.rejects(flightOp(other, 'flight-cancel_confirm', { cancellation_id: 'ore_x', confirm: true }, deps), (e) => e.status === 404);
     await assert.rejects(flightOp(acct, 'flight-book', { ...book, confirm: true }, deps), (e) => e.code === 'invalid_state', 'a check books once');
     // nothing about the passenger is kept
     const kept = JSON.stringify([...(await acct.storage.list())]);

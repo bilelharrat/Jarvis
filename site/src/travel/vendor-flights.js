@@ -601,6 +601,8 @@ function createFlightService(deps) {
       order_id: ord.id,
       booking_reference: ord.booking_reference,
       refund: q.refund_amount === null ? null : cents(q.refund_amount),
+      refund_to: q.refund_to ?? null,
+      refund_currency: q.refund_currency ?? ord.total_currency,
       refund_text: q.refund_amount === null ? "The airline hasn\u2019t said how much will be refunded." : `${money(cents(q.refund_amount), q.refund_currency ?? ord.total_currency)} back${q.refund_to ? ` to ${q.refund_to === "balance" ? "the Duffel balance" : q.refund_to.replace(/_/g, " ")}` : ""}`,
       expires_at: q.expires_at
     };
