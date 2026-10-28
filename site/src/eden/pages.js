@@ -135,7 +135,7 @@ export async function edenPage(request, env, path) {
     return redirect(session ? '/' : '/api/web/site-handoff/start');
   }
   if (env.TRAVEL_HOST && (path === '/travel-home/travel-home.css' || path === '/travel-home/features.js')) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
-  if (env.TRAVEL_HOST && path === '/travel-home/eden-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+  if (env.TRAVEL_HOST && (path === '/travel-home/eden-logo.svg' || path === '/travel-home/apple-touch-icon.png')) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); // the passport logo (DESIGN.md §1), and its PNG for iOS's home screen
   if (path === '/pricing') return redirect('/#pricing'); // the front page's plans (public/home/)
   // Eden for Education's own app (askeden web/chat/edu.html): signed in, the app; signed out, its landing page
   if (path === '/edu' || path === '/edu.html') {

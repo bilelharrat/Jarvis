@@ -669,16 +669,18 @@ test('Ask Eden Travel has its own site, held: without TRAVEL_HOST nothing is ser
   // the app lives there: signing in there is askeden.com's sign-in, handed over (eden/site-handoff.js)
   assert.deepEqual(await go('https://askedentravel.com/signin', on), [302, '/api/web/site-handoff/start']);
   for (const cta of read('public/travel-home/index.html').matchAll(/class="(?:pill|btn navy)" href="([^"]+)"/g)) assert.equal(cta[1], '/api/web/site-handoff/start');
-  for (const p of ['/travel-home/travel-home.css', '/travel-home/features.js', '/travel-home/eden-logo.svg', '/lang/fr-travel-home.js']) {
+  for (const p of ['/travel-home/travel-home.css', '/travel-home/features.js', '/travel-home/eden-logo.svg', '/travel-home/apple-touch-icon.png', '/lang/fr-travel-home.js']) {
     const r = await worker.fetch(new Request(`https://askedentravel.com${p}`), on, {});
     assert.equal(r.status, 200, p);
     assert.equal(await r.text(), `asset ${p}`, p);
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff', p);
   }
-  for (const f of ['travel-home.css', 'features.js', 'eden-logo.svg']) assert.ok(fs.existsSync(path.join(SITE, 'public/travel-home', f)), f);
+  for (const f of ['travel-home.css', 'features.js', 'eden-logo.svg', 'apple-touch-icon.png']) assert.ok(fs.existsSync(path.join(SITE, 'public/travel-home', f)), f);
 
   // the page: no inline script or style, its own script and the language script only; one h1, the skip link, the landmarks
   const html = read('public/travel-home/index.html');
+  assert.match(html, /<link rel="apple-touch-icon" href="\/travel-home\/apple-touch-icon.png">/, 'a PNG for iOS, which ignores an SVG touch icon');
+  assert.match(read('public/travel-home/eden-logo.svg'), /#D8B45A/, 'the passport logo: gold on navy (DESIGN.md §1)');
   assert.doesNotMatch(html, /style=|onclick=|<style/i);
   for (const m of html.matchAll(/<script[^>]*>/g)) assert.ok(['<script src="/travel-home/features.js" defer>', '<script src="/lang/site-i18n.js" data-page="travel-home">'].includes(m[0]), m[0]);
   assert.equal(html.match(/<h1[\s>]/g).length, 1);
