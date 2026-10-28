@@ -146,10 +146,38 @@ test('a forwarded email: the right code only; kept, pruned to 30, and pushed', a
   await assert.rejects(inboxOp(a, 'tinbox-add', { code: 'zzzzzzzzzz12', email: parseEmail(EML) }), /No such/);
   await inboxOp(a, 'tinbox-add', { code: 'abcdefghij12', email: parseEmail(EML) }, { notify: async (_a, n) => pushed.push(n) });
   assert.equal(pushed[0].title, 'Booking email received');
-  for (let i = 0; i < 32; i++) { a.clock.t += 1000; await inboxOp(a, 'tinbox-add', { code: 'abcdefghij12', email: { subject: `n${i}` } }); }
+  for (let i = 0; i < 32; i++) { a.clock.t += 3 * 3600_000; await inboxOp(a, 'tinbox-add', { code: 'abcdefghij12', email: { subject: `n${i}` } }); } // 8 a day: under the daily cap
   assert.equal([...a.m.keys()].filter((k) => k.startsWith('tinbox:')).length, 30);
   const scan = await tripOp(a, 'trip-mail-scan', { id: TID, source: 'inbox' }, { maps: standinMaps(a.now) });
   assert.ok(Array.isArray(scan.candidates));
+});
+
+test('a forwarded email (security review L3): 20 a day per address; the push never carries the subject; the sender checked, not blocked', async () => {
+  const pushed = [];
+  const a = account();
+  a.m.set('tinaddr', { code: 'abcdefghij12' });
+  a.m.set('identities', [{ provider: 'google', email: 'me@example.com' }]);
+  const add = (email, extra = {}) => inboxOp(a, 'tinbox-add', { code: 'abcdefghij12', email, ...extra }, { notify: async (_a, n) => pushed.push(n) });
+  await add({ subject: 'Your booking ✈ PNR X1 — click http://evil.example', from: 'Stranger <who@evil.example>' }, { auth: { dkim: 'fail', spf: 'none', dmarc: 'fail <script>' } });
+  assert.doesNotMatch(pushed[0].body, /PNR|evil|click/);
+  assert.match(pushed[0].body, /isn’t on your Eden account/);
+  const kept = [...a.m].find(([k]) => k.startsWith('tinbox:'))[1];
+  assert.deepEqual(kept.sender, { known: false, auth: { dkim: 'fail', spf: 'none', dmarc: null } });
+  await add({ subject: 'Hotel', from: 'Me <ME@example.com>' });
+  assert.match(pushed[1].body, /An email you forwarded/);
+  for (let i = 2; i < 20; i++) await add({ subject: `n${i}` });
+  await assert.rejects(add({ subject: 'one too many' }), (e) => e.status === 429);
+  assert.equal(pushed.length, 20);
+  a.clock.t += 86400_000;
+  await add({ subject: 'next day' });
+  assert.equal(pushed.length, 21);
+});
+
+test('authOf and addressOf read Authentication-Results and From lines', async () => {
+  const { authOf, addressOf } = await import('../src/travel/inbox.js');
+  assert.deepEqual(authOf('mx.cloudflare.net; dkim=pass header.d=ba.com; spf=softfail; dmarc=pass'), { dkim: 'pass', spf: 'softfail', dmarc: 'pass' });
+  assert.deepEqual(authOf(null), { dkim: null, spf: null, dmarc: null });
+  assert.equal(addressOf('BA <Bookings@BA.com>'), 'bookings@ba.com');
 });
 
 test('the email handler: unknown or malformed addresses refused; a known one handed to its account', async () => {

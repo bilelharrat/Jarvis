@@ -29,6 +29,7 @@
 // tloyal → [{ id, given_name, family_name, airline, number, added }]
 // tloyalh → [{ id, given_name, family_name, programme, number, added }]
 
+import { readSealed, writeSealed } from './sealed.js';
 import { ApiError } from '../accounts/util.js';
 import { TripError } from './trips.js';
 
@@ -69,13 +70,13 @@ const programmes = () => Object.entries(HOTEL_PROGRAMMES).map(([code, name]) => 
 
 export async function loyaltyOp(account, op, body = {}) {
   const storage = account.storage;
-  let list = (await storage.get('tloyal')) || [], hotel = (await storage.get('tloyalh')) || [];
+  let list = await readSealed(account, 'tloyal'), hotel = await readSealed(account, 'tloyalh');
   const out = () => ({ accounts: list.map(view), hotel_accounts: hotel.map(hview), hotel_programmes: programmes() });
   if (op === 'trip-loyalty') return out();
   if (op === 'trip-loyalty-delete') {
     const id = String(body.id || '');
-    if (ID.test(id) && list.some((a) => a.id === id)) { list = list.filter((a) => a.id !== id); await storage.put('tloyal', list); return out(); }
-    if (ID.test(id) && hotel.some((a) => a.id === id)) { hotel = hotel.filter((a) => a.id !== id); await storage.put('tloyalh', hotel); return out(); }
+    if (ID.test(id) && list.some((a) => a.id === id)) { list = list.filter((a) => a.id !== id); await writeSealed(account, 'tloyal', list); return out(); }
+    if (ID.test(id) && hotel.some((a) => a.id === id)) { hotel = hotel.filter((a) => a.id !== id); await writeSealed(account, 'tloyalh', hotel); return out(); }
     throw new TripError('There is no such loyalty number.', 404, 'not_found');
   }
   if (op !== 'trip-loyalty-save') throw new TripError('Unknown trip op.', 404, 'not_found');
@@ -92,7 +93,7 @@ export async function loyaltyOp(account, op, body = {}) {
     const left = hotel.filter((a) => !(a.programme === programme && nameKey(a.given_name, a.family_name) === key));
     if (left.length >= LOYALTY.max) throw new TripError(`Eden keeps at most ${LOYALTY.max} hotel loyalty numbers. Remove one first.`, 409, 'too_many');
     hotel = [...left, { id: newId(), given_name, family_name, programme, number, added: account.now() }];
-    await storage.put('tloyalh', hotel);
+    await writeSealed(account, 'tloyalh', hotel);
     return out();
   }
   const airline = String(body.airline || '').trim().toUpperCase();
@@ -101,7 +102,7 @@ export async function loyaltyOp(account, op, body = {}) {
   const left = list.filter((a) => !(a.airline === airline && nameKey(a.given_name, a.family_name) === key));
   if (left.length >= LOYALTY.max) throw new TripError(`Eden keeps at most ${LOYALTY.max} loyalty numbers. Remove one first.`, 409, 'too_many');
   list = [...left, { id: newId(), given_name, family_name, airline, number, added: account.now() }];
-  await storage.put('tloyal', list);
+  await writeSealed(account, 'tloyal', list);
   return out();
 }
 
@@ -112,7 +113,7 @@ export async function loyaltyOp(account, op, body = {}) {
 export async function hotelLoyaltyView(account, programme) {
   const name = programmeName(programme);
   if (!name) return null;
-  const saved = ((await account.storage.get('tloyalh')) || []).filter((a) => a.programme === programme);
+  const saved = (await readSealed(account, 'tloyalh')).filter((a) => a.programme === programme);
   return { programme, name, saved: saved.map((a) => ({ guest: `${a.given_name} ${a.family_name}`, number: mask(a.number) })) };
 }
 
@@ -155,7 +156,7 @@ const cents = (a) => Math.round(Number(a ?? 0) * 100);
  * [] and no call. A price that moved throws, before anything is booked.
  */
 export async function applyLoyalty(account, client, check, passengers) {
-  const saved = (await account.storage.get('tloyal')) || [];
+  const saved = await readSealed(account, 'tloyal');
   if (!saved.length || !Array.isArray(passengers)) return [];
   const offer = await client.getOffer(check.offer_id);
   const sends = loyaltyFor(saved, passengers, offer.supported_loyalty_programmes);

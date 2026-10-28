@@ -27,9 +27,9 @@ import { memberApi } from './members.js';
 import { memoryPhotoRoute } from './memories.js';
 import { togetherApi } from './together.js';
 import { ask } from './track.js';
-import { globalMeter } from './spend.js';
 import { companionsApi } from './companions.js';
 import { betaGuard } from './beta.js';
+import { photoNames } from './picmeter.js';
 
 const ACTIONS = new Set(['create', 'plan', 'plan-start', 'plan-status', 'plan-cancel', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke', 'paste', 'inbox-address', 'inbox-reset', 'inbox-drop', 'doc-add', 'docs', 'doc-delete', 'discover', 'nearby', 'money', 'expense-add', 'expense-delete', 'people', 'chat', 'chat-post', 'decisions', 'optimize', 'windows', 'activities', 'photo-add', 'photos', 'photo-get', 'photo-edit', 'photo-delete', 'memories', 'memories-share', 'fwatch-on', 'fwatch-off', 'presence-beat', 'copy', 'check-report', 'check-reports', 'check-unreport', 'mailwatch-on', 'mailwatch-off', 'mailwatch-status', 'mailwatch-drop', 'mail-found', 'loyalty', 'loyalty-save', 'loyalty-delete', 'live-token', 'live-end', 'promise', 'promise-settings', 'promise-rebook', 'promise-rebook-status', 'rewards', 'rewards-redeem', 'rewards-undo', 'esim', 'esim-check', 'esims', 'card-perk', 'year', 'plus-covers', 'joined-alerts', 'claims', 'claim-letter', 'papers', 'papers-save', 'papers-delete', 'entry-check', 'pto-holidays']);
 // a member's actions on a trip shared with them (members.js memberApi): the organiser's object is asked, not theirs
@@ -44,9 +44,11 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   // the in-flight map's picture (maps.js): a Google Static Map fetched with the server's key
   if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo') {
     if (request.method !== 'GET') throw new ApiError(405, 'bad_request', 'GET');
-    // pictures on Eden's Google key: for Eden Travel's members only (the list answers plus: false without Plus)
-    if ((await call(env, who.account, 'trip-list', {}, who.token)).plus === false) throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
-    try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, new URL(request.url), { fetch: deps.fetch, meter: globalMeter(env) }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : e.code === 'capped' ? 503 : 502, e.code, e.message); throw e; }
+    const u = new URL(request.url);
+    // charged to this account's Google day ($3) and the global day ($20), and a photo only of a place this account was
+    // shown (picmeter.js trip-pic-take: 402 without Plus, 404 not yours, 429 capped)
+    await call(env, who.account, 'trip-pic-take', path === '/api/chat/travel/map' ? { kind: 'map' } : { kind: 'photo', n: u.searchParams.get('n') || '' }, who.token);
+    try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, u, { fetch: deps.fetch, meter: null }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : e.code === 'capped' ? 503 : 502, e.code, e.message); throw e; }
   }
   // the destination's hero photo (hero.js): Plus-gated as the photos are (trip-hero is a trip op, so the account refuses it
   // without Plus); the picture only from Commons' thumbnail server
@@ -71,7 +73,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
     const got = await call(env, who.account, 'trip-doc-get', { id: url.searchParams.get('id') || '', doc: url.searchParams.get('doc') || '' }, who.token);
     const bytes = Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0));
     const name = String(got.doc.name || 'document').replace(/[^A-Za-z0-9 ._-]+/g, '').trim().slice(0, 80) || 'document';
-    return new Response(bytes, { headers: { 'content-type': got.doc.type, 'content-disposition': `${got.doc.type === 'application/vnd.apple.pkpass' ? 'attachment' : 'inline'}; filename="${name}"`, 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=31536000, immutable' } });
+    return new Response(bytes, { headers: { 'content-type': got.doc.type, 'content-disposition': `${got.doc.type === 'application/vnd.apple.pkpass' ? 'attachment' : 'inline'}; filename="${name}"`, 'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store' } }); // never kept by a shared browser (the offline worker keeps it only until sign-out)
   }
   if (request.method === 'GET') {
     const id = new URL(request.url).searchParams.get('id');
@@ -94,7 +96,10 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   if (MEMBER_ACTIONS.has(body.action)) {
     const args0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
     if (['join', 'shared-get', 'shared-propose', 'shared-decisions', 'shared-chat-post', 'shared-expense-add', 'shared-photo-add', 'shared-discover', 'shared-nearby'].includes(body.action)) await limited(env, 'USER_RATE', `travel:${who.account}`);
-    return json(await memberApi(env, who, body.action, args0, { call }));
+    const outM = await memberApi(env, who, body.action, args0, { call });
+    // the organiser's stop photos, fetchable by this member through the photo proxy (picmeter.js)
+    if (['shared-get', 'shared-discover', 'shared-nearby', 'shared-list'].includes(body.action)) await call(env, who.account, 'trip-pic-note', { names: [...photoNames(outM)] }, who.token).catch(() => {});
+    return json(outM);
   }
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
@@ -104,6 +109,6 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   if (body.action === 'mailwatch-on') args.local = local; // the email watch's first look (a fake Google only under wrangler dev)
   if (body.action.startsWith('mail-')) { await limited(env, 'USER_RATE', `travel:${who.account}`); args.local = local; }
   // where Stripe sends the traveller back: this very address (askedentravel.com or askeden.com), never one the page names
-  if (body.action === 'pay-start' || body.action === 'calfeed-create') args.origin = new URL(request.url).origin;
+  if (body.action === 'pay-start' || body.action === 'calfeed-create' || body.action === 'promise-rebook') args.origin = new URL(request.url).origin;
   return json(await call(env, who.account, `trip-${body.action}`, args, who.token));
 }

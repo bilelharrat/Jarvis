@@ -228,6 +228,7 @@ test('the bytes route: the owner’s own photo, a member’s through the organis
   assert.equal(res.headers.get('content-type'), 'image/jpeg');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
   assert.match(res.headers.get('content-security-policy'), /sandbox/);
+  assert.equal(res.headers.get('cache-control'), 'private, no-store', 'never kept by a shared browser (M4)');
   assert.deepEqual([...new Uint8Array(await res.arrayBuffer())], [...JPEG]);
   a.m.set(`tmem:${TID}:${MEMBER}`, { member: MEMBER });
   await memoriesOp(a, 'trip-memories-share', { id: TID, share: true });

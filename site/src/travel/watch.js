@@ -144,7 +144,7 @@ export async function flightWatchDue(account, { tripOp, notify }) {
     // money back for a long delay or a cancellation, once the flight is done (compensation.js)
     if (done && !(snap && snap.done)) await claimAfterLanding(account, f, flight, snap, { tripOp, notify }).catch((e) => console.error('delay claim', e && e.message));
     // the people on the trip who asked for its flight alerts (companions.js)
-    if (news.length) await memberFlightNews(account, f, news, { plus: String(account.env.TRAVEL_PLUS ?? '1') === '0' || (await account.planNow()).active }).catch((e) => console.error('member alerts', e && e.message));
+    if (news.length) await memberFlightNews(account, f, news, { plus: String((account.env || {}).TRAVEL_PLUS ?? '1') === '0' || (typeof account.planNow === 'function' ? (await account.planNow()).active : false) }).catch((e) => console.error('member alerts', e && e.message));
     if (news.length) await liveFlightNews(account, { trip: f.trip, date: f.date, news }, { tripOp }).catch((e) => console.error('live activity', e && e.message));
   }
   // the soonest of each flight's own next look

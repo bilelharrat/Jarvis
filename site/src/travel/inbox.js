@@ -25,7 +25,7 @@
 import { ApiError } from '../accounts/util.js';
 import { CODE, ask, newCode } from './track.js';
 
-export const INBOX = { keep: 30, pasteMs: 7 * 86400_000, emailBytes: 1_500_000, partChars: 400_000 };
+export const INBOX = { keep: 30, pasteMs: 7 * 86400_000, emailBytes: 1_500_000, partChars: 400_000, perDay: 20 }; // perDay: forwarded emails one address takes a UTC day
 export const DOCS = { fileBytes: 10 * 1024 * 1024, perTrip: 60, accountBytes: 200 * 1024 * 1024, chunk: 1024 * 1024 };
 // what a document may be, and the bytes it must start with (so a page can't be stored as a "PDF" and served back)
 export const DOC_TYPES = {
@@ -122,8 +122,25 @@ export async function travelEmail(message, env) {
   for (let i = 0; i < buf.length; i += 8192) raw += String.fromCharCode(...buf.subarray(i, i + 8192));
   const email = parseEmail(raw);
   if (!email.from) email.from = clean(message.from, 160);
-  await ask(env, account, 'tinbox-add', { code: m[1], email });
+  // what the receiving server found (DKIM, SPF, DMARC): kept to show, never trusted to add anything (security review L3)
+  const auth = authOf(message.headers && typeof message.headers.get === 'function' ? message.headers.get('authentication-results') : null);
+  try {
+    await ask(env, account, 'tinbox-add', { code: m[1], email, auth, envelope_from: clean(message.from, 160) });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 429) return message.setReject('This Eden Travel address has had too many emails today.');
+    throw e;
+  }
 }
+
+/** Authentication-Results' verdicts, as words: { dkim, spf, dmarc } each 'pass' | 'fail' | … | null. */
+export function authOf(header) {
+  const h = String(header || '').toLowerCase().slice(0, 4000);
+  const one = (k) => { const m = new RegExp(`\\b${k}=([a-z]+)`).exec(h); return m ? m[1] : null; };
+  return { dkim: one('dkim'), spf: one('spf'), dmarc: one('dmarc') };
+}
+
+/** The address in a From line ("Name <a@b>" or "a@b"), lower case, or ''. */
+export const addressOf = (from) => { const s = String(from || ''); const m = /<([^<>\s]+@[^<>\s]+)>/.exec(s) || /([^\s<>"]+@[^\s<>"]+)/.exec(s); return m ? m[1].toLowerCase() : ''; };
 
 /* ---------- in the account's object ---------- */
 
@@ -186,11 +203,24 @@ export async function inboxOp(account, op, body, { notify } = {}) {
     case 'tinbox-add': {
       const addr = await storage.get('tinaddr');
       if (!addr || !CODE.test(String(body.code || '')) || addr.code !== body.code) throw new ApiError(404, 'not_found', 'No such Eden Travel address.');
+      // at most INBOX.perDay a day: anyone who learns the address can't fill the inbox or the phone (security review L3)
+      const day = new Date(now).toISOString().slice(0, 10);
+      const count = await storage.get('tinboxn');
+      const n = count && count.day === day ? count.n : 0;
+      if (n >= INBOX.perDay) throw new ApiError(429, 'rate_limited', 'Too many forwarded emails today.');
+      await storage.put('tinboxn', { day, n: n + 1 });
       const id = hex(8);
       const e = keepEmail(body.email || {});
-      await storage.put(`tinbox:${id}`, { ...e, received: now });
+      // who sent it, against this account's own addresses: a warning to show, never a block (people forward from work)
+      const mine = ((await storage.get('identities')) || []).map((i) => String((i && i.email) || '').toLowerCase()).filter(Boolean);
+      const senders = [addressOf(e.from), addressOf(body.envelope_from)].filter(Boolean);
+      const a = body.auth && typeof body.auth === 'object' ? body.auth : {};
+      const word = (v) => (typeof v === 'string' && /^[a-z]{1,16}$/.test(v) ? v : null);
+      const sender = { known: senders.some((x) => mine.includes(x)), auth: { dkim: word(a.dkim), spf: word(a.spf), dmarc: word(a.dmarc) } };
+      await storage.put(`tinbox:${id}`, { ...e, sender, received: now });
       await prune(storage, 'tinbox:', INBOX.keep, now);
-      if (notify) await notify(account, { title: 'Booking email received', body: `“${e.subject || 'An email'}” is in Eden Travel. Open a trip to add it.`, data: { kind: 'inbox' } }).catch(() => {});
+      // the subject is the sender's words: never in a push (it would show on the lock screen as if Eden wrote it)
+      if (notify) await notify(account, { title: 'Booking email received', body: sender.known ? 'An email you forwarded is in Eden Travel. Open a trip to add it.' : 'An email is in Eden Travel, from an address that isn’t on your Eden account. Check it before you add it.', data: { kind: 'inbox' } }).catch(() => {});
       return { kept: true };
     }
     case 'trip-inbox-drop': {

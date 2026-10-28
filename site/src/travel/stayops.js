@@ -13,7 +13,7 @@
 //   trip-stays-cancel { booking_id, confirm: true }
 //   alarm kind 'pwatch' (account.js): stayWatchDue
 
-import { earnBooking } from './rewards.js';
+import { readSealed } from './sealed.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { hotelLoyaltyFor, hotelLoyaltyView } from './loyalty.js';
 import { StaysError, priceDrop, staysFor } from './stays.js';
@@ -74,7 +74,7 @@ export async function stayOp(account, op, body, deps = {}) {
         if (body.confirm !== true) throw new TripError('stays-book needs confirm: true (the person pressed Book).');
         const q = (await account.storage.get(`stq:${String(body.quote_id)}`)) || {};
         // the quote's own programme, as Duffel named it; never one from the request
-        const loyal = hotelLoyaltyFor((await account.storage.get('tloyalh')) || [], body.guests, q.loyalty_programme);
+        const loyal = hotelLoyaltyFor(await readSealed(account, 'tloyalh'), body.guests, q.loyalty_programme);
         const { loyalty_programme_account_number: _ignored, ...rest } = body;
         const b = await stays.book({ ...rest, ...(loyal ? { loyalty_programme_account_number: loyal.number } : {}), confirm: true });
         if (body.id && body.stop && deps.tripOp) {
@@ -89,7 +89,6 @@ export async function stayOp(account, op, body, deps = {}) {
           room: q.room || null, refunds: (q.cancellation && Array.isArray(q.cancellation.refunds) ? q.cancellation.refunds : []), // the refund timeline: a later cancel's card refund
           created: now(), drop: null,
         });
-        await earnBooking(account, 'stay', b.booking_id).catch(() => {}); // Eden Rewards (rewards.js)
         await armStayWatch(account);
         return loyal ? { ...b, loyalty: { programme: loyal.programme, name: loyal.name, guest: loyal.guest, number: loyal.masked } } : b;
       }

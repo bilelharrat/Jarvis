@@ -438,3 +438,38 @@ test('native passkey sign-up is rate limited per network and globally; web sign-
   // The web route refuses a request with no Origin.
   assert.equal((await hit('/api/web/passkey/options', { method: 'POST', body: { mode: 'signup' }, origin: null })).status, 403);
 });
+
+test('native passkey sign-up without a Turnstile answer costs the global bucket 10 times (M5); with one, siteverify instead', async () => {
+  env = makeEnv();
+  const nativeSignup = (body = {}) => hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signup', ...body }, origin: null });
+  assert.equal((await nativeSignup()).status, 200);
+  assert.equal(env.AUTH_RATE.keys.filter((k) => k === 'native-pk-signup:global').length, 10);
+  env.AUTH_RATE.max = 15; // the second untokened sign-up passes 15 of its 10 tries: refused
+  assert.equal((await nativeSignup()).status, 429);
+  env.AUTH_RATE.max = 1000;
+  env.AUTH_RATE.keys.length = 0;
+  env = { ...env, NATIVE_SIGNUP_WEIGHT: '3' };
+  assert.equal((await nativeSignup()).status, 200);
+  assert.equal(env.AUTH_RATE.keys.filter((k) => k === 'native-pk-signup:global').length, 3);
+  // an app that rendered Turnstile: its answer is checked (Turnstile off here: passes) and the global bucket isn't charged
+  env.AUTH_RATE.keys.length = 0;
+  assert.equal((await nativeSignup({ turnstile: 'a-token' })).status, 200);
+  assert.equal(env.AUTH_RATE.keys.filter((k) => k === 'native-pk-signup:global').length, 0);
+  assert.equal((await nativeSignup({ code_challenge: 'nope' })).status, 400);
+});
+
+test('native passkey with PKCE (M2): the handoff opens only with the app’s verifier', async () => {
+  env = makeEnv();
+  const verifier = 'v'.repeat(43);
+  const challenge = b64url(await sha256(verifier));
+  const key = await authenticator();
+  const o = await (await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signup', code_challenge: challenge }, origin: null })).json();
+  const made = await (await hit('/api/web/native/passkey/verify', { method: 'POST', body: { credential: await key.create(o.publicKey) }, origin: null })).json();
+  const bare = await hit(`/api/web/handoff?code=${made.handoff}`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.ok(!cookieValue(bare, '__Host-eden'), 'no verifier: nothing');
+  const s = await (await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signin', code_challenge: challenge }, origin: null })).json();
+  const back = await (await hit('/api/web/native/passkey/verify', { method: 'POST', body: { credential: await key.get(s.publicKey) }, origin: null })).json();
+  const ok = await hit(`/api/web/handoff?code=${back.handoff}&code_verifier=${verifier}`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.equal(ok.headers.get('location'), '/');
+  assert.ok(cookieValue(ok, '__Host-eden'));
+});

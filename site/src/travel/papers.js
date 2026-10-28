@@ -24,6 +24,7 @@
 // apply-by day itself. Each once; one whose morning passed long ago is not sent late. Fixed items stop on their own,
 // because each run checks the papers again.
 
+import { readSealed, writeSealed } from './sealed.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { TripError, dayDate } from './trips.js';
 import { localInstant } from './reminders.js';
@@ -223,7 +224,7 @@ export async function checkTrip(account, id, trip = null) {
   const storage = account.storage;
   trip ||= await storage.get(`trip:${id}`);
   if (!trip) throw new TripError('There is no such trip.', 404, 'not_found');
-  const all = (await storage.get('tpapers')) || [];
+  const all = await readSealed(account, 'tpapers');
   const kept = await tripEntry(storage, id);
   const end = dayDate(trip, Math.max(0, trip.days.length - 1));
   const derived = !kept.countries;
@@ -239,14 +240,14 @@ export async function checkTrip(account, id, trip = null) {
 
 export async function papersOp(account, op, body = {}) {
   const storage = account.storage;
-  let list = (await storage.get('tpapers')) || [];
+  let list = await readSealed(account, 'tpapers');
   const out = () => ({ travellers: list.map(view), kinds: kinds(), rules_verified: RULES_VERIFIED });
   if (op === 'trip-papers') return out();
   if (op === 'trip-papers-delete') {
     const id = String(body.id || '');
     if (!ID.test(id) || !list.some((p) => p.id === id)) throw new TripError('There is no such traveller.', 404, 'not_found');
     list = list.filter((p) => p.id !== id);
-    await storage.put('tpapers', list);
+    await writeSealed(account, 'tpapers', list);
     return out();
   }
   if (op === 'trip-papers-save') {
@@ -258,7 +259,7 @@ export async function papersOp(account, op, body = {}) {
     const left = list.filter((x) => x !== old);
     if (left.length >= PAPERS.max) throw new TripError(`Eden keeps papers for at most ${PAPERS.max} travellers. Remove one first.`, 409, 'too_many');
     list = [...left, { id: old ? old.id : newId(), ...p, added: old ? old.added : account.now() }];
-    await storage.put('tpapers', list);
+    await writeSealed(account, 'tpapers', list);
     return out();
   }
   if (op === 'trip-entry-check') {
@@ -305,7 +306,7 @@ export function stageTimes(item, firstSeen, zone = null, arrive = null) {
 
 async function openForTrips(account) {
   const storage = account.storage;
-  if (!((await storage.get('tpapers')) || []).length) return [];
+  if (!(await readSealed(account, 'tpapers')).length) return [];
   const now = today(account), out = [];
   for (const [k, trip] of await storage.list({ prefix: 'trip:' })) {
     if (!trip || !Array.isArray(trip.days) || !trip.start) continue;

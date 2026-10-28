@@ -118,27 +118,66 @@ test('the Android app’s Apple sign-in: cancel, bad state, bad token and not se
   assert.match(cookieValue(posted, '__Host-eden-apple') || '', /^[^.]+\.[^.]+\.s/);
 });
 
+// PKCE (security review M2): the app keeps the verifier, the server only ever sees its SHA-256
+const VERIFIER = b64url(new Uint8Array(32).fill(7));
+const challengeOf = async (v) => b64url(await sha256(v));
+const TRAVEL_UA = `${CHROME} EdenTravelApp/1.0 EdenAndroid/1.0`;
+
 test('Ask Eden Travel for Android: its sign-ins (?app=travel, or ?app=1 from its web view) end on com.askeden.travel://signin', async () => {
-  const start = await hit('/api/web/apple?app=travel');
+  const C = await challengeOf(VERIFIER);
+  const start = await hit(`/api/web/apple?app=travel&code_challenge=${C}`);
   const attempt = cookieValue(start, '__Host-eden-apple');
   assert.match(attempt, /^[^.]+\.[^.]+\.t/);
   const [state, nonce] = attempt.split('.');
   const back = await appleBack(attempt, { state, id_token: await identityToken({ sub: 'apple-travel-1', nonce, aud: SERVICES_ID }) });
   const end = new URL(back.headers.get('location'));
   assert.equal(`${end.protocol}//${end.host}${end.pathname}`, 'com.askeden.travel://signin');
-  const opened = await hit(`/api/web/handoff?code=${end.searchParams.get('code')}`, { headers: { 'sec-fetch-site': 'none' } });
+  const opened = await hit(`/api/web/handoff?code=${end.searchParams.get('code')}&code_verifier=${VERIFIER}`, { headers: { 'sec-fetch-site': 'none', 'user-agent': TRAVEL_UA } });
   assert.equal(opened.headers.get('location'), '/');
+  // without a challenge the Travel app's sign-in doesn't start
+  assert.equal((await hit('/api/web/apple?app=travel')).headers.get('location'), 'com.askeden.travel://signin?error=state');
   // its errors too
-  const a2 = cookieValue(await hit('/api/web/apple?app=travel'), '__Host-eden-apple');
+  const a2 = cookieValue(await hit(`/api/web/apple?app=travel&code_challenge=${C}`), '__Host-eden-apple');
   assert.equal((await appleBack(a2, { error: 'user_cancelled_authorize', state: a2.split('.')[0] })).headers.get('location'), 'com.askeden.travel://signin?error=cancelled');
   // the Travel app's web view's own user agent with ?app=1
-  const ua = `${CHROME} EdenTravelApp/1.0 EdenAndroid/1.0`;
-  assert.match(cookieValue(await hit('/api/web/apple?app=1', { headers: { 'user-agent': ua } }), '__Host-eden-apple'), /^[^.]+\.[^.]+\.t/);
+  const ua = TRAVEL_UA;
+  assert.match(cookieValue(await hit(`/api/web/apple?app=1&code_challenge=${C}`, { headers: { 'user-agent': ua } }), '__Host-eden-apple'), /^[^.]+\.[^.]+\.t/);
   assert.match(cookieValue(await hit('/api/web/apple?app=1', { headers: { 'user-agent': `${CHROME} EdenTravelApp/1.0` } }), '__Host-eden-apple'), /^[^.]+\.[^.]+\.a/, 'the iPhone’s Travel app: Eden’s scheme, as before');
   env = makeEnv({ WEB_APPLE_SERVICES_ID: '' });
   assert.equal((await hit('/api/web/apple?app=travel')).headers.get('location'), 'com.askeden.travel://signin?error=not_set_up');
   env = makeEnv();
   assert.match(cookieValue(await hit('/api/web/apple?app=travel', { method: 'POST', body: {}, form: true }), '__Host-eden-apple') || '', /^[^.]+\.[^.]+\.s/, 'never from a form post');
+});
+
+test('PKCE and app binding (M2/M3): a stolen code is useless, a pushed code is refused, a Travel code opens only in Travel', async () => {
+  const C = await challengeOf(VERIFIER);
+  const signIn = async (q, sub, ua = CHROME) => {
+    const attempt = cookieValue(await hit(`/api/web/apple?${q}`, { headers: { 'user-agent': ua } }), '__Host-eden-apple');
+    const [state, nonce] = attempt.split('.');
+    const back = await appleBack(attempt, { state, id_token: await identityToken({ sub, nonce, aud: SERVICES_ID }) });
+    return new URL(back.headers.get('location')).searchParams.get('code');
+  };
+  const open = (code, extra = '', ua = TRAVEL_UA) => hit(`/api/web/handoff?code=${code}${extra}`, { headers: { 'sec-fetch-site': 'none', 'user-agent': ua } });
+  const failed = (r) => /error=/.test(r.headers.get('location') || '') && !(r.headers.getSetCookie() || []).some((c) => c.startsWith('__Host-eden='));
+  // another app caught the code on the scheme: without the verifier it opens nothing (and it's gone)
+  let code = await signIn(`app=travel&code_challenge=${C}`, 'apple-pkce-1');
+  assert.ok(failed(await open(code)), 'no verifier');
+  assert.ok(failed(await open(code, `&code_verifier=${VERIFIER}`)), 'taken once');
+  code = await signIn(`app=travel&code_challenge=${C}`, 'apple-pkce-1');
+  assert.ok(failed(await open(code, `&code_verifier=${b64url(new Uint8Array(32).fill(8))}`)), 'a wrong verifier');
+  // a Travel code redeemed in another app's web view
+  code = await signIn(`app=travel&code_challenge=${C}`, 'apple-pkce-1');
+  assert.ok(failed(await open(code, `&code_verifier=${VERIFIER}`, `${CHROME} EdenApp/1.0 EdenAndroid/1.0`)));
+  // login CSRF: an attacker's own code (minted without a challenge) pushed into an app that sends its verifier
+  code = await signIn('app=1', 'apple-attacker', CHROME);
+  assert.ok(failed(await open(code, `&code_verifier=${VERIFIER}`, `${CHROME} EdenApp/1.0 EdenAndroid/1.0`)));
+  // Eden for Android with PKCE works; iOS without (ASWebAuthenticationSession) as before
+  code = await signIn(`app=1&code_challenge=${C}`, 'apple-pkce-2');
+  assert.equal((await open(code, `&code_verifier=${VERIFIER}`, `${CHROME} EdenApp/1.0 EdenAndroid/1.0`)).headers.get('location'), '/');
+  code = await signIn('app=1', 'apple-pkce-3');
+  assert.equal((await open(code, '', 'Mozilla/5.0 (iPhone) EdenApp/1.0')).headers.get('location'), '/');
+  // a malformed challenge never starts
+  assert.equal((await hit('/api/web/apple?app=1&code_challenge=short')).headers.get('location'), 'com.askeden.eden://signin?error=state');
 });
 
 // ── Digital Asset Links ──

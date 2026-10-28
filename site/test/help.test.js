@@ -212,11 +212,11 @@ test('daily caps: questions, screenshots, Eden’s own budget; and the per-minut
   assert.equal((await broke.json()).code, 'help_busy');
 
   env = makeEnv();
-  env.EDEN_RATE = rateLimiter(1);
+  env.USER_RATE = rateLimiter(1); // a signed-in person's asks: USER_RATE, a ceiling against scripts
   const s3 = await signedIn('apple-user-3');
   assert.equal((await ask(s3, { question: 'Your Mac is offline' })).status, 200);
   assert.equal((await ask(s3, { question: 'Your Mac is offline' })).status, 429);
-  assert.ok(env.EDEN_RATE.keys.every((k) => k.startsWith('help:')));
+  assert.ok(env.USER_RATE.keys.every((k) => k.startsWith('help:')));
 });
 
 test('Help is free: the account’s allowance and usage don’t move, and nothing of the question is stored', async () => {

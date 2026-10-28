@@ -61,7 +61,7 @@ test('tripTaken: the end has a grace for time zones; tripEvidence can ask for a 
     t.days[0].stops[0].booked = { via: 'api' };
     assert.equal(tripTaken(t, T0).days, 2);
   } finally { REWARDS.tripEvidence = null; }
-  assert.deepEqual(EVIDENCE, ['api', 'mail', 'forward'], 'the default: a trip earns only with a stop booked by Eden or read from a confirmation email');
+  assert.equal(EVIDENCE, 'paid', 'the default: a trip earns only with a stop under a paid Eden booking (travel-rewards-paid.test.js)');
   assert.equal(tripTaken(trip('2026-01-01', 40), T0).days, REWARDS.earn.tripMaxDays);
 });
 

@@ -2,13 +2,15 @@
 // decision, 2026-10-28: Plus is the membership, Rewards and status are its perks). Nothing here is money: points can't
 // be bought, sold, transferred or paid out, and every number below is a config the owner can change (REWARDS).
 //
-// The ledger, in the account's own object, append-only: rwd:e:<n> → { n, kind: 'earn'|'redeem'|'undo', reason, amount,
+// The ledger, in the account's own object, append-only: rwd:e:<n> → { n, kind: 'earn'|'redeem'|'undo'|'clawback', reason, amount,
 // at, ref, expires?, meta } and rwd:ref:<ref> → n, so one event (a trip, a booking, a redemption) is written once
 // however often it arrives. The balance is never stored: it's derived from the entries (ledgerState), each earn a lot
 // that expires REWARDS.expiryMonths after it was earned, spent oldest first (FIFO), an undo giving back the same lots.
 //
 // Earned on:  a trip taken (once it has ended, once per trip, by its days: settleTrips) · a booking made through Eden
-// (earnBooking: flight, stay, rail, activity; per booking, not per price) · a recap shared with the people on the trip
+// (earnBooking: flight, stay, rail, activity; per booking, not per price; only once the traveller's card was charged for it
+// with live keys: pay.js earnPaid, never a held flight or a test booking, and taken back by clawBooking when it's
+// cancelled or refunded) · a recap shared with the people on the trip
 // (earnShare, once per trip) · hooks only for now: an accuracy report confirmed useful (earnAccuracy) and a person you
 // invited who joins Plus (earnReferral, on the inviter's object; referrerOf on the member's).
 // Status (tierOf): Explorer, Voyager, Navigator, from the trips that earned points in the last 12 months.
@@ -41,9 +43,11 @@ export const REWARDS = {
   },
   rated: ['trip', 'booking'], // the reasons a tier's bonus rate multiplies
   // A trip counts when it ended, has at least one stop, and was made before it started (no points for typing in a past
-  // trip). tripEvidence: null = any stop; a list of booking `via`s (trips.js cleanBooking) = only a trip with a stop
-  // booked one of those ways counts. OWNER DECISION: ['api', 'mail', 'forward'] would stop made-up trips.
-  tripEvidence: ['api', 'mail', 'forward'], // owner's call (2026-10-28 lead default): a trip earns only with a stop booked by Eden or read from a confirmation email; null = any stop
+  // trip). tripEvidence: null = any stop; a list of booking `via`s (trips.js cleanBooking) = a stop booked one of those
+  // ways; 'paid' = a stop whose booking reference is one of a booking Eden charged the traveller for and that wasn't
+  // cancelled, each booking counting for one trip only. The page can name any `via`, and a forwarded or imported email
+  // proves nothing (anyone can write one, DKIM isn't checked), so 'paid' (security review H1, 2026-10-28).
+  tripEvidence: 'paid',
   endGraceMs: 12 * 3600_000, // a trip has ended 12 hours after its last day's end in UTC (covers time zones west of UTC)
   tierWindowMs: 365 * DAY,
   tiers: [
@@ -101,8 +105,22 @@ export function expiryOf(at) {
 export function ledgerState(entries, now) {
   const lots = [];
   const redemptions = new Map();
+  const byRef = new Map(); // an earn's ref → its lot (a clawback takes from it first)
+  let debt = 0; // points clawed back after they were spent: the balance owes them
   for (const e of [...entries].sort((a, b) => a.n - b.n)) {
-    if (e.kind === 'earn') lots.push({ n: e.n, left: e.amount, expires: e.expires, at: e.at });
+    if (e.kind === 'earn') { const lot = { n: e.n, left: e.amount, expires: e.expires, at: e.at }; lots.push(lot); byRef.set(e.ref, lot); }
+    else if (e.kind === 'clawback') { // a booking cancelled or refunded: its points go, from its own lot, then the oldest
+      let need = -e.amount;
+      const own = byRef.get(e.meta && e.meta.earned);
+      for (const lot of own ? [own, ...lots.filter((l) => l !== own)] : lots) {
+        if (need <= 0) break;
+        if (lot.left <= 0 || lot.expires <= e.at) continue;
+        const take = Math.min(lot.left, need);
+        lot.left -= take;
+        need -= take;
+      }
+      debt += need;
+    }
     else if (e.kind === 'redeem') {
       let need = -e.amount;
       const alloc = [];
@@ -124,7 +142,7 @@ export function ledgerState(entries, now) {
   }
   let balance = 0, expired = 0;
   for (const lot of lots) if (lot.expires > now) balance += lot.left; else expired += lot.left;
-  return { balance, expired, lots, redemptions };
+  return { balance: balance - debt, expired, lots, redemptions };
 }
 
 /** The lots expiring within REWARDS.soonMs: [{ points, on }] by date. */
@@ -158,8 +176,12 @@ export function tierOf(entries, now) {
   return { tier, trips, days, progress };
 }
 
-/** Whether a trip counts as taken at `now`: ended, a stop, made before it began, and (REWARDS.tripEvidence) booked. */
-export function tripTaken(trip, now) {
+/**
+ * Whether a trip counts as taken at `now`: ended, a stop, made before it began, and (REWARDS.tripEvidence) booked.
+ * `paid`: for 'paid', the references of bookings Eden charged for that no other trip used (paidRefs); the one used is
+ * returned as `evidence`.
+ */
+export function tripTaken(trip, now, paid = new Set()) {
   if (!trip || !trip.start || !Array.isArray(trip.days) || !trip.days.length) return null;
   const stops = trip.days.flatMap((d) => d.stops || []);
   if (!stops.length) return null;
@@ -168,8 +190,13 @@ export function tripTaken(trip, now) {
   const endAt = Date.parse(`${end}T00:00:00Z`) + DAY + REWARDS.endGraceMs;
   if (!Number.isFinite(startAt) || now < endAt) return null;
   if (!(Number.isFinite(trip.created) && trip.created < startAt)) return null;
-  if (REWARDS.tripEvidence && !stops.some((s) => s.booked && REWARDS.tripEvidence.includes(s.booked.via))) return null;
-  return { days: Math.min(trip.days.length, REWARDS.earn.tripMaxDays), end, end_at: endAt };
+  let evidence = null;
+  if (REWARDS.tripEvidence === 'paid') {
+    const hit = stops.find((s) => s.booked && paid.has(refKey(s.booked.ref)));
+    if (!hit) return null;
+    evidence = refKey(hit.booked.ref);
+  } else if (Array.isArray(REWARDS.tripEvidence) && !stops.some((s) => s.booked && REWARDS.tripEvidence.includes(s.booked.via))) return null;
+  return { days: Math.min(trip.days.length, REWARDS.earn.tripMaxDays), end, end_at: endAt, ...(evidence ? { evidence } : {}) };
 }
 
 /* ---------- the ledger in the account object ---------- */
@@ -202,11 +229,49 @@ export async function earn(account, reason, ref, points, meta = null) {
   return append(account, { kind: 'earn', reason, amount: points * rate, ref, meta });
 }
 
-/** A booking made through Eden (flights.js, stayops.js, extraops.js; activities when a partner confirms one). */
-export function earnBooking(account, kind, providerRef) {
+const bookRef = (kind, providerRef) => `book:${kind}:${String(providerRef).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 120)}`;
+const refKey = (ref) => String(ref || '').replace(/\s+/g, '').toUpperCase().slice(0, 80);
+
+/**
+ * A booking the traveller paid for through Eden (pay.js earnPaid, once the card is charged). `refs`: the references a
+ * trip's stop may carry for it (Duffel's order and PNR, a hotel's reference), kept so the trip can count (tripEvidence).
+ */
+export function earnBooking(account, kind, providerRef, { refs = [], trip = null } = {}) {
   const points = REWARDS.earn.booking[kind];
   if (!points || !String(providerRef || '').trim()) return Promise.resolve(null);
-  return earn(account, 'booking', `book:${kind}:${String(providerRef).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 120)}`, points, { kind });
+  const keys = [...new Set([providerRef, ...refs].map(refKey).filter(Boolean))].slice(0, 8);
+  return earn(account, 'booking', bookRef(kind, providerRef), points, { kind, refs: keys, ...(TRIP_ID.test(String(trip)) ? { trip } : {}) });
+}
+
+/**
+ * A booking cancelled or refunded (pay.js payRefund, on every cancel of a paid booking): the points it earned go, once.
+ * A clawback after they were spent leaves the balance short (ledgerState debt) until new points cover it. → entry | null
+ */
+export async function clawBooking(account, providerRef) {
+  if (!String(providerRef || '').trim()) return null;
+  for (const kind of Object.keys(REWARDS.earn.booking)) {
+    const ref = bookRef(kind, providerRef);
+    const n = await account.storage.get(`rwd:ref:${ref}`);
+    if (n === undefined || n === null) continue;
+    const e = await account.storage.get(`rwd:e:${pad(n)}`);
+    if (!e || e.kind !== 'earn') continue;
+    const out = await append(account, { kind: 'clawback', reason: 'booking', amount: -e.amount, ref: `claw:${ref.slice(5)}`, meta: { earned: ref, kind } });
+    return out.entry;
+  }
+  return null;
+}
+
+/** The references of paid bookings not taken back and not yet used by a trip that earned. → Set of refKey */
+export function paidRefs(entries) {
+  const clawed = new Set(entries.filter((e) => e.kind === 'clawback').map((e) => e.meta && e.meta.earned));
+  const used = new Set(entries.filter((e) => e.kind === 'earn' && e.reason === 'trip' && e.meta && e.meta.evidence).map((e) => e.meta.evidence));
+  const out = new Set();
+  for (const e of entries) {
+    if (e.kind !== 'earn' || e.reason !== 'booking' || clawed.has(e.ref) || !e.meta || !Array.isArray(e.meta.refs)) continue;
+    if (e.meta.refs.some((r) => used.has(r))) continue; // one booking, one trip
+    for (const r of e.meta.refs) out.add(r);
+  }
+  return out;
 }
 
 /** A trip's recap (or film) shared with the people on it: once per trip. */
@@ -242,13 +307,21 @@ export async function referrerOf(storage) {
 export async function settleTrips(account) {
   const now = account.now();
   const added = [];
+  const paid = REWARDS.tripEvidence === 'paid' ? paidRefs(await entriesOf(account.storage)) : new Set();
   for (const [key, trip] of await account.storage.list({ prefix: 'trip:' })) {
     const id = key.slice(5);
     if (!TRIP_ID.test(id)) continue;
-    const taken = tripTaken(trip, now);
+    if (await account.storage.get(`rwd:ref:trip:${id}`)) continue; // earned already
+    const taken = tripTaken(trip, now, paid);
     if (!taken) continue;
-    const out = await earn(account, 'trip', `trip:${id}`, taken.days * REWARDS.earn.tripDay, { trip: id, title: String(trip.title || '').slice(0, 120), days: taken.days, end: taken.end, end_at: taken.end_at });
-    if (out && !out.already) added.push(out.entry);
+    const out = await earn(account, 'trip', `trip:${id}`, taken.days * REWARDS.earn.tripDay, { trip: id, title: String(trip.title || '').slice(0, 120), days: taken.days, end: taken.end, end_at: taken.end_at, ...(taken.evidence ? { evidence: taken.evidence } : {}) });
+    if (out && !out.already) {
+      added.push(out.entry);
+      if (taken.evidence) { // that booking is this trip's now
+        const owner = (await entriesOf(account.storage)).find((e) => e.kind === 'earn' && e.reason === 'booking' && e.meta && Array.isArray(e.meta.refs) && e.meta.refs.includes(taken.evidence));
+        for (const r of owner ? owner.meta.refs : [taken.evidence]) paid.delete(r);
+      }
+    }
   }
   return added;
 }

@@ -73,6 +73,7 @@ import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from 
 import { playCap, playOp, withPlayPlan } from './play-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 import { aiSpend } from '../stats/stats.js';
+import { notePhotos, photoNames } from '../travel/picmeter.js';
 
 // what a person keeps after Plus ends: their paid bookings (see, cancel, the card refund) and a payment already under way
 const AFTER_PLUS = new Set(['flight-order', 'flight-cancel_quote', 'flight-cancel_confirm', 'trip-stays-cancel', 'trip-pay-status', 'trip-pay-latest', 'trip-pay-complete']);
@@ -277,6 +278,8 @@ export class Account {
         // an eSIM is ordered only through pay.js (the card held first), never from the page
         if (op === 'trip-esim-order') throw payOn(this.env) ? PAY_FIRST : new ApiError(503, 'not_set_up', 'Buying an eSIM needs card payments switched on.');
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
+        // every photo Eden showed this account may then be fetched through the photo proxy (travel/picmeter.js)
+        if (out && op !== 'trip-pic-take' && op !== 'trip-pic-note') await notePhotos(this, [...photoNames(out)]).catch((e) => console.error('photo note', e && e.message));
         if (stay && stay.total) {
           // the whole price while free, else the timeline's step (what Duffel gives back to Eden's balance)
           const words = await payRefund(this, String(body.booking_id), refundNow(stay, this.now()));

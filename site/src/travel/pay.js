@@ -28,6 +28,7 @@ import { esimFound, esimPrice } from './esim.js';
 import { ApiError } from '../accounts/util.js';
 import { stripeRequest } from '../eden/billing.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
+import { clawBooking, earnBooking } from './rewards.js';
 
 export const payOn = (env) => String(env?.TRAVEL_PAY || '') === '1' && Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 export const PAY_KINDS = ['flight', 'flight_pay', 'stay', 'rail', 'esim'];
@@ -79,6 +80,27 @@ async function priceOf(account, kind, args, { flightOp }) {
   const q = await account.storage.get(`stq:${String(args.quote_id || '')}`);
   if (!q || !q.total) throw new ApiError(409, 'quote_expired', 'Eden has no recent price for this room. Get the price again.');
   return { cents: Math.round(Number(q.total) * 100), currency: q.currency, title: `Hotel: ${(q.accommodation && q.accommodation.name) || 'your stay'}${q.room ? `, ${q.room}` : ''}` };
+}
+
+/**
+ * Eden Rewards for a booking only once real money moved (security review H1, 2026-10-28): Stripe's live key charged the
+ * card, and the provider booked in live mode (a Duffel test token or Distribusion's demo books for free). A held flight
+ * earns nothing until it's paid (flight_pay); an eSIM isn't a booking. Taken back on cancel (payRefund → clawBooking).
+ */
+const EARN_KIND = { flight: 'flight', flight_pay: 'flight', stay: 'stay', rail: 'rail' };
+export function liveMoney(env, kind) {
+  if (!/^(sk|rk)_live_/.test(String(env?.STRIPE_SECRET_KEY || '').trim())) return false;
+  if (kind === 'flight' || kind === 'flight_pay' || kind === 'stay') return String(env.DUFFEL_TOKEN || '').trim().startsWith('duffel_live_') && env.DUFFEL_LIVE === '1';
+  if (kind === 'rail') return env.DISTRIBUSION_ENV === 'production';
+  return false;
+}
+const bookingOf = (result) => (result && (result.order_id || result.booking_id || result.reservation_id)) || null;
+async function earnPaid(account, rec, result, trip) {
+  const kind = EARN_KIND[rec.kind];
+  const booking = bookingOf(result);
+  if (!kind || !booking || !liveMoney(account.env || {}, rec.kind)) return;
+  const refs = [result.booking_reference, result.reference, ...(Array.isArray(result.carrier_refs) ? result.carrier_refs : [])].filter((x) => typeof x === 'string' && x);
+  await earnBooking(account, kind, booking, { refs, trip }).catch((e) => console.error('travel rewards earn', rec.id, e && e.message));
 }
 
 /** The booking itself, once the card is held: the op the card would have called. */
@@ -180,9 +202,11 @@ async function complete(account, op, body, deps) {
     }
     try {
       await deps.stripe('POST', `/payment_intents/${encodeURIComponent(pi.id)}/capture`, {}, { idempotency: `tpay-capture-${id}` });
+      const trip = rec.args && rec.args.id;
       await save({ status: 'paid', result, args: null, paid: account.now() });
       const booking = result && (result.order_id || result.booking_id);
       if (booking) await account.storage.put(`tpayby:${booking}`, id); // a cancellation finds the payment (payRefund)
+      await earnPaid(account, rec, result, trip); // Eden Rewards, now that the card is charged
     } catch (e) {
       // booked, but the charge didn't go through: kept for the owner to see (never booked twice)
       console.error('travel capture failed', id, e && e.message);
@@ -229,6 +253,8 @@ export async function payRefundRetry(account, deps = {}) {
 }
 
 export async function payRefund(account, booking, cents, deps = {}) {
+  // cancelled, refunded or not: the Rewards points it earned go (rewards.js clawBooking)
+  if (booking) await clawBooking(account, String(booking)).catch((e) => console.error('travel rewards clawback', e && e.message));
   const id = booking ? await account.storage.get(`tpayby:${booking}`) : null;
   const rec = id ? await account.storage.get(KEY(id)) : null;
   if (!rec || !rec.intent || rec.status !== 'paid' || rec.refunded) return null;
@@ -327,8 +353,10 @@ async function settle(account, id, rec, deps, now) {
   }
   const found = await findBooking(account, rec, since, deps);
   if (pi.status === 'succeeded') { // charged: the hold is captured only after the booking is made, so it was
+    const trip = rec.args && rec.args.id;
     await save({ status: 'paid', result: found.result || null, args: null, paid: now });
     if (found.booking) await account.storage.put(`tpayby:${found.booking}`, id);
+    if (found.booking) await earnPaid(account, rec, found.result || { order_id: found.booking }, trip);
     else return review(account, id, rec, deps, now, `Charged and booked, but the booking’s number was lost (${PROVIDER[rec.kind]}).`, 'paid');
     return { action: 'finished', status: 'paid' };
   }
@@ -339,8 +367,10 @@ async function settle(account, id, rec, deps, now) {
   }
   if (found.state === 'made') {
     await deps.stripe('POST', `/payment_intents/${encodeURIComponent(pi.id)}/capture`, {}, { idempotency: `tpay-capture-${id}` });
+    const trip = rec.args && rec.args.id;
     await save({ status: 'paid', result: found.result || null, args: null, paid: now });
     if (found.booking) await account.storage.put(`tpayby:${found.booking}`, id);
+    if (found.booking) await earnPaid(account, rec, found.result || { order_id: found.booking }, trip);
     await tell(account, deps, 'Your booking is confirmed', `${rec.title}: booked, and ${money(rec.cents + rec.fee, rec.currency)} was charged to your card.`, id);
     if (!found.booking) return review(account, id, rec, deps, now, `Charged and booked, but the booking’s number was lost (${PROVIDER[rec.kind]}).`, 'paid');
     return { action: 'finished', status: 'paid' };

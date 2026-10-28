@@ -374,5 +374,5 @@ export async function memoryPhotoRoute(request, env, who, { call, ask: askFn = a
     : await call(env, who.account, 'trip-photo-get', { id, photo: p, size }, who.token);
   if (!PHOTO_TYPES[got.type]) throw new ApiError(415, 'bad_type', 'Not a photo.');
   const bytes = Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0));
-  return new Response(bytes, { headers: { 'content-type': got.type, 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'private, max-age=31536000, immutable' } });
+  return new Response(bytes, { headers: { 'content-type': got.type, 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'private, no-store' } }); // never kept by a shared browser (security review M4)
 }

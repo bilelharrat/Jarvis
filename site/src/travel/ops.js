@@ -75,6 +75,7 @@ import { flightPriceDrops, flightWatches, fpwatchOp } from './fpwatch.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 import { holidayLookup } from './holidays.js';
 import { ptoOp } from './pto.js';
+import { picOp, takeDaily } from './picmeter.js';
 
 export const TRIP_HISTORY = 20;
 export const PROPOSAL_MS = 24 * 3600_000;
@@ -343,7 +344,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const mail = stored || deps.mail || (await mailIn(account, body.local === true, body.demo_mail === true, trip));
       const candidate = async (messageId, index = null) => {
         const parts = stored ? await stored.parts(messageId) : messageParts(await mail.full(messageId));
-        return bookingsIn(parts).map((b, i) => ({ source, message: messageId, index: i, subject: parts.subject, from: parts.from, received: parts.date, booking: b, match: matchBooking(trip, b) })).filter((c) => index === null || c.index === index);
+        return bookingsIn(parts).map((b, i) => ({ source, message: messageId, index: i, subject: parts.subject, from: parts.from, received: parts.date, ...(parts.sender ? { sender: parts.sender } : {}), booking: b, match: matchBooking(trip, b) })).filter((c) => index === null || c.index === index);
       };
       if (op === 'trip-mail-scan') {
         const ids = (stored ? await stored.ids() : await mail.search(MAIL_QUERY, SCAN_LIMIT)).slice(0, SCAN_LIMIT);
@@ -411,6 +412,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       return await discoverOp(account, op, body, { maps, cache, fetch: deps.fetch });
     // money and the trip's chat (money.js): `deps.by` is a member's account, set only by members.js
     case 'trip-money': case 'trip-expense-add': case 'trip-expense-delete': case 'trip-people': case 'trip-chat': case 'trip-chat-post': case 'trip-decisions':
+      if (op === 'trip-decisions') await takeDaily(account, 'decisions'); // a model call each press, members' too (picmeter.js DAILY)
       return await moneyOp(account, op, body, { by: deps.by || null, cache, fetch: deps.fetch });
     // tours and tickets (activities.js: Viator, GetYourGuide; off until their keys)
     case 'trip-activities':
@@ -424,8 +426,12 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     // who's looking now, and a copy of the trip (together.js)
     case 'trip-presence-beat': case 'trip-copy':
       return await togetherOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // pictures on Eden's Google key, charged to this account and only of places it was shown (picmeter.js)
+    case 'trip-pic-take': case 'trip-pic-note':
+      return await picOp(account, op, body);
     // smarter planning (plan.js)
     case 'trip-optimize': case 'trip-windows': {
+      if (op === 'trip-windows') await takeDaily(account, 'windows'); // a model reads the venue's site (picmeter.js DAILY)
       const out = await planOp(account, op, body, { maps, cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
       if (op === 'trip-windows') await noteWindow(account, String(body.id || ''), out).catch(() => {}); // a booking window shown (accuracy.js)
       return out;
