@@ -49,12 +49,12 @@ test('forecast: asks Open-Meteo for the daily fields, local time zone, 16 days',
   assert.equal(u.searchParams.get('timezone'), 'auto');
   assert.equal(u.searchParams.get('forecast_days'), String(FORECAST_DAYS));
   assert.equal(u.searchParams.get('latitude'), '38.71');
-  assert.deepEqual(u.searchParams.get('daily').split(',').sort(), ['precipitation_probability_max', 'temperature_2m_max', 'temperature_2m_min', 'weather_code']);
+  assert.deepEqual(u.searchParams.get('daily').split(',').sort(), ['precipitation_probability_max', 'sunrise', 'sunset', 'temperature_2m_max', 'temperature_2m_min', 'weather_code']);
 });
 
 test('forecast: a day in range gets numbers, a summary, source and time', async () => {
   const [d] = await forecast({ ...LISBON, dates: ['2026-10-29'] }, { fetch: fakeFetch({ body: meteoBody() }), now });
-  assert.deepEqual(d, { date: '2026-10-29', high_c: 20.2, low_c: 12.2, rain_chance_pct: 10, summary: 'Slight rain', source: 'Open-Meteo', checked_at: '2026-10-27T10:00:00.000Z' });
+  assert.deepEqual(d, { date: '2026-10-29', high_c: 20.2, low_c: 12.2, rain_chance_pct: 10, summary: 'Slight rain', sunrise: null, sunset: null, source: 'Open-Meteo', checked_at: '2026-10-27T10:00:00.000Z' }); // no sun times in this sample
 });
 
 test('forecast: the range cut-off: later days get no forecast, never a guess', async () => {

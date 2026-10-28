@@ -29,6 +29,7 @@
 // trip-mail-import { id, message, index, stop?, confirm: true } → { trip, checks, stop }  (read again here, then added or marked booked)
 // trip-share-create { ident, date, first_name, trip?, stop? } → { code, url, expires }  (a guest tracking link: track.js)
 // trip-shares {} → { shares }   trip-share-revoke { code } → { revoked }
+// trip-hero { q }                             → { hero }                   (the destination's licensed Commons photo or null: hero.js, kept 30 days)
 // trip-get also returns `rewards` (cards.js tripRewards) once cards are saved.
 
 import { checkTrip, compareChecks } from './checks.js';
@@ -40,6 +41,7 @@ import { shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
 import { priceDrops, stayOp } from './stayops.js';
 import { extraOp } from './extraops.js';
+import { HERO, HeroError, heroFor } from './hero.js';
 import { inviteCreate, inviteRevoke, joinedOp, memberRemove, membersOf } from './members.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
@@ -313,6 +315,19 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-joined': case 'trip-joined-list': case 'trip-joined-drop': return await joinedOp(account, op, body);
     case 'trip-ground-search': case 'trip-ground-stations': case 'trip-weather': case 'trip-entry': case 'trip-rail-check': case 'trip-rail-book':
       return await extraOp(account, op, body, { cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    case 'trip-hero': {
+      const q = String(body.q || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+      if (q.length < 2) throw new TripError('q: the destination.');
+      const key = `hero2:${q.toLowerCase()}`; // hero2: thumb.wikimedia.org links (2026) read right
+      const hit = await cache.get(key);
+      if (hit) return hit;
+      let hero;
+      try { hero = await heroFor(account.env, q, { fetch: deps.fetch, now }); } catch (e) { if (e instanceof HeroError) throw new TripError(e.message, 503, e.code); throw e; }
+      const out = { hero };
+      // a found photo kept 30 days; "none" a day (Wikipedia's lead image may change); a failed lookup isn't kept
+      await cache.put(key, out, hero ? HERO.cacheMs : 86400_000);
+      return out;
+    }
     case 'trip-places': {
       const q = String(body.text || '').trim();
       if (q.length < 2) throw new TripError('text: what to look for.');

@@ -44,7 +44,8 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
   const travelOf = async (from, to, mode) => {
     const a = from.place, b = to.place;
     if (!(Number.isFinite(a.lat) && Number.isFinite(b.lat))) return null;
-    const key = `t:${maps.mode}:${mode}:${a.id || `${a.lat},${a.lng}`}>${b.id || `${b.lat},${b.lng}`}`;
+    // t2: with the transit lines (older entries had none)
+    const key = `t2:${maps.mode}:${mode}:${a.id || `${a.lat},${a.lng}`}>${b.id || `${b.lat},${b.lng}`}`;
     const hit = await cache.get(key);
     if (hit) return hit;
     try {
@@ -96,7 +97,8 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
             status = 'look';
             note = `${words}: only ${Math.max(0, slack)} min to spare.`;
           }
-          badges.travel = { status: t.standin ? 'sample' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes };
+          badges.travel = { status: t.standin ? 'sample' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes, mode: t.mode || s.mode };
+          if (Array.isArray(t.lines)) badges.travel.lines = t.lines; // the rides Google named (transit only; never on stand-in maps)
         }
       }
 

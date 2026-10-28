@@ -6,6 +6,8 @@
 //   GET  /api/chat/travel?id=<id>    → trip-get
 //   GET  /api/chat/travel/map?a=lat,lng&b=lat,lng → the in-flight map's picture (maps.js flightMapImage)
 //   GET  /api/chat/travel/photo?n=places/…/photos/…&w=240 → a stop's Google photo (maps.js placePhoto)
+//   GET  /api/chat/travel/hero?q=<destination> → trip-hero: the destination's licensed Wikimedia Commons photo (hero.js)
+//   GET  /api/chat/travel/hero-image?u=<upload.wikimedia.org/wikipedia/commons/thumb/… url> → that picture (hero.js heroImage)
 //   POST /api/chat/travel { action, args }
 //     pay-start, pay-complete, pay-status, pay-latest: a booking paid with the traveller's card first (pay.js)
 //     calfeed, calfeed-create, calfeed-revoke, gcal-calendars, gcal-status, gcal-sync, gcal-off: the trips in the traveller's calendar (calsync.js)
@@ -16,6 +18,7 @@
 import { ApiError, json } from '../accounts/util.js';
 import { MapsError, flightMapImage, placePhoto } from './maps.js';
 import { tripToIcs } from './ics.js';
+import { HeroError, heroImage } from './hero.js';
 import { memberApi } from './members.js';
 
 const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke']);
@@ -25,7 +28,7 @@ const MEMBER_ACTIONS = new Set(['join', 'shared-list', 'shared-get', 'shared-pro
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
 export async function travelApi(request, env, who, path, { call, limited, readBody, local = false, ...deps }) {
-  if (!travelOn(env) || !['/api/chat/travel', '/api/chat/travel/map', '/api/chat/travel/photo', '/api/chat/travel/calendar'].includes(path)) throw new ApiError(404, 'not_found', 'Not found');
+  if (!travelOn(env) || !['/api/chat/travel', '/api/chat/travel/map', '/api/chat/travel/photo', '/api/chat/travel/hero', '/api/chat/travel/hero-image', '/api/chat/travel/calendar'].includes(path)) throw new ApiError(404, 'not_found', 'Not found');
   await limited(env, 'API_RATE', who.account);
   // the in-flight map's picture (maps.js): a Google Static Map fetched with the server's key
   if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo') {
@@ -33,6 +36,15 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
     // pictures on Eden's Google key: for Eden Travel's members only (the list answers plus: false without Plus)
     if ((await call(env, who.account, 'trip-list', {}, who.token)).plus === false) throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
     try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, new URL(request.url), { fetch: deps.fetch }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : 502, e.code, e.message); throw e; }
+  }
+  // the destination's hero photo (hero.js): Plus-gated as the photos are (trip-hero is a trip op, so the account refuses it
+  // without Plus); the picture only from Commons' thumbnail server
+  if (path === '/api/chat/travel/hero' || path === '/api/chat/travel/hero-image') {
+    if (request.method !== 'GET') throw new ApiError(405, 'bad_request', 'GET');
+    const url = new URL(request.url);
+    if (path === '/api/chat/travel/hero') return json(await call(env, who.account, 'trip-hero', { q: url.searchParams.get('q') || '' }, who.token));
+    if ((await call(env, who.account, 'trip-list', {}, who.token)).plus === false) throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
+    try { return await heroImage(url, { fetch: deps.fetch }); } catch (e) { if (e instanceof HeroError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_found' ? 404 : 502, e.code, e.message); throw e; }
   }
   if (path === '/api/chat/travel/calendar') {
     const id = new URL(request.url).searchParams.get('id') || '';

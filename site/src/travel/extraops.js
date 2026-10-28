@@ -4,7 +4,8 @@
 //
 //   trip-ground-search   { mode: 'ferry'|'train'|'bus'|'car', from, to, date, adults }   → { options, mode }
 //   trip-ground-stations { mode: 'ferry'|'train', query }                               → ports or stations
-//   trip-weather         { id }    → { days: [{ date, place, high_c, low_c, rain_chance_pct, summary } | { date, forecast: null, why }] }
+//   trip-weather         { id }    → { days: [{ date, place, high_c, low_c, rain_chance_pct, summary, sunrise, sunset } | { date, forecast: null, why }],
+//                                      after_dark: afterDark(trip, days) }
 //   trip-entry           { country_code, passport? }   → the official pages to read (never rules of Eden's own)
 //   trip-rail-check      { offer_id, passenger_ids, adults, currency }  → Distribusion's live seats and price (kept a while)
 //   trip-rail-book       { offer_id, passenger_ids, passengers: [{ first_name, last_name }], email, terms_accepted: true,
@@ -15,7 +16,7 @@
 import { GroundError, groundFor } from './ground.js';
 import { entryAdvice } from './entry.js';
 import { forecast } from './weather.js';
-import { TripError, dayDate } from './trips.js';
+import { TripError, dayDate, hhmm, minutesOf } from './trips.js';
 
 export const WEATHER_MS = 3 * 3600_000; // a forecast kept 3 hours per trip
 export const RAIL_CHECK_MS = 20 * 60_000; // a seat check is good this long for the booking that follows
@@ -79,7 +80,7 @@ export async function extraOp(account, op, body, deps = {}) {
         const id = String(body.id || '');
         const trip = await account.storage.get(`trip:${id}`);
         if (!trip) throw new TripError('There is no such trip.', 404, 'not_found');
-        const key = `w:${id}:${trip.rev}`;
+        const key = `w2:${id}:${trip.rev}`; // w2: with sunrise, sunset and after_dark
         const hit = cache && (await cache.get(key));
         if (hit) return hit;
         // each day's weather where that day is: its first stop on the map
@@ -91,7 +92,7 @@ export async function extraOp(account, op, body, deps = {}) {
           if (!Array.isArray(f)) return { date, forecast: null, why: f.error || 'No forecast', source: f.source, checked_at: f.checked_at };
           return { ...(f[0] || { date, forecast: null, why: 'No forecast' }), place: at.place.name };
         }));
-        const out = { days };
+        const out = { days, after_dark: afterDark(trip, days) };
         if (cache) await cache.put(key, out, WEATHER_MS);
         return out;
       }
@@ -103,4 +104,25 @@ export async function extraOp(account, op, body, deps = {}) {
         throw new TripError('Unknown trip op.', 404, 'not_found');
     }
   } catch (e) { throw asTripError(e); }
+}
+
+// A view or an outdoor sight planned after dark: an activity or visit whose end (its time + minutes) is after that day's
+// sunset (weatherDays[i].sunset, "HH:MM" from Open-Meteo), and whose name says it is something to see outside. Days with
+// no sunset (too far ahead for the forecast) aren't judged. → [{ day, stop, text, source, checked_at }]
+export const OUTDOOR = /\b(miradouro|viewpoint|view|lookout|beach|park|garden|hike|trail|belvedere|terrace|rooftop)s?\b/i;
+export function afterDark(trip, weatherDays) {
+  const out = [];
+  (trip?.days || []).forEach((d, i) => {
+    const w = Array.isArray(weatherDays) ? weatherDays[i] : null;
+    if (!w || !/^\d{2}:\d{2}$/.test(String(w.sunset || ''))) return;
+    const dark = minutesOf(w.sunset);
+    for (const s of d.stops || []) {
+      if (s.kind !== 'activity' && s.kind !== 'visit') continue;
+      if (!OUTDOOR.test(String(s.place?.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) continue;
+      const end = minutesOf(s.at) + (Number(s.minutes) || 0);
+      if (end <= dark) continue;
+      out.push({ day: i, stop: s.id, text: `${s.place.name}: after sunset (${w.sunset}); the visit runs ${s.at}–${hhmm(Math.min(end, 24 * 60 - 1))}.`, source: w.source || 'Open-Meteo', checked_at: w.checked_at || null });
+    }
+  });
+  return out;
 }

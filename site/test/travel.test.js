@@ -605,7 +605,7 @@ test('a stop’s photo: Google’s first photo with its photographer, fetched th
   const res = await placePhoto({ GOOGLE_MAPS_SERVER_KEY: 'k' }, new URL(`https://x/api/chat/travel/photo?n=${encodeURIComponent(name)}&w=5000`), { fetch });
   assert.equal(res.headers.get('content-type'), 'image/jpeg');
   assert.equal(seen[0].pathname, `/v1/${name}/media`);
-  assert.equal(seen[0].searchParams.get('maxWidthPx'), '800', 'width clamped');
+  assert.equal(seen[0].searchParams.get('maxWidthPx'), '1600', 'width clamped (1600: the stop detail’s photo)');
   await assert.rejects(placePhoto({ GOOGLE_MAPS_SERVER_KEY: 'k' }, new URL('https://x/api/chat/travel/photo?n=https://evil.example/x'), { fetch }), /photo name/);
   await assert.rejects(placePhoto({}, new URL(`https://x/api/chat/travel/photo?n=${encodeURIComponent(name)}`), { fetch }), /Google Maps on Eden/);
 });

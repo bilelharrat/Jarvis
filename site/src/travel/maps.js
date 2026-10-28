@@ -11,6 +11,8 @@
 const PLACES = 'https://places.googleapis.com/v1';
 const ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos';
+const ROUTE_FIELDS = 'routes.duration,routes.distanceMeters';
+const TRANSIT_FIELDS = 'routes.legs.steps.travelMode,routes.legs.steps.transitDetails';
 const TIMEOUT = 8000;
 const PHOTO_NAME = /^places\/[A-Za-z0-9_-]{10,300}\/photos\/[A-Za-z0-9_-]{10,1000}$/;
 
@@ -126,16 +128,48 @@ function googleMaps(key, fetcher, now) {
       const body = { origin: point(from), destination: point(to), travelMode: GOOGLE_MODE[m] };
       if (m === 'drive' || m === 'taxi') body.routingPreference = 'TRAFFIC_AWARE';
       if (departAt && (m === 'transit' || body.routingPreference) && Date.parse(departAt) > now()) body.departureTime = new Date(departAt).toISOString();
-      const out = await call(ROUTES, { method: 'POST', headers: headers('routes.duration,routes.distanceMeters'), body: JSON.stringify(body) });
+      // by transit, also the steps' lines (which tram, from which stop), for the day's connectors
+      const fields = m === 'transit' ? `${ROUTE_FIELDS},${TRANSIT_FIELDS}` : ROUTE_FIELDS;
+      const out = await call(ROUTES, { method: 'POST', headers: headers(fields), body: JSON.stringify(body) });
       const r = (out.routes || [])[0];
       if (!r) throw new MapsError('no_route', `Google Maps found no ${m} route between those places.`);
-      return { minutes: Math.round(parseInt(String(r.duration || '0'), 10) / 60), meters: r.distanceMeters || 0, mode: m, standin: false, source: 'Google Maps (Routes API)', checked_at: new Date(now()).toISOString() };
+      const t = { minutes: Math.round(parseInt(String(r.duration || '0'), 10) / 60), meters: r.distanceMeters || 0, mode: m, standin: false, source: 'Google Maps (Routes API)', checked_at: new Date(now()).toISOString() };
+      if (m === 'transit') t.lines = transitLines(r);
+      return t;
     },
   };
 }
 
 // Google's place → ours. Hours: regularOpeningHours.periods ({open:{day,hour,minute}, close:{…}});
 // a place open all day has one period with no close.
+// A transit route's rides, in order, from Routes API steps (RouteLegStep.transitDetails: transitLine { name, nameShort,
+// vehicle { type, name { text } } }, stopDetails { departureStop { name }, arrivalStop { name }, departureTime },
+// localizedValues.departureTime.time.text, headsign, stopCount). Only the fields Google sent: a missing one stays out.
+//   → [{ vehicle, vehicle_type, name, headsign, from, to, stops, departs, departs_text }]
+export function transitLines(route) {
+  const out = [];
+  for (const leg of route?.legs || []) {
+    for (const step of leg?.steps || []) {
+      const t = step?.transitDetails;
+      if (!t || typeof t !== 'object') continue;
+      const line = t.transitLine || {}, v = line.vehicle || {}, sd = t.stopDetails || {};
+      const ride = {
+        vehicle: v.name?.text || v.type,
+        vehicle_type: v.type,
+        name: line.nameShort || line.name,
+        headsign: t.headsign,
+        from: sd.departureStop?.name,
+        to: sd.arrivalStop?.name,
+        stops: Number.isInteger(t.stopCount) ? t.stopCount : undefined,
+        departs: sd.departureTime, // RFC 3339, UTC
+        departs_text: t.localizedValues?.departureTime?.time?.text, // Google's local clock time, as it would show it
+      };
+      out.push(Object.fromEntries(Object.entries(ride).filter(([, x]) => x !== undefined && x !== null && x !== '').map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 120) : x])));
+    }
+  }
+  return out;
+}
+
 export function fromGooglePlace(g, checkedAt) {
   const two = (n) => String(n ?? 0).padStart(2, '0');
   const at = (t) => `${two(t.hour)}:${two(t.minute)}`;
@@ -259,13 +293,13 @@ export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fet
 }
 
 // A place's photo (stop thumbnails): Google Places photo media fetched with the server's key, so the key never reaches
-// the page. `n` is the photo's resource name from a place lookup; `w` its width.
+// the page. `n` is the photo's resource name from a place lookup; `w` its width (up to 1600, the stop detail's photo).
 export async function placePhoto(env, url, { fetch: fetcher = globalThis.fetch } = {}) {
   const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
   if (!key) throw new MapsError('not_set_up', 'Photos need Google Maps on Eden’s server.');
   const name = url.searchParams.get('n') || '';
   if (!PHOTO_NAME.test(name)) throw new MapsError('bad_request', 'n must be a Google place photo name.');
-  const w = Math.min(800, Math.max(80, Math.round(Number(url.searchParams.get('w')) || 240)));
+  const w = Math.min(1600, Math.max(80, Math.round(Number(url.searchParams.get('w')) || 240)));
   let res;
   try { res = await fetcher(`${PLACES}/${name}/media?maxWidthPx=${w}&key=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
   if (res.status === 404 || res.status === 400) throw new MapsError('not_found', 'Google has no such photo now.');

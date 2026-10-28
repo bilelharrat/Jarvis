@@ -44,6 +44,7 @@ import { autodraftDue, autodraftOp } from './autodrafts.js';
 import { notifyOwner, taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
 import { armFlightWatch, flightWatchDue } from '../travel/watch.js';
+import { armRecheck, recheckDue } from '../travel/recheck.js';
 import { stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
@@ -232,7 +233,10 @@ export class Account {
           const words = await payRefund(this, String(body.booking_id), free ? Math.round(Number(stay.total) * 100) : 0);
           if (words) out.card_refund_text = words;
         }
-        if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
+        if (TRIP_WRITES.has(op)) {
+          await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
+          await armRecheck(this, out).catch((e) => console.error('trip recheck', e && e.message)); // re-checked before you go (travel/recheck.js)
+        }
         return json(out);
       }
       switch (op) {
@@ -1061,6 +1065,8 @@ export class Account {
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
       fwatch: () => flightWatchDue(this, { tripOp, notify: notifyOwner }), // a trip's flights: delays, gates, cancellations (travel/watch.js)
       pwatch: () => stayWatchDue(this, { notify: notifyOwner }), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
+      // each trip re-checked a week before, the day before and each morning; what changed pushed once (travel/recheck.js)
+      tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: async () => String(this.env.TRAVEL_PLUS ?? '1') === '0' || (await this.planNow()).active }),
     });
   }
 

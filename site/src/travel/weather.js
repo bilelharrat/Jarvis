@@ -6,7 +6,7 @@
 // a "date" is the day where the stop is, which is what a trip's dates mean.
 
 const API = 'https://api.open-meteo.com/v1/forecast';
-const DAILY = 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max';
+const DAILY = 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset';
 export const FORECAST_DAYS = 16; // the API's limit: forecast_days 0 to 16
 const TIMEOUT = 8000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -57,7 +57,22 @@ export const summaryOf = (code) => (Number.isInteger(code) && WMO[code]) || null
 const dayNumber = (date) => Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400_000);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-/** forecast({ lat, lng, dates }, { fetch, now }) → [{ date, high_c, low_c, rain_chance_pct, summary, source, checked_at }
+// A sunrise or sunset as the place's clock shows it, "HH:MM". Open-Meteo sends local ISO times ("2026-10-27T18:02") in the
+// one UTC offset that holds when asked (its docs: daylight saving changes inside the range are ignored), so the time is
+// turned back to UTC with that offset and read in the place's own time zone. Anything else → null, never a guess.
+export function localClock(value, offsetSeconds, timeZone) {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(String(value || ''));
+  if (!m) return null;
+  if (!Number.isFinite(offsetSeconds) || !timeZone) return m[2];
+  const utc = Date.parse(`${m[1]}T${m[2]}:00Z`) - offsetSeconds * 1000;
+  try {
+    return new Date(utc).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone });
+  } catch {
+    return m[2];
+  }
+}
+
+/** forecast({ lat, lng, dates }, { fetch, now }) → [{ date, high_c, low_c, rain_chance_pct, summary, sunrise, sunset, source, checked_at }
  *  | { date, forecast: null, why, source, checked_at }] in the order asked, or { error, source, checked_at }. */
 export async function forecast({ lat, lng, dates } = {}, { fetch: fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
   const checked_at = new Date(now()).toISOString();
@@ -89,13 +104,15 @@ export async function forecast({ lat, lng, dates } = {}, { fetch: fetcher = glob
 
   const first = times[0], last = times[times.length - 1];
   const col = (name, i) => (Array.isArray(daily[name]) ? num(daily[name][i]) : null);
+  const sun = (name, i) => (Array.isArray(daily[name]) ? localClock(daily[name][i], body.utc_offset_seconds, typeof body.timezone === 'string' ? body.timezone : null) : null);
   return dates.map((date) => {
     if (far(date) || date > last) return noForecast(date, TOO_FAR);
     if (date < first) return noForecast(date, PASSED);
     const i = times.indexOf(date);
     const high = col('temperature_2m_max', i), low = col('temperature_2m_min', i), code = col('weather_code', i);
     // the range's last day is often sent with empty values: no numbers means no forecast
-    if (i < 0 || high === null || low === null || code === null) return noForecast(date, NO_DATA);
-    return { date, high_c: high, low_c: low, rain_chance_pct: col('precipitation_probability_max', i), summary: summaryOf(code), source: SOURCE, checked_at };
+    const sunrise = i < 0 ? null : sun('sunrise', i), sunset = i < 0 ? null : sun('sunset', i);
+    if (i < 0 || high === null || low === null || code === null) return { ...noForecast(date, NO_DATA), sunrise, sunset };
+    return { date, high_c: high, low_c: low, rain_chance_pct: col('precipitation_probability_max', i), summary: summaryOf(code), sunrise, sunset, source: SOURCE, checked_at };
   });
 }
