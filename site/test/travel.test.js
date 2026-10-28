@@ -609,3 +609,22 @@ test('a stop’s photo: Google’s first photo with its photographer, fetched th
   await assert.rejects(placePhoto({ GOOGLE_MAPS_SERVER_KEY: 'k' }, new URL('https://x/api/chat/travel/photo?n=https://evil.example/x'), { fetch }), /photo name/);
   await assert.rejects(placePhoto({}, new URL(`https://x/api/chat/travel/photo?n=${encodeURIComponent(name)}`), { fetch }), /Google Maps on Eden/);
 });
+
+test('a whole trip planned in one card: its named places are found near the destination, flights are not looked up', async () => {
+  const { locate } = await import('../src/travel/ops.js');
+  const seen = [];
+  const maps = { search: async (q) => { seen.push(q); return /^Lisbon$/.test(q) ? [{ id: 'city', name: 'Lisbon', lat: 38.72, lng: -9.14 }] : /Ramiro/.test(q) ? [{ id: 'ChIJramiro', name: 'Cervejaria Ramiro', lat: 38.721, lng: -9.135 }] : /Tower/.test(q) ? [{ id: 'far', name: 'Some Tower', lat: 51.5, lng: -0.12 }] : []; } };
+  const t = { title: 'Lisbon', destination: 'Lisbon', start: '2027-05-12', days: [{ stops: [
+    { kind: 'transport', place: { name: 'BA500 London Heathrow → Lisbon' } },
+    { kind: 'meal', place: { name: 'Cervejaria Ramiro' } },
+    { kind: 'activity', place: { name: 'Belem Tower' } },
+    { kind: 'visit', place: { id: 'ChIJkept', name: 'Already found' } },
+  ] }] };
+  await locate(t, maps);
+  const s = t.days[0].stops;
+  assert.deepEqual(s[1].place, { id: 'ChIJramiro', name: 'Cervejaria Ramiro', lat: 38.721, lng: -9.135 });
+  assert.deepEqual(s[2].place, { name: 'Belem Tower' }, 'a hit 2,000 km away is not taken');
+  assert.equal(s[3].place.id, 'ChIJkept');
+  assert.ok(!seen.some((q) => /BA500/.test(q)), 'a flight is not a place to look up');
+  assert.deepEqual(seen.slice(1).sort(), ['Belem Tower, Lisbon', 'Cervejaria Ramiro, Lisbon']);
+});

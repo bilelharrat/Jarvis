@@ -34,7 +34,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
   // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.
-  if (body.action === 'places' || body.action.startsWith('flight')) await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+  if (body.action === 'places' || body.action === 'create' || body.action.startsWith('flight')) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
   // Eden Mail reads: held to the turn rate; `local` only from wrangler dev with a fake Google (as tasks.js)
   if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `turn:${who.account}`); args.local = local; }
   return json(await call(env, who.account, `trip-${body.action}`, args, who.token));

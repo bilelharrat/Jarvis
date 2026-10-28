@@ -78,7 +78,9 @@ export async function handFinish(request, env) {
     if (kept.host !== travelHost(env) || kept.s !== (await sha256Hex(state))) throw new ApiError(400, 'state', 'That sign-in was started in another browser.');
     if (!webAllowed(env, kept.account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
     const made = await call(env, kept.account_id, 'web-signin', { account_id: kept.account_id, device: { name: browserName(request), app_version: `${travelHost(env)} (askeden.com sign-in)` } });
-    const res = go('/');
+    // a page that moves on, not a redirect: this load came from another site, and a browser holds a Strict cookie back
+    // from the rest of a chain that started there (the next load, started here, has it)
+    const res = note('Opening Eden Travel…', '', '/');
     res.headers.append('set-cookie', cookie(SESSION_COOKIE, made.token, { maxAge: WEB_SESSION_DAYS * 86400 }));
     res.headers.append('set-cookie', clearCookie(HAND_COOKIE, 'Lax'));
     return res;

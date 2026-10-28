@@ -83,7 +83,8 @@ test('the handoff: state in this browser, askeden.com’s session makes a one-ti
   // the code was taken by that try: a fresh one for the right browser
   const minted2 = await hit(`${MAIN}/hand?s=${to.searchParams.get('s')}&on=1`, { headers: { 'sec-fetch-site': 'same-origin' }, cookie: `__Host-eden=${session}` });
   const done = await hit(minted2.headers.get('location'), { cookie: `__Host-eden-hand=${state}` });
-  assert.equal(done.headers.get('location'), '/');
+  assert.equal(done.status, 200, 'a page that moves on: a redirect would carry the cross-site chain on, without the Strict cookie');
+  assert.match(await done.clone().text(), /url=\//);
   const travelSession = cookieValue(done, '__Host-eden');
   assert.ok(travelSession && travelSession !== session, 'its own session, a new browser device');
   const again = await hit(minted2.headers.get('location'), { cookie: `__Host-eden-hand=${state}` });

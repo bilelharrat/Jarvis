@@ -35,7 +35,7 @@ import { checkTrip, compareChecks } from './checks.js';
 import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, cleanIdent, flightAwareFor } from './flightaware.js';
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
-import { mapsFor } from './maps.js';
+import { distanceKm, mapsFor } from './maps.js';
 import { shareCreate, shareList, shareRevoke } from './track.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
@@ -88,10 +88,11 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     await storage.delete(`tprop:${id}`); // a proposal made against the old trip no longer fits
     return after;
   };
-  const create = async (t) => {
+  const create = async (t, { find = false } = {}) => {
     const all = await storage.list({ prefix: 'trip:' });
     if (all.size >= TRIP.max) throw new TripError(`An account keeps at most ${TRIP.max} trips. Delete one first.`, 409, 'too_many');
     const id = hex(8);
+    if (find) await locate(t, maps);
     const trip = cleanTrip(t, { newId, now: now() });
     await storage.put(`trip:${id}`, trip);
     return { trip: { id, ...trip }, checks: await check(trip) };
@@ -110,7 +111,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       return { trip: { id, ...trip }, checks: await check(trip), proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()) };
     }
     case 'trip-create':
-      return await create(body.trip);
+      return await create(body.trip, { find: true });
     case 'trip-sample':
       return await create(sampleTrip(now()));
     case 'trip-update': {
@@ -296,6 +297,31 @@ export async function tripOp(account, op, body = {}, deps = {}) {
 
 // Each changed stop by name, where it was and where it goes (a removed stop is only in `before`),
 // in day order, so a card can say "Moved: National Tile Museum, Day 3 11:00 → Day 2 17:30".
+// A new trip's stops that are named but not on the map (Ask Eden plans a whole trip in one card, naming real places):
+// each looked up near the trip's destination, so its hours and travel times are checked like any other. A stop whose
+// name finds nothing near there stays as it was (and its badge says it isn't on the map). Getting-there stops (a
+// flight, a train) are not places to look up.
+export const LOCATE = { max: 30, km: 80 };
+export async function locate(t, maps) {
+  if (!isObj(t) || !Array.isArray(t.days)) return t;
+  const dest = String(t.destination || '').trim().slice(0, 80);
+  const first = dest ? (await maps.search(dest).catch(() => []))[0] : null;
+  const center = first && Number.isFinite(first.lat) ? { lat: first.lat, lng: first.lng } : null;
+  const todo = [];
+  for (const day of t.days) for (const s of isObj(day) && Array.isArray(day.stops) ? day.stops : []) {
+    const p = isObj(s) ? s.place : null;
+    if (!isObj(p) || p.id || (Number.isFinite(Number(p.lat)) && p.lat !== null && Number.isFinite(Number(p.lng)) && p.lng !== null)) continue;
+    const name = String(p.name || '').trim();
+    if (!name || s.kind === 'transport' || todo.length >= LOCATE.max) continue;
+    todo.push({ s, q: dest && !name.toLowerCase().includes(dest.toLowerCase()) ? `${name}, ${dest}` : name });
+  }
+  await Promise.all(todo.map(async ({ s, q }) => {
+    const hit = (await maps.search(q, center || {}).catch(() => [])).find((h) => Number.isFinite(h.lat) && (!center || distanceKm(h, center) < LOCATE.km));
+    if (hit) s.place = { id: hit.id, name: hit.name, lat: hit.lat, lng: hit.lng };
+  }));
+  return t;
+}
+
 export function changeList(before, after, changed) {
   const where = (trip) => {
     const m = new Map();
