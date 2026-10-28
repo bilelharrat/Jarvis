@@ -48,7 +48,7 @@ import { stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { flightOp } from '../travel/flights.js';
-import { payOn, payOp } from '../travel/pay.js';
+import { payOn, payOp, payRefund } from '../travel/pay.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
@@ -186,7 +186,17 @@ export class Account {
       if (op.startsWith('ad-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Background Auto Drafts are the owner’s.'); return json(await autodraftOp(this, op, body)); } // Auto Drafts in the background (autodrafts.js)
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
-      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); if (payOn(this.env) && ((op === 'flight-book' && body.hold !== true) || op === 'flight-pay')) throw PAY_FIRST; return json(await flightOp(this, op, body)); } // flights through Duffel (travel/flights.js)
+      if (op.startsWith('flight-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Booking flights is the owner’s.'); if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(402, 'plus_required', 'Booking travel is part of Eden Plus.'); if (payOn(this.env) && ((op === 'flight-book' && body.hold !== true) || op === 'flight-pay')) throw PAY_FIRST;
+        const out = await flightOp(this, op, body);
+        // a paid flight cancelled: the airline's quoted refund goes back to the traveller's card (travel/pay.js payRefund)
+        if (op === 'flight-cancel_quote' && out.cancellation_id) await this.storage.put(`tcq:${out.cancellation_id}`, { order_id: out.order_id, refund: out.refund ?? 0 });
+        if (op === 'flight-cancel_confirm' && out.cancelled) {
+          const q = await this.storage.get(`tcq:${String(body.cancellation_id || '')}`);
+          const words = await payRefund(this, out.order_id, q ? q.refund : 0);
+          if (words) out.card_refund_text = words;
+        }
+        return json(out);
+      } // flights through Duffel (travel/flights.js)
       if (op.startsWith('trip-')) {
         if (device.grant) throw new ApiError(403, 'forbidden', 'Trips are the owner’s.');
         // Eden Travel is part of Eden Plus (the owner's decision, 2026-10-28): without it the list answers empty with
@@ -199,7 +209,14 @@ export class Account {
         // paying for a booking with the traveller's card first (travel/pay.js); with payments on, a hotel isn't booked without it
         if (op.startsWith('trip-pay-')) return json(await payOp(this, op, body, { flightOp, tripOp }));
         if (op === 'trip-stays-book' && payOn(this.env)) throw PAY_FIRST;
+        // a paid hotel cancelled within its free cancellation: the whole price goes back to the card (travel/pay.js payRefund)
+        const stay = op === 'trip-stays-cancel' ? await this.storage.get(`stbk:${String(body.booking_id || '')}`) : null;
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
+        if (stay && stay.total) {
+          const free = stay.free_until && this.now() < Date.parse(stay.free_until);
+          const words = await payRefund(this, String(body.booking_id), free ? Math.round(Number(stay.total) * 100) : 0);
+          if (words) out.card_refund_text = words;
+        }
         if (TRIP_WRITES.has(op)) await armFlightWatch(this).catch((e) => console.error('flight watch', e && e.message)); // flight changes pushed (travel/watch.js)
         return json(out);
       }

@@ -10,9 +10,12 @@
 //   3. trip-pay-status { pay_id } / trip-pay-latest: pending | booking | paid | failed (booked: made, but Stripe didn't
 //      take the charge; the owner sees it in Stripe), with the booking or the reason.
 //
+//   4. A paid booking cancelled (account.js): payRefund gives the card back what the provider gives back: a hotel's whole
+//      price within its free cancellation, a flight's refund as the airline quoted it (Duffel refunds Ask Eden's balance).
 // kind: flight (an instant booking: flights.js book), flight_pay (paying a held one: flights.js pay), stay (stayops.js).
 // On only with TRAVEL_PAY = "1" and Stripe's key and webhook secret set (eden/billing.js); then the account refuses those
-// bookings without a payment (account.js, 402 pay_first). TRAVEL_FEE_CENTS: Ask Eden's fee per booking (0 until decided).
+// bookings without a payment (account.js, 402 pay_first). TRAVEL_FEE_CENTS: a fee per booking; unset, as the owner decided
+// (2026-10-28: Eden Travel is part of Plus, no booking fee or markup), so the hold is the fare or stay total only.
 
 import { ApiError } from '../accounts/util.js';
 import { stripeRequest } from '../eden/billing.js';
@@ -151,6 +154,8 @@ async function complete(account, op, body, deps) {
     try {
       await deps.stripe('POST', `/payment_intents/${encodeURIComponent(pi.id)}/capture`, {}, { idempotency: `tpay-capture-${id}` });
       await save({ status: 'paid', result, args: null, paid: account.now() });
+      const booking = result && (result.order_id || result.booking_id);
+      if (booking) await account.storage.put(`tpayby:${booking}`, id); // a cancellation finds the payment (payRefund)
     } catch (e) {
       // booked, but the charge didn't go through: kept for the owner to see (never booked twice)
       console.error('travel capture failed', id, e && e.message);
@@ -160,4 +165,29 @@ async function complete(account, op, body, deps) {
   } finally {
     account.paying.delete(id);
   }
+}
+
+/**
+ * A paid booking was cancelled (account.js, after flight-cancel_confirm or trip-stays-cancel): the card gets `cents` back
+ * (in the booking's currency, never more than was charged), once per cancellation. No payment of Eden's: nothing to do.
+ * Returns words for the page, or null.
+ */
+export async function payRefund(account, booking, cents, deps = {}) {
+  const id = booking ? await account.storage.get(`tpayby:${booking}`) : null;
+  const rec = id ? await account.storage.get(KEY(id)) : null;
+  if (!rec || !rec.intent || rec.status !== 'paid' || rec.refunded) return null;
+  const want = Math.min(Math.max(0, Math.round(Number(cents) || 0)), rec.cents + rec.fee);
+  if (!want) return 'The booking had no refund, so nothing goes back to your card.';
+  const stripe = deps.stripe || ((method, path, params, opts) => stripeRequest(account.env || {}, method, path, params, opts));
+  try {
+    await stripe('POST', '/refunds', { payment_intent: rec.intent, amount: stripeAmount(want, rec.currency), metadata: { pay_id: id, booking: String(booking) } }, { idempotency: `tpay-refund-${id}` });
+  } catch (e) {
+    console.error('travel refund failed', id, e && e.message);
+    Object.assign(rec, { refund_failed: true });
+    await account.storage.put(KEY(id), rec);
+    return 'The booking is cancelled; the refund to your card didn’t go through yet. Eden will sort it out.';
+  }
+  Object.assign(rec, { refunded: want, status: want >= rec.cents + rec.fee ? 'refunded' : 'paid' });
+  await account.storage.put(KEY(id), rec);
+  return `${money(want, rec.currency)} goes back to your card.`;
 }

@@ -6,7 +6,7 @@ import { createHmac } from 'node:crypto';
 import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { call } from '../src/accounts/index.js';
-import { payOp, stripeAmount } from '../src/travel/pay.js';
+import { payOp, payRefund, stripeAmount } from '../src/travel/pay.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Identity, Link, namespace, rateLimiter } from './fakes.js';
 
@@ -33,6 +33,7 @@ function fakeStripe({ pi = null, status = 'complete' } = {}) {
     s.calls.push({ method, path, params, opts });
     if (method === 'POST' && path === '/checkout/sessions') return { id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay/cs_test_1' };
     if (method === 'GET' && path.startsWith('/checkout/sessions/cs_test_1')) return { id: 'cs_test_1', status: s.status, payment_intent: s.pi };
+    if (method === 'POST' && path === '/refunds') return { id: 're_1', amount: params.amount };
     if (method === 'POST' && /^\/payment_intents\/pi_1\/(capture|cancel)$/.test(path)) { s.pi = { ...s.pi, status: path.endsWith('capture') ? 'succeeded' : 'canceled' }; return s.pi; }
     throw new Error(`unexpected ${method} ${path}`);
   };
@@ -154,6 +155,29 @@ test('the webhook must name this payment’s own session; a hotel books through 
   assert.equal((await payOp(account, 'pay-webhook', { pay_id: r.pay_id, session: 'cs_test_1' }, { ...ops, stripe: stripe.fn })).status, 'paid');
   assert.equal(ops.calls.find((c) => c.op === 'trip-stays-book').body.quote_id, 'q1');
   await assert.rejects(payOp(account, 'trip-pay-start', { kind: 'stay', args: { quote_id: 'gone' }, origin: 'https://askedentravel.com' }, { ...ops, stripe: stripe.fn }), /no recent price/);
+});
+
+test('a paid booking cancelled: the card gets back what the provider gave back, once, never more than was charged', async () => {
+  const account = fakeAccount();
+  const stripe = fakeStripe();
+  const ops = bookingOps();
+  const { pay_id } = await start(account, stripe, ops);
+  stripe.pi = { id: 'pi_1', status: 'requires_capture', amount: 41250, currency: 'eur' };
+  await payOp(account, 'trip-pay-complete', { pay_id }, { ...ops, stripe: stripe.fn });
+  assert.equal(account.store.get('tpayby:ord_1'), pay_id, 'the booking finds its payment');
+  // nothing back from the airline: nothing to refund
+  const none = fakeAccount();
+  assert.equal(await payRefund(none, 'ord_1', 1000, { stripe: stripe.fn }), null, 'not a booking Eden took payment for');
+  assert.match(await payRefund(account, 'ord_1', 0, { stripe: stripe.fn }), /no refund/);
+  // more than was charged is capped; the refund is made once
+  assert.equal(await payRefund(account, 'ord_1', 99999, { stripe: stripe.fn }), '€412.50 goes back to your card.');
+  const refunds = stripe.calls.filter((c) => c.path === '/refunds');
+  assert.equal(refunds.length, 1);
+  assert.equal(refunds[0].params.payment_intent, 'pi_1');
+  assert.equal(refunds[0].params.amount, 41250);
+  assert.equal(refunds[0].opts.idempotency, `tpay-refund-${pay_id}`);
+  assert.equal(account.store.get(`tpay:${pay_id}`).status, 'refunded');
+  assert.equal(await payRefund(account, 'ord_1', 41250, { stripe: stripe.fn }), null, 'never twice');
 });
 
 test('Stripe’s units: hundredths for most currencies, whole yen, and three-decimal currencies refused', () => {
