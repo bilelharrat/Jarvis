@@ -9,7 +9,7 @@
 // trip-get { id }                             → { trip, checks, proposal }
 // trip-create { trip }                        → { trip, checks }
 // trip-sample {}                              → { trip, checks }  (three days in Lisbon on stand-in places)
-// trip-update { id, title?, travelers?, budget? } → { trip, checks }
+// trip-update { id, title?, travelers?, budget?, access? } → { trip, checks }
 // trip-delete { id }                          → { deleted: true }
 // trip-edit { id, ops, rev }                  → { trip, checks, changed }  (the person's own change: at once, undoable)
 // trip-propose { id, ops, title, reason, by } → { proposal, preview }      (nothing changes)
@@ -43,6 +43,10 @@ import { priceDrops, stayOp } from './stayops.js';
 import { extraOp } from './extraops.js';
 import { HERO, HeroError, heroFor } from './hero.js';
 import { inviteCreate, inviteRevoke, joinedOp, memberRemove, membersOf } from './members.js';
+import { dropTripDocs, inboxOp, storedMail } from './inbox.js';
+import { discoverOp } from './discover.js';
+import { moneyOp } from './money.js';
+import { planOp } from './plan.js';
 import { TRIP, TripError, applyOps, cleanBooking, cleanStop, cleanTrip, money } from './trips.js';
 
 export const TRIP_HISTORY = 20;
@@ -126,7 +130,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       return await create(sampleTrip(now()));
     case 'trip-update': {
       const { id, trip } = await load();
-      const merged = cleanTrip({ ...trip, title: body.title ?? trip.title, travelers: body.travelers ?? trip.travelers, budget: body.budget === undefined ? trip.budget : body.budget }, { newId, now: trip.created });
+      const merged = cleanTrip({ ...trip, title: body.title ?? trip.title, travelers: body.travelers ?? trip.travelers, budget: body.budget === undefined ? trip.budget : body.budget, access: body.access === undefined ? trip.access : body.access }, { newId, now: trip.created });
       merged.days = trip.days; // stops keep their ids
       const after = await save(id, trip, { ...merged, created: trip.created });
       return { trip: { id, ...after }, checks: await check(after) };
@@ -142,6 +146,12 @@ export async function tripOp(account, op, body = {}, deps = {}) {
         if (x.trip !== id) continue;
         await storage.delete(k);
         if (!x.revoked) await index(account.env, x.code, 'tshare-index-drop', {}).catch(() => {});
+      }
+      // its documents, money and group chat (inbox.js, money.js)
+      await dropTripDocs(storage, id);
+      for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`]) {
+        const keys = [...(await storage.list({ prefix })).keys()];
+        for (let i = 0; i < keys.length; i += 128) await storage.delete(keys.slice(i, i + 128));
       }
       return { deleted: true };
     }
@@ -266,16 +276,20 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-mail-preview':
     case 'trip-mail-import': {
       const { id, trip } = await load();
-      const mail = deps.mail || (await mailIn(account, body.local === true, body.demo_mail === true, trip));
+      // where the email is: Eden Mail (Gmail), or one the person pasted or forwarded (inbox.js), read the same way
+      const source = body.source === 'paste' || body.source === 'inbox' ? body.source : 'mail';
+      const stored = source === 'mail' ? null : storedMail(storage, source);
+      const mail = stored || deps.mail || (await mailIn(account, body.local === true, body.demo_mail === true, trip));
       const candidate = async (messageId, index = null) => {
-        const parts = messageParts(await mail.full(messageId));
-        return bookingsIn(parts).map((b, i) => ({ message: messageId, index: i, subject: parts.subject, from: parts.from, received: parts.date, booking: b, match: matchBooking(trip, b) })).filter((c) => index === null || c.index === index);
+        const parts = stored ? await stored.parts(messageId) : messageParts(await mail.full(messageId));
+        return bookingsIn(parts).map((b, i) => ({ source, message: messageId, index: i, subject: parts.subject, from: parts.from, received: parts.date, booking: b, match: matchBooking(trip, b) })).filter((c) => index === null || c.index === index);
       };
       if (op === 'trip-mail-scan') {
-        const ids = (await mail.search(MAIL_QUERY, SCAN_LIMIT)).slice(0, SCAN_LIMIT);
+        const ids = (stored ? await stored.ids() : await mail.search(MAIL_QUERY, SCAN_LIMIT)).slice(0, SCAN_LIMIT);
+        if (body.message) ids.splice(0, ids.length, String(body.message)); // one pasted confirmation, just now
         const all = [];
         for (const m of ids) { try { all.push(...(await candidate(m))); } catch { /* one unreadable email doesn't stop the scan */ } }
-        const inTrip = all.filter((c) => c.match.action !== 'none' || !c.booking.date);
+        const inTrip = source === 'mail' ? all.filter((c) => c.match.action !== 'none' || !c.booking.date) : all; // pasted or forwarded: all shown, with why
         return { candidates: inTrip.slice(0, 20), scanned: ids.length };
       }
       const msg = String(body.message || '');
@@ -286,7 +300,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const b = c.booking;
       if (!b.ref) throw new TripError('That email has no booking reference, so it can’t mark anything booked.');
       const after = structuredClone(trip);
-      const booked = cleanBooking({ kind: b.kind, ref: b.ref, provider: b.provider, via: 'mail', at: now() }, b.kind);
+      const booked = cleanBooking({ kind: b.kind, ref: b.ref, provider: b.provider, via: source === 'paste' ? 'paste' : source === 'inbox' ? 'forward' : 'mail', at: now() }, b.kind);
       const match = body.stop ? { action: 'mark', stop: String(body.stop) } : c.match;
       let stopId;
       if (match.action === 'mark') {
@@ -298,7 +312,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       } else if (match.action === 'add') {
         if (after.days[match.day].stops.length >= TRIP.stops) throw new TripError(`Day ${match.day + 1} already has ${TRIP.stops} stops.`);
         const minutes = b.start && b.end && b.kind !== 'stay' ? Math.min(1440, Math.max(0, Math.round((Date.parse(b.end) - Date.parse(b.start)) / 60_000))) : 60;
-        const stop = cleanStop({ kind: b.kind || 'activity', place: { name: (b.place && b.place.name) || b.title || 'Booking', ...(b.place && Number.isFinite(b.place.lat) ? { lat: b.place.lat, lng: b.place.lng } : {}) }, at: match.at, minutes: Number.isFinite(minutes) ? minutes : 60, mode: 'taxi', cost: b.cost, nights: b.kind === 'stay' ? b.nights : null, note: `From Eden Mail: ${c.subject}`.slice(0, 300), booked }, newId);
+        const stop = cleanStop({ kind: b.kind || 'activity', place: { name: (b.place && b.place.name) || b.title || 'Booking', ...(b.place && Number.isFinite(b.place.lat) ? { lat: b.place.lat, lng: b.place.lng } : {}) }, at: match.at, minutes: Number.isFinite(minutes) ? minutes : 60, mode: 'taxi', cost: b.cost, nights: b.kind === 'stay' ? b.nights : null, note: `${source === 'paste' ? 'From your pasted confirmation' : source === 'inbox' ? 'From your forwarded email' : 'From Eden Mail'}: ${c.subject}`.slice(0, 300), booked }, newId);
         after.days[match.day].stops.push(stop);
         after.days[match.day].stops.sort((x, y) => x.at.localeCompare(y.at));
         stopId = stop.id;
@@ -325,6 +339,19 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     case 'trip-joined': case 'trip-joined-list': case 'trip-joined-drop': return await joinedOp(account, op, body);
     case 'trip-ground-search': case 'trip-ground-stations': case 'trip-weather': case 'trip-entry': case 'trip-rail-check': case 'trip-rail-book':
       return await extraOp(account, op, body, { cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // bookings in and documents (inbox.js)
+    case 'trip-paste': case 'trip-inbox-address': case 'trip-inbox-reset': case 'trip-inbox-drop':
+    case 'trip-doc-add': case 'trip-docs': case 'trip-doc-get': case 'trip-doc-delete':
+      return await inboxOp(account, op, body);
+    // Discover and Near me (discover.js)
+    case 'trip-discover': case 'trip-nearby':
+      return await discoverOp(account, op, body, { maps, cache, fetch: deps.fetch });
+    // money and the trip's chat (money.js): `deps.by` is a member's account, set only by members.js
+    case 'trip-money': case 'trip-expense-add': case 'trip-expense-delete': case 'trip-people': case 'trip-chat': case 'trip-chat-post': case 'trip-decisions':
+      return await moneyOp(account, op, body, { by: deps.by || null, cache, fetch: deps.fetch });
+    // smarter planning (plan.js)
+    case 'trip-optimize': case 'trip-windows':
+      return await planOp(account, op, body, { maps, cache, fetch: deps.fetch, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
     case 'trip-hero': {
       const q = String(body.q || '').replace(/\s+/g, ' ').trim().slice(0, 100);
       if (q.length < 2) throw new TripError('q: the destination.');

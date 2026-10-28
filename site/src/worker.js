@@ -39,6 +39,8 @@
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
 // disk image is up, so a half-uploaded release is never offered.
 
+import { travelEmail } from './travel/inbox.js';
+import { travelOn } from './travel/api.js';
 import { api, call } from './accounts/index.js';
 import { PIXEL, openVia, readReceiptToken } from './accounts/receipts.js';
 import { tokenFrom } from './accounts/util.js';
@@ -101,6 +103,11 @@ export default {
       console.error('stats: observe failed', error && error.message);
     }
     return baseline(response);
+  },
+  // booking emails forwarded to an Eden Travel address (Cloudflare Email Routing → this Worker; travel/inbox.js)
+  async email(message, env) {
+    if (!travelOn(env)) return message.setReject('Eden Travel isn’t taking email yet.');
+    return travelEmail(message, env);
   },
 };
 

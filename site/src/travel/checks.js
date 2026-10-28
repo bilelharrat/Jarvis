@@ -30,7 +30,7 @@ export const noCache = { get: async () => undefined, put: async () => {} };
 export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now() } = {}) {
   const placeOf = async (stop) => {
     if (!stop.place.id) return null;
-    const key = `p2:${maps.mode}:${stop.place.id}`; // p2: with the place's photo
+    const key = `p3:${maps.mode}:${stop.place.id}`; // p3: with the place's photo, access and website
     const hit = await cache.get(key);
     if (hit) return hit;
     try {
@@ -45,11 +45,12 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
     const a = from.place, b = to.place;
     if (!(Number.isFinite(a.lat) && Number.isFinite(b.lat))) return null;
     // t2: with the transit lines (older entries had none)
-    const key = `t2:${maps.mode}:${mode}:${a.id || `${a.lat},${a.lng}`}>${b.id || `${b.lat},${b.lng}`}`;
+    const lessWalking = Boolean(trip.access && trip.access.step_free) && mode === 'transit';
+    const key = `t2:${maps.mode}:${mode}${lessWalking ? ':lw' : ''}:${a.id || `${a.lat},${a.lng}`}>${b.id || `${b.lat},${b.lng}`}`;
     const hit = await cache.get(key);
     if (hit) return hit;
     try {
-      const t = await maps.travel(a, b, mode);
+      const t = await maps.travel(a, b, mode, lessWalking ? { lessWalking } : undefined);
       await cache.put(key, t, CACHE.travelMs);
       return t;
     } catch (e) {
@@ -111,6 +112,17 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
         badges.hours = { status: p.standin ? 'sample' : h.status, text: h.text, source: p.source, checked_at: p.checked_at };
       }
 
+      // step-free trips: what Google lists of the entrance (never assumed either way)
+      if (trip.access && trip.access.step_free && s.kind !== 'transport') {
+        const e = p && !p.error && p.access ? p.access.entrance : null;
+        badges.access = !p || p.error ? { status: 'unknown', text: 'Not linked to a map place, so its entrance isn’t checked.', source: null, checked_at: null }
+          : p.standin ? { status: 'sample', text: 'Sample place: its entrance isn’t checked.', source: p.source, checked_at: p.checked_at }
+          : e === true ? { status: 'ok', text: 'Step-free entrance, as Google lists it.', source: p.source, checked_at: p.checked_at }
+          : e === false ? { status: 'warn', text: 'Google lists no step-free entrance here.', source: p.source, checked_at: p.checked_at }
+          : { status: 'look', text: 'Google doesn’t say whether the entrance is step-free. Worth calling ahead.', source: p.source, checked_at: p.checked_at };
+        if (e === false) stopAlerts.push({ kind: 'access', stop: s.id, day: d, text: `${s.place.name}: Google lists no step-free entrance.` });
+      }
+
       // price: the trip's own figure, or the place's list price
       if (s.cost) {
         cost += s.cost.amount;
@@ -127,7 +139,18 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       out.push({ stop: s.id, photo: p && !p.error && p.photo ? p.photo : null, arrive: hhmm(Math.max(0, arrive)), leave: hhmm(Math.min(leave, 24 * 60 - 1)), badges, alerts: stopAlerts.map((a) => a.kind) });
     }
     tripCost += cost;
-    days.push({ day: d, date, stops: out, pace: pace(stops.length, move, busy + move, late), move_minutes: move, cost: { amount: round(cost), currency } });
+    // the day measured from where you sleep: the stay to the first stop, the last stop back (changing the hotel moves these)
+    const home = stayFor(trip, d);
+    let anchor = null;
+    const first = stops.find((x) => x.id !== home?.id && x.kind !== 'stay'), last = [...stops].reverse().find((x) => x.id !== home?.id && x.kind !== 'stay');
+    if (home && first && last) {
+      const leg = async (a, b, mode) => {
+        const t = await travelOf(a, b, mode);
+        return !t ? null : t.error ? { status: 'unknown', text: t.error } : { status: t.standin ? 'sample' : 'ok', minutes: t.minutes, mode: t.mode || mode, source: t.source, checked_at: t.checked_at, ...(Array.isArray(t.lines) ? { lines: t.lines } : {}) };
+      };
+      anchor = { stay: home.place.name, stay_stop: home.id, out: home.arrival ? null : await leg(home, first, first.mode === 'walk' ? 'walk' : 'transit'), back: await leg(last, home, last.mode === 'walk' ? 'walk' : 'transit'), to: first.id, from: last.id };
+    }
+    days.push({ day: d, date, stops: out, pace: pace(stops.length, move, busy + move, late), move_minutes: move, cost: { amount: round(cost), currency }, anchor });
   }
   const verdicts = days.map((x) => x.pace);
   return {
@@ -138,6 +161,21 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
     pace: verdicts.includes('rushed') ? 'rushed' : verdicts.includes('full') ? 'full' : 'unhurried',
     cost: { amount: round(tripCost), currency, budget: trip.budget, over: trip.budget ? round(tripCost - trip.budget.amount) > 0 : false },
   };
+}
+
+/** Where the traveller sleeps around day d: the stay they woke up in (a stay on an earlier day whose nights reach d),
+ *  else the one they check into that day (`arrival`: then only the way back to it counts). */
+export function stayFor(trip, d) {
+  const lastStay = (i) => [...trip.days[i].stops].reverse().find((x) => x.kind === 'stay' && Number.isFinite(x.place.lat));
+  for (let i = Math.min(d, trip.days.length) - 1; i >= 0; i--) {
+    const s = lastStay(i);
+    if (!s) continue;
+    const nights = Number.isInteger(s.nights) && s.nights > 0 ? s.nights : trip.days.length - 1 - i;
+    if (i + nights >= d) return { ...s, arrival: false };
+    break;
+  }
+  const today = d < trip.days.length ? lastStay(d) : null;
+  return today ? { ...today, arrival: true } : null;
 }
 
 // Whether the place is open for this visit: closed for good, closed that weekday, or the visit

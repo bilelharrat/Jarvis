@@ -49,6 +49,7 @@ import { refundNow, stayWatchDue } from '../travel/stayops.js';
 import { sharePublicOp } from '../travel/track.js';
 import { linkPublicOp } from '../travel/triplink.js';
 import { memberOp } from '../travel/members.js';
+import { inboxOp } from '../travel/inbox.js';
 import { flightOp } from '../travel/flights.js';
 import { payOn, payOp, payRefund, payRefundRetry } from '../travel/pay.js';
 import { calOp, feedPublicOp, tripZone } from '../travel/calsync.js';
@@ -166,6 +167,12 @@ export class Account {
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This shared trip isn’t available now.');
         return json(await memberOp(this, op, await request.json().catch(() => ({})), { tripOp }));
       }
+      // a booking email forwarded to the person's Eden Travel address (travel/inbox.js): the Worker's email handler found the
+      // account from the address's code; kept only while they have Plus
+      if (op === 'tinbox-add') {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'No such Eden Travel address.');
+        return json(await inboxOp(this, op, await request.json().catch(() => ({})), { notify: notifyOwner }));
+      }
       if (op.startsWith('tlink-')) {
         // the trip shared with the people on it (travel/triplink.js): shown only while its owner has Plus
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This trip link has ended.');
@@ -225,7 +232,7 @@ export class Account {
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
         // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
         // always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }

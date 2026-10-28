@@ -13,6 +13,9 @@
 //     calfeed, calfeed-create, calfeed-revoke, gcal-calendars, gcal-status, gcal-sync, gcal-off: the trips in the traveller's calendar (calsync.js)
 //     action: create, sample, update, delete, edit, propose, apply, discard, undo, places, mark-booked, unbook, cards, cards-match, cards-save, flight, flight-live, mail-scan, mail-preview, mail-import, share-create, shares, share-revoke, link-create, links, link-revoke, stays-search, stays-rates, stays-quote, stays-book, stays-cancel, ground-search, ground-stations, weather, entry, rail-check, rail-book
 //   GET  /api/chat/travel/calendar?id=<id>  → the trip as a calendar file (ics.js)
+//   GET  /api/chat/travel/doc?id=<trip>&doc=<doc> → a stop's document (inbox.js); POST ?doc=1 { action: 'doc-add' } takes up to 15 MB
+//     and: paste, inbox-address, inbox-reset, inbox-drop, docs, doc-delete (inbox.js) · discover, nearby (discover.js)
+//     · money, expense-add, expense-delete, people, chat, chat-post, decisions (money.js) · optimize, windows (plan.js)
 // Each action is the account object's `trip-<action>` (travel/ops.js).
 
 import { ApiError, json } from '../accounts/util.js';
@@ -21,14 +24,14 @@ import { tripToIcs } from './ics.js';
 import { HeroError, heroImage } from './hero.js';
 import { memberApi } from './members.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke', 'paste', 'inbox-address', 'inbox-reset', 'inbox-drop', 'doc-add', 'docs', 'doc-delete', 'discover', 'nearby', 'money', 'expense-add', 'expense-delete', 'people', 'chat', 'chat-post', 'decisions', 'optimize', 'windows']);
 // a member's actions on a trip shared with them (members.js memberApi): the organiser's object is asked, not theirs
-const MEMBER_ACTIONS = new Set(['join', 'shared-list', 'shared-get', 'shared-propose', 'shared-leave']);
+const MEMBER_ACTIONS = new Set(['join', 'shared-list', 'shared-get', 'shared-propose', 'shared-leave', 'shared-money', 'shared-expense-add', 'shared-expense-delete', 'shared-chat', 'shared-chat-post', 'shared-decisions']);
 
 export const travelOn = (env) => String(env?.EDEN_TRAVEL || '') === '1';
 
 export async function travelApi(request, env, who, path, { call, limited, readBody, local = false, ...deps }) {
-  if (!travelOn(env) || !['/api/chat/travel', '/api/chat/travel/map', '/api/chat/travel/photo', '/api/chat/travel/hero', '/api/chat/travel/hero-image', '/api/chat/travel/calendar'].includes(path)) throw new ApiError(404, 'not_found', 'Not found');
+  if (!travelOn(env) || !['/api/chat/travel', '/api/chat/travel/map', '/api/chat/travel/photo', '/api/chat/travel/hero', '/api/chat/travel/hero-image', '/api/chat/travel/calendar', '/api/chat/travel/doc'].includes(path)) throw new ApiError(404, 'not_found', 'Not found');
   await limited(env, 'API_RATE', who.account);
   // the in-flight map's picture (maps.js): a Google Static Map fetched with the server's key
   if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo') {
@@ -51,21 +54,30 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
     const got = await call(env, who.account, 'trip-read', { id }, who.token);
     return new Response(tripToIcs(got.trip, { id, now: Date.now() }), { headers: { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': `attachment; filename="${String(got.trip.title || 'trip').replace(/[^A-Za-z0-9 _-]+/g, '').trim().slice(0, 60) || 'trip'}.ics"`, 'cache-control': 'private, no-cache' } });
   }
+  // a stop's document (inbox.js), its own bytes: never run as a page here (sandboxed, nosniff)
+  if (path === '/api/chat/travel/doc') {
+    const url = new URL(request.url);
+    const got = await call(env, who.account, 'trip-doc-get', { id: url.searchParams.get('id') || '', doc: url.searchParams.get('doc') || '' }, who.token);
+    const bytes = Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0));
+    const name = String(got.doc.name || 'document').replace(/[^A-Za-z0-9 ._-]+/g, '').trim().slice(0, 80) || 'document';
+    return new Response(bytes, { headers: { 'content-type': got.doc.type, 'content-disposition': `${got.doc.type === 'application/vnd.apple.pkpass' ? 'attachment' : 'inline'}; filename="${name}"`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'", 'cache-control': 'private, max-age=31536000, immutable' } });
+  }
   if (request.method === 'GET') {
     const id = new URL(request.url).searchParams.get('id');
     return json(await call(env, who.account, id ? 'trip-get' : 'trip-list', id ? { id } : {}, who.token));
   }
   if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'GET or POST');
-  const body = await readBody(request, 256 * 1024);
+  // a document comes as base64 (inbox.js DOCS: up to 10 MB a file)
+  const body = await readBody(request, new URL(request.url).searchParams.get('doc') === '1' ? 15 * 1024 * 1024 : 256 * 1024);
   if (MEMBER_ACTIONS.has(body.action)) {
     const args0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
-    if (['join', 'shared-get', 'shared-propose'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    if (['join', 'shared-get', 'shared-propose', 'shared-decisions', 'shared-chat-post', 'shared-expense-add'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`);
     return json(await memberApi(env, who, body.action, args0, { call }));
   }
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
   // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.
-  if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'stays-rates' || body.action === 'stays-quote' || body.action === 'rail-check' || body.action === 'ground-search' || body.action.startsWith('flight')) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
+  if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'stays-rates' || body.action === 'stays-quote' || body.action === 'rail-check' || body.action === 'ground-search' || body.action.startsWith('flight') || ['discover', 'nearby', 'decisions', 'optimize', 'windows', 'paste', 'doc-add', 'chat-post'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
   // Eden Mail reads: held to the turn rate; `local` only from wrangler dev with a fake Google (as tasks.js)
   if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `turn:${who.account}`); args.local = local; }
   // where Stripe sends the traveller back: this very address (askedentravel.com or askeden.com), never one the page names

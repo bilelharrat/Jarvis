@@ -10,7 +10,10 @@
 
 const PLACES = 'https://places.googleapis.com/v1';
 const ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos';
+const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos,accessibilityOptions,websiteUri';
+// for Discover and Near me (discover.js): the place, its rating, and whether it is open right now
+const RATED_FIELDS = `${PLACE_FIELDS},rating,userRatingCount,currentOpeningHours.openNow,currentOpeningHours.nextCloseTime,primaryTypeDisplayName,editorialSummary`;
+const MATRIX = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix';
 const ROUTE_FIELDS = 'routes.duration,routes.distanceMeters';
 const TRANSIT_FIELDS = 'routes.legs.steps.travelMode,routes.legs.steps.transitDetails';
 const TIMEOUT = 8000;
@@ -89,6 +92,15 @@ export function standinMaps(now = () => Date.now()) {
       const minutes = km < 0.05 ? 0 : Math.max(2, Math.round((km * 1.3 * 60) / STANDIN_SPEED[m] + STANDIN_WAIT[m]));
       return { minutes, meters: Math.round(km * 1300), mode: m, standin: true, source: STANDIN_SOURCE, checked_at: stamp() };
     },
+    async explore(text) { return (await this.search(text)).map((p) => ({ ...p, rating: null, ratings: null })); },
+    async nearby(at, { radius = 1500 } = {}) {
+      return Object.keys(STANDIN).map(view).filter((p) => p.hours && distanceKm(at, p) * 1000 <= radius).map((p) => ({ ...p, open_now: null, rating: null, ratings: null }));
+    },
+    async matrix(origins, destinations, mode = 'walk') {
+      const out = [];
+      for (let i = 0; i < origins.length; i++) for (let j = 0; j < destinations.length; j++) out.push({ from: i, to: j, ...(await this.travel(origins[i], destinations[j], mode)) });
+      return out;
+    },
   };
 }
 
@@ -107,6 +119,7 @@ function googleMaps(key, fetcher, now) {
   };
   const headers = (fields) => ({ 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': fields });
   const placeView = (g) => fromGooglePlace(g, new Date(now()).toISOString());
+  const ratedView = (g) => ({ ...placeView(g), rating: Number.isFinite(g.rating) ? g.rating : null, ratings: Number.isInteger(g.userRatingCount) ? g.userRatingCount : null, open_now: typeof g.currentOpeningHours?.openNow === 'boolean' ? g.currentOpeningHours.openNow : null, closes_at: g.currentOpeningHours?.nextCloseTime || null, type: g.primaryTypeDisplayName?.text || null, about: g.editorialSummary?.text || null });
   return {
     mode: 'google',
     async place(id) {
@@ -122,11 +135,35 @@ function googleMaps(key, fetcher, now) {
       const out = await call(`${PLACES}/places:searchText`, { method: 'POST', headers: headers(PLACE_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
       return (out.places || []).map(placeView);
     },
-    async travel(from, to, mode = 'walk', { departAt } = {}) {
+    // places by words, with their ratings and whether they're open now (Discover)
+    async explore(text, { lat, lng } = {}) {
+      const body = { textQuery: String(text || '').slice(0, 200), pageSize: 12 };
+      if (Number.isFinite(lat) && Number.isFinite(lng)) body.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 20000 } };
+      const out = await call(`${PLACES}/places:searchText`, { method: 'POST', headers: headers(RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
+      return (out.places || []).map(ratedView);
+    },
+    // places of these Google types around a point, nearest first (Near me)
+    async nearby(at, { types = [], radius = 1500 } = {}) {
+      const body = { maxResultCount: 20, rankPreference: 'DISTANCE', locationRestriction: { circle: { center: { latitude: at.lat, longitude: at.lng }, radius: Math.min(5000, Math.max(100, radius)) } } };
+      if (types.length) body.includedTypes = types.slice(0, 10);
+      const out = await call(`${PLACES}:searchNearby`, { method: 'POST', headers: headers(RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
+      return (out.places || []).map(ratedView);
+    },
+    // travel times from each origin to each destination in one call (Routes API computeRouteMatrix)
+    async matrix(origins, destinations, mode = 'walk') {
+      const m = MODES.includes(mode) ? mode : 'walk';
+      const wp = (p) => ({ waypoint: p.id && !String(p.id).startsWith('standin:') ? { placeId: p.id } : { location: { latLng: { latitude: p.lat, longitude: p.lng } } } });
+      const body = { origins: origins.map(wp), destinations: destinations.map(wp), travelMode: GOOGLE_MODE[m] };
+      const out = await call(MATRIX, { method: 'POST', headers: headers('originIndex,destinationIndex,duration,distanceMeters,condition'), body: JSON.stringify(body) });
+      const at = new Date(now()).toISOString();
+      return (Array.isArray(out) ? out : []).filter((e) => e.condition === 'ROUTE_EXISTS').map((e) => ({ from: e.originIndex || 0, to: e.destinationIndex || 0, minutes: Math.round(parseInt(String(e.duration || '0'), 10) / 60), meters: e.distanceMeters || 0, mode: m, standin: false, source: 'Google Maps (Routes API)', checked_at: at }));
+    },
+    async travel(from, to, mode = 'walk', { departAt, lessWalking = false } = {}) {
       const m = MODES.includes(mode) ? mode : 'walk';
       const point = (p) => (p.id && !String(p.id).startsWith('standin:') ? { placeId: p.id } : { location: { latLng: { latitude: p.lat, longitude: p.lng } } });
       const body = { origin: point(from), destination: point(to), travelMode: GOOGLE_MODE[m] };
       if (m === 'drive' || m === 'taxi') body.routingPreference = 'TRAFFIC_AWARE';
+      if (m === 'transit' && lessWalking) body.transitPreferences = { routingPreference: 'LESS_WALKING' }; // step-free trips (Google doesn't say which stations are step-free)
       if (departAt && (m === 'transit' || body.routingPreference) && Date.parse(departAt) > now()) body.departureTime = new Date(departAt).toISOString();
       // by transit, also the steps' lines (which tram, from which stop), for the day's connectors
       const fields = m === 'transit' ? `${ROUTE_FIELDS},${TRANSIT_FIELDS}` : ROUTE_FIELDS;
@@ -191,6 +228,9 @@ export function fromGooglePlace(g, checkedAt) {
     price: null, // Google gives a price level, not a price; prices come from the trip or a booking
     price_level: g.priceLevel || null,
     url: g.googleMapsUri || null,
+    website: /^https?:\/\//.test(g.websiteUri || '') ? g.websiteUri : null,
+    // what Google lists of its access (true, false, or not said): for step-free trips
+    access: g.accessibilityOptions ? { entrance: g.accessibilityOptions.wheelchairAccessibleEntrance ?? null, restroom: g.accessibilityOptions.wheelchairAccessibleRestroom ?? null, seating: g.accessibilityOptions.wheelchairAccessibleSeating ?? null, parking: g.accessibilityOptions.wheelchairAccessibleParking ?? null } : null,
     photo: photoOf(g.photos),
     standin: false,
     source: 'Google Maps (Places API)',

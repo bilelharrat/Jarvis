@@ -3,7 +3,7 @@
 // same rules hold for both: a booked stop is locked (no moving, retiming or removing it; a note
 // only), times are HH:MM, a day holds at most TRIP.stops stops.
 //
-// trip  { id, title, destination, start: 'YYYY-MM-DD', travelers, budget: { amount, currency } | null,
+// trip  { id, title, destination, start: 'YYYY-MM-DD', travelers, budget: { amount, currency } | null, access: { step_free } | null,
 //         days: [{ title, stops }], rev, created, updated }
 // stop  { id, kind, place: { id, name, lat, lng }, at: 'HH:MM', minutes, mode, cost: { amount, currency } | null,
 //         nights, link, booked: null | { kind, ref, provider, via, at }, note }
@@ -83,7 +83,7 @@ export function cleanLink(v) {
   return u.toString();
 }
 export function cleanBooking(b, kind) {
-  return { kind: text(b.kind, 20) || kind || 'booking', ref: text(b.ref, 80), provider: text(b.provider, 80), via: ['api', 'browser', 'link', 'person', 'mail'].includes(b.via) ? b.via : 'person', at: Number.isFinite(b.at) ? b.at : null };
+  return { kind: text(b.kind, 20) || kind || 'booking', ref: text(b.ref, 80), provider: text(b.provider, 80), via: ['api', 'browser', 'link', 'person', 'mail', 'paste', 'forward'].includes(b.via) ? b.via : 'person', at: Number.isFinite(b.at) ? b.at : null };
 }
 
 const sortDay = (day) => { day.stops.sort((a, b) => minutesOf(a.at) - minutesOf(b.at)); return day; };
@@ -104,6 +104,8 @@ export function cleanTrip(t, { newId, now }) {
     start: t.start,
     travelers,
     budget: money(t.budget, 'budget'),
+    // how the trip is checked for the people on it: step_free → entrances checked and less-walking transit
+    access: isObj(t.access) && t.access.step_free === true ? { step_free: true } : null,
     days: days.map((d, i) => {
       const stops = Array.isArray(d?.stops) ? d.stops : [];
       if (stops.length > TRIP.stops) throw bad(`Day ${i + 1} has more than ${TRIP.stops} stops.`);

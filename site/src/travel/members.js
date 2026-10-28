@@ -13,6 +13,8 @@
 //   member (Worker, signed in):      POST /api/chat/travel { action: 'join', args: { code } }
 //                                    shared-list · shared-get { owner, trip } · shared-propose { owner, trip, title, reason, ops }
 //                                    shared-leave { owner, trip }
+//                                    shared-money · shared-expense-add · shared-expense-delete · shared-chat · shared-chat-post
+//                                    · shared-decisions { owner, trip, … } (money.js, as this member)
 //   organiser's object, from the Worker (no device: the Worker vouches for the member's account):
 //                                    tmember-join { code, member, name } · tmember-get { trip, member }
 //                                    tmember-propose { trip, member, title, reason, ops } · tmember-leave { trip, member }
@@ -118,6 +120,12 @@ export async function memberOp(account, op, body, { tripOp }) {
       const out = await tripOp(account, 'trip-propose', { id: body.trip, title: body.title, reason: body.reason, ops: body.ops, by: 'member', by_name: m.name });
       return { proposal: out.proposal, preview: out.preview };
     }
+    // the trip's money and chat (money.js), as this member
+    case 'tmember-money': case 'tmember-expense-add': case 'tmember-expense-delete': case 'tmember-chat': case 'tmember-chat-post': case 'tmember-decisions': {
+      await membership(account, body.trip, member);
+      const { trip: _t, member: _m, ...args } = body;
+      return tripOp(account, op.replace('tmember-', 'trip-'), { ...args, id: body.trip }, { by: member });
+    }
     case 'tmember-leave': {
       await account.storage.delete(`tmem:${String(body.trip || '')}:${member}`);
       return { left: true };
@@ -148,6 +156,10 @@ export async function memberApi(env, who, action, args, { call }) {
       return ask(env, String(args.owner || ''), 'tmember-get', { trip: args.trip, member: who.account });
     case 'shared-propose':
       return ask(env, String(args.owner || ''), 'tmember-propose', { trip: args.trip, member: who.account, title: args.title, reason: args.reason, ops: args.ops });
+    case 'shared-money': case 'shared-expense-add': case 'shared-expense-delete': case 'shared-chat': case 'shared-chat-post': case 'shared-decisions': {
+      const { owner, ...rest } = args;
+      return ask(env, String(owner || ''), action.replace('shared-', 'tmember-'), { ...rest, member: who.account });
+    }
     case 'shared-leave':
       await ask(env, String(args.owner || ''), 'tmember-leave', { trip: args.trip, member: who.account }).catch(() => {});
       return call(env, who.account, 'trip-joined-drop', { owner: args.owner, trip: args.trip }, who.token);
