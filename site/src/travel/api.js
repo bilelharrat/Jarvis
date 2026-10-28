@@ -54,13 +54,14 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
     const got = await call(env, who.account, 'trip-read', { id }, who.token);
     return new Response(tripToIcs(got.trip, { id, now: Date.now() }), { headers: { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': `attachment; filename="${String(got.trip.title || 'trip').replace(/[^A-Za-z0-9 _-]+/g, '').trim().slice(0, 60) || 'trip'}.ics"`, 'cache-control': 'private, no-cache' } });
   }
-  // a stop's document (inbox.js), its own bytes: never run as a page here (sandboxed, nosniff)
+  // a stop's document (inbox.js), its own bytes: only the types inbox.js checked by their first bytes, nosniff (a CSP sandbox
+  // would stop the browser's PDF viewer)
   if (path === '/api/chat/travel/doc') {
     const url = new URL(request.url);
     const got = await call(env, who.account, 'trip-doc-get', { id: url.searchParams.get('id') || '', doc: url.searchParams.get('doc') || '' }, who.token);
     const bytes = Uint8Array.from(atob(got.data), (c) => c.charCodeAt(0));
     const name = String(got.doc.name || 'document').replace(/[^A-Za-z0-9 ._-]+/g, '').trim().slice(0, 80) || 'document';
-    return new Response(bytes, { headers: { 'content-type': got.doc.type, 'content-disposition': `${got.doc.type === 'application/vnd.apple.pkpass' ? 'attachment' : 'inline'}; filename="${name}"`, 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'", 'cache-control': 'private, max-age=31536000, immutable' } });
+    return new Response(bytes, { headers: { 'content-type': got.doc.type, 'content-disposition': `${got.doc.type === 'application/vnd.apple.pkpass' ? 'attachment' : 'inline'}; filename="${name}"`, 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=31536000, immutable' } });
   }
   if (request.method === 'GET') {
     const id = new URL(request.url).searchParams.get('id');

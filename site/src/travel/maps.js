@@ -146,7 +146,7 @@ function googleMaps(key, fetcher, now) {
     async nearby(at, { types = [], radius = 1500 } = {}) {
       const body = { maxResultCount: 20, rankPreference: 'DISTANCE', locationRestriction: { circle: { center: { latitude: at.lat, longitude: at.lng }, radius: Math.min(5000, Math.max(100, radius)) } } };
       if (types.length) body.includedTypes = types.slice(0, 10);
-      const out = await call(`${PLACES}:searchNearby`, { method: 'POST', headers: headers(RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
+      const out = await call(`${PLACES}/places:searchNearby`, { method: 'POST', headers: headers(RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
       return (out.places || []).map(ratedView);
     },
     // travel times from each origin to each destination in one call (Routes API computeRouteMatrix)

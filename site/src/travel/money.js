@@ -116,7 +116,7 @@ export async function moneyOp(account, op, body, { by = null, cache, fetch: fetc
       });
       const balances = people.map((p) => ({ id: p.id, cents: balance.get(p.id) }));
       return {
-        currency, people,
+        currency, people, you: me,
         expenses: shown,
         total: total / 100,
         shares: people.map((p) => ({ id: p.id, amount: share.get(p.id) / 100 })),
@@ -174,7 +174,7 @@ export async function moneyOp(account, op, body, { by = null, cache, fetch: fetc
     case 'trip-chat': {
       const after = String(body.after || '');
       const all = [...(await storage.list({ prefix: `tchat:${id}:`, ...(after ? { start: `tchat:${id}:${after}\u0000` } : {}) })).values()];
-      return { messages: all.slice(-MONEY.shown), people };
+      return { messages: all.slice(-MONEY.shown), people, you: me };
     }
     case 'trip-chat-post': {
       const text = clean(body.text, MONEY.chat);

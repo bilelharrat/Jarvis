@@ -113,6 +113,17 @@ test('a pasted .eml: kept, read like Eden Mail, and imported only on confirm, as
   await assert.rejects(inboxOp(a, 'trip-paste', { text: '  ' }), /Paste/);
 });
 
+test('an imported flight puts its number and route in the stop, so it is tracked live', async () => {
+  const a = account();
+  const ld = '<script type="application/ld+json">{"@type":"FlightReservation","reservationNumber":"XKQ7PL","reservationFor":{"@type":"Flight","flightNumber":"1351","airline":{"@type":"Airline","name":"TAP Air Portugal","iataCode":"TP"},"departureAirport":{"@type":"Airport","iataCode":"LHR"},"arrivalAirport":{"@type":"Airport","iataCode":"LIS"},"departureTime":"2026-11-28T07:00:00+00:00"}}</script>';
+  const { paste } = await inboxOp(a, 'trip-paste', { text: 'x', html: ld });
+  const out = await tripOp(a, 'trip-mail-import', { id: TID, source: 'paste', message: paste, index: 0, confirm: true }, { maps: standinMaps(a.now) });
+  const s = out.trip.days[0].stops.find((x) => x.id === 's-air');
+  assert.equal(out.stop, 's-air');
+  assert.match(s.note, /^TP1351 LHR → LIS/);
+  assert.equal(s.booked.ref, 'XKQ7PL');
+});
+
 test('the forwarding address: one per account, the index claimed, a new one on reset', async () => {
   const claims = [];
   const env = { TRAVEL_INBOX_DOMAIN: 'askedentravel.com', ACCOUNTS: { idFromName: (n) => n, get: (n) => ({ fetch: async (u, i) => { claims.push([n, u.split('/').pop(), JSON.parse(i.body)]); return jsonRes({ ok: true }); } }) } };
@@ -224,7 +235,7 @@ test('Near me: Google places open now within the walk, nearest first; closed and
   const fetch = async (u, init) => {
     const body = JSON.parse(init.body);
     calls.push([u, init.headers['X-Goog-FieldMask'], body]);
-    if (u.endsWith(':searchNearby')) return jsonRes({ places: [place('PLACEaaaaaaaa1', 'Near open', 38.711, true), place('PLACEaaaaaaaa2', 'Closed', 38.7112, false), place('PLACEaaaaaaaa3', 'Far', 38.72, true)] });
+    if (u === 'https://places.googleapis.com/v1/places:searchNearby') return jsonRes({ places: [place('PLACEaaaaaaaa1', 'Near open', 38.711, true), place('PLACEaaaaaaaa2', 'Closed', 38.7112, false), place('PLACEaaaaaaaa3', 'Far', 38.72, true)] });
     return jsonRes([{ originIndex: 0, destinationIndex: 0, duration: '300s', distanceMeters: 400, condition: 'ROUTE_EXISTS' }, { originIndex: 0, destinationIndex: 1, duration: '360s', condition: 'ROUTE_EXISTS' }, { originIndex: 0, destinationIndex: 2, duration: '1500s', condition: 'ROUTE_EXISTS' }]);
   };
   const a = account({ env: { GOOGLE_MAPS_SERVER_KEY: 'k' } });

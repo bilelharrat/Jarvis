@@ -308,6 +308,8 @@ export async function tripOp(account, op, body = {}, deps = {}) {
         if (!stop) throw new TripError('There is no such stop in this trip.', 404, 'not_found');
         stop.booked = { ...booked, kind: stop.kind || booked.kind };
         if (b.cost) stop.cost = money(b.cost, 'cost');
+        // a flight's number and route in the note, so the stop is tracked live (travel.js reads it from there)
+        if (stop.kind === 'transport' && /\b([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?\d{1,4}\b/.test(b.title || '') && !String(stop.note || '').includes(String(b.title).replace(/^Flight /, '').split(' ')[0])) stop.note = `${String(b.title).replace(/^Flight /, '')}${stop.note ? ` · ${stop.note}` : ''}`.slice(0, 500);
         stopId = stop.id;
       } else if (match.action === 'add') {
         if (after.days[match.day].stops.length >= TRIP.stops) throw new TripError(`Day ${match.day + 1} already has ${TRIP.stops} stops.`);
