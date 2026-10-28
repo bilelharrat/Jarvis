@@ -297,11 +297,12 @@ name = "LINK_RATE"
 namespace_id = "1002"
 simple = { limit = 30, period = 60 }
 
-# Included AI: requests a minute per account.
+# Included AI: requests a minute per account. A ceiling against runaway scripts only (owner, 2026-10-28: no per-minute
+# limits a person would meet; the AI allowance and the Google spend caps bound the cost).
 [[ratelimits]]
 name = "API_RATE"
 namespace_id = "1003"
-simple = { limit = 120, period = 60 }
+simple = { limit = 600, period = 60 }
 
 # Chat history sync (accounts/chat-sync.js): calls a minute per account. A first upload is one call per chat.
 [[ratelimits]]
@@ -316,23 +317,31 @@ name = "AUTH_RATE"
 namespace_id = "1004"
 simple = { limit = 20, period = 60 }
 
-# Hosted Eden: chat turns a minute per account (the included-AI allowance caps the cost).
+# Public, signed-out pages that cost lookups: the news app per network, a guest flight-tracking link per code.
 [[ratelimits]]
 name = "EDEN_RATE"
 namespace_id = "1005"
 simple = { limit = 20, period = 60 }
 
-# The cloud browser: connects a minute per account.
+# A signed-in person's actions a minute (chat turns, Travel lookups, Ask Help, voice, tasks, billing checks): a ceiling
+# against runaway scripts only (owner, 2026-10-28: no "Too many tries" for people; the AI allowance and the Google
+# spend caps in travel/spend.js bound the cost).
+[[ratelimits]]
+name = "USER_RATE"
+namespace_id = "1009"
+simple = { limit = 600, period = 60 }
+
+# The cloud browser: connects a minute per account (a ceiling against scripts only).
 [[ratelimits]]
 name = "BROWSER_RATE"
 namespace_id = "1006"
-simple = { limit = 20, period = 60 }
+simple = { limit = 600, period = 60 }
 
-# The code canvas's cloud runs a minute per account (src/eden/run.js).
+# The code canvas's cloud runs a minute per account (src/eden/run.js; a ceiling against scripts only).
 [[ratelimits]]
 name = "RUN_RATE"
 namespace_id = "1007"
-simple = { limit = 20, period = 60 }
+simple = { limit = 600, period = 60 }
 
 # The owner's dashboard (askeden.com/admin, src/stats/): visits, downloads, sign-ups, AI use, errors.
 # ADMIN_EMAILS (who may open it) and UNLIMITED_EMAILS (Plus with no real allowance, the owner's family)

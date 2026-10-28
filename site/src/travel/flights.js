@@ -37,7 +37,7 @@ export async function flightsApi(request, env, who, path, { call, limited, readB
   if (!FLIGHT_ACTIONS.includes(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${FLIGHT_ACTIONS.join(', ')}`);
   const args = body.args === undefined ? {} : body.args;
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new ApiError(400, 'bad_request', 'args must be an object');
-  if (body.action === 'search') await limited(env, 'EDEN_RATE', `turn:${who.account}`); // each search is a billable look at the airlines
+  if (body.action === 'search') await limited(env, 'USER_RATE', `turn:${who.account}`); // each search is a billable look at the airlines
   return json(await call(env, who.account, `flight-${body.action}`, args, who.token));
 }
 

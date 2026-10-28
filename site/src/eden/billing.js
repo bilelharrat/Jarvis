@@ -191,7 +191,7 @@ export async function cancelSubscription(env, subscription) {
 // grant's. Renewals, expiry, refunds and revocations come after through /api/appstore/notifications.
 // → { plan } as /api/web/account shows it (source "app_store" | "stripe" | "both" | "promo").
 async function appleTransaction(request, env, who) {
-  await limited(env, 'EDEN_RATE', `apple:${who.account}`);
+  await limited(env, 'USER_RATE', `apple:${who.account}`);
   const body = await readJson(request, 64 * 1024);
   const transaction = await verifyAppleJws(body.signed_transaction, { root: env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3 });
   if (transaction.bundleId !== EDEN_BUNDLE_ID) throw new ApiError(400, 'bad_transaction', 'That purchase isn’t from the Eden app.');
@@ -227,7 +227,7 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
   }
   if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the Eden Secretary iPhone app.');
   if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
-  await limited(env, 'EDEN_RATE', `billing:${who.account}`);
+  await limited(env, 'USER_RATE', `billing:${who.account}`);
   const body = await request.json().catch(() => ({}));
   if (op === 'credits') {
     const pack = Number(body && body.pack);

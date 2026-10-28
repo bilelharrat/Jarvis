@@ -680,12 +680,12 @@ export async function chatApi(request, env, ctx, path) {
         return json(await hostedSpend(env, who));
       case 'POST /api/chat/send':
         await limited(env, 'API_RATE', who.account);
-        await limited(env, 'EDEN_RATE', `turn:${who.account}`); // chat turns a minute per account (docs/web-auth.md)
+        await limited(env, 'USER_RATE', `turn:${who.account}`); // chat turns a minute per account (docs/web-auth.md)
         return await send(request, env, ctx, who, cfg);
       // Compare (G6): several Claude models at once, one hold for all of them (below)
       case 'POST /api/chat/compare':
         await limited(env, 'API_RATE', who.account);
-        await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+        await limited(env, 'USER_RATE', `turn:${who.account}`);
         return await compare(request, env, ctx, who, cfg);
       case 'POST /api/chat/compare/estimate':
         await limited(env, 'API_RATE', who.account);
@@ -698,7 +698,7 @@ export async function chatApi(request, env, ctx, path) {
       // EVES (N7/N13): up to three models answer in parallel, deterministic + INSPECTOR checks, judge and web evidence (eves.js)
       case 'POST /api/chat/eves':
         await limited(env, 'API_RATE', who.account);
-        await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+        await limited(env, 'USER_RATE', `turn:${who.account}`);
         if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
         return await hostedEves(request, env, ctx, who, cfg, { readBody, MAX_BODY, compareModels, parseSend, narrowFor, systemPrompt, inputEstimate, messageText, routeSettings, compareLanes, creditFactor, routed });
       case 'POST /api/chat/eves/estimate':

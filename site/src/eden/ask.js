@@ -336,7 +336,7 @@ async function ask(request, env, ctx) {
   const model = fallback ? fallback.model : askModel(env);
   if (!model) throw new ApiError(503, 'not_set_up', 'No Claude models are set up on askeden.com.');
   await limited(env, 'API_RATE', who.account);
-  await limited(env, 'EDEN_RATE', `ask:${who.account}`);
+  await limited(env, 'USER_RATE', `ask:${who.account}`);
   const prompt = askPrompt(parseAsk(await readBody(request)));
   // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance.
   const inputTokens = Math.ceil(new TextEncoder().encode(prompt.system + prompt.user).length / 3);

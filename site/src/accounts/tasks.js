@@ -1000,7 +1000,7 @@ export async function tasksApi(request, env, who, path, { call, limited, readBod
   const body = await readBody(request, 64 * 1024);
   const args = isObj(body.args) ? body.args : {};
   if (body.action === 'propose') {
-    await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    await limited(env, 'USER_RATE', `turn:${who.account}`);
     return json(await propose(env, who, args, { call, local }));
   }
   if (!ACTION_OPS.has(body.action)) throw bad(`action must be one of propose, ${[...ACTION_OPS].join(', ')}.`);

@@ -199,7 +199,7 @@ export async function keysApi(request, env, who, { readBody }) {
     return status(env, who);
   }
   const key = checkShape(provider, body.key);
-  await limited(env, 'EDEN_RATE', `ukeys:${who.account}`);
+  await limited(env, 'USER_RATE', `ukeys:${who.account}`);
   const check = await checkKey(provider, key, { base: fakeProviderBase(env, request) });
   if (!check.ok) throw new ApiError(400, 'key_refused', check.message);
   const record = await sealWith(env, `account:${who.account}`, aad(who.account, provider), { key });

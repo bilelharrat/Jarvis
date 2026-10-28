@@ -402,11 +402,11 @@ test('no allowance left: 402 before Claude; Claude failing: 502, nothing billed,
 
 test('rate limits and the Eden-on-the-web allow-list apply to asks', async () => {
   const { owner, access_token } = await connected();
-  env.EDEN_RATE = rateLimiter(1);
+  env.USER_RATE = rateLimiter(1); // a signed-in person's actions (USER_RATE: a ceiling against scripts only)
   assert.equal((await askEden(access_token)).status, 200);
   assert.equal((await askEden(access_token)).status, 429);
-  assert.deepEqual(env.EDEN_RATE.keys, [`ask:${owner.account.id}`, `ask:${owner.account.id}`]);
-  env.EDEN_RATE = rateLimiter(100);
+  assert.deepEqual(env.USER_RATE.keys, [`ask:${owner.account.id}`, `ask:${owner.account.id}`]);
+  env.USER_RATE = rateLimiter(100);
   env.EDEN_ACCOUNTS = '00000000-0000-8000-8000-000000000000';
   assert.equal((await askEden(access_token)).status, 403);
 });
