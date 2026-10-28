@@ -43,6 +43,7 @@ import { receiptOp } from './receipts.js';
 import { autodraftDue, autodraftOp } from './autodrafts.js';
 import { notifyOwner, taskDue, taskOp } from './tasks.js';
 import { tripOp } from '../travel/ops.js';
+import { FCM_TOKEN } from './fcm.js';
 import { armFlightWatch, flightWatchDue } from '../travel/watch.js';
 import { armRecheck, recheckDue } from '../travel/recheck.js';
 import { refundNow, stayWatchDue } from '../travel/stayops.js';
@@ -54,6 +55,10 @@ import { memoriesMemberOp } from '../travel/memories.js';
 import { togetherMemberOp } from '../travel/together.js';
 import { accuracyFlush, accuracyIndexOp } from '../travel/accuracy.js';
 import { mailWatchDue } from '../travel/mailwatch.js';
+import { spendIndexOp } from '../travel/spend.js';
+import { promiseAutoWatch, promiseDue } from '../travel/promise.js';
+import { aiExtraUsd, plusBonusNow } from '../travel/rewards.js';
+import { coversMemberOp, joinedAlertsOp } from '../travel/companions.js';
 import { armLive, liveDue } from '../travel/liveact.js';
 import { armFlightPriceWatch, flightPriceWatchDue } from '../travel/fpwatch.js';
 import { armWindowReminders, windowRemindersDue } from '../travel/reminders.js';
@@ -159,6 +164,10 @@ export class Account {
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       // Eden Travel's guest tracking links (travel/track.js): the link's code is the key; no device signs these
       // the accuracy counts' index (travel/accuracy.js, the object tacc:global): counts only, no account or place
+      // Google spend counts across accounts (travel/spend.js): counts only
+      if (op.startsWith('tspend-')) return json(await spendIndexOp(this, op, await request.json().catch(() => ({}))));
+      // a shared trip's flight change for a member who asked for alerts (travel/companions.js), sent by the organiser's object
+      if (op === 'tjoin-flight-news') return json(await joinedAlertsOp(this, op, await request.json().catch(() => ({})), { notify: notifyOwner }));
       if (op.startsWith('tacc-')) return json(await accuracyIndexOp(this, op, await request.json().catch(() => ({}))));
       if (op.startsWith('tshare-')) {
         // a link's lookups are billed (FlightAware, Google): only while the owner has Plus
@@ -180,6 +189,7 @@ export class Account {
         if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !(await this.planNow()).active) throw new ApiError(404, 'not_found', 'This shared trip isn’t available now.');
         const mbody = await request.json().catch(() => ({}));
         if (op === 'tmember-memories' || op === 'tmember-memory-photo') return json(await memoriesMemberOp(this, op, mbody, { tripOp })); // shared memories (travel/memories.js)
+        if (op === 'tmember-covers' || op === 'tmember-alerts' || op === 'tmember-read') return json(await coversMemberOp(this, op, mbody, { tripOp })); // what Plus covers, alerts (travel/companions.js)
         if (op === 'tmember-presence-beat' || op === 'tmember-copy') return json(await togetherMemberOp(this, op, mbody)); // who's looking, a copy (travel/together.js)
         return json(await memberOp(this, op, mbody, { tripOp }));
       }
@@ -248,7 +258,7 @@ export class Account {
         // plus: false (the page shows the Plus card), and every other trip action is refused. TRAVEL_PLUS = "0" lifts it (local dev).
         // ending a shared link or the calendar link, stopping a Google Calendar sync, listing them and deleting a trip are
         // always the person's, Plus or not
-        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete', 'trip-photos', 'trip-photo-get', 'trip-photo-delete', 'trip-memories', 'trip-memories-share', 'trip-check-reports', 'trip-check-unreport', 'trip-mailwatch-off', 'trip-mailwatch-status', 'trip-mailwatch-drop', 'trip-loyalty', 'trip-loyalty-delete', 'trip-live-end'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
+        if (String(this.env.TRAVEL_PLUS ?? '1') !== '0' && !['trip-link-revoke', 'trip-links', 'trip-delete', 'trip-calfeed', 'trip-calfeed-revoke', 'trip-gcal-status', 'trip-gcal-off', 'trip-joined', 'trip-joined-list', 'trip-joined-drop', 'trip-member-remove', 'trip-invite-revoke', 'trip-docs', 'trip-doc-get', 'trip-doc-delete', 'trip-photos', 'trip-photo-get', 'trip-photo-delete', 'trip-memories', 'trip-memories-share', 'trip-check-reports', 'trip-check-unreport', 'trip-mailwatch-off', 'trip-mailwatch-status', 'trip-mailwatch-drop', 'trip-loyalty', 'trip-loyalty-delete', 'trip-live-end', 'trip-rewards', 'trip-rewards-redeem', 'trip-rewards-undo', 'trip-esims', 'trip-joined-alerts'].includes(op) && !AFTER_PLUS.has(op) && !(await this.planNow()).active) {
           if (op === 'trip-list') return json({ trips: [], plus: false });
           throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
         }
@@ -261,6 +271,8 @@ export class Account {
         const stay = op === 'trip-stays-cancel' ? await this.storage.get(`stbk:${String(body.booking_id || '')}`) : null;
         // a trip deleted: its events come out of Google Calendar first (afterwards nothing could reach them)
         if (op === 'trip-delete' && (await this.storage.get(`trip:${String(body.id || '')}`))) await calOp(this, 'trip-gcal-off', { id: String(body.id), confirm: true }, { tripOp }).catch((e) => console.error('gcal off on delete', e && e.message));
+        // an eSIM is ordered only through pay.js (the card held first), never from the page
+        if (op === 'trip-esim-order') throw payOn(this.env) ? PAY_FIRST : new ApiError(503, 'not_set_up', 'Buying an eSIM needs card payments switched on.');
         const out = await tripOp(this, op, body); // Eden Travel (travel/ops.js)
         if (stay && stay.total) {
           // the whole price while free, else the timeline's step (what Duffel gives back to Eden's balance)
@@ -274,6 +286,7 @@ export class Account {
           await armRecheck(this, out).catch((e) => console.error('trip recheck', e && e.message)); // re-checked before you go (travel/recheck.js)
           await armFlightPriceWatch(this).catch((e) => console.error('flight price watch', e && e.message)); // its flights' prices (travel/fpwatch.js)
           await armLive(this, { tripOp }).catch((e) => console.error('live activity', e && e.message)); // the Live Activity's pushes follow the day (travel/liveact.js)
+          await promiseAutoWatch(this, out).catch((e) => console.error('price promise autowatch', e && e.message)); // the Price Promise: new flights watched when asked (travel/promise.js)
         }
         // booking windows: a push the morning bookings open (travel/reminders.js), again whenever stops or windows change
         if (TRIP_WRITES.has(op) || op === 'trip-windows') await armWindowReminders(this).catch((e) => console.error('window reminders', e && e.message));
@@ -561,14 +574,40 @@ export class Account {
         }
       }
     }
+    // An Android app's Firebase token (fcm.js): the same rules, the app it belongs to with it.
+    if (body.fcm_token === null) {
+      device.fcm_token = null;
+      device.fcm_app = null;
+    } else if (typeof body.fcm_token === 'string') {
+      const token = body.fcm_token;
+      if (!FCM_TOKEN.test(token)) throw new ApiError(400, 'bad_request', "That isn't a push token.");
+      device.fcm_token = token;
+      device.fcm_app = body.fcm_app || null;
+      for (const other of await this.devices()) {
+        if (other.id !== device.id && other.fcm_token === token) {
+          other.fcm_token = null;
+          other.fcm_app = null;
+          await this.storage.put(`dev:${other.id}`, other);
+        }
+      }
+    }
     await this.storage.put(`dev:${device.id}`, device);
     return {};
   }
 
   // A browser inside an app of its own (Ask Eden Travel for iPhone, util.js WEB_PUSH_APPS) gives its push token and the
   // app's topic; only that app's pushes go to it (tasks.js notifyOwner). Its own device only, never a delegate's.
+  // On Android (`platform: 'android'`) the token is Firebase's (`fcm_token`), sent through fcm.js.
   async webPush(device, body) {
     if (device.kind !== 'web' || device.grant) throw new ApiError(403, 'forbidden', 'Only a browser in an Eden app registers this way.');
+    if (body.platform === 'android' || body.fcm_token !== undefined) {
+      if (body.fcm_token === null) return this.updateDevice(device, { fcm_token: null });
+      if (!isWebPushApp(body.app)) throw new ApiError(400, 'bad_request', "That app doesn't get pushes this way.");
+      if (typeof body.fcm_token !== 'string') throw new ApiError(400, 'bad_request', "That isn't a push token.");
+      const out = await this.updateDevice(device, { fcm_token: body.fcm_token, fcm_app: body.app });
+      await armLive(this, { tripOp }).catch((e) => console.error('live activity', e && e.message)); // Android's Today notification by push (travel/liveact.js)
+      return out;
+    }
     if (body.apns_token === null) {
       device.apns_topic = null;
       return this.updateDevice(device, { apns_token: null });
@@ -613,7 +652,7 @@ export class Account {
       created: device.created,
       last_seen: device.last_seen,
       app_version: device.app_version || '',
-      push: Boolean(device.apns_token),
+      push: Boolean(device.apns_token || device.fcm_token),
       relay: this.socketsTagged(`listen:${device.id}`).length > 0,
       this: device.id === me,
       ...(device.expires ? { expires: device.expires } : {}),
@@ -671,7 +710,13 @@ export class Account {
   async planNow() {
     const plan = (await this.storage.get('plan')) || {};
     // Google Play's (Eden for Android) on top (play-plan.js withPlayPlan).
-    const combined = withPlayPlan(combinePlans(plan, await this.storage.get('stripe_plan'), this.now(), await this.storage.get('promo_plan')), await this.storage.get('play_plan'), this.now());
+    const now = this.now(), promo = await this.storage.get('promo_plan');
+    const others = withPlayPlan(combinePlans(plan, await this.storage.get('stripe_plan'), now, promo), await this.storage.get('play_plan'), now);
+    // an Eden Rewards Plus month (travel/rewards.js): runs only while no paid plan does, so nobody pays for a month they redeemed
+    const bonus = await plusBonusNow(this.storage, others.active, now);
+    const gift = bonus.running ? { ...(promo || {}), until: Math.max(Number(promo && promo.until) || 0, bonus.until) } : promo;
+    const combined = bonus.running ? withPlayPlan(combinePlans(plan, await this.storage.get('stripe_plan'), now, gift), await this.storage.get('play_plan'), now) : others;
+    if (bonus.running) combined.rewards_bonus_until = bonus.until;
     // UNLIMITED_EMAILS: an account with one of them among its sign-ins has Plus for good, and plusCap's unlimited allowance.
     if (await this.unlimitedEmail()) {
       combined.unlimited = true;
@@ -804,6 +849,7 @@ export class Account {
     let cap = apple ? (sandbox ? caps.sandbox : EDEN_PLUS_PRODUCTS.includes(store.product_id) ? caps.plus : caps.legacy) : plan.promo ? caps.plus : 0;
     if (web) cap = Math.max(cap, legacyPrice(this.env, stripe.price) ? caps.legacy : caps.plus);
     if (plan.unlimited) cap = Math.max(cap, caps.unlimited);
+    cap += aiExtraUsd(await this.storage.get('rwd:ai'), this.now()); // extra AI bought with Eden Rewards points (travel/rewards.js)
     return cap;
   }
 
@@ -962,11 +1008,17 @@ export class Account {
 
   // ── pushes through askeden.com's key ──
 
-  async pushCheck({ apns_token, push_type }) {
+  async pushCheck({ apns_token, fcm_token, push_type }) {
     const now = this.now();
     this.pushTimes = this.pushTimes.filter((t) => now - t < 60_000);
     if (this.pushTimes.length >= PUSHES_A_MINUTE) {
       throw new ApiError(429, 'slow_down', 'Too many notifications this minute.', { 'retry-after': '60' });
+    }
+    if (typeof fcm_token === 'string') {
+      // an Android app's token (fcm.js): this account's devices only, in the same 60 a minute
+      if (!(await this.devices()).some((d) => d.fcm_token === fcm_token)) throw new ApiError(403, 'forbidden', "That push token isn't one of this account's devices.");
+      this.pushTimes.push(now);
+      return { ok: true, token: fcm_token };
     }
     const token = String(apns_token || '').toLowerCase();
     if (!/^[0-9a-f]{32,200}$/.test(token)) throw new ApiError(400, 'bad_request', "That isn't a push token.");
@@ -978,9 +1030,14 @@ export class Account {
     return { ok: true, token };
   }
 
-  async pushGone({ apns_token }) {
+  async pushGone({ apns_token, fcm_token }) {
     for (const device of await this.devices()) {
-      if (device.apns_token === apns_token) {
+      if (typeof fcm_token === 'string' && device.fcm_token === fcm_token) {
+        device.fcm_token = null;
+        device.fcm_app = null;
+        await this.storage.put(`dev:${device.id}`, device);
+      }
+      if (apns_token && device.apns_token === apns_token) {
         device.apns_token = null;
         device.apns_env = null;
         await this.storage.put(`dev:${device.id}`, device);
@@ -1115,7 +1172,7 @@ export class Account {
       tcachesweep: () => cacheSweepDue(this), // expired cached lookups, daily (travel/cachesweep.js) // this account's accuracy counts, sent at most hourly (travel/accuracy.js)
       fpwatch: async () => ((await travelOn()) ? flightPriceWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'fpwatch')), // unbooked flights cheaper now (travel/fpwatch.js)
       twrem: async () => ((await travelOn()) ? windowRemindersDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'twrem')), // the morning bookings open (travel/reminders.js)
-      pwatch: async () => ((await travelOn()) ? stayWatchDue(this, { notify: notifyOwner }) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
+      pwatch: async () => ((await travelOn()) ? (await stayWatchDue(this, { notify: notifyOwner }), await promiseDue(this, { notify: notifyOwner })) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
       // each trip re-checked a week before, the day before and each morning; what changed pushed once (travel/recheck.js)
       tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: travelOn }),
     });

@@ -5,12 +5,20 @@
 //
 // Every answer carries where it came from and when (`source`, `checked_at`), and stand-in
 // answers say so (`standin: true`), so a badge never shows a sample as a checked fact.
-// Nothing here is cached across requests yet; the Places and Routes quotas are set in the
-// Google Cloud console (daily caps and a $25 budget alert, per the handoff).
+// Nothing here is cached (checks.js, discover.js and plan.js cache in the account's object). Every paid call asks the
+// account's meter first (spend.js: counted by Google SKU, refused past a cap → MapsError 'capped'); the Places and
+// Routes quotas are also set in the Google Cloud console (daily caps and a $25 budget alert, per the handoff).
+
+import { placesSku } from './spend.js';
 
 const PLACES = 'https://places.googleapis.com/v1';
 const ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 const PLACE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos,accessibilityOptions,websiteUri';
+// a place in two parts, each cached for its own time (checks.js): what hardly changes (name, where, its access: Pro SKU),
+// and what does (status and hours: Enterprise SKU, so the website, price level and photo, Enterprise or free, ride along)
+const STABLE_FIELDS = 'id,displayName,formattedAddress,location,googleMapsUri,accessibilityOptions';
+const HOURS_FIELDS = 'id,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,websiteUri,photos';
+const PART_FIELDS = { all: PLACE_FIELDS, stable: STABLE_FIELDS, hours: HOURS_FIELDS };
 // for Discover and Near me (discover.js): the place, its rating, and whether it is open right now
 const RATED_FIELDS = `${PLACE_FIELDS},rating,userRatingCount,currentOpeningHours.openNow,currentOpeningHours.nextCloseTime,primaryTypeDisplayName,editorialSummary`;
 const MATRIX = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix';
@@ -57,9 +65,10 @@ export class MapsError extends Error {
 }
 
 // The maps this Worker has: google when the key is set, else the stand-in.
-export function mapsFor(env = {}, { fetch: fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
+// `meter` (spend.js spendMeter): asked before each paid call; none, nothing is counted or capped.
+export function mapsFor(env = {}, { fetch: fetcher = globalThis.fetch, now = () => Date.now(), meter = null } = {}) {
   const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
-  return key ? googleMaps(key, fetcher, now) : standinMaps(now);
+  return key ? googleMaps(key, fetcher, now, meter) : standinMaps(now);
 }
 
 export function standinMaps(now = () => Date.now()) {
@@ -104,8 +113,15 @@ export function standinMaps(now = () => Date.now()) {
   };
 }
 
-function googleMaps(key, fetcher, now) {
-  const call = async (url, init, field) => {
+// a cap reached (spend.js): no call made; `reason` open|account|global
+export async function metered(meter, sku, n = 1) {
+  const no = meter ? await meter.take(sku, n) : null;
+  if (no) { const e = new MapsError('capped', no.note); e.reason = no.reason; throw e; }
+}
+
+function googleMaps(key, fetcher, now, meter) {
+  const call = async (url, init, sku, n = 1) => {
+    await metered(meter, sku, n);
     let res;
     try {
       res = await fetcher(url, { ...init, signal: AbortSignal.timeout(TIMEOUT) });
@@ -122,31 +138,38 @@ function googleMaps(key, fetcher, now) {
   const ratedView = (g) => ({ ...placeView(g), rating: Number.isFinite(g.rating) ? g.rating : null, ratings: Number.isInteger(g.userRatingCount) ? g.userRatingCount : null, open_now: typeof g.currentOpeningHours?.openNow === 'boolean' ? g.currentOpeningHours.openNow : null, closes_at: g.currentOpeningHours?.nextCloseTime || null, type: g.primaryTypeDisplayName?.text || null, about: g.editorialSummary?.text || null });
   return {
     mode: 'google',
-    async place(id) {
+    // part: all (one call), or stable / hours (checks.js refreshes each on its own clock)
+    async place(id, { part = 'all' } = {}) {
       const pid = String(id || '');
       // a sample place (the Lisbon sample trip) stays a sample with live maps on: never shown as checked by Google
       if (pid.startsWith('standin:') && STANDIN[pid]) return standinMaps(now).place(pid);
       if (!/^[A-Za-z0-9_-]{10,300}$/.test(pid)) throw new MapsError('not_found', 'That is not a Google place id.');
-      return placeView(await call(`${PLACES}/places/${pid}`, { headers: headers(PLACE_FIELDS) }));
+      const fields = PART_FIELDS[part] || PLACE_FIELDS;
+      const p = placeView(await call(`${PLACES}/places/${pid}`, { headers: headers(fields) }, placesSku('details', fields)));
+      p.part = PART_FIELDS[part] ? part : 'all';
+      return p;
     },
     async search(text, { lat, lng } = {}) {
       const body = { textQuery: String(text || '').slice(0, 200), pageSize: 5 };
       if (Number.isFinite(lat) && Number.isFinite(lng)) body.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 20000 } };
-      const out = await call(`${PLACES}/places:searchText`, { method: 'POST', headers: headers(PLACE_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
+      const mask = PLACE_FIELDS.split(',').map((f) => `places.${f}`).join(',');
+      const out = await call(`${PLACES}/places:searchText`, { method: 'POST', headers: headers(mask), body: JSON.stringify(body) }, placesSku('text', mask));
       return (out.places || []).map(placeView);
     },
     // places by words, with their ratings and whether they're open now (Discover)
     async explore(text, { lat, lng } = {}) {
       const body = { textQuery: String(text || '').slice(0, 200), pageSize: 12 };
       if (Number.isFinite(lat) && Number.isFinite(lng)) body.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 20000 } };
-      const out = await call(`${PLACES}/places:searchText`, { method: 'POST', headers: headers(RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
+      const mask = RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',');
+      const out = await call(`${PLACES}/places:searchText`, { method: 'POST', headers: headers(mask), body: JSON.stringify(body) }, placesSku('text', mask));
       return (out.places || []).map(ratedView);
     },
     // places of these Google types around a point, nearest first (Near me)
     async nearby(at, { types = [], radius = 1500 } = {}) {
       const body = { maxResultCount: 20, rankPreference: 'DISTANCE', locationRestriction: { circle: { center: { latitude: at.lat, longitude: at.lng }, radius: Math.min(5000, Math.max(100, radius)) } } };
       if (types.length) body.includedTypes = types.slice(0, 10);
-      const out = await call(`${PLACES}/places:searchNearby`, { method: 'POST', headers: headers(RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',')), body: JSON.stringify(body) });
+      const mask = RATED_FIELDS.split(',').map((f) => `places.${f}`).join(',');
+      const out = await call(`${PLACES}/places:searchNearby`, { method: 'POST', headers: headers(mask), body: JSON.stringify(body) }, placesSku('nearby', mask));
       return (out.places || []).map(ratedView);
     },
     // travel times from each origin to each destination in one call (Routes API computeRouteMatrix)
@@ -154,7 +177,7 @@ function googleMaps(key, fetcher, now) {
       const m = MODES.includes(mode) ? mode : 'walk';
       const wp = (p) => ({ waypoint: p.id && !String(p.id).startsWith('standin:') ? { placeId: p.id } : { location: { latLng: { latitude: p.lat, longitude: p.lng } } } });
       const body = { origins: origins.map(wp), destinations: destinations.map(wp), travelMode: GOOGLE_MODE[m] };
-      const out = await call(MATRIX, { method: 'POST', headers: headers('originIndex,destinationIndex,duration,distanceMeters,condition'), body: JSON.stringify(body) });
+      const out = await call(MATRIX, { method: 'POST', headers: headers('originIndex,destinationIndex,duration,distanceMeters,condition'), body: JSON.stringify(body) }, 'matrix_ess', Math.max(1, origins.length * destinations.length)); // billed per element
       const at = new Date(now()).toISOString();
       return (Array.isArray(out) ? out : []).filter((e) => e.condition === 'ROUTE_EXISTS').map((e) => ({ from: e.originIndex || 0, to: e.destinationIndex || 0, minutes: Math.round(parseInt(String(e.duration || '0'), 10) / 60), meters: e.distanceMeters || 0, mode: m, standin: false, source: 'Google Maps (Routes API)', checked_at: at }));
     },
@@ -167,7 +190,7 @@ function googleMaps(key, fetcher, now) {
       if (departAt && (m === 'transit' || body.routingPreference) && Date.parse(departAt) > now()) body.departureTime = new Date(departAt).toISOString();
       // by transit, also the steps' lines (which tram, from which stop), for the day's connectors
       const fields = m === 'transit' ? `${ROUTE_FIELDS},${TRANSIT_FIELDS}` : ROUTE_FIELDS;
-      const out = await call(ROUTES, { method: 'POST', headers: headers(fields), body: JSON.stringify(body) });
+      const out = await call(ROUTES, { method: 'POST', headers: headers(fields), body: JSON.stringify(body) }, body.routingPreference ? 'routes_pro' : 'routes_ess');
       const r = (out.routes || [])[0];
       if (!r) throw new MapsError('no_route', `Google Maps found no ${m} route between those places.`);
       const t = { minutes: Math.round(parseInt(String(r.duration || '0'), 10) / 60), meters: r.distanceMeters || 0, mode: m, standin: false, source: 'Google Maps (Routes API)', checked_at: new Date(now()).toISOString() };
@@ -308,7 +331,7 @@ const point = (v) => {
 };
 /** GET /api/chat/travel/map?a=lat,lng&b=lat,lng (a flight) or ?p=lat,lng|lat,lng|… (a day's stops, up to 25)
  *  → the picture, with x-map-center and x-map-zoom for the page's overlay. */
-export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fetch } = {}) {
+export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fetch, meter = null } = {}) {
   const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
   if (!key) throw new MapsError('not_set_up', 'The map needs Google Maps on Eden’s server.');
   const listed = url.searchParams.get('p');
@@ -325,6 +348,7 @@ export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fet
   const styles = styleMode === 'day' ? DAY_LIGHT : styleMode === 'day-dark' ? DAY_DARK : DARK;
   const q = new URLSearchParams({ center: `${center.lat},${center.lng}`, zoom: String(zoom), size: `${w}x${h}`, scale: '2', maptype: 'roadmap', key });
   for (const s of styles) q.append('style', s);
+  await metered(meter, 'static_map');
   let res;
   try { res = await fetcher(`${STATIC}?${q}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
   if (!res.ok || !String(res.headers.get('content-type') || '').startsWith('image/')) throw new MapsError('unavailable', `Google Maps answered ${res.status}.`);
@@ -333,12 +357,13 @@ export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fet
 
 // A place's photo (stop thumbnails): Google Places photo media fetched with the server's key, so the key never reaches
 // the page. `n` is the photo's resource name from a place lookup; `w` its width (up to 1600, the stop detail's photo).
-export async function placePhoto(env, url, { fetch: fetcher = globalThis.fetch } = {}) {
+export async function placePhoto(env, url, { fetch: fetcher = globalThis.fetch, meter = null } = {}) {
   const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
   if (!key) throw new MapsError('not_set_up', 'Photos need Google Maps on Eden’s server.');
   const name = url.searchParams.get('n') || '';
   if (!PHOTO_NAME.test(name)) throw new MapsError('bad_request', 'n must be a Google place photo name.');
   const w = Math.min(1600, Math.max(80, Math.round(Number(url.searchParams.get('w')) || 240)));
+  await metered(meter, 'photo');
   let res;
   try { res = await fetcher(`${PLACES}/${name}/media?maxWidthPx=${w}&key=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(TIMEOUT) }); } catch { throw new MapsError('unavailable', 'Google Maps did not answer in time.'); }
   if (res.status === 404 || res.status === 400) throw new MapsError('not_found', 'Google has no such photo now.');

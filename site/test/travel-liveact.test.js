@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Storage } from './fakes.js';
 import { queued } from '../src/accounts/schedule.js';
-import { LIVE, armLive, contentState, dayPlan, leaveAlert, liveDue, liveFlightNews, liveOp, livePayload, nextIndex, todayIn } from '../src/travel/liveact.js';
+import { LIVE, androidPlan, armLive, contentState, dayPlan, leaveAlert, liveDue, liveFlightNews, liveOp, livePayload, nextIndex, todayIn } from '../src/travel/liveact.js';
 import { sampleTrip, tripOp as realTripOp } from '../src/travel/ops.js';
 import { standinMaps } from '../src/travel/maps.js';
 import { forgetProviderToken } from '../src/accounts/apns.js';
@@ -257,6 +257,104 @@ test('the real sendPush: Apple’s sandbox host, the travel app’s liveactivity
     globalThis.fetch = realFetch;
     forgetProviderToken();
   }
+});
+
+// ── Ask Eden Travel for Android: the day as FCM data messages ──
+
+const FCM = 'fcm1:APA91b' + 'z'.repeat(140);
+// the account with one Android Travel install (a web device with the app's Firebase token) and a fake FCM
+function androidAccount(t, { fcm = [], pushes = [], answer = () => ({ status: 200 }) } = {}) {
+  const a = account(t, { pushes });
+  const devices = [{ id: 'dA', kind: 'web', fcm_token: FCM, fcm_app: 'com.askeden.travel' }, { id: 'dB', kind: 'web', fcm_token: 'other'.repeat(8), fcm_app: null }];
+  Object.assign(a, {
+    devices: async () => devices,
+    pushCheck: async () => ({ ok: true }),
+    pushGone: async ({ fcm_token }) => { for (const d of devices) if (d.fcm_token === fcm_token) d.fcm_token = null; return {}; },
+    sendFcm: async (m) => { fcm.push({ ...m, plan: JSON.parse(m.data.plan) }); return answer(m); },
+  });
+  return a;
+}
+
+test('Android: a trip day taken up 90 minutes before its first stop, sent as { type: travel.live, plan } in livePlan’s shape, ended after the last stop', async () => {
+  const fcm = [], pushes = [];
+  const a = androidAccount(at('06:00'), { fcm, pushes });
+  lisbon(a);
+  assert.equal(await armLive(a, { tripOp }), at('08:00') - LIVE.startLeadMs, 'set for 90 minutes before Belém Tower');
+  a.t = at('06:30');
+  await liveDue(a, { tripOp });
+  assert.equal(fcm.length, 1);
+  assert.equal(pushes.length, 0, 'no iPhone: nothing to Apple');
+  const m = fcm[0];
+  assert.deepEqual([m.token, m.data.type, m.collapse, m.priority], [FCM, 'travel.live', 'travel.live', 'high']);
+  assert.deepEqual(m.plan, {
+    trip: 'Lisbon in May', id: TRIP, day: 1, date: DATE,
+    next: { name: 'Belém Tower', start: at('08:00'), leave: null, mode: 'walk', minutes: null, source: null },
+    stopsAfter: 2, dayEnds: at('16:30'), flight: { ident: 'TP1351', gate: null, terminal: null },
+  });
+  assert.equal(a.storage.map.get(`tlive:${TRIP}:${DATE}`).android, true);
+  await liveDue(a, { tripOp });
+  assert.equal(fcm.length, 1, 'taken up once, nothing new');
+  a.t = at('08:01');
+  await liveDue(a, { tripOp });
+  assert.deepEqual(fcm.at(-1).plan.next, { name: 'Time Out Market', start: at('10:00'), leave: at('09:35'), mode: 'transit', minutes: 25, source: 'Google Maps' });
+  assert.equal(fcm.at(-1).plan.stopsAfter, 1);
+  a.t = at('14:01');
+  await liveDue(a, { tripOp });
+  assert.equal(fcm.at(-1).plan.next, null, 'the day is over: no next stop, the app takes the notification away');
+  assert.equal(a.storage.map.get(`tlive:${TRIP}:${DATE}`).done, true);
+  assert.equal(await jobAt(a), null);
+  assert.equal(pushes.length, 0);
+});
+
+test('Android: ended there (trip-live-end) is off for that day; FCM’s UNREGISTERED drops the token; a gate goes out too', async () => {
+  const fcm = [];
+  const a = androidAccount(at('06:30'), { fcm });
+  lisbon(a);
+  await liveOp(a, 'trip-live-end', { trip: TRIP, day: DATE }, { tripOp });
+  await liveDue(a, { tripOp });
+  assert.equal(fcm.length, 0, 'the person ended it that day');
+  const b = androidAccount(at('12:00'), { fcm });
+  lisbon(b);
+  await liveDue(b, { tripOp });
+  b.storage.map.set(`fwsnap:TP1351:${DATE}`, { gate: '22', terminal: '1' });
+  assert.equal(await liveFlightNews(b, { trip: TRIP, date: DATE, news: [{ title: 'TP1351 leaves from gate 22', body: 'Terminal 1.' }] }, { tripOp }), true);
+  assert.deepEqual(fcm.at(-1).plan.flight, { ident: 'TP1351', gate: '22', terminal: '1' });
+  const gone = [];
+  const c = androidAccount(at('06:30'), { fcm: gone, answer: () => ({ status: 404, reason: 'UNREGISTERED' }) });
+  lisbon(c);
+  await liveDue(c, { tripOp });
+  assert.equal(gone.length, 1);
+  assert.equal((await c.devices())[0].fcm_token, null, 'the token FCM called gone is dropped');
+  const rec = c.storage.map.get(`tlive:${TRIP}:${DATE}`);
+  assert.deepEqual([rec.android, rec.done], [false, true], 'nowhere left to send that day');
+  // FCM down: tried again in a minute
+  const d = androidAccount(at('06:30'), { answer: () => ({ status: 503, reason: 'UNAVAILABLE' }) });
+  lisbon(d);
+  await liveDue(d, { tripOp });
+  assert.equal(await jobAt(d), at('06:30') + LIVE.retryMs);
+});
+
+test('Android and an iPhone on one account: both hear each change; push-to-start still starts the iPhone’s and keeps Android’s', async () => {
+  const fcm = [], pushes = [];
+  const a = androidAccount(at('06:30'), { fcm, pushes });
+  lisbon(a);
+  await liveOp(a, 'trip-live-token', { push_to_start: START_TOKEN }, { tripOp });
+  await liveDue(a, { tripOp });
+  assert.equal(fcm.length, 1);
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0].aps.event, 'start');
+  const rec = a.storage.map.get(`tlive:${TRIP}:${DATE}`);
+  assert.equal(rec.android, true, 'the iPhone’s start kept Android’s');
+  assert.ok(rec.started_at);
+  await liveOp(a, 'trip-live-token', { token: TOKEN, trip: TRIP, day: DATE }, { tripOp });
+  a.t = at('08:01');
+  await liveDue(a, { tripOp });
+  assert.equal(pushes.at(-1).aps['content-state'].stop, 'Time Out Market');
+  assert.equal(fcm.at(-1).plan.next.name, 'Time Out Market');
+  assert.deepEqual([pushes.length, fcm.length], [2, 2]);
+  // androidPlan for a day that's over: next null
+  const plan = dayPlan(a.storage.map.get(`trip:${TRIP}`), 0, { zone: 'Europe/Lisbon' });
+  assert.equal(androidPlan(plan, -1).next, null);
 });
 
 test('no push key on the Worker: nothing is armed', async () => {

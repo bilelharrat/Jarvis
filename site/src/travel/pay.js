@@ -24,12 +24,13 @@
 // bookings without a payment (account.js, 402 pay_first). TRAVEL_FEE_CENTS: a fee per booking; unset, as the owner decided
 // (2026-10-28: Eden Travel is part of Plus, no booking fee or markup), so the hold is the fare or stay total only.
 
+import { esimFound, esimPrice } from './esim.js';
 import { ApiError } from '../accounts/util.js';
 import { stripeRequest } from '../eden/billing.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 
 export const payOn = (env) => String(env?.TRAVEL_PAY || '') === '1' && Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
-export const PAY_KINDS = ['flight', 'flight_pay', 'stay', 'rail'];
+export const PAY_KINDS = ['flight', 'flight_pay', 'stay', 'rail', 'esim'];
 const KEY = (id) => `tpay:${id}`;
 const LAST = 'tpay:last';
 const CHECKOUT_MINUTES = 30; // Stripe's shortest Checkout; a flight's price check lasts 20, so a late payment is released
@@ -65,6 +66,11 @@ async function priceOf(account, kind, args, { flightOp }) {
     const q = await flightOp(account, 'flight-pay_quote', { order_id: args.order_id });
     return { cents: Math.round(Number(q.amount) * 100), currency: q.currency, title: `Flight booking ${q.booking_reference}` };
   }
+  if (kind === 'esim') { // a checked eSIM plan (esim.js trip-esim-check)
+    const p = await esimPrice(account, args);
+    if (!p) throw new ApiError(409, 'check_expired', 'Check the plan’s price again first.');
+    return p;
+  }
   if (kind === 'rail') {
     const r = await account.storage.get(`rlq:${String(args.offer_id || '')}`);
     if (!r || !r.total || account.now() - r.at > 20 * 60_000) throw new ApiError(409, 'check_expired', 'Check the seats and price again first.');
@@ -79,6 +85,7 @@ async function priceOf(account, kind, args, { flightOp }) {
 async function book(account, rec, { flightOp, tripOp }) {
   if (rec.kind === 'flight') return flightOp(account, 'flight-book', { ...rec.args, confirm: true });
   if (rec.kind === 'flight_pay') return flightOp(account, 'flight-pay', { ...rec.args, confirm: true });
+  if (rec.kind === 'esim') return tripOp(account, 'trip-esim-order', { check_id: rec.args.check_id, held: { amount: rec.cents / 100, currency: rec.currency }, confirm: true }); // never above what the card holds
   if (rec.kind === 'rail') return tripOp(account, 'trip-rail-book', { ...rec.args, held: { amount: rec.cents / 100, currency: rec.currency }, confirm: true }); // never above what the card holds
   return tripOp(account, 'trip-stays-book', { ...rec.args, confirm: true });
 }
@@ -350,7 +357,7 @@ async function settle(account, id, rec, deps, now) {
   return review(account, id, rec, deps, now, `Hold released, but the booking may exist at ${PROVIDER[rec.kind]} (asked ${new Date(since).toISOString().slice(0, 16).replace('T', ' ')} UTC, no answer kept).`, 'failed');
 }
 
-const PROVIDER = { flight: 'Duffel', flight_pay: 'Duffel', stay: 'Duffel Stays', rail: 'Distribusion' };
+const PROVIDER = { flight: 'Duffel', flight_pay: 'Duffel', stay: 'Duffel Stays', rail: 'Distribusion', esim: 'Airalo' };
 
 /** The owner asked to look (sweep_review): the record kept as it is, flagged in the global index. */
 async function review(account, id, rec, deps, now, why, status = rec.status) {
@@ -370,6 +377,7 @@ async function findBooking(account, rec, since, deps) {
   const args = rec.args || {};
   const linked = async (b) => Boolean(await storage.get(`tpayby:${b}`));
   try {
+    if (rec.kind === 'esim') return await esimFound(account, args, deps); // Airalo's own order list (esim.js)
     if (rec.kind === 'flight_pay') {
       const o = await deps.flightOp(account, 'flight-order', { order_id: args.order_id });
       if (o.status === 'confirmed') return { state: 'made', booking: o.order_id, result: o };

@@ -26,8 +26,10 @@ import { memberApi } from './members.js';
 import { memoryPhotoRoute } from './memories.js';
 import { togetherApi } from './together.js';
 import { ask } from './track.js';
+import { globalMeter } from './spend.js';
+import { companionsApi } from './companions.js';
 
-const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke', 'paste', 'inbox-address', 'inbox-reset', 'inbox-drop', 'doc-add', 'docs', 'doc-delete', 'discover', 'nearby', 'money', 'expense-add', 'expense-delete', 'people', 'chat', 'chat-post', 'decisions', 'optimize', 'windows', 'activities', 'photo-add', 'photos', 'photo-get', 'photo-edit', 'photo-delete', 'memories', 'memories-share', 'fwatch-on', 'fwatch-off', 'presence-beat', 'copy', 'check-report', 'check-reports', 'check-unreport', 'mailwatch-on', 'mailwatch-off', 'mailwatch-status', 'mailwatch-drop', 'mail-found', 'loyalty', 'loyalty-save', 'loyalty-delete', 'live-token', 'live-end']);
+const ACTIONS = new Set(['create', 'sample', 'update', 'delete', 'edit', 'propose', 'apply', 'discard', 'undo', 'places', 'mark-booked', 'unbook', 'cards', 'cards-match', 'cards-save', 'flight', 'flight-live', 'mail-scan', 'mail-preview', 'mail-import', 'share-create', 'shares', 'share-revoke', 'link-create', 'links', 'link-revoke', 'stays-search', 'stays-rates', 'stays-quote', 'stays-book', 'stays-cancel', 'ground-search', 'ground-stations', 'weather', 'entry', 'rail-check', 'rail-book', 'pay-start', 'pay-complete', 'pay-status', 'pay-latest', 'calfeed', 'calfeed-create', 'calfeed-revoke', 'gcal-calendars', 'gcal-status', 'gcal-sync', 'gcal-off', 'invite-create', 'members', 'member-remove', 'invite-revoke', 'paste', 'inbox-address', 'inbox-reset', 'inbox-drop', 'doc-add', 'docs', 'doc-delete', 'discover', 'nearby', 'money', 'expense-add', 'expense-delete', 'people', 'chat', 'chat-post', 'decisions', 'optimize', 'windows', 'activities', 'photo-add', 'photos', 'photo-get', 'photo-edit', 'photo-delete', 'memories', 'memories-share', 'fwatch-on', 'fwatch-off', 'presence-beat', 'copy', 'check-report', 'check-reports', 'check-unreport', 'mailwatch-on', 'mailwatch-off', 'mailwatch-status', 'mailwatch-drop', 'mail-found', 'loyalty', 'loyalty-save', 'loyalty-delete', 'live-token', 'live-end', 'promise', 'promise-settings', 'promise-rebook', 'promise-rebook-status', 'rewards', 'rewards-redeem', 'rewards-undo', 'esim', 'esim-check', 'esims', 'card-perk', 'year', 'plus-covers', 'joined-alerts', 'claims', 'claim-letter']);
 // a member's actions on a trip shared with them (members.js memberApi): the organiser's object is asked, not theirs
 const MEMBER_ACTIONS = new Set(['join', 'shared-list', 'shared-get', 'shared-propose', 'shared-leave', 'shared-money', 'shared-expense-add', 'shared-expense-delete', 'shared-chat', 'shared-chat-post', 'shared-decisions', 'shared-memories', 'shared-photo-add', 'shared-photo-delete', 'shared-discover', 'shared-nearby']);
 
@@ -41,7 +43,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
     if (request.method !== 'GET') throw new ApiError(405, 'bad_request', 'GET');
     // pictures on Eden's Google key: for Eden Travel's members only (the list answers plus: false without Plus)
     if ((await call(env, who.account, 'trip-list', {}, who.token)).plus === false) throw new ApiError(402, 'plus_required', 'Eden Travel is part of Eden Plus.');
-    try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, new URL(request.url), { fetch: deps.fetch }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : 502, e.code, e.message); throw e; }
+    try { return await (path === '/api/chat/travel/map' ? flightMapImage : placePhoto)(env, new URL(request.url), { fetch: deps.fetch, meter: globalMeter(env) }); } catch (e) { if (e instanceof MapsError) throw new ApiError(e.code === 'bad_request' ? 400 : e.code === 'not_set_up' ? 404 : e.code === 'capped' ? 503 : 502, e.code, e.message); throw e; }
   }
   // the destination's hero photo (hero.js): Plus-gated as the photos are (trip-hero is a trip op, so the account refuses it
   // without Plus); the picture only from Commons' thumbnail server
@@ -75,6 +77,11 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'GET or POST');
   // a document comes as base64 (inbox.js DOCS: up to 10 MB a file)
   const body = await readBody(request, new URL(request.url).searchParams.get('doc') === '1' ? 15 * 1024 * 1024 : 256 * 1024);
+  // what Plus covers on a shared trip, and its flight alerts on the member's own phone (companions.js)
+  if (body.action === 'shared-plus-covers' || body.action === 'shared-alerts') {
+    const a1 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
+    return json(await companionsApi(env, who, body.action, a1, { call, ask }));
+  }
   // who's looking at a shared trip, and a member's copy of it (together.js)
   if (body.action === 'shared-presence-beat' || body.action === 'shared-copy') {
     const a0 = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
@@ -89,7 +96,7 @@ export async function travelApi(request, env, who, path, { call, limited, readBo
   if (!ACTIONS.has(body.action)) throw new ApiError(400, 'bad_request', `action must be one of ${[...ACTIONS].join(', ')}.`);
   const args = body.args !== null && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
   // A Google or FlightAware lookup (each billed): held to the turn rate, like a chat message.
-  if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'stays-rates' || body.action === 'stays-quote' || body.action === 'rail-check' || body.action === 'ground-search' || body.action.startsWith('flight') || ['discover', 'nearby', 'decisions', 'optimize', 'windows', 'paste', 'doc-add', 'chat-post', 'activities', 'fwatch-on', 'photo-add', 'copy', 'check-report'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
+  if (body.action === 'places' || body.action === 'create' || body.action === 'stays-search' || body.action === 'stays-rates' || body.action === 'stays-quote' || body.action === 'rail-check' || body.action === 'ground-search' || body.action.startsWith('flight') || ['discover', 'nearby', 'decisions', 'optimize', 'windows', 'paste', 'doc-add', 'chat-post', 'activities', 'fwatch-on', 'photo-add', 'copy', 'check-report', 'promise-rebook', 'esim', 'esim-check', 'year', 'card-perk', 'claims'].includes(body.action)) await limited(env, 'EDEN_RATE', `turn:${who.account}`); // create: its named places are looked up (ops.js locate)
   // Eden Mail reads: held to the turn rate; `local` only from wrangler dev with a fake Google (as tasks.js)
   if (body.action === 'mailwatch-on') args.local = local; // the email watch's first look (a fake Google only under wrangler dev)
   if (body.action.startsWith('mail-')) { await limited(env, 'EDEN_RATE', `turn:${who.account}`); args.local = local; }

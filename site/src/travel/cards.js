@@ -94,6 +94,7 @@ export function cleanCardNames(names) {
 }
 
 const FLIGHT = /\b(fly|flights?|airlines?|airport|plane)\b/i;
+const FLIGHT_NO = /\b([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?\d{1,4}\b.*\b[A-Z]{3}\b|\b[A-Z]{3}\s*(→|->|-|to)\s*[A-Z]{3}\b/; // a flight number and an airport code, or two airport codes
 const GUESS = [
   ['hotel', /\b(hotels?|hostels?|stays?|apartments?|airbnb|guest ?house|chalets?|resorts?|b&b|inn)\b/i],
   ['dining', /\b(lunch|dinner|breakfast|brunch|restaurants?|caf[eé]s?|coffee|bistro|tasca|market|bar|pastel)\b/i],
@@ -105,7 +106,7 @@ export function categoryOf(stop) {
   const words = `${stop.place.name} ${stop.note || ''}`;
   switch (stop.kind) {
     case 'stay': return { category: 'hotel', guessed: false };
-    case 'transport': return { category: FLIGHT.test(words) ? 'flight' : 'travel', guessed: false };
+    case 'transport': return { category: FLIGHT.test(words) || FLIGHT_NO.test(words) ? 'flight' : 'travel', guessed: false }; // "TP1351 LHR → LIS": a flight
     case 'meal': return { category: 'dining', guessed: false };
     case 'rental': case 'activity': return { category: 'other', guessed: false };
     default: {

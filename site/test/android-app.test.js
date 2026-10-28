@@ -118,6 +118,29 @@ test('the Android app’s Apple sign-in: cancel, bad state, bad token and not se
   assert.match(cookieValue(posted, '__Host-eden-apple') || '', /^[^.]+\.[^.]+\.s/);
 });
 
+test('Ask Eden Travel for Android: its sign-ins (?app=travel, or ?app=1 from its web view) end on com.askeden.travel://signin', async () => {
+  const start = await hit('/api/web/apple?app=travel');
+  const attempt = cookieValue(start, '__Host-eden-apple');
+  assert.match(attempt, /^[^.]+\.[^.]+\.t/);
+  const [state, nonce] = attempt.split('.');
+  const back = await appleBack(attempt, { state, id_token: await identityToken({ sub: 'apple-travel-1', nonce, aud: SERVICES_ID }) });
+  const end = new URL(back.headers.get('location'));
+  assert.equal(`${end.protocol}//${end.host}${end.pathname}`, 'com.askeden.travel://signin');
+  const opened = await hit(`/api/web/handoff?code=${end.searchParams.get('code')}`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.equal(opened.headers.get('location'), '/');
+  // its errors too
+  const a2 = cookieValue(await hit('/api/web/apple?app=travel'), '__Host-eden-apple');
+  assert.equal((await appleBack(a2, { error: 'user_cancelled_authorize', state: a2.split('.')[0] })).headers.get('location'), 'com.askeden.travel://signin?error=cancelled');
+  // the Travel app's web view's own user agent with ?app=1
+  const ua = `${CHROME} EdenTravelApp/1.0 EdenAndroid/1.0`;
+  assert.match(cookieValue(await hit('/api/web/apple?app=1', { headers: { 'user-agent': ua } }), '__Host-eden-apple'), /^[^.]+\.[^.]+\.t/);
+  assert.match(cookieValue(await hit('/api/web/apple?app=1', { headers: { 'user-agent': `${CHROME} EdenTravelApp/1.0` } }), '__Host-eden-apple'), /^[^.]+\.[^.]+\.a/, 'the iPhone’s Travel app: Eden’s scheme, as before');
+  env = makeEnv({ WEB_APPLE_SERVICES_ID: '' });
+  assert.equal((await hit('/api/web/apple?app=travel')).headers.get('location'), 'com.askeden.travel://signin?error=not_set_up');
+  env = makeEnv();
+  assert.match(cookieValue(await hit('/api/web/apple?app=travel', { method: 'POST', body: {}, form: true }), '__Host-eden-apple') || '', /^[^.]+\.[^.]+\.s/, 'never from a form post');
+});
+
 // ── Digital Asset Links ──
 
 test('/.well-known/assetlinks.json names com.askeden.eden with the upload key, plus the Play key from ANDROID_CERT_SHA256', async () => {
@@ -133,6 +156,24 @@ test('/.well-known/assetlinks.json names com.askeden.eden with the upload key, p
   assert.deepEqual(both[0].target.sha256_cert_fingerprints, [ANDROID_UPLOAD_CERT, PLAY_CERT]);
   const edu = await worker.fetch(new Request('https://askedenedu.com/.well-known/assetlinks.json'), makeEnv({ EDU_HOST: 'askedenedu.com' }), ctx);
   assert.deepEqual(await edu.json(), []);
+});
+
+test('assetlinks.json names com.askeden.travel only with ANDROID_TRAVEL_CERT_SHA256: links on the travel address, passkeys on askeden.com', async () => {
+  const TRAVEL_CERT = 'AA:'.repeat(31) + 'BB';
+  const plain = await (await worker.fetch(new Request(`${ORIGIN}/.well-known/assetlinks.json`), env, ctx)).json();
+  assert.deepEqual(plain.map((e) => e.target.package_name), ['com.askeden.eden'], 'unset: no Travel entry');
+  env = makeEnv({ ANDROID_TRAVEL_CERT_SHA256: `${TRAVEL_CERT.toLowerCase()}, nope`, TRAVEL_HOST: 'askedentravel.com' });
+  const main = await (await worker.fetch(new Request(`${ORIGIN}/.well-known/assetlinks.json`), env, ctx)).json();
+  assert.deepEqual(main[1], { relation: ['delegate_permission/common.get_login_creds'], target: { namespace: 'android_app', package_name: 'com.askeden.travel', sha256_cert_fingerprints: [TRAVEL_CERT] } });
+  assert.deepEqual(main[0].target.sha256_cert_fingerprints, [ANDROID_UPLOAD_CERT], 'Eden’s own entry unchanged');
+  const r = await worker.fetch(new Request('https://askedentravel.com/.well-known/assetlinks.json'), env, ctx);
+  assert.equal(r.status, 200);
+  const travel = await r.json();
+  assert.deepEqual(travel[1].relation, ['delegate_permission/common.handle_all_urls']);
+  assert.equal(travel[1].target.package_name, 'com.askeden.travel');
+  // the Travel app's passkey sheet writes its own certificate's origin
+  assert.ok(androidOrigins(env).includes(apkKeyHash(TRAVEL_CERT)));
+  assert.ok(androidOrigins(env).includes(apkKeyHash(ANDROID_UPLOAD_CERT)));
 });
 
 test('apk-key-hash: base64url of the certificate’s SHA-256 bytes', () => {

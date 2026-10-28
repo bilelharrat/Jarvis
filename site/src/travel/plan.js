@@ -10,7 +10,7 @@
 //     checked_at } · nothing found → { found: false, why, url }. Kept with the trip (twin:<trip>:<stop>).
 
 import { askModel } from '../accounts/tasks.js';
-import { hoursCheck } from './checks.js';
+import { hoursCheck, lookups } from './checks.js';
 import { MapsError } from './maps.js';
 import { TripError, dayDate, hhmm, minutesOf } from './trips.js';
 
@@ -42,7 +42,7 @@ export async function planOp(account, op, body, { maps, cache, fetch: fetcher, t
   if (!trip) throw new TripError('There is no such trip.', 404, 'not_found');
   try {
     if (op === 'trip-optimize') return await optimize(account, id, trip, Number(body.day), { maps, cache, tripOp });
-    if (op === 'trip-windows') return await windows(account, id, trip, String(body.stop || ''), { maps, fetch: fetcher || globalThis.fetch });
+    if (op === 'trip-windows') return await windows(account, id, trip, String(body.stop || ''), { maps, cache, fetch: fetcher || globalThis.fetch });
   } catch (e) {
     if (e instanceof MapsError) throw new TripError(e.message, e.code === 'rate_limited' ? 429 : 503, e.code);
     throw e;
@@ -62,10 +62,13 @@ async function optimize(account, id, trip, d, { maps, cache, tripOp }) {
   const mode = modes.filter((m) => m === 'walk').length >= modes.length / 2 ? 'walk' : 'transit';
   const key = `mx1:${maps.mode}:${mode}:${pts.map((s) => s.place.id || `${s.place.lat},${s.place.lng}`).join('|')}`;
   let cells = await cache.get(key);
-  if (!cells) { cells = await maps.matrix(pts.map((s) => s.place), pts.map((s) => s.place), mode); await cache.put(key, cells, 6 * 3600_000); }
+  // billed per element (n × n): walking times keep a week, transit six hours (checks.js FRESH)
+  if (!cells) { cells = await maps.matrix(pts.map((s) => s.place), pts.map((s) => s.place), mode); await cache.put(key, cells, mode === 'walk' ? 7 * 86400_000 : 6 * 3600_000); }
   const idx = new Map(pts.map((s, i) => [s.id, i]));
   const legOf = (a, b) => { if (!a || !b) return 0; const c = cells.find((x) => x.from === idx.get(a.id) && x.to === idx.get(b.id)); return c ? c.minutes : null; };
-  const hoursOf = async (s) => { if (!s.place.id) return null; try { return await maps.place(s.place.id); } catch { return null; } };
+  // the same cached place answers as the trip's checks (no new Google call when the trip was just opened)
+  const look = lookups(maps, cache, { now: () => account.now() });
+  const hoursOf = async (s) => { const p = await look.place(s, date); return p && !p.error ? p : null; };
   const places = new Map(await Promise.all(stops.filter((s) => MOVABLE.has(s.kind)).map(async (s) => [s.id, await hoursOf(s)])));
   // a stop already out of hours (closed that day) stays a problem the checks show; an order may not add a new one
   const wasBad = new Set(stops.filter((s) => places.get(s.id) && hoursCheck(places.get(s.id), date, minutesOf(s.at), s.minutes).status === 'warn').map((s) => s.id));
@@ -139,7 +142,7 @@ const WINDOW_SCHEMA = {
 };
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKC').replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim();
 
-async function windows(account, id, trip, stopId, { maps, fetch: fetcher }) {
+async function windows(account, id, trip, stopId, { maps, cache, fetch: fetcher }) {
   const di = trip.days.findIndex((d) => d.stops.some((s) => s.id === stopId));
   if (di < 0) throw new TripError('There is no such stop in this trip.', 404, 'not_found');
   const stop = trip.days[di].stops.find((s) => s.id === stopId);
@@ -149,7 +152,9 @@ async function windows(account, id, trip, stopId, { maps, fetch: fetcher }) {
   if (kept && now - Date.parse(kept.checked_at) < PLAN.windowMs) return kept;
   const done = async (v) => { const out = { stop: stopId, place: stop.place.name, ...v, checked_at: new Date(now).toISOString() }; await account.storage.put(key, out); return out; };
   if (!stop.place.id || String(stop.place.id).startsWith('standin:')) return done({ found: false, why: 'This stop isn’t linked to a Google Maps place, so there is no website to read.' });
-  const place = await maps.place(stop.place.id);
+  // its website from the cached place (checks.js), else asked
+  const cached = cache ? await lookups(maps, cache, { now: () => now }).place(stop, dayDate(trip, di)) : null;
+  const place = cached && !cached.error ? cached : await maps.place(stop.place.id);
   if (!place.website) return done({ found: false, why: 'Google Maps lists no website for this place.' });
   const home = await getPage(place.website.replace(/^http:/, 'https:'), fetcher);
   if (!home) return done({ found: false, why: 'Its website didn’t open for Eden.', url: place.website });

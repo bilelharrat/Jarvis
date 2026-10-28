@@ -37,6 +37,7 @@ import { CARDS, cleanCardNames, matchCard, tripRewards } from './cards.js';
 import { AIRPORT_MS, CACHE_MS as FLIGHT_CACHE_MS, FlightError, POSITION_MS, cleanIdent, flightAwareFor } from './flightaware.js';
 import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from './confirmations.js';
 import { distanceKm, mapsFor } from './maps.js';
+import { spendMeter } from './spend.js';
 import { index, shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
 import { priceDrops, stayOp } from './stayops.js';
@@ -51,6 +52,14 @@ import { togetherOp, tripPeople } from './together.js';
 import { mailWatchOp } from './mailwatch.js';
 import { liveOp } from './liveact.js';
 import { armCacheSweep } from './cachesweep.js';
+import { promiseOp } from './promise.js';
+import { cardPerkOp } from './cardperk.js';
+import { yearOp } from './yearinreview.js';
+import { coversOp, joinedAlertsOp } from './companions.js';
+import { claimsOp } from './compensation.js';
+import { rewardsOp } from './rewards.js';
+import { dropTripEsims, esimOp } from './esim.js';
+import { armRecheck } from './recheck.js';
 import { loyaltyOp } from './loyalty.js';
 import { accuracyOp, dropTripAccuracy, noteChecks, noteWindow } from './accuracy.js';
 import { activitiesOp } from './activities.js';
@@ -65,22 +74,34 @@ const PROP_ID = /^[0-9a-f]{12}$/;
 const hex = (bytes) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
+// tcache:<key> → { v, at, fresh, until }: get() answers until `fresh`; the entry is kept until `until` (keepMs, for
+// checks.js to show the last answer, with its own checked_at, while a spending cap holds new lookups back; spend.js)
 function cacheIn(storage, now, onFirstPut = null) {
   let armed = false;
   return {
     async get(key) {
       const hit = await storage.get(`tcache:${key}`);
       if (!hit) return undefined;
-      if (hit.until > now()) return hit.v;
-      await storage.delete(`tcache:${key}`);
+      if ((hit.fresh ?? hit.until) > now()) return hit.v;
+      if (hit.until <= now()) await storage.delete(`tcache:${key}`);
       return undefined;
     },
-    async put(key, v, ms) {
-      await storage.put(`tcache:${key}`, { v, until: now() + ms });
+    // the entry and when it was stored, however old (until it's dropped): the caller decides what's fresh
+    async entry(key) {
+      const hit = await storage.get(`tcache:${key}`);
+      if (!hit || !(hit.until > now())) return undefined;
+      return { v: hit.v, at: Number.isFinite(hit.at) ? hit.at : -Infinity };
+    },
+    async put(key, v, ms, keepMs = ms) {
+      const t = now();
+      await storage.put(`tcache:${key}`, { v, at: t, fresh: t + ms, until: t + Math.max(ms, keepMs) });
       if (onFirstPut && !armed) { armed = true; await onFirstPut(); } // the daily sweep of expired entries (cachesweep.js), armed once a request
     },
   };
 }
+
+export const CHECKS_REUSE_MIN = 10;
+const digest = async (x) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(x))))].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
 
 const summary = (id, t) => ({ id, title: t.title, destination: t.destination, start: t.start, days: t.days.length, travelers: t.travelers, rev: t.rev, updated: t.updated });
 
@@ -88,9 +109,21 @@ const summary = (id, t) => ({ id, title: t.title, destination: t.destination, st
 export async function tripOp(account, op, body = {}, deps = {}) {
   const now = () => account.now();
   const storage = account.storage;
-  const maps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now });
+  const meter = deps.meter || spendMeter(account); // Google spend counted and capped (spend.js)
+  const maps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now, meter });
   const cache = cacheIn(storage, now, () => armCacheSweep(account));
   const check = (trip) => checkTrip(trip, maps, { cache, now });
+  // trip-get: the same trip opened again within CHECKS_REUSE minutes gets the same checks (with their checked_at), no
+  // lookups at all; keyed on the trip's content, so any change (on any path) checks again. Not after a cap held part.
+  const reuseMs = Math.max(0, Number(account.env?.TRAVEL_CHECKS_REUSE_MIN ?? CHECKS_REUSE_MIN)) * 60_000;
+  const checkOpened = async (trip, fresh) => {
+    if (!reuseMs) return await check(trip);
+    const key = `chk1:${maps.mode}:${await digest(trip)}`;
+    if (!fresh) { const hit = await cache.get(key); if (hit) return hit; }
+    const checks = await check(trip);
+    if (!checks.spend) await cache.put(key, checks, reuseMs);
+    return checks;
+  };
   const newId = () => `s-${hex(4)}`;
 
   const load = async () => {
@@ -129,7 +162,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const { id, trip } = await load();
       const prop = await storage.get(`tprop:${id}`);
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
-      const checks = await check(trip);
+      const checks = await checkOpened(trip, Boolean(body.recheck));
       // checks shown, for the accuracy counts (accuracy.js); a re-check counts its own (recheck.js, shown: false)
       if (!body.recheck) await noteChecks(account, id, trip, checks).catch((e) => console.error('trip accuracy', e && e.message));
       return { trip: { id, ...trip }, checks, proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id), flight_price_drops: await flightPriceDrops(account, id), flight_watches: await flightWatches(account, id) };
@@ -164,6 +197,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       // its documents, money and group chat (inbox.js, money.js)
       await dropTripDocs(storage, id);
       await dropTripPhotos(storage, id); // its memories (memories.js)
+      await dropTripEsims(storage, id); // its eSIMs' install details (esim.js)
       await dropTripAccuracy(account, id); // its reports (accuracy.js)
       await storage.delete(`tdis:${id}`); // its last disruption check (disrupt.js)
       for (const prefix of [`tx:${id}:`, `tchat:${id}:`, `tppl:${id}`, `tdec:${id}`, `twin:${id}:`, `fpw:${id}:`, `twrem:${id}:`, `tpres:${id}:`, `tlive:${id}:`]) {
@@ -386,6 +420,27 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       if (op === 'trip-windows') await noteWindow(account, String(body.id || ''), out).catch(() => {}); // a booking window shown (accuracy.js)
       return out;
     }
+    // the Eden Price Promise: every watch, savings, the book-then-cancel rebook (promise.js)
+    case 'trip-promise': case 'trip-promise-settings': case 'trip-promise-rebook': case 'trip-promise-rebook-status':
+      return await promiseOp(account, op, body, { ...deps, tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // Plus perks: best card per booking, the year in travel, what Plus covers for companions (cardperk.js, yearinreview.js, companions.js)
+    case 'trip-card-perk':
+      return await cardPerkOp(account, op, body, { cache, fetch: deps.fetch });
+    case 'trip-year':
+      return await yearOp(account, op, body, { tripOp: (a, o, b, d) => tripOp(a, o, b, { ...deps, ...d }), cache, fetch: deps.fetch });
+    case 'trip-plus-covers':
+      return await coversOp(account, op, body);
+    case 'trip-joined-alerts':
+      return await joinedAlertsOp(account, op, body);
+    // money back for a delayed or cancelled flight (compensation.js): the person sends the claim themselves
+    case 'trip-claims': case 'trip-claim-letter':
+      return await claimsOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });
+    // Eden Rewards: points with no cash value, status tiers (rewards.js)
+    case 'trip-rewards': case 'trip-rewards-redeem': case 'trip-rewards-undo':
+      return await rewardsOp(account, op, body, { rearm: () => armRecheck(account) });
+    // mobile data for the trip (esim.js: Airalo; off until its keys); an order only through pay.js
+    case 'trip-esim': case 'trip-esim-check': case 'trip-esim-order': case 'trip-esims':
+      return await esimOp(account, op, body, { cache, fetch: deps.fetch });
     // the Travel app's Live Activity: its push tokens, or the person ending it (liveact.js)
     case 'trip-live-token': case 'trip-live-end':
       return await liveOp(account, op, body, { tripOp: (a, o, b) => tripOp(a, o, b, deps) });

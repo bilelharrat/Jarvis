@@ -237,6 +237,8 @@ async function route(request, env, ctx) {
   const travelDoor = /^(www\.)?askedentravel\.com$/;
   if (travelHost) {
     const bare = url.pathname.replace(/\/+$/, '') || '/';
+    // www is the bare address, except Android's app-link file, which Android reads without following a redirect
+    if (url.hostname === `www.${travelHost}` && url.pathname === '/.well-known/assetlinks.json') return assetLinks(env, travelHost);
     if (url.hostname === `www.${travelHost}`) return Response.redirect(`https://${travelHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
     if (url.hostname !== travelHost && bare === '/travel' && getLike) return Response.redirect(`https://${travelHost}/${url.search}`, 301);
     if (url.hostname === travelHost) {

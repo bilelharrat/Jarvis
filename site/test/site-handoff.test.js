@@ -162,6 +162,46 @@ test('the travel app registers its browser for push, and hears only the travel p
   assert.equal(after.apns_topic, null);
 });
 
+test('Ask Eden Travel for Android registers its Firebase token (platform android) and hears only the travel pushes, through FCM', async () => {
+  const session = await signedIn();
+  const begun = await hit(`${TRAVEL}/api/web/site-handoff/start`);
+  const s = new URL(begun.headers.get('location')).searchParams.get('s');
+  const minted = await hit(`${MAIN}/hand?s=${s}&on=1`, { headers: { 'sec-fetch-site': 'same-origin' }, cookie: `__Host-eden=${session}` });
+  const travel = cookieValue(await hit(minted.headers.get('location'), { cookie: `__Host-eden-hand=${cookieValue(begun, '__Host-eden-hand')}` }), '__Host-eden');
+  const token = 'eXaMpLe:APA91b' + 'x_-'.repeat(50);
+  const push = (body, cookie = `__Host-eden=${travel}`) => hit(`${TRAVEL}/api/web/push`, { method: 'POST', cookie, body });
+  assert.equal((await push({ fcm_token: token, app: 'com.askeden.travel', platform: 'android' }, '')).status, 401, 'signed in only');
+  assert.equal((await push({ fcm_token: token, app: 'com.askeden.jarvis', platform: 'android' })).status, 400, 'only an app that gets pushes this way');
+  assert.equal((await push({ fcm_token: 'bad token', app: 'com.askeden.travel', platform: 'android' })).status, 400);
+  assert.equal((await push({ fcm_token: 42, app: 'com.askeden.travel', platform: 'android' })).status, 400);
+  const ok = await push({ fcm_token: token, app: 'com.askeden.travel', platform: 'android' });
+  assert.equal(ok.status, 200, await ok.clone().text());
+  const { account_id } = await (await hit(`${TRAVEL}/api/web/session`, { cookie: `__Host-eden=${travel}` })).json();
+  const account = env.ACCOUNTS.objects.get(account_id);
+  const device = (await account.devices()).find((d) => d.fcm_token === token);
+  assert.equal(device.kind, 'web');
+  assert.equal(device.fcm_app, 'com.askeden.travel');
+  assert.equal(device.apns_token, null, 'no Apple token on an Android device');
+  assert.equal(account.publicDevice(device, device.id).push, true);
+  const fcm = [], apns = [];
+  account.sendFcm = async (m) => (fcm.push(m), { status: 200 });
+  account.sendPush = async (p) => (apns.push(p), { status: 200 });
+  const { notifyOwner } = await import('../src/accounts/tasks.js');
+  assert.equal(await notifyOwner(account, { title: 'UA 1 is late', body: 'Now 18:05', data: { kind: 'flight' } }), 1);
+  assert.equal(await notifyOwner(account, { title: 'Approve?', body: 'A draft', data: { kind: 'approval' } }), 0, 'Eden Secretary’s pushes stay off the travel app');
+  assert.deepEqual(fcm.map((m) => [m.token, m.data.title, m.data.kind]), [[token, 'UA 1 is late', 'flight']]);
+  assert.equal(apns.length, 0);
+  // FCM says the app is gone: the token goes
+  account.sendFcm = async () => ({ status: 404, reason: 'UNREGISTERED' });
+  assert.equal(await notifyOwner(account, { title: 'x', body: 'y', data: { kind: 'pickup' } }), 0);
+  assert.equal((await account.devices()).find((d) => d.id === device.id).fcm_token, null);
+  // registered again, then signed out of push
+  assert.equal((await push({ fcm_token: token, app: 'com.askeden.travel', platform: 'android' })).status, 200);
+  assert.equal((await push({ fcm_token: null, platform: 'android' })).status, 200);
+  const after = (await account.devices()).find((d) => d.id === device.id);
+  assert.deepEqual([after.fcm_token, after.fcm_app], [null, null]);
+});
+
 test('a travel push goes to Apple under the travel app’s topic; anything else keeps the Eden Secretary’s', async () => {
   const { sendPush, forgetProviderToken } = await import('../src/accounts/apns.js');
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);

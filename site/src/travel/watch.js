@@ -6,6 +6,8 @@
 //
 // What was last told is kept per flight (`fwsnap:<ident>:<date>`), so a change is pushed once.
 
+import { claimAfterLanding } from './compensation.js';
+import { memberFlightNews } from './companions.js';
 import { liveFlightNews } from './liveact.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { cleanIdent } from './flightaware.js';
@@ -139,6 +141,10 @@ export async function flightWatchDue(account, { tripOp, notify }) {
       done, checked_at: now, next: now + (leaves - now <= WATCH.nearBeforeMs ? WATCH.nearMs : WATCH.farMs),
     });
     // the travel day's Live Activity: the new gate or delay pushed to it (liveact.js; reads the saved result above)
+    // money back for a long delay or a cancellation, once the flight is done (compensation.js)
+    if (done && !(snap && snap.done)) await claimAfterLanding(account, f, flight, snap, { tripOp, notify }).catch((e) => console.error('delay claim', e && e.message));
+    // the people on the trip who asked for its flight alerts (companions.js)
+    if (news.length) await memberFlightNews(account, f, news, { plus: String(account.env.TRAVEL_PLUS ?? '1') === '0' || (await account.planNow()).active }).catch((e) => console.error('member alerts', e && e.message));
     if (news.length) await liveFlightNews(account, { trip: f.trip, date: f.date, news }, { tripOp }).catch((e) => console.error('live activity', e && e.message));
   }
   // the soonest of each flight's own next look

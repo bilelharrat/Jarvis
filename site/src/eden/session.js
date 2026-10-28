@@ -299,7 +299,11 @@ async function session(request, env) {
 async function webPush(request, env) {
   const who = await signedIn(request, env);
   const body = await readJson(request);
-  return json(await call(env, who.account, 'app-push', { apns_token: body.apns_token, apns_env: body.apns_env, app: body.app }, who.token));
+  // the iPhone's apps give an APNs token; Ask Eden Travel for Android its Firebase token ({ fcm_token, app, platform: 'android' })
+  const push = body.platform === 'android' || body.fcm_token !== undefined
+    ? { fcm_token: body.fcm_token, app: body.app, platform: 'android' }
+    : { apns_token: body.apns_token, apns_env: body.apns_env, app: body.app };
+  return json(await call(env, who.account, 'app-push', push, who.token));
 }
 
 async function accountView(request, env) {
@@ -564,8 +568,8 @@ async function providerAttempt(request, env, form = null) {
   if (human) await callLink(env, `human:${state}`, 'stash', { value: { ok: true }, seconds: HUMAN_SECONDS });
   // This browser's last way in, read here (a request from this site, so its cookie comes along; Apple's callback is a
   // cross-site POST, which never brings it) and kept for this attempt (`prior:<state>`): should the callback be about
-  // to make a new account, it asks first (finish). Not in link mode, nor for the apps' own flows (`?app=1`), nor while held.
-  const prior = signinChoiceOn(env) && !link && !(request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1') ? lastSignIn(request) : null;
+  // to make a new account, it asks first (finish). Not in link mode, nor for the apps' own flows (`?app=1`, `?app=travel`), nor while held.
+  const prior = signinChoiceOn(env) && !link && !appFlag(request) ? lastSignIn(request) : null;
   if (prior) await callLink(env, `prior:${state}`, 'stash', { value: prior, seconds: STATE_SECONDS });
   return { state, nonce, link, back: link ? '/' : form ? safeReturn(form.get('return')) : returnOf(request) };
 }
@@ -759,8 +763,8 @@ async function appleStart(request, env) {
   // The Eden Android app (`?app=1`, a GET from its Custom Tab): Android has no native Sign in with
   // Apple, so it opens Apple's web sign-in; the callback ends on the app's own scheme with a one-time
   // handoff code (as Google's `?app=1` does for both apps).
-  const app = !mode.link && request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1';
-  if (!appleReady(env)) return app ? toApp({ error: 'not_set_up' }) : ending({ ...mode, error: 'not_set_up' });
+  const app = mode.link ? null : appFlag(request); // 't': Ask Eden Travel for Android, which has its own scheme
+  if (!appleReady(env)) return app ? toApp({ error: 'not_set_up' }, app) : ending({ ...mode, error: 'not_set_up' });
   let attempt;
   try {
     attempt = await providerAttempt(request, env, form);
@@ -779,30 +783,30 @@ async function appleStart(request, env) {
   }).toString();
   // Apple posts back from its own site: this one cookie has to come along (SameSite=None),
   // and it holds nothing but this attempt's state, nonce, mode and where to go back to.
-  return withCookies(redirect(to.toString()), cookie(APPLE_COOKIE, withReturn(`${state}.${nonce}.${link ? 'l' : app ? 'a' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'None' }));
+  return withCookies(redirect(to.toString()), cookie(APPLE_COOKIE, withReturn(`${state}.${nonce}.${link ? 'l' : app || 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'None' }));
 }
 
 async function appleCallback(request, env) {
   const clear = clearCookie(APPLE_COOKIE, 'None');
   const [state = '', nonce = '', flag = 's', packed = ''] = String(cookies(request)[APPLE_COOKIE] || '').split('.');
   const mode = { provider: 'apple', link: flag === 'l', back: flag === 'l' ? '/' : unpackReturn(packed) };
-  const app = flag === 'a'; // the Android app's Custom Tab (appleStart ?app=1): ends on its scheme
-  if (!appleReady(env)) return withCookies(app ? toApp({ error: 'not_set_up' }) : ending({ ...mode, error: 'not_set_up' }), clear);
+  const app = isAppFlag(flag); // the Android apps' Custom Tab (appleStart ?app=1): ends on its scheme
+  if (!appleReady(env)) return withCookies(app ? toApp({ error: 'not_set_up' }, flag) : ending({ ...mode, error: 'not_set_up' }), clear);
   let form;
   try {
     form = new URLSearchParams(await request.text());
   } catch {
     form = new URLSearchParams();
   }
-  if (form.get('error')) return withCookies(app ? toApp({ error: 'cancelled' }) : ending({ ...mode, error: 'cancelled' }), clear); // user_cancelled_authorize
-  if (!state || !nonce || !sameText(form.get('state') || '', state)) return withCookies(app ? toApp({ error: 'state' }) : ending({ ...mode, error: 'state' }), clear);
+  if (form.get('error')) return withCookies(app ? toApp({ error: 'cancelled' }, flag) : ending({ ...mode, error: 'cancelled' }), clear); // user_cancelled_authorize
+  if (!state || !nonce || !sameText(form.get('state') || '', state)) return withCookies(app ? toApp({ error: 'state' }, flag) : ending({ ...mode, error: 'state' }), clear);
   try {
     await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
     const claims = await verifyIdentityToken(form.get('id_token'), nonce, { audience: env.WEB_APPLE_SERVICES_ID, now: Date.now() / 1000 });
-    if (app) return withCookies(await appHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null }), clear);
+    if (app) return withCookies(await appHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null }, flag), clear);
     return withCookies(await finish(request, env, { provider: 'apple', sub: claims.sub, email: null, state, link: mode.link, back: mode.back }), clear);
   } catch (error) {
-    if (app) return withCookies(toApp({ error: errorCode(error) }), clear);
+    if (app) return withCookies(toApp({ error: errorCode(error) }, flag), clear);
     return withCookies(failed(error, mode), clear);
   }
 }
@@ -822,7 +826,7 @@ async function googleStart(request, env) {
   // The Eden iOS app (`?app=1`, a GET from its ASWebAuthenticationSession): Google refuses
   // sign-in inside an app's web view, so the app opens this in Apple's web sign-in sheet; the
   // callback ends on the app's own URL scheme with a one-time handoff code (as native Apple's).
-  const app = !link && request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1';
+  const app = link ? null : appFlag(request); // 't': Ask Eden Travel for Android, which has its own scheme
   const { verifier, challenge } = await pkcePair();
   const to = buildAuthUrl(env, {
     redirectUri: `${new URL(request.url).origin}${GOOGLE_CALLBACK}`,
@@ -832,7 +836,7 @@ async function googleStart(request, env) {
     scopes: SIGN_IN_SCOPES,
     prompt: 'select_account',
   });
-  return withCookies(redirect(to), cookie(GOOGLE_COOKIE, withReturn(`${state}.${nonce}.${verifier}.${link ? 'l' : app ? 'a' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'Lax' }));
+  return withCookies(redirect(to), cookie(GOOGLE_COOKIE, withReturn(`${state}.${nonce}.${verifier}.${link ? 'l' : app || 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'Lax' }));
 }
 
 async function googleCallback(request, env) {
@@ -842,18 +846,18 @@ async function googleCallback(request, env) {
   const mode = { provider: 'google', link: flag === 'l', back: flag === 'l' ? '/' : unpackReturn(packed) };
   if (!googleReady(env) || !env.IDENTITIES) return withCookies(ending({ ...mode, error: 'not_set_up' }), clear);
   const refusal = url.searchParams.get('error');
-  if (refusal) return withCookies(flag === 'a' ? toApp({ error: 'cancelled' }) : ending({ ...mode, error: refusal === 'access_denied' ? 'access_denied' : 'cancelled' }), clear);
-  if (!state || !nonce || !verifier || !sameText(url.searchParams.get('state') || '', state)) return withCookies(flag === 'a' ? toApp({ error: 'state' }) : ending({ ...mode, error: 'state' }), clear);
+  if (refusal) return withCookies(isAppFlag(flag) ? toApp({ error: 'cancelled' }, flag) : ending({ ...mode, error: refusal === 'access_denied' ? 'access_denied' : 'cancelled' }), clear);
+  if (!state || !nonce || !verifier || !sameText(url.searchParams.get('state') || '', state)) return withCookies(isAppFlag(flag) ? toApp({ error: 'state' }, flag) : ending({ ...mode, error: 'state' }), clear);
   try {
     await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
     const redirectUri = `${url.origin}${GOOGLE_CALLBACK}`;
     const tokens = await exchangeCode(env, { code: url.searchParams.get('code'), verifier, redirectUri });
     const claims = await verifyIdToken(tokens.id_token, { audience: env.GOOGLE_CLIENT_ID, nonce, now: Date.now() / 1000 });
     const email = typeof claims.email === 'string' ? claims.email.toLowerCase().slice(0, 200) : null;
-    if (flag === 'a') return withCookies(await appHandoff(request, env, { provider: 'google', sub: claims.sub, email }), clear);
+    if (isAppFlag(flag)) return withCookies(await appHandoff(request, env, { provider: 'google', sub: claims.sub, email }, flag), clear);
     return withCookies(await finish(request, env, { provider: 'google', sub: claims.sub, email, state, link: mode.link, back: mode.back }), clear);
   } catch (error) {
-    if (flag === 'a') return withCookies(toApp({ error: errorCode(error) }), clear);
+    if (isAppFlag(flag)) return withCookies(toApp({ error: errorCode(error) }, flag), clear);
     return withCookies(failed(error, mode), clear);
   }
 }
@@ -1054,10 +1058,24 @@ async function stashCode(env, value) {
 // Where a sign-in started by the app in Apple's web sheet ends: the app's own scheme, which
 // only closes that sheet (ASWebAuthenticationSession), with a handoff code or an error code.
 export const APP_CALLBACK = 'com.askeden.eden://signin';
-const toApp = (fields) => redirect(`${APP_CALLBACK}?${new URLSearchParams(fields)}`);
+// Ask Eden Travel for Android's own (`?app=travel`, or its web view's user agent), so Eden and Eden Travel don't both
+// answer the same sign-in's end (askeden/android/travel AndroidManifest.xml).
+export const TRAVEL_APP_CALLBACK = 'com.askeden.travel://signin';
+const toApp = (fields, flag = 'a') => redirect(`${flag === 't' ? TRAVEL_APP_CALLBACK : APP_CALLBACK}?${new URLSearchParams(fields)}`);
+const isAppFlag = (flag) => flag === 'a' || flag === 't';
 
-async function appHandoff(request, env, identity) {
-  return toApp({ code: await stashHandoff(request, env, identity) });
+/** A sign-in the apps start (`?app=1`, a GET): 't' for Ask Eden Travel for Android, 'a' for the others, else null. */
+function appFlag(request) {
+  if (request.method !== 'GET') return null;
+  const app = new URL(request.url).searchParams.get('app');
+  if (app === 'travel') return 't';
+  if (app !== '1') return null;
+  const ua = request.headers.get('user-agent') || '';
+  return ua.includes('EdenTravelApp/') && ua.includes('EdenAndroid/') ? 't' : 'a';
+}
+
+async function appHandoff(request, env, identity, flag = 'a') {
+  return toApp({ code: await stashHandoff(request, env, identity) }, flag);
 }
 
 async function handoff(request, env) {

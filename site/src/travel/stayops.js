@@ -13,6 +13,7 @@
 //   trip-stays-cancel { booking_id, confirm: true }
 //   alarm kind 'pwatch' (account.js): stayWatchDue
 
+import { earnBooking } from './rewards.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { hotelLoyaltyFor, hotelLoyaltyView } from './loyalty.js';
 import { StaysError, priceDrop, staysFor } from './stays.js';
@@ -88,6 +89,7 @@ export async function stayOp(account, op, body, deps = {}) {
           room: q.room || null, refunds: (q.cancellation && Array.isArray(q.cancellation.refunds) ? q.cancellation.refunds : []), // the refund timeline: a later cancel's card refund
           created: now(), drop: null,
         });
+        await earnBooking(account, 'stay', b.booking_id).catch(() => {}); // Eden Rewards (rewards.js)
         await armStayWatch(account);
         return loyal ? { ...b, loyalty: { programme: loyal.programme, name: loyal.name, guest: loyal.guest, number: loyal.masked } } : b;
       }
@@ -160,9 +162,11 @@ export async function stayWatchDue(account, { notify, stays: given, fetch } = {}
         }
       }
     } catch { continue; } // Duffel down: tomorrow
-    if (!fresh) continue;
+    // the last look, cheaper or not (the Price Promise shows it: promise.js)
+    b.checked = { at: new Date(now).toISOString(), total: fresh ? fresh.total : null, currency: fresh ? fresh.currency : null };
+    if (!fresh) { await account.storage.put(key, b); continue; }
     const d = priceDrop({ total: b.total, currency: b.currency, free_until: b.free_until }, fresh, now);
-    if (!d.cheaper) { if (b.drop) { b.drop = null; await account.storage.put(key, b); } continue; }
+    if (!d.cheaper) { b.drop = null; await account.storage.put(key, b); continue; }
     const told = b.drop && Number(b.drop.total) <= Number(fresh.total);
     b.drop = { total: fresh.total, by: d.by, search_result_id: fresh.search_result_id, rate_id: fresh.rate_id, checked_at: new Date(now).toISOString() };
     await account.storage.put(key, b);

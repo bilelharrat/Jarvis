@@ -11,13 +11,25 @@
 // These are data checks against Google Maps (or the stand-in); EVES's claim checks run on
 // Ask Eden's answers (eden/eves.js), not here.
 //
-// Lookups go through a cache (place answers a day, travel times six hours) so opening a trip
-// again doesn't pay Google again.
+// Lookups go through a cache so opening a trip again doesn't pay Google again (lookups() below: how old each answer may
+// be, FRESH). Past a spending cap (spend.js) no new call is made: the last answer is shown with its own checked_at and
+// `held`, or, never checked, a place says so and a leg gets a straight-line estimate shown as a sample.
 
-import { MapsError } from './maps.js';
+import { MapsError, standinMaps } from './maps.js';
+import { HELD } from './spend.js';
 import { dayDate, hhmm, minutesOf, weekday } from './trips.js';
 
-export const CACHE = { placeMs: 24 * 3600_000, travelMs: 6 * 3600_000 };
+export const CACHE = { placeMs: 24 * 3600_000, travelMs: 6 * 3600_000, keepMs: 30 * 86400_000 };
+const DAY = 86400_000;
+// How old a Google answer may be before it is asked again (each badge shows when it was checked):
+//   a place's name, where it is and its access: 30 days; its status and hours: a day for a visit in the next two days
+//   (or past), 3 days for one within two weeks, 7 beyond. Walking times 7 days; transit a day; driving 6 hours.
+// Answers are kept CACHE.keepMs, and past these ages shown only while a cap holds new checks back.
+export const FRESH = { stable: 30 * DAY, hours: [[2 * DAY, DAY], [14 * DAY, 3 * DAY], [Infinity, 7 * DAY]], walk: 7 * DAY, transit: DAY, drive: 6 * 3600_000, taxi: 6 * 3600_000 };
+const STABLE_KEYS = ['id', 'name', 'address', 'lat', 'lng', 'url', 'access'];
+const HOURS_KEYS = ['status', 'hours', 'price', 'price_level', 'website', 'photo'];
+const pick = (p, keys) => Object.fromEntries(keys.filter((k) => k in p).map((k) => [k, p[k]]));
+const ESTIMATE = 'A straight-line estimate: not checked';
 const HOW = { walk: 'on foot', transit: 'by public transport', drive: 'by car', taxi: 'by taxi' };
 const TIGHT = 10; // minutes of slack under which a connection is tight
 const LATE = 5; // minutes late before it counts
@@ -25,38 +37,127 @@ const LATE = 5; // minutes late before it counts
 export const PACE = { fullStops: 5, rushedStops: 7, fullBusy: 9 * 60, rushedMove: 150 };
 
 // A cache backed by nothing: every lookup goes to the maps.
-export const noCache = { get: async () => undefined, put: async () => {} };
+export const noCache = { get: async () => undefined, put: async () => {}, entry: async () => undefined };
 
-export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now() } = {}) {
-  const placeOf = async (stop) => {
-    if (!stop.place.id) return null;
-    const key = `p3:${maps.mode}:${stop.place.id}`; // p3: with the place's photo, access and website
-    const hit = await cache.get(key);
-    if (hit) return hit;
+/** How old the hours answer for a visit on `date` may be. */
+export function hoursFresh(date, now) {
+  const ahead = Date.parse(`${date}T00:00:00Z`) - now;
+  return (FRESH.hours.find(([within]) => !(ahead > within)) || FRESH.hours[0])[1];
+}
+
+/**
+ * The cached lookups the checks (and plan.js) share: place(stop, date) and travel(from, to, mode, { lessWalking }).
+ * One lookup per key per check (a hotel twice in a day is asked once); `held` counts answers a cap held back.
+ */
+export function lookups(maps, cache, { now = () => Date.now() } = {}) {
+  const memo = new Map();
+  const held = { n: 0, reason: null };
+  const once = (key, fn) => { if (!memo.has(key)) memo.set(key, fn()); return memo.get(key); };
+  // { v, at } of a cached answer; a cache with get/put only: what it has counts as fresh
+  const entry = async (key) => {
+    if (cache.entry) return await cache.entry(key);
+    const v = await cache.get(key);
+    return v === undefined ? undefined : { v, at: now() };
+  };
+  // a cap reached (spend.js): counted, and its reason; any other error goes on up
+  const capped = (err) => {
+    if (!(err instanceof MapsError) || err.code !== 'capped') throw err;
+    const r = err.reason || 'account';
+    held.n++;
+    held.reason ||= r;
+    return r;
+  };
+  // the cached answer if young enough, else a new one; a cap reached: the last one, marked held, or { held, note } alone
+  const fresh = async (key, maxAge, ask, e) => {
+    if (e === undefined) e = await entry(key);
+    if (e && now() - e.at <= maxAge) return e.v;
     try {
-      const p = await maps.place(stop.place.id);
-      await cache.put(key, p, CACHE.placeMs);
-      return p;
-    } catch (e) {
-      return { error: e instanceof MapsError ? e.message : 'The maps lookup failed.' };
+      const v = await ask();
+      await cache.put(key, v, maxAge, CACHE.keepMs);
+      return v;
+    } catch (err) {
+      const r = capped(err);
+      return e ? { ...e.v, held: r } : { held: r, note: err.message };
     }
   };
-  const travelOf = async (from, to, mode) => {
+  const failed = (e, what) => ({ error: e instanceof MapsError ? e.message : `The ${what} lookup failed.` });
+
+  const place = (stop, date) => {
+    const id = stop.place.id;
+    if (!id) return null;
+    const live = maps.mode === 'google' && !String(id).startsWith('standin:');
+    const hoursAge = live ? hoursFresh(date || '', now()) : CACHE.placeMs;
+    return once(`p:${id}:${hoursAge}`, async () => {
+      try {
+        if (!live) return await fresh(`p3:${maps.mode}:${id}`, CACHE.placeMs, () => maps.place(id));
+        // two parts on their own clocks; neither cached: one call for both
+        const sk = `ps1:${id}`, hk = `ph1:${id}`;
+        const [se, he] = [await entry(sk), await entry(hk)];
+        const young = (e, age) => e && now() - e.at <= age;
+        if (!young(se, FRESH.stable) && !young(he, hoursAge)) {
+          let both;
+          try {
+            both = await maps.place(id, { part: 'all' });
+          } catch (err) {
+            const r = capped(err); // held back: the parts last seen, if any
+            return merge(se ? { ...se.v, held: r } : null, he ? { ...he.v, held: r } : { held: r, note: err.message });
+          }
+          const stamp = { source: both.source, checked_at: both.checked_at, standin: both.standin };
+          const sv = { ...pick(both, STABLE_KEYS), ...stamp }, hv = { ...pick(both, HOURS_KEYS), ...stamp };
+          await cache.put(sk, sv, FRESH.stable, CACHE.keepMs);
+          await cache.put(hk, hv, hoursAge, CACHE.keepMs);
+          return merge(sv, hv);
+        }
+        const part = (k, e, age, name, keys) => fresh(k, age, async () => { // one part due: only its fields asked
+          const p = await maps.place(id, { part: name });
+          return { ...pick(p, keys), source: p.source, checked_at: p.checked_at, standin: p.standin };
+        }, e || null);
+        return merge(await part(sk, se, FRESH.stable, 'stable', STABLE_KEYS), await part(hk, he, hoursAge, 'hours', HOURS_KEYS));
+      } catch (e) {
+        return failed(e, 'maps');
+      }
+    });
+  };
+  // the place from its two parts: the hours part's checked_at is the place's; access carries its own
+  const merge = (sv, hv) => {
+    if (!hv || !hv.checked_at) return { error: hv?.note || HELD[hv?.held] || 'Not checked.', held: hv?.held };
+    const st = sv && sv.checked_at ? sv : null;
+    const out = { ...(st || {}), ...hv, access_checked_at: st ? st.checked_at : null };
+    if (st?.held || hv.held) out.held = hv.held || st.held;
+    return out;
+  };
+
+  const travel = (from, to, mode, { lessWalking = false } = {}) => {
     const a = from.place, b = to.place;
     if (!(Number.isFinite(a.lat) && Number.isFinite(b.lat))) return null;
-    // t2: with the transit lines (older entries had none)
-    const lessWalking = Boolean(trip.access && trip.access.step_free) && mode === 'transit';
-    const key = `t2:${maps.mode}:${mode}${lessWalking ? ':lw' : ''}:${a.id || `${a.lat},${a.lng}`}>${b.id || `${b.lat},${b.lng}`}`;
-    const hit = await cache.get(key);
-    if (hit) return hit;
-    try {
-      const t = await maps.travel(a, b, mode, lessWalking ? { lessWalking } : undefined);
-      await cache.put(key, t, CACHE.travelMs);
-      return t;
-    } catch (e) {
-      return { error: e instanceof MapsError ? e.message : 'The travel-time lookup failed.' };
-    }
+    const pt = (p) => p.id || `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
+    // t2: with the transit lines (older entries had none). The same leg in any of the account's trips shares one entry.
+    // The hour: Google is asked for now (a trip has no time zone, so no departure time is sent), so every answer is
+    // "now"; once departure times are sent the key carries their hour instead.
+    const key = `t2:${maps.mode}:${mode}${lessWalking ? ':lw' : ''}:${pt(a)}>${pt(b)}:now`;
+    const age = maps.mode === 'google' ? FRESH[mode] ?? FRESH.transit : CACHE.travelMs;
+    return once(key, async () => {
+      try {
+        const t = await fresh(key, age, () => maps.travel(a, b, mode, lessWalking ? { lessWalking } : undefined));
+        if (t.held && !Number.isFinite(t.minutes)) {
+          // never checked and held back: a straight-line estimate, shown as a sample
+          const est = await standinMaps(now).travel(a, b, mode);
+          return { ...est, source: ESTIMATE, held: t.held };
+        }
+        return t;
+      } catch (e) {
+        return failed(e, 'travel-time');
+      }
+    });
   };
+  return { place, travel, held };
+}
+
+
+export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now() } = {}) {
+  const look = lookups(maps, cache, { now });
+  const placeOf = (stop, date) => look.place(stop, date);
+  const travelOf = (from, to, mode) => look.travel(from, to, mode, { lessWalking: Boolean(trip.access && trip.access.step_free) && mode === 'transit' });
 
   const days = [];
   const alerts = [];
@@ -65,7 +166,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
   for (let d = 0; d < trip.days.length; d++) {
     const date = dayDate(trip, d);
     const stops = trip.days[d].stops;
-    const places = await Promise.all(stops.map(placeOf));
+    const places = await Promise.all(stops.map((s) => placeOf(s, date)));
     const out = [];
     let move = 0, busy = 0, cost = 0, late = 0;
     let leave = null; // when you leave the stop before, in minutes
@@ -99,17 +200,19 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
             note = `${words}: only ${Math.max(0, slack)} min to spare.`;
           }
           badges.travel = { status: t.standin ? 'sample' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes, mode: t.mode || s.mode };
+          if (t.held) badges.travel.held = t.held; // a cap held a new check back: this is the last one (or an estimate)
           if (Array.isArray(t.lines)) badges.travel.lines = t.lines; // the rides Google named (transit only; never on stand-in maps)
         }
       }
 
       // hours and status
       if (!p) badges.hours = { status: 'look', text: 'Not linked to a map place, so its hours aren’t checked.', source: null, checked_at: null };
-      else if (p.error) badges.hours = { status: 'unknown', text: p.error, source: null, checked_at: null };
+      else if (p.error) badges.hours = { status: 'unknown', text: p.error, source: null, checked_at: null, ...(p.held ? { held: p.held } : {}) };
       else {
         const h = hoursCheck(p, date, at, s.minutes);
         if (h.alert) stopAlerts.push({ kind: h.alert, stop: s.id, day: d, text: `${s.place.name}: ${h.text}` });
         badges.hours = { status: p.standin ? 'sample' : h.status, text: h.text, source: p.source, checked_at: p.checked_at };
+        if (p.held) badges.hours.held = p.held;
       }
 
       // step-free trips: what Google lists of the entrance (never assumed either way)
@@ -117,9 +220,9 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
         const e = p && !p.error && p.access ? p.access.entrance : null;
         badges.access = !p || p.error ? { status: 'unknown', text: 'Not linked to a map place, so its entrance isn’t checked.', source: null, checked_at: null }
           : p.standin ? { status: 'sample', text: 'Sample place: its entrance isn’t checked.', source: p.source, checked_at: p.checked_at }
-          : e === true ? { status: 'ok', text: 'Step-free entrance, as Google lists it.', source: p.source, checked_at: p.checked_at }
-          : e === false ? { status: 'warn', text: 'Google lists no step-free entrance here.', source: p.source, checked_at: p.checked_at }
-          : { status: 'look', text: 'Google doesn’t say whether the entrance is step-free. Worth calling ahead.', source: p.source, checked_at: p.checked_at };
+          : e === true ? { status: 'ok', text: 'Step-free entrance, as Google lists it.', source: p.source, checked_at: p.access_checked_at ?? p.checked_at }
+          : e === false ? { status: 'warn', text: 'Google lists no step-free entrance here.', source: p.source, checked_at: p.access_checked_at ?? p.checked_at }
+          : { status: 'look', text: 'Google doesn’t say whether the entrance is step-free. Worth calling ahead.', source: p.source, checked_at: p.access_checked_at ?? p.checked_at };
         if (e === false) stopAlerts.push({ kind: 'access', stop: s.id, day: d, text: `${s.place.name}: Google lists no step-free entrance.` });
       }
 
@@ -159,6 +262,8 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
     days,
     alerts,
     pace: verdicts.includes('rushed') ? 'rushed' : verdicts.includes('full') ? 'full' : 'unhurried',
+    // answers a spending cap held back (spend.js): shown with when they were last checked, and this note
+    ...(look.held.n ? { spend: { held: look.held.n, reason: look.held.reason, note: HELD[look.held.reason] } } : {}),
     cost: { amount: round(tripCost), currency, budget: trip.budget, over: trip.budget ? round(tripCost - trip.budget.amount) > 0 : false },
   };
 }

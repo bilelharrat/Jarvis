@@ -13,6 +13,7 @@
 // A train or bus is bought by Eden from Distribusion (invoiced to Eden), so with TRAVEL_PAY on the traveller pays first
 // (pay.js kind rail; account.js refuses trip-rail-book without it, 402 pay_first).
 
+import { earnBooking } from './rewards.js';
 import { GroundError, groundFor } from './ground.js';
 import { entryAdvice } from './entry.js';
 import { forecast } from './weather.js';
@@ -75,6 +76,7 @@ export async function extraOp(account, op, body, deps = {}) {
         const b = await rail.confirm({ reservation_id: r.reservation_id, first_name: people[0].first_name, last_name: people[0].last_name, email: body.email, terms_accepted: true, passengers }, { confirm: true });
         if (body.id && body.stop && deps.tripOp) await deps.tripOp(account, 'trip-mark-booked', { id: body.id, stop: body.stop, ref: (b.carrier_refs && b.carrier_refs[0]) || b.reservation_id || r.reservation_id, provider: 'Distribusion', via: 'api', cost: kept.total ? { amount: Number(kept.total.amount), currency: kept.total.currency } : undefined, confirm: true }).catch(() => {});
         await account.storage.delete(`rlq:${body.offer_id}`);
+        await earnBooking(account, 'rail', b.reservation_id || r.reservation_id).catch(() => {}); // Eden Rewards (rewards.js)
         return b;
       }
       case 'trip-weather': {

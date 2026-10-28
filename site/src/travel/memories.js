@@ -28,6 +28,7 @@
 // A photo a member added keeps `by` (their account) and `by_name` (their name on the trip then); the recap says "added by".
 // GET /api/chat/travel/memory-photo?id=<trip>&p=<photo>[&size=thumb][&owner=<organiser>] → the bytes (memoryPhotoRoute).
 
+import { earnShare, photoCaps } from './rewards.js';
 import { ApiError } from '../accounts/util.js';
 import { distanceKm } from './maps.js';
 import { dayDate } from './trips.js';
@@ -239,9 +240,10 @@ async function photoAdd(account, body, by = null) {
     if (!thumbType || thumb.length > PHOTOS.thumbBytes) throw new ApiError(400, 'bad_request', `thumb must be a JPEG, PNG or WebP of at most ${PHOTOS.thumbBytes / 1024} KB.`);
   }
   const all = [...(await storage.list({ prefix: 'tmph:' })).values()];
-  if (all.filter((p) => p.trip === id).length >= PHOTOS.perTrip) throw new ApiError(409, 'too_many', `A trip keeps at most ${PHOTOS.perTrip} photos.`);
+  const caps = await photoCaps(account); // bigger with Eden Rewards status (rewards.js); a member's photo counts on the organiser's
+  if (all.filter((p) => p.trip === id).length >= caps.perTrip) throw new ApiError(409, 'too_many', `A trip keeps at most ${caps.perTrip} photos.`);
   const used = all.reduce((t, p) => t + p.bytes + (p.thumb || 0), 0);
-  if (used + bytes.length + (thumb ? thumb.length : 0) > PHOTOS.accountBytes) throw new ApiError(409, 'too_many', by ? 'The organiser’s Eden Travel photos are full. Ask them to make room.' : 'Your Eden Travel photos are full. Delete some first.');
+  if (used + bytes.length + (thumb ? thumb.length : 0) > caps.accountBytes) throw new ApiError(409, 'too_many', by ? 'The organiser’s Eden Travel photos are full. Ask them to make room.' : 'Your Eden Travel photos are full. Delete some first.');
   const point = cleanPoint(body.lat, body.lng);
   const day = body.day == null || body.day === '' ? null : Number(body.day);
   const w = Number(body.w), h = Number(body.h);

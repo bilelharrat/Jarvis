@@ -39,6 +39,7 @@ import { ApiError, WEB_PUSH_APPS, isPhone, isWebPushApp, json } from './util.js'
 import { costOf, priceOf } from './proxy.js';
 import { serviceAiReady, serviceFetch } from './service-ai.js';
 import { GONE, MAX_PAYLOAD, pushReady, sendPush } from './apns.js';
+import { FCM_GONE, fcmReady, sendFcm } from './fcm.js';
 import { TOKEN_RECORD, openTokens } from './tokens.js';
 import { backgroundFetch, calendarScopesOk, gmailScopesOk, googleInAccount, scheduleJob, unscheduleJob } from './schedule.js';
 import { GoogleError, runCalendarAction, runGmailAction } from '../eden/vendor/google.js';
@@ -468,18 +469,47 @@ const taskPush = (title, text, data) =>
     eden: { url: '/#tasks', ...data },
   });
 
+// An Android app's push (Ask Eden Travel for Android, TravelMessaging.kt): a data message { title, body, kind, url?,
+// collapse? }, the app draws it; one per flight or trip (collapse), a newer one replacing the last.
+const fcmPush = (title, body, data) => {
+  const collapse = data.approval || data.task || (data.trip ? [data.kind, data.trip, data.stop || data.ident].filter(Boolean).join(':') : null);
+  return {
+    title: cut(oneLine(title), 80),
+    body: cut(oneLine(body), 240),
+    kind: String(data.kind || ''),
+    ...(typeof data.url === 'string' && data.url.startsWith('/') && !data.url.startsWith('//') ? { url: data.url } : {}),
+    ...(collapse ? { collapse: String(collapse).slice(0, 64) } : {}),
+  };
+};
+
 /**
  * A notification on the account's own iPhone/iPad/Watch (never a Mac, a browser or anyone
  * else): each device's registered token, through pushCheck (this account's tokens only, 60 a
- * minute), as POST /api/push does. Returns how many went.
+ * minute), as POST /api/push does. A browser in an app of its own (Ask Eden Travel) hears only
+ * that app's kinds, on the iPhone through APNs, on Android through FCM (fcm.js). Returns how many went.
  */
 export async function notifyOwner(account, { title, body, data = {}, local = false }) {
   const env = account.env;
   const send = account.sendPush || ((push) => sendPush(env, push, backgroundFetch(env, local)));
-  if (!account.sendPush && !pushReady(env)) return 0;
+  const sendAndroid = account.sendFcm || ((msg) => sendFcm(env, msg, backgroundFetch(env, local)));
+  const apnsOn = Boolean(account.sendPush) || pushReady(env);
+  const fcmOn = Boolean(account.sendFcm) || fcmReady(env);
+  if (!apnsOn && !fcmOn) return 0;
   const now = account.now();
   let sent = 0;
   for (const d of await account.devices()) {
+    if (fcmOn && d.fcm_token && d.kind === 'web' && isWebPushApp(d.fcm_app) && WEB_PUSH_APPS[d.fcm_app].has(data.kind) && !(d.expires && d.expires <= now)) {
+      try {
+        const checked = await account.pushCheck({ fcm_token: d.fcm_token, push_type: 'alert' });
+        const r = await sendAndroid({ token: checked.token, data: fcmPush(title, body, data), priority: 'high' });
+        if (FCM_GONE.has(r.reason)) await account.pushGone({ fcm_token: checked.token });
+        else if (r.status === 200) sent += 1;
+        else console.error('task push (android) failed', r.status, r.reason);
+      } catch (e) {
+        if (!(e instanceof ApiError)) console.error('task push (android) failed', e && e.message); // 429: enough this minute
+      }
+    }
+    if (!apnsOn) continue;
     if (!d.apns_token || (d.expires && d.expires <= now)) continue;
     // a web device in an app of its own (Ask Eden Travel) hears only that app's kinds; the apps' phones hear everything
     const webApp = d.kind === 'web' && isWebPushApp(d.apns_topic);

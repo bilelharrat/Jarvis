@@ -12,6 +12,7 @@
 // DUFFEL_LIVE = "1" (duffel.ts tokenInfo). The token and passengers' details are never logged or kept: the state kept
 // is offers seen (price, bags) and checks (fare, passenger ids and types), each pruned by the core.
 
+import { earnBooking } from './rewards.js';
 import { ApiError, json } from '../accounts/util.js';
 import { createDuffelClient, createFlightService, DuffelError, FlightInputError, httpStatusFor, tokenInfo } from './vendor-flights.js';
 import { applyLoyalty } from './loyalty.js';
@@ -67,6 +68,7 @@ export async function flightOp(account, op, body = {}, deps = {}) {
     const out = await svc[run](body);
     if (loyalty.length && out) out.loyalty = loyalty;
     if (action === 'book' && out && out.order_id) await storage.put(`ford:${out.order_id}`, { at: account.now() });
+    if (action === 'book' && out && out.order_id) await earnBooking(account, 'flight', out.order_id).catch(() => {}); // Eden Rewards (rewards.js)
     return out;
   } catch (e) {
     if (e instanceof DuffelError) throw new ApiError(httpStatusFor(e), e.code, e.message, {}, e.requestId ? { requestId: e.requestId } : {});

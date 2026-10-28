@@ -8,6 +8,7 @@
 // re-check) and when the last re-check ran. A re-check with nothing saved yet only sets it: no push about what the
 // person already saw. Stand-in (sample) answers are never pushed as news.
 
+import { rewardsRecheckTimes } from './rewards.js';
 import { disruptionPush, recheckDisruptions } from './disrupt.js';
 import { noteChecks } from './accuracy.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
@@ -41,9 +42,10 @@ export function recheckTimes(trip, zone = null) {
 
 // the first re-check still to come for a trip: after its last run (or after it was made: a re-check a trip was made too
 // late for is never run)
-function nextTime(trip, state, zone) {
+function nextTime(trip, state, zone, extra = []) {
   const since = state && Number.isFinite(state.ran) ? state.ran : Number.isFinite(trip.created) ? trip.created : -Infinity;
-  return recheckTimes(trip, zone).find((t) => t > since) ?? null;
+  // extra: Eden Rewards' priority re-checks and status re-checks (rewards.js rewardsRecheckTimes)
+  return [...recheckTimes(trip, zone), ...extra].sort((a, b) => a - b).find((t) => t > since) ?? null;
 }
 
 /**
@@ -59,7 +61,7 @@ export async function armRecheck(account, written = null) {
   }
   const trips = await storage.list({ prefix: 'trip:' });
   let next = Infinity;
-  for (const [key, trip] of trips) next = Math.min(next, nextTime(trip, await storage.get(`tchk:${key.slice(5)}`), await zoneOf(storage, key.slice(5))) ?? Infinity);
+  for (const [key, trip] of trips) next = Math.min(next, nextTime(trip, await storage.get(`tchk:${key.slice(5)}`), await zoneOf(storage, key.slice(5)), await rewardsRecheckTimes(account, key.slice(5), trip)) ?? Infinity);
   // a deleted trip's saved alerts go with it
   for (const [key] of await storage.list({ prefix: 'tchk:' })) if (!trips.has(`trip:${key.slice(5)}`)) await storage.delete(key);
   if (Number.isFinite(next)) await scheduleJob(account, JOB, JOB, Math.max(account.now() + 1000, next));
@@ -106,7 +108,7 @@ export async function recheckDue(account, { tripOp, notify, plus = async () => t
   for (const [key, trip] of await storage.list({ prefix: 'trip:' })) {
     const id = key.slice(5);
     const state = (await storage.get(`tchk:${id}`)) || null;
-    const due = nextTime(trip, state, await zoneOf(storage, id));
+    const due = nextTime(trip, state, await zoneOf(storage, id), await rewardsRecheckTimes(account, id, trip));
     if (due === null || due > now) continue;
     // one missed by more than a day (the job was off): not run late, the next one still comes
     if (!on || now - due > RECHECK.dayMs) { await storage.put(`tchk:${id}`, { ...(state || {}), ran: now }); continue; } // skipped, not caught up later
@@ -127,7 +129,7 @@ export async function recheckDue(account, { tripOp, notify, plus = async () => t
     await storage.put(`tchk:${id}`, { alerts: alerts.map(alertKey), ran: now });
   }
   let next = Infinity;
-  for (const [key, trip] of await storage.list({ prefix: 'trip:' })) next = Math.min(next, nextTime(trip, await storage.get(`tchk:${key.slice(5)}`), await zoneOf(storage, key.slice(5))) ?? Infinity);
+  for (const [key, trip] of await storage.list({ prefix: 'trip:' })) next = Math.min(next, nextTime(trip, await storage.get(`tchk:${key.slice(5)}`), await zoneOf(storage, key.slice(5)), await rewardsRecheckTimes(account, key.slice(5), trip)) ?? Infinity);
   if (Number.isFinite(next)) await scheduleJob(account, JOB, JOB, Math.max(now + 1000, next));
   else await unscheduleJob(account, JOB);
 }

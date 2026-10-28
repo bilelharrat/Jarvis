@@ -15,7 +15,7 @@
 import { TripError } from './trips.js';
 import { MapsError, distanceKm } from './maps.js';
 
-export const DISCOVER = { wikiMs: 7 * 86400_000, ratedMs: 24 * 3600_000, nearbyMs: 10 * 60_000, districts: 8, places: 40 };
+export const DISCOVER = { wikiMs: 7 * 86400_000, ratedMs: 24 * 3600_000, nearbyMs: 10 * 60_000, keepMs: 7 * 86400_000, districts: 8, places: 40 };
 export const KINDS = { see: 'things to see', do: 'things to do', eat: 'restaurants', drink: 'cafés and bars' };
 const NEAR_TYPES = { see: ['tourist_attraction', 'museum', 'art_gallery', 'historical_landmark', 'park'], do: ['tourist_attraction', 'amusement_park', 'aquarium', 'zoo', 'park', 'movie_theater'], eat: ['restaurant'], drink: ['cafe', 'bar', 'coffee_shop'] };
 const WIKI_API = 'https://en.wikivoyage.org/w/api.php';
@@ -123,6 +123,21 @@ export async function wikivoyage(destination, kind, { fetch: fetcher = globalThi
 
 /* ---------- the account's ops ---------- */
 
+// A new answer, cached for `ms` (kept DISCOVER.keepMs); a spending cap reached (spend.js): the last answer with its own
+// checked_at and the cap's note (`held`), or, none kept, the note as the error. Never an old list shown as new.
+async function lastIfCapped(cache, key, ask, ms, keepMs = DISCOVER.keepMs) {
+  try {
+    const v = await ask();
+    await cache.put(key, v, ms, keepMs);
+    return v;
+  } catch (e) {
+    if (!(e instanceof MapsError) || e.code !== 'capped') throw e;
+    const last = cache.entry ? await cache.entry(key) : undefined;
+    if (!last) throw new TripError(e.message, 503, 'capped');
+    return { ...last.v, held: e.reason || 'account', note: e.message };
+  }
+}
+
 const where = (trip) => {
   const pts = trip.days.flatMap((d) => d.stops).map((s) => s.place).filter((p) => Number.isFinite(p.lat));
   if (!pts.length) return {};
@@ -147,9 +162,10 @@ export async function discoverOp(account, op, body, { maps, cache, fetch: fetche
       const rkey = `rated1:${maps.mode}:${dest.toLowerCase()}:${kind}`;
       let rated = await cache.get(rkey);
       if (rated === undefined) {
-        const places = await maps.explore(`best ${KINDS[kind]} in ${dest}`, where(trip));
-        rated = { places: places.filter((p) => p.status !== 'closed_permanently'), source: maps.mode === 'google' ? 'Google Maps ratings' : 'Stand-in sample data: no live maps yet', checked_at: new Date(now).toISOString(), standin: maps.mode !== 'google' };
-        await cache.put(rkey, rated, DISCOVER.ratedMs);
+        rated = await lastIfCapped(cache, rkey, async () => {
+          const places = await maps.explore(`best ${KINDS[kind]} in ${dest}`, where(trip)); // Text Search Enterprise + Atmosphere (spend.js)
+          return { places: places.filter((p) => p.status !== 'closed_permanently'), source: maps.mode === 'google' ? 'Google Maps ratings' : 'Stand-in sample data: no live maps yet', checked_at: new Date(now).toISOString(), standin: maps.mode !== 'google' };
+        }, DISCOVER.ratedMs);
       }
       return { kind, destination: dest, wikivoyage: wiki, rated };
     }
@@ -162,16 +178,16 @@ export async function discoverOp(account, op, body, { maps, cache, fetch: fetche
       const key = `near1:${maps.mode}:${kind}:${at.lat.toFixed(3)},${at.lng.toFixed(3)}:${minutes}`;
       const hit = await cache.get(key);
       if (hit) return hit;
-      const found = (await maps.nearby(at, { types: NEAR_TYPES[kind], radius })).filter((p) => p.status !== 'closed_permanently' && Number.isFinite(p.lat)).slice(0, 15);
-      const walks = found.length ? await maps.matrix([at], found, 'walk') : [];
-      const places = found.map((p, j) => {
-        const w = walks.find((x) => x.to === j);
-        return { ...p, walk_minutes: w ? w.minutes : null, km: Math.round(distanceKm(at, p) * 10) / 10 };
-      }).filter((p) => p.walk_minutes !== null && p.walk_minutes <= minutes && p.open_now !== false)
-        .sort((a, b) => (b.open_now === true) - (a.open_now === true) || a.walk_minutes - b.walk_minutes);
-      const out = { kind, minutes, places, source: maps.mode === 'google' ? 'Google Maps (Places and Routes APIs)' : 'Stand-in sample data: no live maps yet', standin: maps.mode !== 'google', checked_at: new Date(now).toISOString() };
-      await cache.put(key, out, DISCOVER.nearbyMs);
-      return out;
+      return await lastIfCapped(cache, key, async () => {
+        const found = (await maps.nearby(at, { types: NEAR_TYPES[kind], radius })).filter((p) => p.status !== 'closed_permanently' && Number.isFinite(p.lat)).slice(0, 15);
+        const walks = found.length ? await maps.matrix([at], found, 'walk') : [];
+        const places = found.map((p, j) => {
+          const w = walks.find((x) => x.to === j);
+          return { ...p, walk_minutes: w ? w.minutes : null, km: Math.round(distanceKm(at, p) * 10) / 10 };
+        }).filter((p) => p.walk_minutes !== null && p.walk_minutes <= minutes && p.open_now !== false)
+          .sort((a, b) => (b.open_now === true) - (a.open_now === true) || a.walk_minutes - b.walk_minutes);
+        return { kind, minutes, places, source: maps.mode === 'google' ? 'Google Maps (Places and Routes APIs)' : 'Stand-in sample data: no live maps yet', standin: maps.mode !== 'google', checked_at: new Date(now).toISOString() };
+      }, DISCOVER.nearbyMs, DISCOVER.nearbyMs); // never an old "open now": nothing kept past its 10 minutes
     }
   } catch (e) {
     if (e instanceof MapsError) throw new TripError(e.message, e.code === 'rate_limited' ? 429 : 503, e.code);
