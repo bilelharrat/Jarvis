@@ -414,14 +414,14 @@ async function findPlaces(trip, maps, cache, center0, found1 = null) {
   return { found, center };
 }
 
-// The search answer already has the place's hours and status: kept in the checks' cache (checks.js lookups, keys ps1:/ph1:)
+// The search answer already has the place's hours and status: kept in the checks' cache (checks.js lookups, keys ps1:/ph2:)
 // so checkTrip doesn't pay Google again for the same place.
 async function seed(cache, p) {
   if (!p || p.standin || !p.id || !cache || cache === noCache) return;
   const stamp = { source: p.source, checked_at: p.checked_at, standin: false };
   const pick = (keys) => Object.fromEntries(keys.filter((k) => k in p).map((k) => [k, p[k]]));
   await cache.put(`ps1:${p.id}`, { ...pick(['id', 'name', 'address', 'lat', 'lng', 'url', 'access']), ...stamp }, FRESH.stable, CACHE.keepMs);
-  await cache.put(`ph1:${p.id}`, { ...pick(['status', 'hours', 'week', 'country', 'price', 'price_level', 'website', 'photo']), ...stamp }, Math.min(...FRESH.hours.map(([, a]) => a)), CACHE.keepMs);
+  await cache.put(`ph2:${p.id}`, { ...pick(['status', 'hours', 'week', 'country', 'price', 'price_level', 'website', 'photo']), ...stamp }, Math.min(...FRESH.hours.map(([, a]) => a)), CACHE.keepMs);
 }
 
 // ── hours ──
