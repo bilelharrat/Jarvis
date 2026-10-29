@@ -13,7 +13,7 @@ import { placesSku } from './spend.js';
 
 const PLACES = 'https://places.googleapis.com/v1';
 const ROUTES = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-const BASE_FIELDS = 'id,displayName,formattedAddress,location,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos,accessibilityOptions,websiteUri';
+const BASE_FIELDS = 'id,displayName,formattedAddress,location,types,businessStatus,regularOpeningHours,utcOffsetMinutes,priceLevel,googleMapsUri,photos,accessibilityOptions,websiteUri';
 // + the country (addressComponents: Essentials) and the next 7 days' actual hours with their special days
 // (currentOpeningHours: Enterprise, the tier regularOpeningHours already bills), for date-specific checks (holidays.js).
 // Field tiers read 2026-10-28: https://developers.google.com/maps/documentation/places/web-service/data-fields
@@ -66,6 +66,9 @@ const LISBON = { lat: 38.7223, lng: -9.1393 };
 const GENERIC = new Set(['hotel', 'hotels', 'restaurant', 'restaurants', 'cafe', 'cafes', 'coffee', 'dinner', 'lunch', 'breakfast', 'museum', 'airport', 'market', 'the', 'and', 'your', 'near', 'stay', 'old', 'town', 'city', 'centre', 'center']);
 /** A Google place id (ChIJ… for places, Ei/Eh/Gh/Ih… for addresses), not a name or an id someone made up ("tokyo-tower"
  *  from a chat card once went to Google and came back 400 on every leg). Anything else is looked up by name (checks.js). */
+// a street or an area rather than a place: Google gives it no opening hours ("Takeshita Street", "Omoide Yokocho" the street)
+const AREA_TYPES = new Set(['route', 'street_address', 'intersection', 'neighborhood', 'sublocality', 'sublocality_level_1', 'sublocality_level_2', 'locality', 'political', 'colloquial_area', 'premise']);
+export const isArea = (p) => Array.isArray(p && p.types) && p.types.length > 0 && p.types.every((t) => AREA_TYPES.has(t));
 export const isGoogleId = (id) => /^(ChIJ|GhIJ|Ei|Eh|Gh|Ih)[A-Za-z0-9_-]{6,}$/.test(String(id || ''));
 /** A sample (Lisbon) place in a trip that isn't the Lisbon sample: from before Google Maps was on; never on the map. */
 const STANDIN_NAMES = new Set(Object.values(STANDIN).map((p) => p.name.toLowerCase()));
@@ -279,6 +282,8 @@ export function fromGooglePlace(g, checkedAt) {
   return {
     id: g.id,
     name: g.displayName?.text || 'Unnamed place',
+    // Google's place types: a street or an area (route, neighborhood…) has no hours to check, a place does (checks.js)
+    ...(Array.isArray(g.types) && g.types.length ? { types: g.types.slice(0, 8).map(String) } : {}),
     address: g.formattedAddress || '',
     lat: g.location?.latitude ?? null,
     lng: g.location?.longitude ?? null,

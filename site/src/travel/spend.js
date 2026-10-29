@@ -49,7 +49,7 @@ export const SPEND = { openUsd: 1, accountUsd: 3, globalUsd: 20, keepDays: 40, g
 // The SKU tier each field puts a request in: 0 IDs only, 1 Essentials, 2 Pro, 3 Enterprise, 4 Enterprise + Atmosphere.
 // Place Details; Text Search and Nearby Search bill formattedAddress, location and photos as Pro, and Nearby bills id as Pro.
 const TIER = {
-  id: 0, photos: 0, formattedAddress: 1, location: 1,
+  id: 0, photos: 0, formattedAddress: 1, location: 1, types: 1,
   displayName: 2, businessStatus: 2, utcOffsetMinutes: 2, googleMapsUri: 2, accessibilityOptions: 2, primaryTypeDisplayName: 2,
   regularOpeningHours: 3, currentOpeningHours: 3, priceLevel: 3, websiteUri: 3, rating: 3, userRatingCount: 3,
   editorialSummary: 4,

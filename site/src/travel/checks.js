@@ -16,7 +16,7 @@
 // `held`, or, never checked, a place says so and a leg gets a straight-line estimate shown as a sample.
 
 import { dayLabel, stopCountry } from './holidays.js';
-import { MapsError, distanceKm, isGoogleId, standinMaps, strayStandin } from './maps.js';
+import { MapsError, distanceKm, isArea, isGoogleId, standinMaps, strayStandin } from './maps.js';
 import { HELD } from './spend.js';
 import { dayDate, hhmm, minutesOf, weekday } from './trips.js';
 
@@ -27,7 +27,7 @@ const DAY = 86400_000;
 //   (or past), 3 days for one within two weeks, 7 beyond. Walking times 7 days; transit a day; driving 6 hours.
 // Answers are kept CACHE.keepMs, and past these ages shown only while a cap holds new checks back.
 export const FRESH = { stable: 30 * DAY, hours: [[2 * DAY, DAY], [14 * DAY, 3 * DAY], [Infinity, 7 * DAY]], walk: 7 * DAY, transit: DAY, drive: 6 * 3600_000, taxi: 6 * 3600_000 };
-const STABLE_KEYS = ['id', 'name', 'address', 'lat', 'lng', 'url', 'access'];
+const STABLE_KEYS = ['id', 'name', 'address', 'lat', 'lng', 'url', 'access', 'types'];
 // week: the next 7 days' actual hours from when it was asked (maps.js weekOf), special days included; country: for holidays
 const HOURS_KEYS = ['status', 'hours', 'week', 'country', 'price', 'price_level', 'website', 'photo'];
 const pick = (p, keys) => Object.fromEntries(keys.filter((k) => k in p).map((k) => [k, p[k]]));
@@ -35,6 +35,9 @@ const ESTIMATE = 'A straight-line estimate: not checked';
 const HOW = { walk: 'on foot', transit: 'by public transport', drive: 'by car', taxi: 'by taxi' };
 const TIGHT = 10; // minutes of slack under which a connection is tight
 const LATE = 5; // minutes late before it counts
+// two stops this far apart (straight line) are a city-to-city journey: a flight or a long-distance train, booked as its
+// own stop, never a walk or a metro ride Google is asked to time (a Kyoto → Tokyo leg once read 110 h on foot)
+export const INTERCITY_KM = 150;
 const FAR = 12 * 60; // a leg between two stops on one day that long means a stop is in the wrong place, not that you're late
 
 export const PACE = { fullStops: 5, rushedStops: 7, fullBusy: 9 * 60, rushedMove: 150 };
@@ -144,6 +147,15 @@ export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {})
           const hits2 = await fresh(`${key}:raw`, FRESH.stable, () => maps.search(p.name, near));
           hit = Array.isArray(hits2) ? hits2.find((h) => isGoogleId(h.id)) : null;
         }
+        // a street or an area found for a stop you visit: the place of that name close by, when Google has one
+        // ("Omoide Yokocho, Tokyo" is the street; "Omoide Yokocho" is Memory Lane, with its hours)
+        if (hit && isArea(hit) && stop.kind !== 'transport') {
+          for (const q of [p.name, `${p.name} attraction`]) {
+            const more = await fresh(`${key}:place:${q.toLowerCase()}`, FRESH.stable, () => maps.search(q, { lat: hit.lat, lng: hit.lng }));
+            const place = Array.isArray(more) ? more.find((h) => isGoogleId(h.id) && !isArea(h) && Number.isFinite(h.lat) && distanceKm(h, hit) <= 2) : null;
+            if (place) { hit = place; break; }
+          }
+        }
         if (!hit) return { error: `${p.name} isn’t linked to a Google Maps place, and Google found no match nearby: search for it to link it.` };
         if (hit.checked_at && (hit.status || hit.hours !== undefined)) {
           // with their stamp: a part cached without checked_at reads back as "Not checked." (every stop found by name did)
@@ -172,6 +184,8 @@ export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {})
   const travel = (from, to, mode, { lessWalking = false } = {}) => {
     const a = from.place, b = to.place;
     if (!(Number.isFinite(a.lat) && Number.isFinite(b.lat))) return null;
+    const km = distanceKm(a, b);
+    if (km > INTERCITY_KM) return Promise.resolve({ intercity: Math.round(km) });
     const pt = (p) => p.id || `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
     // t2: with the transit lines (older entries had none). The same leg in any of the account's trips shares one entry.
     // The hour: Google is asked for now (a trip has no time zone, so no departure time is sent), so every answer is
@@ -267,8 +281,11 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       if (k > 0) {
         // (no departure time yet: a trip has no time zone, and Google wants one; it plans for now)
         const t = await travelOf(stops[k - 1], s, s.mode);
-        if (!t || t.error || t.minutes > FAR) unchecked++;
-        if (!t) badges.travel = { status: 'look', text: 'No map point for one of these stops, so the travel time isn’t checked.', source: null, checked_at: null };
+        if (!t || t.error || t.intercity || t.minutes > FAR) unchecked++;
+        if (t && t.intercity) badges.travel = { status: 'look', text: t.intercity > 1500
+          ? `${stops[k - 1].place.name} and ${s.place.name} are ${t.intercity} km apart on one day: one of them is probably in the wrong place (search for it again), or it's a flight to add as its own stop.`
+          : `${stops[k - 1].place.name} and ${s.place.name} are ${t.intercity} km apart: a flight or a long-distance train. Add it as its own stop (or forward its booking) so Eden can check it.`, source: null, checked_at: null, intercity: t.intercity };
+        else if (!t) badges.travel = { status: 'look', text: 'No map point for one of these stops, so the travel time isn’t checked.', source: null, checked_at: null };
         else if (t.error) badges.travel = { status: 'unknown', text: t.error, source: null, checked_at: null };
         else if (t.minutes > FAR) badges.travel = { status: 'look', text: `Not checked: the travel time (${t.minutes} min) can’t be right between one day’s stops, so ${stops[k - 1].place.name} or ${s.place.name} is probably in the wrong place. Search for it again.`, source: t.source, checked_at: t.checked_at };
         else {
@@ -298,7 +315,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       else {
         // a public holiday there that day (never for a sample place); a source that didn't answer says nothing
         const holiday = holidays && !p.standin ? await holidays(stopCountry(p, trip), date).catch(() => null) : null;
-        const h = hoursCheck(p, date, at, s.minutes, { holiday });
+        const h = isArea(p) && !p.hours ? { status: 'ok', text: 'A street or an area: no opening hours to keep (its shops keep their own).' } : hoursCheck(p, date, at, s.minutes, { holiday });
         if (h.alert) stopAlerts.push({ kind: h.alert, stop: s.id, day: d, text: `${s.place.name}: ${h.text}` });
         badges.hours = { status: p.standin ? 'sample' : h.status, text: h.text, source: p.source, checked_at: p.checked_at };
         if (h.special) badges.hours.special = h.special; // the date's hours are Google's holiday hours
@@ -352,7 +369,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
     if (home && first && last) {
       const leg = async (a, b, mode) => {
         const t = await travelOf(a, b, mode);
-        return !t ? null : t.error ? { status: 'unknown', text: t.error } : { status: t.standin ? 'sample' : 'ok', minutes: t.minutes, mode: t.mode || mode, source: t.source, checked_at: t.checked_at, ...(Array.isArray(t.lines) ? { lines: t.lines } : {}) };
+        return !t ? null : t.error ? { status: 'unknown', text: t.error } : t.intercity ? { status: 'look', text: `${t.intercity} km: a flight or a long-distance train, not timed.` } : { status: t.standin ? 'sample' : 'ok', minutes: t.minutes, mode: t.mode || mode, source: t.source, checked_at: t.checked_at, ...(Array.isArray(t.lines) ? { lines: t.lines } : {}) };
       };
       anchor = { stay: home.place.name, stay_stop: home.id, out: home.arrival ? null : await leg(home, first, first.mode === 'walk' ? 'walk' : 'transit'), back: await leg(last, home, last.mode === 'walk' ? 'walk' : 'transit'), to: first.id, from: last.id };
     }

@@ -805,3 +805,42 @@ test('a trip saved before the 0,0 fix: its 0,0 points are dropped and found agai
   assert.equal(trip.days[0].stops[0].place.lat, 35.69);
   assert.equal(c.days[0].stops[0].lat, 35.69);
 });
+
+test('two stops in different cities on one day: a flight or long-distance train to add, never a timed walk or metro', async () => {
+  const at = new Date(NOW).toISOString();
+  const kyoto = { id: 'ChIJkyotoStation001', name: 'Kyoto Station', lat: 34.9858, lng: 135.7588, status: 'open', hours: { open_24h: true }, source: 'Google Maps', checked_at: at };
+  const tokyo = { id: 'ChIJtokyoTower00001', name: 'Tokyo Tower', lat: 35.6586, lng: 139.7454, status: 'open', hours: { open_24h: true }, source: 'Google Maps', checked_at: at };
+  let asked = 0;
+  const maps = { mode: 'google', async place(id) { return id === kyoto.id ? kyoto : tokyo; }, async search() { return []; }, async travel() { asked++; return { minutes: 6600, mode: 'walk', standin: false, source: 'Google Maps (Routes API)', checked_at: at }; } };
+  const trip = cleanTrip({ title: 'Japan', destination: 'Japan', start: '2027-05-06', travelers: 1, days: [{ stops: [
+    { at: '09:00', duration_min: 30, mode: 'walk', place: { id: kyoto.id, name: kyoto.name, lat: kyoto.lat, lng: kyoto.lng } },
+    { at: '15:00', duration_min: 60, mode: 'walk', place: { id: tokyo.id, name: tokyo.name, lat: tokyo.lat, lng: tokyo.lng } },
+  ] }] }, { newId, now: NOW });
+  const c = await checkTrip(trip, maps);
+  const b = c.days[0].stops[1].badges.travel;
+  assert.equal(asked, 0, 'Google is not asked to time it');
+  assert.equal(b.status, 'look');
+  assert.match(b.text, /km apart: a flight or a long-distance train/);
+  assert.equal(c.days[0].move_minutes, 0);
+  assert.equal(c.days[0].move_unchecked, 1);
+  assert.equal(c.alerts.length, 0, 'never a "late" alert');
+});
+
+test('a street found for a place you visit: the place of that name close by (Omoide Yokocho), else the street with no hours to keep', async () => {
+  const at = new Date(NOW).toISOString();
+  const street = { id: 'ChIJomoideStreet001', name: 'Omoide Yokocho', lat: 35.6931, lng: 139.6995, types: ['route'], status: 'unknown', hours: null, source: 'Google Maps', checked_at: at };
+  const lane = { id: 'ChIJomoideMemLane01', name: 'Omoide Yokocho Memory Lane', lat: 35.6927, lng: 139.6996, types: ['tourist_attraction', 'establishment'], status: 'open', hours: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, open: '00:00', close: '23:59' })), source: 'Google Maps', checked_at: at };
+  const takeshita = { id: 'ChIJtakeshitaSt0001', name: 'Takeshita Street', lat: 35.671, lng: 139.7052, types: ['route'], status: 'unknown', hours: null, source: 'Google Maps', checked_at: at };
+  const maps = { mode: 'google',
+    async place(id) { return [street, lane, takeshita].find((p) => p.id === id); },
+    async search(q) { return /Takeshita/.test(q) ? [takeshita] : /Tokyo/.test(q) ? [street] : [lane]; },
+    async travel() { return { minutes: 5, mode: 'walk', standin: false, source: 'Google Maps (Routes API)', checked_at: at }; } };
+  const trip = cleanTrip({ title: 'Tokyo', destination: 'Tokyo, Japan', start: '2027-05-06', travelers: 1, days: [{ stops: [
+    { at: '17:00', duration_min: 90, mode: 'walk', place: { name: 'Omoide Yokocho' } },
+    { at: '19:00', duration_min: 60, mode: 'walk', place: { name: 'Takeshita Street' } } ] }] }, { newId, now: NOW });
+  const c = await checkTrip(trip, maps);
+  assert.equal(trip.days[0].stops[0].place.id, lane.id, 'the place, not the street');
+  assert.match(c.days[0].stops[0].badges.hours.text, /open 24 hours/);
+  assert.equal(c.days[0].stops[1].badges.hours.status, 'ok');
+  assert.match(c.days[0].stops[1].badges.hours.text, /A street or an area/);
+});

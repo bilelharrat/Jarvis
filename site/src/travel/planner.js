@@ -26,7 +26,7 @@
 // replaced by the draft), the draft's stops, each place as Google Maps answers it, each change Eden or the repair made.
 
 import { CACHE, FRESH, checkTrip, noCache } from './checks.js';
-import { MapsError, distanceKm } from './maps.js';
+import { MapsError, distanceKm, isArea } from './maps.js';
 import { KINDS, TRIP, TripError, cleanTrip, dayDate, hhmm, minutesOf, money, weekday } from './trips.js';
 import { holidayLookup } from './holidays.js';
 
@@ -405,8 +405,15 @@ async function findPlaces(trip, maps, cache, center0, found1 = null) {
     // of the hits near the trip: the one whose name matches, nearest first (a same-name place in the next town loses)
     const near = r.hits.filter((h) => Number.isFinite(h.lat) && isNear(h, d));
     const rank = (h) => (sameName(s.place.name, h.name) ? 0 : 1e6) + (center ? distanceKm(h, center) : 0);
-    const hit = near.sort((x, y) => rank(x) - rank(y))[0];
+    let hit = near.sort((x, y) => rank(x) - rank(y))[0];
     if (!hit) { done({ none: true, q }); return; }
+    // a street or an area (no hours to check) for a stop you visit: the place of that name close by, if Google has
+    // one ("Omoide Yokocho, Tokyo" is the street, "Omoide Yokocho" Memory Lane)
+    if (isArea(hit)) {
+      const more = await maps.search(s.place.name, { lat: hit.lat, lng: hit.lng }).catch(() => []);
+      const place = (more || []).find((h) => Number.isFinite(h.lat) && !isArea(h) && h.id && distanceKm(h, hit) <= 2);
+      if (place) hit = place;
+    }
     s.place = { id: hit.id, name: hit.name, lat: hit.lat, lng: hit.lng };
     done({ hit, asked: asked.name });
     await seed(cache, hit);
