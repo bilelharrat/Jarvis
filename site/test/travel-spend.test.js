@@ -196,7 +196,7 @@ test('the stable part of a place is asked alone when only it is due (Pro, not En
   const g = fakeGoogle();
   await tripOp(a, 'trip-get', { id: TID }, { fetch: g.fetch });
   // hours stay fresh, the stable part is made old
-  for (const [k, v] of a.m) if (k.startsWith('tcache:ps1:')) v.at -= 31 * 24 * H;
+  for (const [k, v] of a.m) if (k.startsWith('tcache:ps2:')) v.at -= 31 * 24 * H;
   a.clock.t += 20 * 60_000;
   const before = g.calls.length;
   await tripOp(a, 'trip-get', { id: TID }, { fetch: g.fetch });

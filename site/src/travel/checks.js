@@ -99,7 +99,7 @@ export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {})
       try {
         if (!live) return await fresh(`p3:${maps.mode}:${id}`, CACHE.placeMs, () => maps.place(id));
         // two parts on their own clocks; neither cached: one call for both
-        const sk = `ps1:${id}`, hk = `ph2:${id}`;
+        const sk = `ps2:${id}`, hk = `ph2:${id}`;
         const [se, he] = [await entry(sk), await entry(hk)];
         const young = (e, age) => e && now() - e.at <= age;
         if (!young(se, FRESH.stable) && !young(he, hoursAge)) {
@@ -137,7 +137,7 @@ export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {})
     const near = Number.isFinite(p.lat) && Number.isFinite(p.lng) ? { lat: p.lat, lng: p.lng } : {};
     const d = String(dest || '').trim();
     const withDest = !near.lat && d && !String(p.name).toLowerCase().includes(d.toLowerCase());
-    const key = `link4:${String(p.name).toLowerCase()}@${near.lat ? `${near.lat.toFixed(3)},${near.lng.toFixed(3)}` : d.toLowerCase() || '-'}`;
+    const key = `link5:${String(p.name).toLowerCase()}@${near.lat ? `${near.lat.toFixed(3)},${near.lng.toFixed(3)}` : d.toLowerCase() || '-'}`;
     return once(key, async () => {
       try {
         const q1 = withDest ? `${p.name}, ${d}` : p.name;
@@ -160,7 +160,7 @@ export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {})
         if (hit.checked_at && (hit.status || hit.hours !== undefined)) {
           // with their stamp: a part cached without checked_at reads back as "Not checked." (every stop found by name did)
           const stamp = { source: hit.source, checked_at: hit.checked_at, standin: hit.standin };
-          await cache.put(`ps1:${hit.id}`, { ...pick(hit, STABLE_KEYS), ...stamp }, FRESH.stable, CACHE.keepMs);
+          await cache.put(`ps2:${hit.id}`, { ...pick(hit, STABLE_KEYS), ...stamp }, FRESH.stable, CACHE.keepMs);
           await cache.put(`ph2:${hit.id}`, { ...pick(hit, HOURS_KEYS), ...stamp }, hoursFresh(date || '', now()), CACHE.keepMs);
         }
         // linking: the found id is not looked up by name again if Google can't open it (that waited on itself forever)
