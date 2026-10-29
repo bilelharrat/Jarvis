@@ -194,15 +194,16 @@ export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {})
   };
   // a search near a point (or in the destination), cached like a place: the replacement offered for a Lisbon sample stop
   const nearby = (q, near = {}) => {
-    const key = `near2:${q.toLowerCase()}@${Number.isFinite(near.lat) ? `${near.lat.toFixed(2)},${near.lng.toFixed(2)}` : '-'}`;
+    const key = `near3:${q.toLowerCase()}@${Number.isFinite(near.lat) ? `${near.lat.toFixed(2)},${near.lng.toFixed(2)}` : '-'}`;
     return once(key, async () => {
       try {
         // with ratings (explore), so the pick is a well-reviewed place, not just the first hit ("hotel" near Shinjuku once
         // gave a 2.1-star one): close by, 4 stars or more from 50+ reviews when Google has any, best rated first
         const hits = await fresh(key, FRESH.stable, () => (maps.explore ? maps.explore(q, near) : maps.search(q, near)));
         const ok = (Array.isArray(hits) ? hits : []).filter((h) => isGoogleId(h.id) && Number.isFinite(h.lat) && h.status !== 'closed_permanently' && (!Number.isFinite(near.lat) || distanceKm(h, near) <= 3));
-        const good = ok.filter((h) => h.rating >= 4 && h.ratings >= 50).sort((a, b) => b.rating - a.rating || b.ratings - a.ratings);
-        return good[0] || ok[0] || null;
+        // the closest ring with a well-reviewed one wins: within 1.5 km before 3 km (Takadanobaba once won for Shinjuku)
+        const good = (km) => ok.filter((h) => h.rating >= 4 && h.ratings >= 50 && (!Number.isFinite(near.lat) || distanceKm(h, near) <= km)).sort((a, b) => b.rating - a.rating || b.ratings - a.ratings)[0];
+        return good(1.5) || good(3) || ok[0] || null;
       } catch (e) {
         if (e instanceof MapsError && e.code === 'capped') { capped(e); return null; }
         return null;
