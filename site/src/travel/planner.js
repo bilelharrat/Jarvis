@@ -47,6 +47,7 @@ export const PLAN = {
   // the draft's backup runs beside the first model from hedgeMs on (2026-10-28: an Argon timeout left Flash ~43 s, under its
   // 52 s p90, and the owner saw "The planner took too long"): Argon's answer wins when it comes; else the backup's is ready
   hedgeMs: 20_000,
+  walkKm: 2.5, // a drafted walk longer than this (straight line) goes by transit
   retryMs: 700, // a Places lookup that failed (a 503) is asked once more after this
   googleUsd: 1.5, // this plan's Google spend (spend.js meter's per-open cap); the account's daily cap still holds
   places: 30, km: 80, request: 2000,
@@ -800,6 +801,11 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
   tell();
   const clean = () => { const t = cleanTrip(raw, { newId, now: t0 }); for (const d of t.days) for (const s of d.stops) delete s.owner; return t; };
   let trip = clean();
+  // a "walk" the draft gave between places far apart (once Kyoto → Tokyo: 110 h on foot) is by train or metro instead
+  for (const d of trip.days) for (let k = 1; k < d.stops.length; k++) {
+    const a = d.stops[k - 1].place, s = d.stops[k];
+    if (s.mode === 'walk' && Number.isFinite(a.lat) && Number.isFinite(s.place.lat) && distanceKm(a, s.place) > PLAN.walkKm) s.mode = 'transit';
+  }
   // public holidays on the plan's dates (holidays.js) beside Google's own date-specific hours, as every trip's checks
   const holidays = holidayLookup({ env, fetch: f, cache, now });
   const check = async () => eventHours(trip, trustLegs(await checkTrip(trip, maps, { cache, now, holidays })), hits);

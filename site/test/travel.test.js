@@ -678,3 +678,18 @@ test('only Google place ids go to Google: a made-up id is found by its name near
   assert.equal(c.days[0].stops[0].badges.hours.status === 'unknown' && /isn’t linked/.test(c.days[0].stops[0].badges.hours.text), false);
   assert.ok(JSON.stringify(c.days[0].stops[1].badges).includes('Lisbon sample data'));
 });
+
+test('Japan: train and metro legs are estimated (Google has none there), shown as an estimate, never as checked', async () => {
+  const { inJapan, japanTransit, mapsFor } = await import('../src/travel/maps.js');
+  const hama = { lat: 35.660, lng: 139.763 }, tower = { lat: 35.6586, lng: 139.7454 }, kyoto = { lat: 34.9858, lng: 135.7588 };
+  assert.ok(inJapan(hama) && inJapan(kyoto) && inJapan({ lat: 43.06, lng: 141.35 }) && inJapan({ lat: 26.21, lng: 127.68 }));
+  assert.ok(!inJapan({ lat: 37.57, lng: 126.98 }) && !inJapan({ lat: 35.18, lng: 129.08 }) && !inJapan({ lat: 43.12, lng: 131.89 }) && !inJapan({ lat: 25.03, lng: 121.56 }));
+  const near = japanTransit(hama, tower), far = japanTransit({ lat: 35.681, lng: 139.767 }, kyoto);
+  assert.ok(near.estimate && near.minutes >= 15 && near.minutes <= 30, `in town: ${near.minutes}`);
+  assert.ok(far.minutes >= 150 && far.minutes <= 210, `Tokyo → Kyoto: ${far.minutes}`);
+  let calls = 0;
+  const m = mapsFor({ GOOGLE_MAPS_SERVER_KEY: 'k' }, { fetch: async () => { calls++; return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); } });
+  const t = await m.travel({ id: null, ...hama }, { id: null, ...tower }, 'transit');
+  assert.equal(calls, 0, 'no Google call for a leg it has no answer for');
+  assert.ok(t.estimate && /no train times in Japan/.test(t.source));
+});

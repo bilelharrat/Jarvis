@@ -69,6 +69,18 @@ const GENERIC = new Set(['hotel', 'hotels', 'restaurant', 'restaurants', 'cafe',
 export const isGoogleId = (id) => /^(ChIJ|GhIJ|Ei|Eh|Gh|Ih)[A-Za-z0-9_-]{6,}$/.test(String(id || ''));
 /** A sample (Lisbon) place in a trip that isn't the Lisbon sample: from before Google Maps was on; never on the map. */
 export const strayStandin = (trip, place) => String((place && place.id) || '').startsWith('standin:') && !/lisbo[an]/i.test(`${(trip && trip.destination) || ''} ${(trip && trip.title) || ''}`);
+/** Japan (a rough outline, Korea, Russia and Taiwan left out): Google's Routes API has no train or metro routes there. */
+export const inJapan = (p) => Number.isFinite(p && p.lat) && Number.isFinite(p && p.lng)
+  && p.lat >= 24 && p.lat <= 46 && p.lng >= 122.9 && p.lng <= 146 && !(p.lng < 130 && p.lat > 33.9) && !(p.lat > 41.5 && p.lng < 139.5);
+const JAPAN_SOURCE = 'Estimate: Google Maps has no train times in Japan (distance at typical train speeds)';
+/** A train or metro leg in Japan, estimated (owner, 2026-10-28): within a city, a walk to the station, a wait and the ride
+ *  at about 32 km/h; between cities (over 60 km) the Shinkansen at about 180 km/h plus 30 min of stations; under 1.2 km
+ *  it's a walk. The road distance is taken as 1.25 times the straight line. Shown as an estimate, never as checked. */
+export function japanTransit(from, to, now = () => Date.now()) {
+  const km = distanceKm(from, to) * 1.25;
+  const minutes = km < 1.2 ? Math.max(2, Math.round((km / 4.5) * 60)) : km <= 60 ? Math.round(18 + (km / 32) * 60) : Math.round(30 + (km / 180) * 60);
+  return { minutes, meters: Math.round(km * 1000), mode: 'transit', standin: false, estimate: true, source: JAPAN_SOURCE, checked_at: new Date(now()).toISOString() };
+}
 export class MapsError extends Error {
   constructor(code, message) {
     super(message);
@@ -205,6 +217,8 @@ function googleMaps(key, fetcher, now, meter) {
         if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) throw new MapsError('not_found', 'No map point for this stop: search for it to link it.');
         return { location: { latLng: { latitude: p.lat, longitude: p.lng } } };
       };
+      // no train or metro routes from Google in Japan: an estimate, and no call (it would only answer "no route")
+      if (m === 'transit' && inJapan(from) && inJapan(to)) return japanTransit(from, to, now);
       const body = { origin: point(from), destination: point(to), travelMode: GOOGLE_MODE[m] };
       if (m === 'drive' || m === 'taxi') body.routingPreference = 'TRAFFIC_AWARE';
       if (m === 'transit' && lessWalking) body.transitPreferences = { routingPreference: 'LESS_WALKING' }; // step-free trips (Google doesn't say which stations are step-free)

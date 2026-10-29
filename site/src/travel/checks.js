@@ -212,7 +212,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
           move += t.minutes;
           arrive = (leave ?? at) + t.minutes;
           const slack = at - arrive;
-          const words = `${t.minutes} min ${HOW[s.mode] || `by ${s.mode}`} from ${stops[k - 1].place.name}`;
+          const words = `${t.estimate ? 'About ' : ''}${t.minutes} min ${HOW[s.mode] || `by ${s.mode}`} from ${stops[k - 1].place.name}${t.estimate ? ' (an estimate: Google Maps has no train times in Japan)' : ''}`;
           let status = 'ok', note = words;
           if (slack < -LATE) {
             status = 'warn';
@@ -223,7 +223,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
             status = 'look';
             note = `${words}: only ${Math.max(0, slack)} min to spare.`;
           }
-          badges.travel = { status: t.standin ? 'sample' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes, mode: t.mode || s.mode };
+          badges.travel = { status: t.standin ? 'sample' : t.estimate && status === 'ok' ? 'look' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes, mode: t.mode || s.mode };
           if (t.held) badges.travel.held = t.held; // a cap held a new check back: this is the last one (or an estimate)
           if (Array.isArray(t.lines)) badges.travel.lines = t.lines; // the rides Google named (transit only; never on stand-in maps)
         }
