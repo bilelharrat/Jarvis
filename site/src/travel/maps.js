@@ -331,10 +331,19 @@ export function weekOf(g, checkedAt) {
       if (!p.close) continue;
       const od = dateOf(p.open), cd = dateOf(p.close);
       if (!od || !days[od]) continue;
-      const open = at(p.open);
-      let close = at(p.close);
-      if (cd && cd !== od && close > open) close = '23:59'; // a period running into a later day: open to the day's end
-      days[od].push({ open, close });
+      const open = at(p.open), close = at(p.close);
+      if (!cd || cd === od) { days[od].push({ open, close }); continue; }
+      // a period running into later days fills each of them: open to midnight, whole days between, then midnight to its
+      // close. A place open 24 hours comes as one period over the whole week (Fri 00:00 to Thu 23:59, truncated); on its
+      // first day alone it made every other day "closed" (a Shinjuku hotel, 2026-10-29). A bar open to 02:00 is also
+      // open 00:00–02:00 the next day.
+      const span = dates.filter((d) => d >= od && d <= cd);
+      span.forEach((d, i) => {
+        const last = d === cd;
+        if (i === 0) days[d].push({ open, close: last ? close : '23:59' });
+        else if (!last) days[d].push({ open: '00:00', close: '23:59' });
+        else if (close !== '00:00') days[d].push({ open: '00:00', close });
+      });
     }
   }
   const special = (Array.isArray(c.specialDays) ? c.specialDays : []).map((s) => ymd(s?.date)).filter((d) => d && days[d]);

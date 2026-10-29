@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkTrip, hoursCheck } from '../src/travel/checks.js';
 import { HOLIDAYS, holidayLookup, sourceFor, stopCountry } from '../src/travel/holidays.js';
-import { fromGooglePlace, mapsFor } from '../src/travel/maps.js';
+import { fromGooglePlace, mapsFor, weekOf } from '../src/travel/maps.js';
 
 const NOW = Date.parse('2026-12-22T10:00:00Z'); // Tue 22 Dec: Google's window is 22–28 Dec in Rome
 const DAY = 86400_000;
@@ -193,4 +193,24 @@ test('holiday sources: OpenHolidays by default; Nager.Date only with the sponsor
   assert.equal(stopCountry({}, { destination: 'Rome, Italy' }), 'IT');
   assert.equal(stopCountry({}, { destination: 'Rome' }), null);
   assert.equal(stopCountry({}, { destination: 'Paris, France and Rome, Italy' }), null, 'two countries: not guessed');
+});
+
+test('a place open 24 hours: Google sends one period over the whole week, and every day of it is open (a Shinjuku hotel read "closed" on 4 Nov)', () => {
+  const g = { utcOffsetMinutes: 540, currentOpeningHours: {
+    weekdayDescriptions: ['Monday: Open 24 hours', 'Tuesday: Open 24 hours', 'Wednesday: Open 24 hours', 'Thursday: Open 24 hours', 'Friday: Open 24 hours', 'Saturday: Open 24 hours', 'Sunday: Open 24 hours'],
+    periods: [{ open: { day: 5, hour: 0, minute: 0, truncated: true, date: { year: 2026, month: 10, day: 30 } }, close: { day: 4, hour: 23, minute: 59, truncated: true, date: { year: 2026, month: 11, day: 5 } } }],
+  } };
+  const { week } = weekOf(g, '2026-10-29T17:00:00Z'); // 30 Oct in Tokyo
+  assert.equal(week.from, '2026-10-30');
+  for (const d of Object.keys(week.days)) assert.deepEqual(week.days[d], [{ open: '00:00', close: '23:59' }], d);
+  assert.equal(week.closed_week, false);
+});
+
+test('a bar open past midnight: its night on the day it opens, its small hours on the next day', () => {
+  const g = { utcOffsetMinutes: 540, currentOpeningHours: { weekdayDescriptions: ['x'],
+    periods: [{ open: { day: 5, hour: 18, minute: 0, date: { year: 2026, month: 10, day: 30 } }, close: { day: 6, hour: 2, minute: 0, date: { year: 2026, month: 10, day: 31 } } }] } };
+  const { week } = weekOf(g, '2026-10-29T17:00:00Z');
+  assert.deepEqual(week.days['2026-10-30'], [{ open: '18:00', close: '23:59' }]);
+  assert.deepEqual(week.days['2026-10-31'], [{ open: '00:00', close: '02:00' }]);
+  assert.deepEqual(week.days['2026-11-01'], []);
 });
