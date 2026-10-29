@@ -155,8 +155,8 @@ test('a late arrival is caught with real (fake Google) travel times, and the cac
     async travel() { routes++; return { minutes: 50, meters: 9000, mode: 'transit', standin: false, source: 'Google Maps (Routes API)', checked_at: 'now' }; },
   };
   const trip = cleanTrip({ title: 'x', start: '2027-06-15', days: [{ stops: [
-    { place: { id: 'p1', name: 'A', lat: 38.70, lng: -9.20 }, at: '10:00', minutes: 60 },
-    { place: { id: 'p2', name: 'B', lat: 38.72, lng: -9.11 }, at: '11:30', minutes: 60, mode: 'transit' },
+    { place: { id: 'ChIJp1aaaaaa', name: 'A', lat: 38.70, lng: -9.20 }, at: '10:00', minutes: 60 },
+    { place: { id: 'ChIJp2aaaaaa', name: 'B', lat: 38.72, lng: -9.11 }, at: '11:30', minutes: 60, mode: 'transit' },
   ] }] }, { newId, now: NOW });
   const store = new Map();
   const cache = { get: async (k) => store.get(k), put: async (k, v) => store.set(k, v) };
@@ -649,4 +649,32 @@ test('a leg too long for one day says a stop is in the wrong place, never "youâ€
   const b = c.days[0].stops[1].badges.travel;
   assert.equal(b.status, 'look');
   assert.match(b.text, /wrong place/);
+});
+
+test('only Google place ids go to Google: a made-up id is found by its name near its point; Lisbon samples in a Tokyo trip are flagged', async () => {
+  const { isGoogleId, strayStandin } = await import('../src/travel/maps.js');
+  assert.ok(isGoogleId('ChIJCewJkL2LGGAR3Qmk0vCTGkg'));
+  assert.ok(!isGoogleId('tokyo-tower'));
+  assert.ok(!isGoogleId('national-tile-museum-tokyo'));
+  assert.ok(strayStandin({ destination: 'Tokyo, Japan' }, { id: 'standin:tiles' }));
+  assert.ok(!strayStandin({ destination: 'Lisbon' }, { id: 'standin:tiles' }));
+  const asked = [];
+  const tower = { id: 'ChIJCewJkL2LGGAR3Qmk0vCTGkg', name: 'Tokyo Tower', lat: 35.6586, lng: 139.7454, status: 'open', hours: null, source: 'Google Maps', checked_at: new Date(NOW).toISOString() };
+  const maps = {
+    mode: 'google',
+    async place(id) { asked.push(`place:${id}`); if (!isGoogleId(id)) throw new Error('400'); return tower; },
+    async search(q) { asked.push(`search:${q}`); return [tower]; },
+    async travel(a, b, mode) { asked.push(`travel:${a.id}>${b.id}`); return { minutes: 12, mode, standin: false, source: 'Google Maps (Routes API)', checked_at: new Date(NOW).toISOString() }; },
+  };
+  const trip = cleanTrip({ title: 'Tokyo', destination: 'Tokyo, Japan', start: '2027-05-03', travelers: 1, days: [{ stops: [
+    { at: '10:00', place: { id: 'tokyo-tower', name: 'Tokyo Tower', lat: 35.6586, lng: 139.7454 } },
+    { at: '12:00', place: { id: 'standin:tiles', name: 'National Tile Museum', lat: 38.7247, lng: -9.1135 } },
+    { at: '15:00', place: { id: 'ChIJCewJkL2LGGAR3Qmk0vCTGkg', name: 'Tokyo Tower', lat: 35.6586, lng: 139.7454 } },
+  ] }] }, { newId, now: NOW });
+  const c = await checkTrip(trip, maps);
+  assert.ok(asked.includes('search:Tokyo Tower'), 'the made-up id is looked up by name');
+  assert.ok(!asked.includes('place:tokyo-tower') && !asked.includes('place:standin:tiles'));
+  assert.ok(!asked.some((x) => x.includes('standin:tiles')), 'no travel to the Lisbon sample');
+  assert.equal(c.days[0].stops[0].badges.hours.status === 'unknown' && /isnâ€™t linked/.test(c.days[0].stops[0].badges.hours.text), false);
+  assert.ok(JSON.stringify(c.days[0].stops[1].badges).includes('Lisbon sample data'));
 });

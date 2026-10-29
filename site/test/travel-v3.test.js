@@ -393,7 +393,7 @@ test('the day measured from the hotel: out in the morning, back at night; arriva
 
 test('step-free: entrances as Google lists them (yes, no, not said) and less-walking transit', async () => {
   const bodies = [];
-  const ACCESS = { PLACEbbbbbbbb1: { wheelchairAccessibleEntrance: true }, PLACEbbbbbbbb2: { wheelchairAccessibleEntrance: false }, PLACEbbbbbbbb3: undefined };
+  const ACCESS = { ChIJPLACEbbbbbbbb1: { wheelchairAccessibleEntrance: true }, ChIJPLACEbbbbbbbb2: { wheelchairAccessibleEntrance: false }, ChIJPLACEbbbbbbbb3: undefined };
   const fetch = async (u, init) => {
     if (u.includes('/places/')) { const id = u.split('/').pop(); return jsonRes({ id, displayName: { text: id }, businessStatus: 'OPERATIONAL', accessibilityOptions: ACCESS[id] }); }
     bodies.push(JSON.parse(init.body));
@@ -401,7 +401,7 @@ test('step-free: entrances as Google lists them (yes, no, not said) and less-wal
   };
   const maps = mapsFor({ GOOGLE_MAPS_SERVER_KEY: 'k' }, { fetch, now: () => T0 });
   const stop = (id, at) => ({ id: `s-${id.slice(-1)}`, kind: 'visit', place: { id, name: id, lat: 38.71, lng: -9.14 }, at, minutes: 60, mode: 'transit', cost: null, booked: null });
-  const trip = { start: '2026-11-28', travelers: 1, access: { step_free: true }, days: [{ stops: [stop('PLACEbbbbbbbb1', '10:00'), stop('PLACEbbbbbbbb2', '12:00'), stop('PLACEbbbbbbbb3', '14:00')] }] };
+  const trip = { start: '2026-11-28', travelers: 1, access: { step_free: true }, days: [{ stops: [stop('ChIJPLACEbbbbbbbb1', '10:00'), stop('ChIJPLACEbbbbbbbb2', '12:00'), stop('ChIJPLACEbbbbbbbb3', '14:00')] }] };
   const c = await checkTrip(trip, maps);
   assert.deepEqual(c.days[0].stops.map((s) => s.badges.access.status), ['ok', 'warn', 'look']);
   assert.ok(c.alerts.some((x) => x.kind === 'access'));
@@ -448,7 +448,7 @@ test('booking windows: only a rule the venue’s own page states, quoted; else "
   const tickets = '<html><body><script>var x=1</script><h1>Tickets</h1><p>Online booking opens 60 days in advance, at 10:00 Lisbon time.</p></body></html>';
   const answers = [];
   const fetch = async (u, init) => {
-    if (u.includes('/places/')) return jsonRes({ id: 'PLACEccccccccc1', displayName: { text: 'Belcanto' }, businessStatus: 'OPERATIONAL', websiteUri: 'http://belcanto.example/' });
+    if (u.includes('/places/')) return jsonRes({ id: 'ChIJPLACEccccccccc1', displayName: { text: 'Belcanto' }, businessStatus: 'OPERATIONAL', websiteUri: 'http://belcanto.example/' });
     if (u.startsWith('https://belcanto.example/en/tickets')) return new Response(tickets, { headers: { 'content-type': 'text/html' } });
     if (u.startsWith('https://belcanto.example/')) return new Response(site, { headers: { 'content-type': 'text/html; charset=utf-8' } });
     if (u.includes('anthropic')) {
@@ -458,7 +458,7 @@ test('booking windows: only a rule the venue’s own page states, quoted; else "
     throw new Error(`unexpected ${u}`);
   };
   const a = account({ env: { ANTHROPIC_API_KEY: 'sk', GOOGLE_MAPS_SERVER_KEY: 'k' } });
-  a.m.get(`trip:${TID}`).days[1].stops[4].place.id = 'PLACEccccccccc1';
+  a.m.get(`trip:${TID}`).days[1].stops[4].place.id = 'ChIJPLACEccccccccc1';
   answers.push({ found: true, page: 1, quote: 'Online booking opens 60 days in advance, at 10:00 Lisbon time.', rule: '60 days ahead at 10:00', days_ahead: 60, opens_at: '10:00' });
   const w = await tripOp(a, 'trip-windows', { id: TID, stop: 's-din' }, { fetch });
   assert.equal(w.found, true);

@@ -15,17 +15,17 @@ const except = (closedDay, open, close) => all(open, close).filter((h) => h.day 
 // Google, faked: places by name, all near Florence's centre; every leg 10 minutes
 const FLORENCE = { lat: 43.7696, lng: 11.2558 };
 const PLACES = {
-  florence: { id: 'gp-florence-0001', name: 'Florence', hours: null, status: 'open' },
-  'hotel calimala': { id: 'gp-calimala-0001', name: 'Hotel Calimala', hours: all('00:00', '23:59'), status: 'open' },
-  'uffizi gallery': { id: 'gp-uffizi-00001', name: 'Uffizi Gallery', hours: except(1, '08:15', '18:30'), status: 'open' }, // closed Mondays
-  'trattoria mario': { id: 'gp-mario-000001', name: 'Trattoria Mario', hours: except(0, '12:00', '15:30'), status: 'open' },
-  'duomo di firenze': { id: 'gp-duomo-000001', name: 'Cattedrale di Santa Maria del Fiore (Duomo di Firenze)', hours: all('10:15', '16:30'), status: 'open' },
-  'old caffe': { id: 'gp-oldcaffe-001', name: 'Old Caffe', hours: all('08:00', '22:00'), status: 'closed_permanently' },
-  'galleria dell accademia': { id: 'gp-accademia-01', name: 'Galleria dell’Accademia', hours: except(1, '08:15', '18:50'), status: 'open' },
-  'palazzo pitti': { id: 'gp-pitti-000001', name: 'Palazzo Pitti', hours: except(1, '08:15', '18:30'), status: 'open' },
-  'osteria chiusa': { id: 'gp-chiusa-00001', name: 'Osteria Chiusa', hours: except(2, '12:00', '15:00'), status: 'open' }, // closed Tuesdays
-  'cantina buona': { id: 'gp-cantina-0001', name: 'Cantina Buona', hours: all('12:00', '23:00'), status: 'open' },
-  'museo bardini': { id: 'gp-bardini-0001', name: 'Museo Bardini', hours: [5, 6, 0].map((day) => ({ day, open: '11:00', close: '17:00' })), status: 'open' }, // Fri–Sun only
+  florence: { id: 'ChIJgp-florence-0001', name: 'Florence', hours: null, status: 'open' },
+  'hotel calimala': { id: 'ChIJgp-calimala-0001', name: 'Hotel Calimala', hours: all('00:00', '23:59'), status: 'open' },
+  'uffizi gallery': { id: 'ChIJgp-uffizi-00001', name: 'Uffizi Gallery', hours: except(1, '08:15', '18:30'), status: 'open' }, // closed Mondays
+  'trattoria mario': { id: 'ChIJgp-mario-000001', name: 'Trattoria Mario', hours: except(0, '12:00', '15:30'), status: 'open' },
+  'duomo di firenze': { id: 'ChIJgp-duomo-000001', name: 'Cattedrale di Santa Maria del Fiore (Duomo di Firenze)', hours: all('10:15', '16:30'), status: 'open' },
+  'old caffe': { id: 'ChIJgp-oldcaffe-001', name: 'Old Caffe', hours: all('08:00', '22:00'), status: 'closed_permanently' },
+  'galleria dell accademia': { id: 'ChIJgp-accademia-01', name: 'Galleria dell’Accademia', hours: except(1, '08:15', '18:50'), status: 'open' },
+  'palazzo pitti': { id: 'ChIJgp-pitti-000001', name: 'Palazzo Pitti', hours: except(1, '08:15', '18:30'), status: 'open' },
+  'osteria chiusa': { id: 'ChIJgp-chiusa-00001', name: 'Osteria Chiusa', hours: except(2, '12:00', '15:00'), status: 'open' }, // closed Tuesdays
+  'cantina buona': { id: 'ChIJgp-cantina-0001', name: 'Cantina Buona', hours: all('12:00', '23:00'), status: 'open' },
+  'museo bardini': { id: 'ChIJgp-bardini-0001', name: 'Museo Bardini', hours: [5, 6, 0].map((day) => ({ day, open: '11:00', close: '17:00' })), status: 'open' }, // Fri–Sun only
 };
 function fakeMaps() {
   const calls = { search: [], place: 0, travel: 0 };
@@ -154,7 +154,7 @@ test('Florence on a Monday: drafted with web search, checked on Google, fixed by
   assert.match(ai.seen[1].body.input[1].content, /Osteria Chiusa.*closed on Tuesdays.*Tue closed/s);
   assert.equal(r.repaired, true);
   const cantina = named(r.trip, 'Cantina Buona');
-  assert.ok(cantina && cantina.day === 1 && cantina.at === '13:00' && cantina.place.id === 'gp-cantina-0001');
+  assert.ok(cantina && cantina.day === 1 && cantina.at === '13:00' && cantina.place.id === 'ChIJgp-cantina-0001');
   assert.equal(r.changes.find((c) => c.what === 'replaced').was_name, 'Osteria Chiusa');
   assert.equal(stopsOf(r.trip).length, 9 - 2, 'two removed; nothing else dropped by the ignored edit');
 
@@ -248,8 +248,8 @@ test('the fixer’s pieces: hours on a date, free slots, Google’s week in word
 
 test('a late arrival is started when you get there, if that still fits', async () => {
   const trip = { title: 't', destination: 'Florence', start: '2026-11-03', travelers: 1, budget: null, access: null, days: [{ title: 'd', stops: [
-    { id: 's-a', kind: 'visit', place: { id: 'gp-uffizi-00001', name: 'Uffizi Gallery', lat: 43.77, lng: 11.25 }, at: '10:00', minutes: 60, mode: 'walk', cost: null, nights: null, link: null, booked: null, note: '' },
-    { id: 's-b', kind: 'visit', place: { id: 'gp-pitti-000001', name: 'Palazzo Pitti', lat: 43.77, lng: 11.25 }, at: '11:00', minutes: 60, mode: 'walk', cost: null, nights: null, link: null, booked: null, note: '' },
+    { id: 's-a', kind: 'visit', place: { id: 'ChIJgp-uffizi-00001', name: 'Uffizi Gallery', lat: 43.77, lng: 11.25 }, at: '10:00', minutes: 60, mode: 'walk', cost: null, nights: null, link: null, booked: null, note: '' },
+    { id: 's-b', kind: 'visit', place: { id: 'ChIJgp-pitti-000001', name: 'Palazzo Pitti', lat: 43.77, lng: 11.25 }, at: '11:00', minutes: 60, mode: 'walk', cost: null, nights: null, link: null, booked: null, note: '' },
   ] }] };
   const maps = fakeMaps();
   const checks = await checkTrip(trip, maps, { now: () => T0 });

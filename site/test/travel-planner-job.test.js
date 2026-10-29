@@ -13,12 +13,12 @@ const all = (open, close) => [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, open, cl
 const except = (closedDay, open, close) => all(open, close).filter((h) => h.day !== closedDay);
 const FLORENCE = { lat: 43.7696, lng: 11.2558 };
 const PLACES = {
-  florence: { id: 'gp-florence-0001', name: 'Florence', hours: null, status: 'open' },
-  'hotel calimala': { id: 'gp-calimala-0001', name: 'Hotel Calimala', hours: all('00:00', '23:59'), status: 'open' },
-  'uffizi gallery': { id: 'gp-uffizi-00001', name: 'Uffizi Gallery', hours: except(1, '08:15', '18:30'), status: 'open' }, // closed Mondays
-  'trattoria mario': { id: 'gp-mario-000001', name: 'Trattoria Mario', hours: except(0, '12:00', '15:30'), status: 'open' },
-  'old caffe': { id: 'gp-oldcaffe-001', name: 'Old Caffe', hours: all('08:00', '22:00'), status: 'closed_permanently' },
-  'palazzo pitti': { id: 'gp-pitti-000001', name: 'Palazzo Pitti', hours: except(1, '08:15', '18:30'), status: 'open' },
+  florence: { id: 'ChIJgp-florence-0001', name: 'Florence', hours: null, status: 'open' },
+  'hotel calimala': { id: 'ChIJgp-calimala-0001', name: 'Hotel Calimala', hours: all('00:00', '23:59'), status: 'open' },
+  'uffizi gallery': { id: 'ChIJgp-uffizi-00001', name: 'Uffizi Gallery', hours: except(1, '08:15', '18:30'), status: 'open' }, // closed Mondays
+  'trattoria mario': { id: 'ChIJgp-mario-000001', name: 'Trattoria Mario', hours: except(0, '12:00', '15:30'), status: 'open' },
+  'old caffe': { id: 'ChIJgp-oldcaffe-001', name: 'Old Caffe', hours: all('08:00', '22:00'), status: 'closed_permanently' },
+  'palazzo pitti': { id: 'ChIJgp-pitti-000001', name: 'Palazzo Pitti', hours: except(1, '08:15', '18:30'), status: 'open' },
 };
 function fakeMaps() {
   const view = (p) => ({ ...p, address: `${p.name}, Florence`, lat: FLORENCE.lat + 0.001, lng: FLORENCE.lng + 0.001, price: null, standin: false, source: 'Google Maps (Places API)', checked_at: new Date(T0).toISOString() });
@@ -281,12 +281,12 @@ const BCN = { lat: 41.3874, lng: 2.1686 };
 function barcelonaMaps({ found = null } = {}) {
   const at = (dLat, dLng) => ({ lat: BCN.lat + dLat, lng: BCN.lng + dLng });
   const P = {
-    barcelona: { id: 'gp-bcn-paloalto', name: 'Barcelona', hours: all('17:00', '22:00'), status: 'open', lat: 37.4419, lng: -122.143 }, // a restaurant, Palo Alto
-    'sagrada familia': { id: 'gp-sagrada-0001', name: 'Basílica de la Sagrada Família', hours: all('09:00', '18:00'), status: 'open', ...at(0.016, 0.006) },
-    'park guell': { id: 'gp-guell-000001', name: 'Park Güell', hours: all('09:30', '19:30'), status: 'open', ...at(0.027, -0.016) },
-    'casa batllo': { id: 'gp-batllo-00001', name: 'Casa Batlló', hours: all('09:00', '20:00'), status: 'open', ...at(0.004, -0.004) },
-    'la boqueria': { id: 'gp-boqueria-001', name: 'Mercat de la Boqueria', hours: except(0, '08:00', '20:30'), status: 'open', ...at(-0.005, -0.0) },
-    'cal pep': { id: 'gp-calpep-00001', name: 'Cal Pep', hours: except(0, '13:00', '23:00'), status: 'open', ...at(-0.003, 0.012) },
+    barcelona: { id: 'ChIJgp-bcn-paloalto', name: 'Barcelona', hours: all('17:00', '22:00'), status: 'open', lat: 37.4419, lng: -122.143 }, // a restaurant, Palo Alto
+    'sagrada familia': { id: 'ChIJgp-sagrada-0001', name: 'Basílica de la Sagrada Família', hours: all('09:00', '18:00'), status: 'open', ...at(0.016, 0.006) },
+    'park guell': { id: 'ChIJgp-guell-000001', name: 'Park Güell', hours: all('09:30', '19:30'), status: 'open', ...at(0.027, -0.016) },
+    'casa batllo': { id: 'ChIJgp-batllo-00001', name: 'Casa Batlló', hours: all('09:00', '20:00'), status: 'open', ...at(0.004, -0.004) },
+    'la boqueria': { id: 'ChIJgp-boqueria-001', name: 'Mercat de la Boqueria', hours: except(0, '08:00', '20:30'), status: 'open', ...at(-0.005, -0.0) },
+    'cal pep': { id: 'ChIJgp-calpep-00001', name: 'Cal Pep', hours: except(0, '13:00', '23:00'), status: 'open', ...at(-0.003, 0.012) },
   };
   const view = (p) => ({ ...p, address: `${p.name}`, price: null, standin: false, source: 'Google Maps (Places API)', checked_at: new Date(T0).toISOString() });
   return {
@@ -329,9 +329,9 @@ test('most places not found: kept unchecked and said, never an empty plan', asyn
 test('a show isn’t re-timed to its theatre’s box-office hours (Cirque du Soleil “O” at 21:00)', async () => {
   const LV = { lat: 36.1126, lng: -115.1767 };
   const P = {
-    'las vegas': { id: 'gp-lv', name: 'Las Vegas', hours: null, status: 'open', ...LV },
-    'o by cirque du soleil': { id: 'gp-o-theatre', name: 'O Theatre', hours: all('10:00', '18:00'), status: 'open', lat: LV.lat + 0.002, lng: LV.lng },
-    'bellagio conservatory': { id: 'gp-conserv', name: 'Bellagio Conservatory & Botanical Garden', hours: all('00:00', '23:59'), status: 'open', lat: LV.lat + 0.001, lng: LV.lng },
+    'las vegas': { id: 'ChIJgp-lv', name: 'Las Vegas', hours: null, status: 'open', ...LV },
+    'o by cirque du soleil': { id: 'ChIJgp-o-theatre', name: 'O Theatre', hours: all('10:00', '18:00'), status: 'open', lat: LV.lat + 0.002, lng: LV.lng },
+    'bellagio conservatory': { id: 'ChIJgp-conserv', name: 'Bellagio Conservatory & Botanical Garden', hours: all('00:00', '23:59'), status: 'open', lat: LV.lat + 0.001, lng: LV.lng },
   };
   const view = (p) => ({ ...p, address: p.name, price: null, standin: false, source: 'Google Maps (Places API)', checked_at: new Date(T0).toISOString() });
   const maps = { mode: 'google', async search(q) { const n = String(q).split(',')[0].toLowerCase().replace(/[“”"]/g, '').trim(); return P[n] ? [view(P[n])] : []; }, async place(id) { return view(Object.values(P).find((x) => x.id === id)); }, async travel(a, b, mode) { return { minutes: 10, meters: 500, mode, standin: false, source: 'Google Maps (Routes API)', checked_at: new Date(T0).toISOString() }; } };

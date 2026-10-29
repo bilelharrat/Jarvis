@@ -64,6 +64,11 @@ const STANDIN = {
 
 const LISBON = { lat: 38.7223, lng: -9.1393 };
 const GENERIC = new Set(['hotel', 'hotels', 'restaurant', 'restaurants', 'cafe', 'cafes', 'coffee', 'dinner', 'lunch', 'breakfast', 'museum', 'airport', 'market', 'the', 'and', 'your', 'near', 'stay', 'old', 'town', 'city', 'centre', 'center']);
+/** A Google place id (ChIJ… for places, Ei/Eh/Gh/Ih… for addresses), not a name or an id someone made up ("tokyo-tower"
+ *  from a chat card once went to Google and came back 400 on every leg). Anything else is looked up by name (checks.js). */
+export const isGoogleId = (id) => /^(ChIJ|GhIJ|Ei|Eh|Gh|Ih)[A-Za-z0-9_-]{6,}$/.test(String(id || ''));
+/** A sample (Lisbon) place in a trip that isn't the Lisbon sample: from before Google Maps was on; never on the map. */
+export const strayStandin = (trip, place) => String((place && place.id) || '').startsWith('standin:') && !/lisbo[an]/i.test(`${(trip && trip.destination) || ''} ${(trip && trip.title) || ''}`);
 export class MapsError extends Error {
   constructor(code, message) {
     super(message);
@@ -155,7 +160,7 @@ function googleMaps(key, fetcher, now, meter) {
       const pid = String(id || '');
       // a sample place (the Lisbon sample trip) stays a sample with live maps on: never shown as checked by Google
       if (pid.startsWith('standin:') && STANDIN[pid]) return standinMaps(now).place(pid);
-      if (!/^[A-Za-z0-9_-]{10,300}$/.test(pid)) throw new MapsError('not_found', 'That is not a Google place id.');
+      if (!isGoogleId(pid)) throw new MapsError('not_found', 'This stop isn’t linked to a Google Maps place yet: search for it to link it.');
       const fields = PART_FIELDS[part] || PLACE_FIELDS;
       const p = placeView(await call(`${PLACES}/places/${pid}`, { headers: headers(fields) }, placesSku('details', fields)));
       p.part = PART_FIELDS[part] ? part : 'all';
@@ -187,7 +192,7 @@ function googleMaps(key, fetcher, now, meter) {
     // travel times from each origin to each destination in one call (Routes API computeRouteMatrix)
     async matrix(origins, destinations, mode = 'walk') {
       const m = MODES.includes(mode) ? mode : 'walk';
-      const wp = (p) => ({ waypoint: p.id && !String(p.id).startsWith('standin:') ? { placeId: p.id } : { location: { latLng: { latitude: p.lat, longitude: p.lng } } } });
+      const wp = (p) => ({ waypoint: isGoogleId(p.id) ? { placeId: p.id } : { location: { latLng: { latitude: p.lat, longitude: p.lng } } } });
       const body = { origins: origins.map(wp), destinations: destinations.map(wp), travelMode: GOOGLE_MODE[m] };
       const out = await call(MATRIX, { method: 'POST', headers: headers('originIndex,destinationIndex,duration,distanceMeters,condition'), body: JSON.stringify(body) }, 'matrix_ess', Math.max(1, origins.length * destinations.length)); // billed per element
       const at = new Date(now()).toISOString();
@@ -195,7 +200,11 @@ function googleMaps(key, fetcher, now, meter) {
     },
     async travel(from, to, mode = 'walk', { departAt, lessWalking = false } = {}) {
       const m = MODES.includes(mode) ? mode : 'walk';
-      const point = (p) => (p.id && !String(p.id).startsWith('standin:') ? { placeId: p.id } : { location: { latLng: { latitude: p.lat, longitude: p.lng } } });
+      const point = (p) => {
+        if (isGoogleId(p.id)) return { placeId: p.id };
+        if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) throw new MapsError('not_found', 'No map point for this stop: search for it to link it.');
+        return { location: { latLng: { latitude: p.lat, longitude: p.lng } } };
+      };
       const body = { origin: point(from), destination: point(to), travelMode: GOOGLE_MODE[m] };
       if (m === 'drive' || m === 'taxi') body.routingPreference = 'TRAFFIC_AWARE';
       if (m === 'transit' && lessWalking) body.transitPreferences = { routingPreference: 'LESS_WALKING' }; // step-free trips (Google doesn't say which stations are step-free)
