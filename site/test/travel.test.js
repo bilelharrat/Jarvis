@@ -693,3 +693,115 @@ test('Japan: train and metro legs are estimated (Google has none there), shown a
   assert.equal(calls, 0, 'no Google call for a leg it has no answer for');
   assert.ok(t.estimate && /no train times in Japan/.test(t.source));
 });
+
+test('unlocated or stale ChIJ stops in a second city resolve by name and backfill coordinates for the map', async () => {
+  const { MapsError } = await import('../src/travel/maps.js');
+  const inari = { id: 'ChIJinariKyoto1234', name: 'Fushimi Inari Taisha', lat: 34.9671, lng: 135.7727, status: 'open', hours: { open_24h: true, summary: 'Open 24 hours' }, source: 'Google Maps', checked_at: new Date(NOW).toISOString() };
+  const kiyomizu = { id: 'ChIJkiyomizuKyoto5', name: 'Kiyomizu-dera', lat: 34.9949, lng: 135.7850, status: 'open', hours: { open_24h: false, spans: [['06:00', '18:00']], summary: '06:00–18:00' }, source: 'Google Maps', checked_at: new Date(NOW).toISOString() };
+  const queries = [];
+  const maps = {
+    mode: 'google',
+    async place(id) {
+      if (id === 'ChIJstale404id0000') throw new MapsError('not_found', '404');
+      if (id === inari.id) return inari;
+      if (id === kiyomizu.id) return kiyomizu;
+      throw new MapsError('not_found', '404');
+    },
+    async search(q) {
+      queries.push(q);
+      if (q === 'Fushimi Inari Taisha, Tokyo, Japan') return []; // simulate multi-city miss when Tokyo is appended
+      if (q === 'Fushimi Inari Taisha') return [inari];
+      if (/Kiyomizu-dera/.test(q)) return [kiyomizu];
+      return [];
+    },
+    async travel() {
+      return { minutes: 22, mode: 'transit', estimate: true, standin: false, source: 'Straight-line distance (Google Maps has no train times in Japan)', checked_at: new Date(NOW).toISOString() };
+    },
+  };
+  const trip = cleanTrip({
+    title: 'Tokyo & Kyoto',
+    destination: 'Tokyo, Japan',
+    start: '2027-05-06',
+    travelers: 2,
+    days: [{
+      title: 'Kyoto',
+      stops: [
+        { at: '08:00', duration_min: 120, mode: 'transit', place: { name: 'Fushimi Inari Taisha' } },
+        { at: '11:00', duration_min: 90, mode: 'transit', place: { id: 'ChIJstale404id0000', name: 'Kiyomizu-dera' } },
+      ],
+    }],
+  }, { newId, now: NOW });
+  const c = await checkTrip(trip, maps);
+  assert.ok(queries.includes('Fushimi Inari Taisha, Tokyo, Japan') && queries.includes('Fushimi Inari Taisha'), 'falls back to plain name when multi-city stop is outside destination');
+  assert.equal(trip.days[0].stops[0].place.lat, 34.9671);
+  assert.equal(trip.days[0].stops[1].place.lat, 34.9949);
+  assert.equal(c.days[0].stops[0].lat, 34.9671);
+  assert.equal(c.days[0].stops[1].place_id, 'ChIJkiyomizuKyoto5');
+});
+
+test('the live Tokyo day (2026-10-29): no 0,0 points, a made-up ChIJ id replaced, legs not checked counted, the Lisbon stop offers a real hotel, all saved', async () => {
+  const at = new Date(NOW).toISOString();
+  const omoide = { id: 'ChIJP9eKBdeMGGAR0zzBXJNVj5A', name: 'Omoide Yokocho Memory Lane', lat: 35.6927, lng: 139.6996, status: 'open', hours: { open_24h: true }, source: 'Google Maps', checked_at: at };
+  const motomura = { id: 'ChIJ9Skp4tqMGGARfasPvo7nX44', name: 'Gyukatsu Motomura Shinjuku South Exit Branch', lat: 35.69, lng: 139.7038, status: 'open', hours: { open_24h: true }, source: 'Google Maps', checked_at: at };
+  const routed = [];
+  const maps = {
+    mode: 'google',
+    async place(id) {
+      if (id === omoide.id) return omoide;
+      if (id === motomura.id) return motomura;
+      throw new MapsError('not_found', 'Google Maps has no such place.'); // Places answers 400 for a made-up ChIJ id
+    },
+    async search(q) { return /Motomura/.test(q) ? [motomura] : /Omoide/.test(q) ? [omoide] : []; },
+    async explore() { // "hotel" near the day's stops: the badly rated one comes first, as Google once sent it
+      return [
+        { id: 'ChIJlowRatedHotel01', name: 'Hotel & Co. Sagami', lat: 35.6890, lng: 139.7047, rating: 2.1, ratings: 40 },
+        { id: 'ChIJfarAwayHotel001', name: 'A hotel in Yokohama', lat: 35.4437, lng: 139.6380, rating: 4.9, ratings: 900 },
+        { id: 'ChIJgoodHotelShinj1', name: 'Hotel Gracery Shinjuku', lat: 35.6948, lng: 139.7022, rating: 4.3, ratings: 9000 },
+      ];
+    },
+    async travel(a, b, mode) {
+      routed.push([a.id, b.id]);
+      if (!String(a.id).startsWith('ChIJ') || a.id === 'ChIJmadeUpByModel01' || b.id === 'ChIJmadeUpByModel01') throw new MapsError('unavailable', 'Google Maps answered 400.');
+      return { minutes: 9, meters: 676, mode, standin: false, source: 'Google Maps (Routes API)', checked_at: at };
+    },
+  };
+  const acct = account({ TRAVEL_CHECKS_REUSE_MIN: '10' });
+  const made = await tripOp(acct, 'trip-create', { trip: {
+    title: 'Classic & Contemporary Tokyo', destination: 'Tokyo, Japan', start: '2027-05-06', travelers: 2,
+    days: [{ title: 'Arrival in Shinjuku', stops: [
+      { at: '15:30', duration_min: 60, mode: 'walk', kind: 'stay', nights: 4, place: { id: 'standin:baixa-hotel', name: 'A hotel in Baixa', lat: 38.7118, lng: -9.1384 } },
+      { at: '17:00', duration_min: 90, mode: 'walk', place: { id: 'ChIJmadeUpByModel01', name: 'Shinjuku Nishiguchi Omoide Yokocho', lat: null, lng: null } },
+      { at: '19:00', duration_min: 90, mode: 'walk', kind: 'meal', place: { id: motomura.id, name: 'Gyukatsu Motomura Shinjuku Minamiguchi', lat: null, lng: null } },
+    ] }],
+  } }, { maps });
+  const stored0 = await acct.storage.get(`trip:${made.trip.id}`);
+  assert.equal(stored0.days[0].stops[1].place.lat, null, 'Number(null) is not a point: never saved at 0,0');
+
+  const got = await tripOp(acct, 'trip-get', { id: made.trip.id, recheck: true }, { maps });
+  const day = got.checks.days[0];
+  // the made-up id gives way to the one Google found by name, so the leg is asked with real ids
+  assert.equal(got.trip.days[0].stops[1].place.id, omoide.id);
+  assert.equal(day.stops[2].badges.travel.minutes, 9);
+  assert.ok(!routed.some(([a, b]) => a === 'ChIJmadeUpByModel01' || b === 'ChIJmadeUpByModel01'));
+  // the Lisbon stop: never travelled to, a clear replace badge with a well-rated hotel close by
+  assert.match(day.stops[1].badges.travel.text, /Lisbon sample data/);
+  assert.equal(day.stops[0].badges.replace.suggestion.name, 'Hotel Gracery Shinjuku');
+  assert.ok(got.checks.alerts.some((a) => a.kind === 'replace'));
+  assert.equal(day.move_minutes, 9);
+  assert.equal(day.move_unchecked, 1);
+  // what the check mended is saved: the next open needs no lookup to find the point
+  const stored = await acct.storage.get(`trip:${made.trip.id}`);
+  assert.equal(stored.days[0].stops[1].place.id, omoide.id);
+  assert.equal(stored.days[0].stops[1].place.lat, 35.6927);
+});
+
+test('a trip saved before the 0,0 fix: its 0,0 points are dropped and found again by name', async () => {
+  const at = new Date(NOW).toISOString();
+  const place = { id: 'ChIJ9Skp4tqMGGARfasPvo7nX44', name: 'Gyukatsu Motomura', lat: 35.69, lng: 139.7038, status: 'open', hours: { open_24h: true }, source: 'Google Maps', checked_at: at };
+  const maps = { mode: 'google', async place() { throw new MapsError('not_found', 'x'); }, async search() { return [place]; }, async travel() { throw new MapsError('no_route', 'x'); } };
+  const trip = cleanTrip({ title: 'Tokyo', destination: 'Tokyo, Japan', start: '2027-05-06', travelers: 1, days: [{ stops: [{ at: '19:00', duration_min: 60, mode: 'walk', place: { name: 'Gyukatsu Motomura' } }] }] }, { newId, now: NOW });
+  trip.days[0].stops[0].place.lat = 0; trip.days[0].stops[0].place.lng = 0; // as stored on 2026-10-28
+  const c = await checkTrip(trip, maps);
+  assert.equal(trip.days[0].stops[0].place.lat, 35.69);
+  assert.equal(c.days[0].stops[0].lat, 35.69);
+});

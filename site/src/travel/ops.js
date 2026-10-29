@@ -127,12 +127,54 @@ export async function tripOp(account, op, body = {}, deps = {}) {
   // trip-get: the same trip opened again within CHECKS_REUSE minutes gets the same checks (with their checked_at), no
   // lookups at all; keyed on the trip's content, so any change (on any path) checks again. Not after a cap held part.
   const reuseMs = Math.max(0, Number(account.env?.TRAVEL_CHECKS_REUSE_MIN ?? CHECKS_REUSE_MIN)) * 60_000;
-  const checkOpened = async (trip, fresh) => {
-    if (!reuseMs) return await check(trip);
-    const key = `chk1:${maps.mode}:${await digest(trip)}`;
-    if (!fresh) { const hit = await cache.get(key); if (hit) return hit; }
+  const backfillCoords = (trip, checks) => {
+    let changed = false;
+    if (!trip || !Array.isArray(trip.days) || !checks || !Array.isArray(checks.days)) return false;
+    for (let d = 0; d < trip.days.length; d++) {
+      const stops = trip.days[d]?.stops || [];
+      const cStops = checks.days[d]?.stops || [];
+      for (let k = 0; k < stops.length; k++) {
+        const s = stops[k], cs = cStops[k];
+        if (s && s.place && cs && Number.isFinite(cs.lat) && Number.isFinite(cs.lng)) {
+          if ((!s.place.id || String(s.place.id).startsWith('standin:')) && cs.place_id) {
+            s.place.id = cs.place_id;
+            changed = true;
+          }
+          if ((!Number.isFinite(s.place.lat) || !Number.isFinite(s.place.lng) || String(s.place.id || '').startsWith('standin:')) && (cs.lat !== s.place.lat || cs.lng !== s.place.lng)) {
+            s.place.lat = cs.lat;
+            s.place.lng = cs.lng;
+            changed = true;
+          }
+        }
+      }
+    }
+    return changed;
+  };
+  // the checks also mend the trip in place (a stop found again by name gets its real id and point, a 0,0 point is
+  // cleared): whatever changed is saved, so the next open (and the map) uses it
+  const before = (trip) => JSON.stringify(trip?.days || null);
+  const keep = async (trip, was, checks, id) => {
+    if ((backfillCoords(trip, checks) || before(trip) !== was) && id) await storage.put(`trip:${id}`, trip);
+  };
+  const checkOpened = async (trip, fresh, id = null) => {
+    const was = before(trip);
+    if (!reuseMs) {
+      const checks = await check(trip);
+      await keep(trip, was, checks, id);
+      return checks;
+    }
+    const key = `chk6:${maps.mode}:${await digest(trip)}`;
+    if (!fresh) {
+      const hit = await cache.get(key);
+      if (hit) {
+        await keep(trip, was, hit, id);
+        return hit;
+      }
+    }
     const checks = await check(trip);
-    if (!checks.spend) await cache.put(key, checks, reuseMs);
+    await keep(trip, was, checks, id);
+    const lookupFailed = Array.isArray(checks.days) && checks.days.some((d) => Array.isArray(d.stops) && d.stops.some((s) => s.badges?.hours?.text === 'The maps lookup failed.'));
+    if (!checks.spend && !lookupFailed) await cache.put(key, checks, reuseMs);
     return checks;
   };
   const newId = () => `s-${hex(4)}`;
@@ -173,10 +215,10 @@ export async function tripOp(account, op, body = {}, deps = {}) {
       const { id, trip } = await load();
       const prop = await storage.get(`tprop:${id}`);
       const live = prop && prop.base_rev === trip.rev && now() - prop.created < PROPOSAL_MS;
-      const checks = await checkOpened(trip, Boolean(body.recheck));
+      const checks = await checkOpened(trip, Boolean(body.recheck), id);
       // checks shown, for the accuracy counts (accuracy.js); a re-check counts its own (recheck.js, shown: false)
       if (!body.recheck) await noteChecks(account, id, trip, checks).catch((e) => console.error('trip accuracy', e && e.message));
-      return { trip: { id, ...trip }, checks, proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id), flight_price_drops: await flightPriceDrops(account, id), flight_watches: await flightWatches(account, id) };
+      return { trip: { id, ...trip }, checks, maps: maps.mode, proposal: live ? prop : null, rewards: tripRewards(trip, (await storage.get('tcards')) || [], now()), price_drops: await priceDrops(account, id), flight_price_drops: await flightPriceDrops(account, id), flight_watches: await flightWatches(account, id) };
     }
     case 'trip-read': { // the trip alone, no checks run (each check can be a paid lookup): for the calendar files
       const { id, trip } = await load();
@@ -523,7 +565,7 @@ export async function tripOp(account, op, body = {}, deps = {}) {
 // each looked up near the trip's destination, so its hours and travel times are checked like any other. A stop whose
 // name finds nothing near there stays as it was (and its badge says it isn't on the map). Getting-there stops (a
 // flight, a train) are not places to look up.
-export const LOCATE = { max: 30, km: 80 };
+export const LOCATE = { max: 60, km: 600 };
 export async function locate(t, maps) {
   if (!isObj(t) || !Array.isArray(t.days)) return t;
   const dest = String(t.destination || '').trim().slice(0, 80);

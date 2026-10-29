@@ -68,7 +68,8 @@ const GENERIC = new Set(['hotel', 'hotels', 'restaurant', 'restaurants', 'cafe',
  *  from a chat card once went to Google and came back 400 on every leg). Anything else is looked up by name (checks.js). */
 export const isGoogleId = (id) => /^(ChIJ|GhIJ|Ei|Eh|Gh|Ih)[A-Za-z0-9_-]{6,}$/.test(String(id || ''));
 /** A sample (Lisbon) place in a trip that isn't the Lisbon sample: from before Google Maps was on; never on the map. */
-export const strayStandin = (trip, place) => String((place && place.id) || '').startsWith('standin:') && !/lisbo[an]/i.test(`${(trip && trip.destination) || ''} ${(trip && trip.title) || ''}`);
+const STANDIN_NAMES = new Set(Object.values(STANDIN).map((p) => p.name.toLowerCase()));
+export const strayStandin = (trip, place) => String((place && place.id) || '').startsWith('standin:') && (!place || !place.name || STANDIN_NAMES.has(String(place.name).toLowerCase())) && !/lisbo[an]/i.test(`${(trip && trip.destination) || ''} ${(trip && trip.title) || ''}`);
 /** Japan (a rough outline, Korea, Russia and Taiwan left out): Google's Routes API has no train or metro routes there. */
 export const inJapan = (p) => Number.isFinite(p && p.lat) && Number.isFinite(p && p.lng)
   && p.lat >= 24 && p.lat <= 46 && p.lng >= 122.9 && p.lng <= 146 && !(p.lng < 130 && p.lat > 33.9) && !(p.lat > 41.5 && p.lng < 139.5);
@@ -157,7 +158,7 @@ function googleMaps(key, fetcher, now, meter) {
     } catch {
       throw new MapsError('unavailable', 'Google Maps did not answer in time.');
     }
-    if (res.status === 404) throw new MapsError('not_found', 'Google Maps has no such place.');
+    if (res.status === 404 || res.status === 400) throw new MapsError('not_found', 'Google Maps has no such place.');
     if (res.status === 429) throw new MapsError('rate_limited', 'Google Maps is over its quota for now.');
     if (!res.ok) throw new MapsError('unavailable', `Google Maps answered ${res.status}.`);
     return await res.json();
@@ -414,7 +415,7 @@ export async function flightMapImage(env, url, { fetch: fetcher = globalThis.fet
   const key = typeof env.GOOGLE_MAPS_SERVER_KEY === 'string' ? env.GOOGLE_MAPS_SERVER_KEY.trim() : '';
   if (!key) throw new MapsError('not_set_up', 'The map needs Google Maps on Eden’s server.');
   const listed = url.searchParams.get('p');
-  const pts = listed ? listed.split('|').slice(0, 25).map(point) : [point(url.searchParams.get('a')), point(url.searchParams.get('b'))];
+  const pts = listed ? listed.split('|').slice(0, 80).map(point) : [point(url.searchParams.get('a')), point(url.searchParams.get('b'))];
   if (!pts.length || pts.some((p) => !p)) throw new MapsError('bad_request', 'a and b (or p) must be lat,lng.');
   const w = Math.min(640, Math.max(200, Number(url.searchParams.get('w')) || MAP_SIZE.w));
   const h = Math.min(640, Math.max(200, Number(url.searchParams.get('h')) || MAP_SIZE.h));

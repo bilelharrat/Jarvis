@@ -50,7 +50,7 @@ export const PLAN = {
   walkKm: 2.5, // a drafted walk longer than this (straight line) goes by transit
   retryMs: 700, // a Places lookup that failed (a 503) is asked once more after this
   googleUsd: 1.5, // this plan's Google spend (spend.js meter's per-open cap); the account's daily cap still holds
-  places: 30, km: 80, request: 2000,
+  places: 60, km: 80, request: 2000,
   daily: 20, // plans an account makes a day (ops.js; TRAVEL_PLANS_A_DAY)
   // GPT-6.1 Sol list prices: $2 / $10 per million tokens (askeden src/models.ts); web search $0.01 a call (askeden
   // src/chat/stream.ts OPENAI_SEARCH_USD)

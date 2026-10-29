@@ -52,7 +52,7 @@ export function hoursFresh(date, now) {
  * The cached lookups the checks (and plan.js) share: place(stop, date) and travel(from, to, mode, { lessWalking }).
  * One lookup per key per check (a hotel twice in a day is asked once); `held` counts answers a cap held back.
  */
-export function lookups(maps, cache, { now = () => Date.now() } = {}) {
+export function lookups(maps, cache, { now = () => Date.now(), dest = '' } = {}) {
   const memo = new Map();
   const held = { n: 0, reason: null };
   const once = (key, fn) => { if (!memo.has(key)) memo.set(key, fn()); return memo.get(key); };
@@ -85,9 +85,9 @@ export function lookups(maps, cache, { now = () => Date.now() } = {}) {
   };
   const failed = (e, what) => ({ error: e instanceof MapsError ? e.message : `The ${what} lookup failed.` });
 
-  const place = (stop, date) => {
+  const place = (stop, date, linking = false) => {
     const id = stop.place.id;
-    if (!id) return null;
+    if (!id) return maps.mode === 'google' && stop.kind !== 'transport' && stop.place && stop.place.name ? linked(stop, date) : null;
     // an id that isn't Google's (a name a chat card made up): found by its name near its own point, then checked as that
     if (maps.mode === 'google' && !String(id).startsWith('standin:') && !isGoogleId(id)) return linked(stop, date);
     const live = maps.mode === 'google' && !String(id).startsWith('standin:');
@@ -104,6 +104,9 @@ export function lookups(maps, cache, { now = () => Date.now() } = {}) {
           try {
             both = await maps.place(id, { part: 'all' });
           } catch (err) {
+            if (!linking && err instanceof MapsError && err.code === 'not_found' && stop.place && stop.place.name) {
+              return await linked({ ...stop, place: { ...stop.place, id: null } }, date);
+            }
             const r = capped(err); // held back: the parts last seen, if any
             return merge(se ? { ...se.v, held: r } : null, he ? { ...he.v, held: r } : { held: r, note: err.message });
           }
@@ -119,6 +122,9 @@ export function lookups(maps, cache, { now = () => Date.now() } = {}) {
         }, e || null);
         return merge(await part(sk, se, FRESH.stable, 'stable', STABLE_KEYS), await part(hk, he, hoursAge, 'hours', HOURS_KEYS));
       } catch (e) {
+        if (!linking && e instanceof MapsError && e.code === 'not_found' && stop.place && stop.place.name) {
+          return await linked({ ...stop, place: { ...stop.place, id: null } }, date);
+        }
         return failed(e, 'maps');
       }
     });
@@ -126,13 +132,29 @@ export function lookups(maps, cache, { now = () => Date.now() } = {}) {
   const linked = (stop, date) => {
     const p = stop.place;
     const near = Number.isFinite(p.lat) && Number.isFinite(p.lng) ? { lat: p.lat, lng: p.lng } : {};
-    const key = `link1:${String(p.name).toLowerCase()}@${near.lat ? `${near.lat.toFixed(3)},${near.lng.toFixed(3)}` : '-'}`;
+    const d = String(dest || '').trim();
+    const withDest = !near.lat && d && !String(p.name).toLowerCase().includes(d.toLowerCase());
+    const key = `link3:${String(p.name).toLowerCase()}@${near.lat ? `${near.lat.toFixed(3)},${near.lng.toFixed(3)}` : d.toLowerCase() || '-'}`;
     return once(key, async () => {
       try {
-        const hits = await fresh(key, FRESH.stable, () => maps.search(p.name, near));
-        const hit = Array.isArray(hits) ? hits.find((h) => isGoogleId(h.id) && (!near.lat || distanceKm(h, near) <= 30)) : null;
+        const q1 = withDest ? `${p.name}, ${d}` : p.name;
+        const hits = await fresh(key, FRESH.stable, () => maps.search(q1, near));
+        let hit = Array.isArray(hits) ? hits.find((h) => isGoogleId(h.id) && (!near.lat || distanceKm(h, near) <= 30)) : null;
+        if (!hit && withDest) {
+          const hits2 = await fresh(`${key}:raw`, FRESH.stable, () => maps.search(p.name, near));
+          hit = Array.isArray(hits2) ? hits2.find((h) => isGoogleId(h.id)) : null;
+        }
         if (!hit) return { error: `${p.name} isn’t linked to a Google Maps place, and Google found no match nearby: search for it to link it.` };
-        return await place({ ...stop, place: { ...p, id: hit.id } }, date);
+        if (hit.checked_at && (hit.status || hit.hours !== undefined)) {
+          // with their stamp: a part cached without checked_at reads back as "Not checked." (every stop found by name did)
+          const stamp = { source: hit.source, checked_at: hit.checked_at, standin: hit.standin };
+          await cache.put(`ps1:${hit.id}`, { ...pick(hit, STABLE_KEYS), ...stamp }, FRESH.stable, CACHE.keepMs);
+          await cache.put(`ph1:${hit.id}`, { ...pick(hit, HOURS_KEYS), ...stamp }, hoursFresh(date || '', now()), CACHE.keepMs);
+        }
+        // linking: the found id is not looked up by name again if Google can't open it (that waited on itself forever)
+        const resolved = await place({ ...stop, place: { ...p, id: hit.id, lat: p.lat ?? hit.lat, lng: p.lng ?? hit.lng } }, date, true);
+        if (resolved && resolved.error && Number.isFinite(hit.lat)) return hit;
+        return resolved ? { ...resolved, id: resolved.id || hit.id, lat: Number.isFinite(resolved.lat) ? resolved.lat : hit.lat, lng: Number.isFinite(resolved.lng) ? resolved.lng : hit.lng } : resolved;
       } catch (e) {
         return failed(e, 'maps');
       }
@@ -170,18 +192,44 @@ export function lookups(maps, cache, { now = () => Date.now() } = {}) {
       }
     });
   };
-  return { place, travel, held };
+  // a search near a point (or in the destination), cached like a place: the replacement offered for a Lisbon sample stop
+  const nearby = (q, near = {}) => {
+    const key = `near2:${q.toLowerCase()}@${Number.isFinite(near.lat) ? `${near.lat.toFixed(2)},${near.lng.toFixed(2)}` : '-'}`;
+    return once(key, async () => {
+      try {
+        // with ratings (explore), so the pick is a well-reviewed place, not just the first hit ("hotel" near Shinjuku once
+        // gave a 2.1-star one): close by, 4 stars or more from 50+ reviews when Google has any, best rated first
+        const hits = await fresh(key, FRESH.stable, () => (maps.explore ? maps.explore(q, near) : maps.search(q, near)));
+        const ok = (Array.isArray(hits) ? hits : []).filter((h) => isGoogleId(h.id) && Number.isFinite(h.lat) && h.status !== 'closed_permanently' && (!Number.isFinite(near.lat) || distanceKm(h, near) <= 3));
+        const good = ok.filter((h) => h.rating >= 4 && h.ratings >= 50).sort((a, b) => b.rating - a.rating || b.ratings - a.ratings);
+        return good[0] || ok[0] || null;
+      } catch (e) {
+        if (e instanceof MapsError && e.code === 'capped') { capped(e); return null; }
+        return null;
+      }
+    });
+  };
+  return { place, travel, nearby, held };
 }
 
 
 // holidays: holidays.js holidayLookup (cc, date) → a public holiday or null; none: no holiday checks
 export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.now(), holidays = null } = {}) {
-  const look = lookups(maps, cache, { now });
+  const look = lookups(maps, cache, { now, dest: trip.destination || trip.title || '' });
   // a Lisbon sample stop left in another trip (made before Google Maps was on): not checked, not travelled to, replace it
+  const nonLisbon = maps.mode === 'google' && !/lisbo[an]/i.test(`${trip.destination || ''} ${trip.title || ''}`);
   const stray = (s) => maps.mode === 'google' && strayStandin(trip, s.place);
-  const placeOf = (stop, date) => (stray(stop) ? { error: `${stop.place.name} is from Eden’s Lisbon sample data (made before Google Maps was on): replace this stop.` } : look.place(stop, date));
-  const travelOf = (from, to, mode) => (stray(from) || stray(to) ? null : look.travel(from, to, mode, { lessWalking: Boolean(trip.access && trip.access.step_free) && mode === 'transit' }));
+  const unstandin = (s) => (nonLisbon && String(s.place?.id || '').startsWith('standin:') && !stray(s)
+    ? { ...s, place: { ...s.place, id: null, lat: null, lng: null } }
+    : s);
+  const placeOf = (stop, date) => (stray(stop) ? { error: `${stop.place.name} is from Eden’s Lisbon sample data (made before Google Maps was on): replace this stop.` } : look.place(unstandin(stop), date));
+  const strayLeg = (from, to) => ({ error: `Not checked: ${(stray(from) ? from : to).place.name} is Lisbon sample data, not a real stop here. Replace it first.` });
+  const travelOf = (from, to, mode) => (stray(from) || stray(to) ? strayLeg(from, to) : look.travel(from, to, mode, { lessWalking: Boolean(trip.access && trip.access.step_free) && mode === 'transit' }));
 
+  // a point at 0,0 is no point (trips saved before trips.js cleanPlace knew Number(null) is 0): found again by name
+  for (const day of trip.days) for (const s of day.stops || []) {
+    if (s && s.place && s.place.lat === 0 && s.place.lng === 0) { s.place.lat = null; s.place.lng = null; }
+  }
   const days = [];
   const alerts = [];
   let tripCost = 0;
@@ -190,8 +238,21 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
     const date = dayDate(trip, d);
     const stops = trip.days[d].stops;
     const places = await Promise.all(stops.map((s) => placeOf(s, date)));
+    for (let k = 0; k < stops.length; k++) {
+      const s = stops[k], p = places[k];
+      if (s && s.place && p && !p.error && Number.isFinite(p.lat) && Number.isFinite(p.lng)) {
+        const wasStandin = nonLisbon && String(s.place.id || '').startsWith('standin:');
+        if (!Number.isFinite(s.place.lat) || !Number.isFinite(s.place.lng) || wasStandin) {
+          s.place.lat = p.lat;
+          s.place.lng = p.lng;
+        }
+        if ((!s.place.id || wasStandin || (!String(s.place.id).startsWith('standin:') && s.place.id !== p.id)) && isGoogleId(p.id)) {
+          s.place.id = p.id;
+        }
+      }
+    }
     const out = [];
-    let move = 0, busy = 0, cost = 0, late = 0;
+    let move = 0, busy = 0, cost = 0, late = 0, unchecked = 0;
     let leave = null; // when you leave the stop before, in minutes
     for (let k = 0; k < stops.length; k++) {
       const s = stops[k];
@@ -205,6 +266,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       if (k > 0) {
         // (no departure time yet: a trip has no time zone, and Google wants one; it plans for now)
         const t = await travelOf(stops[k - 1], s, s.mode);
+        if (!t || t.error || t.minutes > FAR) unchecked++;
         if (!t) badges.travel = { status: 'look', text: 'No map point for one of these stops, so the travel time isn’t checked.', source: null, checked_at: null };
         else if (t.error) badges.travel = { status: 'unknown', text: t.error, source: null, checked_at: null };
         else if (t.minutes > FAR) badges.travel = { status: 'look', text: `Not checked: the travel time (${t.minutes} min) can’t be right between one day’s stops, so ${stops[k - 1].place.name} or ${s.place.name} is probably in the wrong place. Search for it again.`, source: t.source, checked_at: t.checked_at };
@@ -223,7 +285,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
             status = 'look';
             note = `${words}: only ${Math.max(0, slack)} min to spare.`;
           }
-          badges.travel = { status: t.standin ? 'sample' : t.estimate && status === 'ok' ? 'look' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes, mode: t.mode || s.mode };
+          badges.travel = { status: t.standin ? 'sample' : t.estimate && status === 'ok' ? 'look' : status, text: note, source: t.source, checked_at: t.checked_at, minutes: t.minutes, mode: t.mode || s.mode, ...(t.estimate ? { estimate: true } : {}) };
           if (t.held) badges.travel.held = t.held; // a cap held a new check back: this is the last one (or an estimate)
           if (Array.isArray(t.lines)) badges.travel.lines = t.lines; // the rides Google named (transit only; never on stand-in maps)
         }
@@ -255,6 +317,16 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
         if (e === false) stopAlerts.push({ kind: 'access', stop: s.id, day: d, text: `${s.place.name}: Google lists no step-free entrance.` });
       }
 
+      if (stray(s)) {
+        const pts = places.filter((x, i) => x && !x.error && Number.isFinite(x.lat) && !stray(stops[i]));
+        const near = pts.length ? { lat: pts.reduce((a, x) => a + x.lat, 0) / pts.length, lng: pts.reduce((a, x) => a + x.lng, 0) / pts.length } : {};
+        const what = s.kind === 'stay' ? 'hotel' : s.kind === 'meal' ? 'restaurant' : 'things to do';
+        const where = String(trip.destination || '').trim();
+        const hit = maps.mode === 'google' ? await look.nearby(near.lat === undefined && where ? `${what} in ${where}` : what, near) : null;
+        badges.replace = { status: 'look', text: `${s.place.name} is from Eden’s Lisbon sample data (made before Google Maps was on), not a real place on this trip.${hit ? ` Nearby: ${hit.name}.` : ''}`, suggestion: hit ? { id: hit.id, name: hit.name, lat: hit.lat, lng: hit.lng } : null, source: hit ? 'Google Maps (Places API)' : null, checked_at: hit ? hit.checked_at || new Date(now()).toISOString() : null };
+        stopAlerts.push({ kind: 'replace', stop: s.id, day: d, text: `${s.place.name} is sample data from Lisbon: replace it${hit ? ` (Eden suggests ${hit.name})` : ''}.` });
+      }
+
       // price: the trip's own figure, or the place's list price
       if (s.cost) {
         cost += s.cost.amount;
@@ -268,7 +340,8 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       busy += s.minutes;
       leave = Math.max(at, arrive) + s.minutes;
       alerts.push(...stopAlerts);
-      out.push({ stop: s.id, photo: p && !p.error && p.photo ? p.photo : null, arrive: hhmm(Math.max(0, arrive)), leave: hhmm(Math.min(leave, 24 * 60 - 1)), badges, alerts: stopAlerts.map((a) => a.kind) });
+      const coord = p && !p.error && Number.isFinite(p.lat) && Number.isFinite(p.lng) ? { lat: p.lat, lng: p.lng, ...(isGoogleId(p.id) ? { place_id: p.id } : {}) } : {};
+      out.push({ stop: s.id, photo: p && !p.error && p.photo ? p.photo : null, ...coord, arrive: hhmm(Math.max(0, arrive)), leave: hhmm(Math.min(leave, 24 * 60 - 1)), badges, alerts: stopAlerts.map((a) => a.kind) });
     }
     tripCost += cost;
     // the day measured from where you sleep: the stay to the first stop, the last stop back (changing the hotel moves these)
@@ -282,7 +355,7 @@ export async function checkTrip(trip, maps, { cache = noCache, now = () => Date.
       };
       anchor = { stay: home.place.name, stay_stop: home.id, out: home.arrival ? null : await leg(home, first, first.mode === 'walk' ? 'walk' : 'transit'), back: await leg(last, home, last.mode === 'walk' ? 'walk' : 'transit'), to: first.id, from: last.id };
     }
-    days.push({ day: d, date, stops: out, pace: pace(stops.length, move, busy + move, late), move_minutes: move, cost: { amount: round(cost), currency }, anchor });
+    days.push({ day: d, date, stops: out, pace: pace(stops.length, move, busy + move, late), move_minutes: move, move_unchecked: unchecked, cost: { amount: round(cost), currency }, anchor });
   }
   const verdicts = days.map((x) => x.pace);
   return {
@@ -325,7 +398,8 @@ export function hoursCheck(p, date, at, minutes, { holiday = null } = {}) {
     const o = minutesOf(h.open), c = minutesOf(h.close) <= o ? 24 * 60 : minutesOf(h.close);
     return at >= o && end <= c;
   });
-  const span = (list) => list.map((h) => `${h.open}–${h.close}`).join(', ');
+  const fmtSpan = (h) => h.open === '00:00' && (h.close === '00:00' || h.close === '24:00' || h.close === '23:59') ? '24 hours' : `${h.open}–${h.close}`;
+  const span = (list) => list.map(fmtSpan).join(', ');
   const visit = `the visit is ${hhmm(at)}–${hhmm(Math.min(end, 24 * 60 - 1))}`;
   const hol = holiday ? { holiday } : {};
   const w = p.week && p.week.days && Array.isArray(p.week.days[date]) ? p.week : null;
@@ -338,14 +412,14 @@ export function hoursCheck(p, date, at, minutes, { holiday = null } = {}) {
       const head = `holiday hours on ${label} · Google`;
       if (!list.length) return { status: 'warn', alert: 'closed_that_day', special: true, ...hol, text: `${head}: closed that day.` };
       const fits = fitsIn(list);
-      if (fits) return { status: 'ok', special: true, ...hol, text: `${head}: open ${fits.open}–${fits.close}.` };
+      if (fits) return { status: 'ok', special: true, ...hol, text: `${head}: open ${fmtSpan(fits)}.` };
       return { status: 'warn', alert: 'out_of_hours', special: true, ...hol, text: `${head}: open ${span(list)}; ${visit}.` };
     }
     // a public holiday Google lists no special hours for: its hours stand, worth a look
     const note = holiday ? ` ${label} is a public holiday in ${holiday.country_name} (${holiday.name} · ${holiday.source}); Google lists no holiday hours for it: check before you go.` : '';
     if (!list.length) return { status: 'warn', alert: 'closed_that_day', ...hol, text: `Google shows it closed on ${label}.${note}` };
     const fits = fitsIn(list);
-    if (fits) return { status: holiday ? 'look' : 'ok', ...hol, text: `open ${fits.open}–${fits.close} on ${label}.${note}` };
+    if (fits) return { status: holiday ? 'look' : 'ok', ...hol, text: `open ${fmtSpan(fits)} on ${label}.${note}` };
     return { status: 'warn', alert: 'out_of_hours', ...hol, text: `open ${span(list)} on ${label}; ${visit}.${note}` };
   }
 
@@ -354,7 +428,7 @@ export function hoursCheck(p, date, at, minutes, { holiday = null } = {}) {
   const today = p.hours.filter((h) => h.day === wd);
   const dayName = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
   const r = !today.length ? { status: 'warn', alert: 'closed_that_day', text: `closed on ${dayName}s.` }
-    : fitsIn(today) ? { status: 'ok', text: `open ${fitsIn(today).open}–${fitsIn(today).close} on ${dayName}.` }
+    : fitsIn(today) ? { status: 'ok', text: `open ${fmtSpan(fitsIn(today))} on ${dayName}.` }
     : { status: 'warn', alert: 'out_of_hours', text: `open ${span(today)} on ${dayName}; ${visit}.` };
   // beyond the window: what the weekly hours can't tell
   const notes = [];

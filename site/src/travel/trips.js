@@ -56,8 +56,10 @@ function cleanPlace(p) {
   if (!isObj(p)) throw bad('A stop needs a place: { id, name, lat, lng }.');
   const name = text(p.name, 120);
   if (!name) throw bad('A stop’s place needs a name.');
-  const lat = Number(p.lat), lng = Number(p.lng);
-  const hasPoint = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  // null or '' is no point (Number(null) is 0: unlocated Tokyo stops were once saved at 0,0, a blank blue map), nor is 0,0
+  const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  const lat = num(p.lat), lng = num(p.lng);
+  const hasPoint = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
   return { id: p.id ? text(p.id, 300) : null, name, lat: hasPoint ? lat : null, lng: hasPoint ? lng : null };
 }
 
