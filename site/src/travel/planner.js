@@ -37,11 +37,16 @@ export const PLAN = {
   model: 'gpt-6.1-sol', effort: 'medium', // the OpenAI step's model
   draftTokens: 16_000, repairTokens: 8_000, // output caps, reasoning included
   draftSearches: 10, repairSearches: 4, // web_search calls (max_tool_calls)
-  draftMs: 95_000, repairMinMs: 25_000, deadlineMs: 150_000, // Gemini 4 Argon with Google Search drafts in about 80 s (2026-10-28)
-  // the next model after a timeout or a draft that didn't search (the full run, 2026-10-28: 3 of 40 Argon drafts timed out
-  // at 120 s, 14 of 37 made no Google Search query; Flash with search answered in 34 s p50, 52 s p90): what's left, at
-  // most fallbackMs, keeping reserveMs for Google's checks; under fallbackMinMs left, no further try
-  fallbackMs: 60_000, fallbackMinMs: 20_000, reserveMs: 12_000,
+  // no time limit the person sees (owner, 2026-10-28): a model may take up to 8 min and the plan 12, under Cloudflare's own
+  // 15 min for a job (planjob.js); the page follows the job for as long as it runs. Argon drafts in about 80 s.
+  draftMs: 480_000, repairMinMs: 25_000, deadlineMs: 720_000,
+  // the next model after a failure or a draft that didn't search (the full run, 2026-10-28: 14 of 37 Argon drafts made no
+  // Google Search query; Flash with search answered in 34 s p50, 52 s p90): what's left, at most fallbackMs, keeping
+  // reserveMs for Google's checks; under fallbackMinMs left, no further try
+  fallbackMs: 480_000, fallbackMinMs: 20_000, reserveMs: 12_000,
+  // the draft's backup runs beside the first model from hedgeMs on (2026-10-28: an Argon timeout left Flash ~43 s, under its
+  // 52 s p90, and the owner saw "The planner took too long"): Argon's answer wins when it comes; else the backup's is ready
+  hedgeMs: 20_000,
   retryMs: 700, // a Places lookup that failed (a 503) is asked once more after this
   googleUsd: 1.5, // this plan's Google spend (spend.js meter's per-open cap); the account's daily cap still holds
   places: 30, km: 80, request: 2000,
@@ -659,20 +664,36 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
     // the model that answered the draft also answers the repair; a failure moves to the next in the order
     const list = tried.length ? [model, ...order.filter((m) => m !== model)] : order;
     let last = null, unsearched = null; // `unsearched`: the first answer that didn't search, kept in case none does
+    const call = (m, user, ms, sig) => (!m ? askServiceModel(env, { ...o, user, ms, fetch: f === globalThis.fetch ? undefined : f, signal: sig })
+      : m.startsWith('gemini') ? askGemini(gkey, m, { ...o, user, ms, fetch: f, signal: sig })
+      : askSearchModel(key, { ...o, user, ms, fetch: f, signal: sig }));
+    // the draft's backup (PLAN.hedgeMs): the second model starts while the first still works, with the time to the deadline
+    let hedge = null;
+    if (o.ground && !tried.length && list.length > 1 && PLAN.hedgeMs > 0) {
+      const ctl = new AbortController();
+      const sig = signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal;
+      let timer = null, go = null;
+      const p = new Promise((res) => { go = res; timer = setTimeout(res, PLAN.hedgeMs); })
+        .then((u) => (ctl.signal.aborted ? null : call(list[1], u || o.user, Math.max(PLAN.fallbackMinMs, left() - PLAN.reserveMs), sig)));
+      p.catch(() => {}); // read when it's needed; a failure there is the last error then
+      hedge = { m: list[1], p, go: (u) => { clearTimeout(timer); go(u); }, stop: () => { clearTimeout(timer); ctl.abort(); go(); } };
+    }
+    try {
     for (const [i, m] of (list.length ? list : [null]).entries()) {
       alive();
       // a later model gets what's left (a timeout falls back to the next model, it doesn't end the plan)
       const ms = i === 0 ? o.ms : Math.min(PLAN.fallbackMs, left() - PLAN.reserveMs);
-      if (i > 0 && ms < PLAN.fallbackMinMs) break;
+      const hedged = i === 1 && hedge && hedge.m === m;
+      if (i > 0 && ms < PLAN.fallbackMinMs && !hedged) break;
       if (o.stage) emit({ type: 'stage', stage: o.stage, model: m, text: o.say(m, last, unsearched) });
       const user = unsearched ? `${o.user}\n\nSearch Google for every place’s opening days and hours before you answer: an answer without searching can’t be used.` : o.user;
       try {
-        const r = !m ? await askServiceModel(env, { ...o, user, ms, fetch: f === globalThis.fetch ? undefined : f, signal })
-          : m.startsWith('gemini') ? await askGemini(gkey, m, { ...o, user, ms, fetch: f, signal })
-          : await askSearchModel(key, { ...o, user, ms, fetch: f, signal });
+        const r = hedged ? await hedge.p : await call(m, user, ms, signal);
+        if (!r) throw last || new PlanError('The planner could not be reached.', 504, 'unavailable');
         count(r);
         // the draft must rest on a search (owner, 2026-10-28): one that didn't goes to the next model, told to search
         if (o.ground && m && !r.searches) {
+          if (i === 0 && hedge) hedge.go(`${o.user}\n\nSearch Google for every place’s opening days and hours before you answer: an answer without searching can’t be used.`); // (when it hadn't started yet)
           tried.push(`${m}: no_search`);
           if (!unsearched) unsearched = { r, m };
           last = null;
@@ -680,16 +701,19 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
         }
         model = r.model || m || model;
         tried.push(model);
+        if (hedge && i === 0) hedge.stop(); // the first model answered: the backup stops (or never starts)
         return r;
       } catch (e) {
         if (e.usd) count(e);
         last = e;
+        if (i === 0 && hedge) hedge.go(); // the first model failed: the backup starts now if it hadn't
         tried.push(`${m}: ${e.code || 'failed'}`);
         if (e.code === 'incomplete' || e.code === 'cancelled') throw e; // too big a trip for any of them; or Cancel
       }
     }
     if (unsearched) { model = unsearched.m; tried.push(model); return { ...unsearched.r, unsearched: true }; }
     throw last;
+    } finally { if (hedge) hedge.stop(); }
   };
 
   // 0. a job's first sketch, beside the draft (shown until the draft arrives; dropped if the draft comes first)
