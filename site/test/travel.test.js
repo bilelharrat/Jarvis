@@ -337,14 +337,15 @@ test('cards: names only (a number is refused), matched to checked rates; unknown
   assert.equal(matchCard('Capital One Venture X').id, 'capital-one-venture-x', 'Venture X, not Venture');
   assert.equal(matchCard('capital one venture').id, 'capital-one-venture');
   assert.equal(matchCard('Amex Gold').id, 'amex-gold');
-  assert.equal(matchCard('Discover it'), null);
+  assert.equal(matchCard('Corner Shop Rewards Card'), null);
+  assert.equal(matchCard('Discover it').id, 'discover-it-cash-back', 'one of the cards added 2026-10-29');
   assert.throws(() => cleanCardNames(['Visa 4111 1111 1111 1111']), /never its number/);
   assert.throws(() => cleanCardNames(['card 41111111']), /never its number/);
   assert.deepEqual(cleanCardNames(['  Amex   Gold ']), ['Amex Gold']);
 
   const hotel = { kind: 'stay', place: { name: 'Hotel' }, cost: { amount: 376, currency: 'EUR' } };
-  const rows = compareCards(hotel, ['Sapphire Preferred', 'Sapphire Reserve', 'Venture', 'Discover it'], Date.parse('2026-11-01'));
-  assert.deepEqual(rows.map((r) => r.name), ['Chase Sapphire Reserve', 'Capital One Venture', 'Chase Sapphire Preferred', 'Discover it']);
+  const rows = compareCards(hotel, ['Sapphire Preferred', 'Sapphire Reserve', 'Venture', 'Corner Shop Rewards Card'], Date.parse('2026-11-01'));
+  assert.deepEqual(rows.map((r) => r.name), ['Chase Sapphire Reserve', 'Capital One Venture', 'Chase Sapphire Preferred', 'Corner Shop Rewards Card']);
   assert.deepEqual([rows[0].rate, rows[0].back_pct], [4, 4], 'Reserve: 4x on hotels booked direct at a stated 1¢ = 4% back');
   assert.equal(rows[1].value_implied, true);
   assert.deepEqual([rows[2].rate, rows[2].back_pct], [2, null], 'Preferred: no stated value, so no % back');
@@ -363,7 +364,7 @@ test('saving cards needs the person’s confirm; trip-get then carries the compa
   const acct = account();
   const { trip } = await tripOp(acct, 'trip-sample');
   assert.deepEqual((await tripOp(acct, 'trip-get', { id: trip.id })).rewards, []);
-  const m = await tripOp(acct, 'trip-cards-match', { names: ['Sapphire Reserve', 'Discover it'] });
+  const m = await tripOp(acct, 'trip-cards-match', { names: ['Sapphire Reserve', 'Corner Shop Rewards Card'] });
   assert.deepEqual(m.cards.map((c) => c.known), [true, false]);
   assert.deepEqual((await tripOp(acct, 'trip-cards')).cards, [], 'match saves nothing');
   await assert.rejects(tripOp(acct, 'trip-cards-save', { names: ['Sapphire Reserve'] }), /confirm: true/);
