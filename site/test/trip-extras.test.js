@@ -327,3 +327,11 @@ test('a train paid by card is never booked above the amount held, whatever a lat
   const args = { offer_id: 'o1', passenger_ids: ['p1'], passengers: [{ first_name: 'A', last_name: 'B' }], email: 'a@b.co', terms_accepted: true, confirm: true, held: { amount: 48, currency: 'EUR' } };
   await assert.rejects(extraOp(account, 'trip-rail-book', args, { rail, tripOp: async () => ({}) }), /price went up/);
 });
+
+test('weather: each hour of the day from 06:00 (the Today view), its temperature, chance of rain and weather', async () => {
+  const body = { ...meteoBody(), hourly: { time: ['2026-10-29T05:00', '2026-10-29T06:00', '2026-10-29T16:00', '2026-10-29T17:00', '2026-10-30T06:00'], temperature_2m: [10, 11.2, 14.2, null, 9], precipitation_probability: [0, 3, 9, 15, 0], weather_code: [3, 3, 53, 53, 0] } };
+  const [d] = await forecast({ ...LISBON, dates: ['2026-10-29'] }, { fetch: fakeFetch({ body }), now });
+  assert.deepEqual(d.hours, [{ at: '06:00', temp_c: 11.2, rain_chance_pct: 3, summary: summaryOf(3) }, { at: '16:00', temp_c: 14.2, rain_chance_pct: 9, summary: summaryOf(53) }]);
+  const [plain] = await forecast({ ...LISBON, dates: ['2026-10-29'] }, { fetch: fakeFetch({ body: meteoBody() }), now });
+  assert.equal(plain.hours, undefined, 'no hourly answer: no hours, never made up');
+});
