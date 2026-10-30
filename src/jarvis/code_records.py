@@ -70,15 +70,19 @@ def record_path(session_id: str, cwd: Path | str) -> Path | None:
 
 
 def _blocks(entry: dict[str, Any]) -> list[dict[str, Any]]:
-    message = entry.get("message")
-    content = message.get("content") if isinstance(message, dict) else None
+    if entry.get("type") == "attachment":
+        att = entry.get("attachment")
+        content = att.get("prompt") if isinstance(att, dict) else None
+    else:
+        message = entry.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
 
 
 def keys_of(entry: dict[str, Any]) -> list[str]:
     """The entries of the transcript a line of the record has pictures for: the owner's
     message itself (its uuid), and each step whose result is in it (its tool id)."""
-    if entry.get("type") != "user":
+    if entry.get("type") not in ("user", "attachment"):
         return []
     keys = []
     blocks = _blocks(entry)
@@ -244,15 +248,30 @@ def _record_line(raw: bytes) -> dict[str, Any] | None:
     return entry if isinstance(entry.get("uuid"), str) else None
 
 
+def _is_queued_user(entry: dict[str, Any]) -> bool:
+    if entry.get("type") != "attachment":
+        return False
+    att = entry.get("attachment")
+    if not isinstance(att, dict) or att.get("type") != "queued_command":
+        return False
+    prompt = att.get("prompt")
+    if isinstance(prompt, str):
+        s = prompt.strip()
+        return bool(s and not s.startswith("<task-notification>"))
+    return isinstance(prompt, list) and bool(prompt)
+
+
 def _visible(entry: dict[str, Any]) -> bool:
     """A message of the conversation itself (as the SDK's get_session_messages keeps them):
-    no meta note, no subagent's side conversation."""
-    return (
-        entry.get("type") in ("user", "assistant")
-        and not entry.get("isMeta")
-        and not entry.get("isSidechain")
-        and not entry.get("teamName")
-    )
+    no meta note, no subagent's side conversation, no compaction summary placeholder."""
+    if (
+        entry.get("isMeta")
+        or entry.get("isSidechain")
+        or entry.get("teamName")
+        or entry.get("isCompactSummary")
+    ):
+        return False
+    return entry.get("type") in ("user", "assistant") or _is_queued_user(entry)
 
 
 def newest_messages(
@@ -260,7 +279,8 @@ def newest_messages(
 ) -> tuple[list[SessionMessage], bool] | None:
     """A session's newest messages, the end of what get_session_messages would list, read
     from the end of its record back only as far as needed: its conversation followed back
-    (parentUuid) from its newest message until enough(messages) says so, or to its start.
+    (parentUuid or logicalParentUuid) from its newest message until enough(messages) says so,
+    or to its start.
     Says whether it got to the start (the messages are then all of it). None when the
     record can't be read, holds no conversation, or TAIL_MAX of it wasn't enough.
 
@@ -283,13 +303,13 @@ def newest_messages(
             entry, steps = end, set()
             while entry is not None and entry["uuid"] not in steps:
                 steps.add(entry["uuid"])
-                if entry.get("type") in ("user", "assistant"):
+                if entry.get("type") in ("user", "assistant") or _is_queued_user(entry):
                     if _visible(entry) and (
                         best is None or back[entry["uuid"]] < back[best["uuid"]]
                     ):
                         best = entry
                     break
-                parent = entry.get("parentUuid")
+                parent = entry.get("parentUuid") or entry.get("logicalParentUuid")
                 entry = seen.get(parent) if parent else None
         return best  # (one found further back later would be older than any found here)
 
@@ -297,7 +317,7 @@ def newest_messages(
         nonlocal start
         entry = chain[-1] if chain else None
         while entry is not None:
-            parent = entry.get("parentUuid")
+            parent = entry.get("parentUuid") or entry.get("logicalParentUuid")
             if not parent or parent in walked:
                 start = True
                 return
@@ -327,8 +347,9 @@ def newest_messages(
                         seen[uuid], back[uuid] = entry, len(back)
                         if uuid not in parents:
                             ends.append(entry)
-                    if entry.get("parentUuid"):
-                        parents.add(entry["parentUuid"])
+                    parent_id = entry.get("parentUuid") or entry.get("logicalParentUuid")
+                    if parent_id:
+                        parents.add(parent_id)
                 if not chain and (leaf := newest()) is not None:
                     chain.append(leaf)
                     walked.add(leaf["uuid"])
@@ -345,10 +366,14 @@ def newest_messages(
 def _messages(chain: list[dict[str, Any]]) -> list[SessionMessage]:
     return [
         SessionMessage(
-            type="user" if e.get("type") == "user" else "assistant",
+            type="assistant" if e.get("type") == "assistant" else "user",
             uuid=e.get("uuid", ""),
             session_id=e.get("sessionId", ""),
-            message=e.get("message"),
+            message=(
+                {"role": "user", "content": (e.get("attachment") or {}).get("prompt")}
+                if _is_queued_user(e)
+                else e.get("message")
+            ),
         )
         for e in reversed(chain)
         if _visible(e)

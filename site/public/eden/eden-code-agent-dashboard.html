@@ -1578,6 +1578,95 @@
   .approval-actions.resolved-text.ok { color: var(--status-run); }
   .undo-btn.reverted { color: var(--accent); }
 
+  /* ── View 4: Cost-Saver Engine & Side-by-Side Savings Dashboard ── */
+  .engine-mode-banner {
+    border-radius: var(--r-md);
+    background: var(--glass-elevated);
+    border: 1px solid var(--hairline);
+    box-shadow: inset 0 1px 0 var(--rim), var(--sh-card);
+    padding: 12px 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .engine-mode-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .engine-mode-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .engine-mode-desc {
+    font-size: 11.5px;
+    color: var(--text2);
+    font-family: var(--font-mono);
+  }
+  .sbs-comparison-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .sbs-card {
+    border-radius: var(--r-md);
+    background: var(--glass-card);
+    border: 1px solid var(--hairline);
+    box-shadow: inset 0 1px 0 var(--rim), var(--sh-card);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sbs-card.active-mode {
+    border-color: var(--accent);
+    box-shadow: inset 0 1px 0 var(--rim), 0 0 0 1px var(--accent), var(--sh-card);
+  }
+  .sbs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .sbs-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sbs-price {
+    font-family: var(--font-display);
+    font-size: 32px;
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    font-variant-numeric: proportional-nums;
+  }
+  .sbs-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--hairline-subtle);
+    font-size: 11.5px;
+  }
+  .sbs-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sbs-row span:first-child { color: var(--text2); }
+  .sbs-row strong { font-family: var(--font-mono); color: var(--text); }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation: none !important;
@@ -1612,6 +1701,9 @@
         </button>
         <button type="button" class="mockup-tab" role="tab" aria-selected="false" data-view-target="receipts">
           <span class="tab-num">03</span> Receipts, Assumptions &amp; EVES
+        </button>
+        <button type="button" class="mockup-tab" role="tab" aria-selected="false" data-view-target="savings">
+          <span class="tab-num">04</span> Cost-Saver vs. Would-Have-Cost
         </button>
       </div>
 
@@ -1736,6 +1828,14 @@
               <button type="button" class="range-btn" data-range="today">Today</button>
               <button type="button" class="range-btn" data-range="7d">7 Days</button>
               <button type="button" class="range-btn" data-range="30d">30 Days</button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <span class="filter-label">Engine</span>
+            <div class="range-pills" role="group" aria-label="Cost-saving engine mode">
+              <button type="button" class="range-btn active" data-engine-mode="cost-saver" id="engine-btn-saver" title="Explicit + rolling history context caching on Gemini 4 Argon (90% off cached input tokens, 0% quality loss)">Cost-Saver (Default)</button>
+              <button type="button" class="range-btn" data-engine-mode="legacy" id="engine-btn-legacy" title="Revert to legacy uncached full-history requests">Legacy (Uncached)</button>
             </div>
           </div>
 
@@ -2263,6 +2363,194 @@
                 </table>
               </section>
             </div>
+          </div>
+
+          <!-- ========================================================= -->
+          <!-- VIEW 04: SIDE-BY-SIDE SAVINGS VS. WOULD-HAVE-COST         -->
+          <!-- ========================================================= -->
+          <div class="view-panel" id="view-savings">
+            <section class="engine-mode-banner" aria-label="Cost-Saver Engine Version Switcher">
+              <div class="engine-mode-info">
+                <div class="engine-mode-title">
+                  <span class="state-pill eves" id="savings-mode-pill"><span class="state-dot"></span>Active: Cost-Saver Engine (Default)</span>
+                  <span id="savings-mode-heading">Gemini 4 Argon Explicit + Rolling History Caching · 0.0% Quality Loss</span>
+                </div>
+                <div class="engine-mode-desc" id="savings-mode-desc">
+                  Pins systemInstruction, 35 tools, and rolling conversation history in cachedContents ($0.20/M vs $2.00/M input) · Identical Argon 4 weights &amp; KV-cache
+                </div>
+              </div>
+              <div class="approval-actions">
+                <button type="button" class="btn-approve" id="btn-use-cost-saver">Keep Cost-Saver (Default)</button>
+                <button type="button" class="btn-deny" id="btn-revert-legacy">Revert to Legacy Version</button>
+              </div>
+            </section>
+
+            <!-- Hero Figure + 3 Stat Tiles for Savings -->
+            <section class="kpi-grid" aria-label="Side-by-side savings metrics">
+              <div class="glass-card">
+                <div class="stat-label">
+                  <span>Net GCP credits saved</span>
+                  <span class="state-pill run" id="sbs-hero-pct-pill">62.1% saved</span>
+                </div>
+                <div class="hero-figure" id="sbs-hero-saved">$6.85</div>
+                <div class="meter-wrap">
+                  <div class="meter-track" aria-hidden="true">
+                    <div class="meter-fill meter-fill-assumptions" id="sbs-saved-meter"></div>
+                  </div>
+                  <div class="meter-caption">
+                    <span id="sbs-saved-caption">Actual $4.18 vs $11.03 would-have-cost</span>
+                    <span>0.0% quality delta</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="glass-card">
+                <div class="stat-label">
+                  <span>What it would have cost</span>
+                </div>
+                <div class="stat-value" id="sbs-would-have-cost">$11.03</div>
+                <div class="stat-foot">
+                  <span class="delta-badge warn">Uncached baseline</span>
+                  <span id="sbs-uncached-rate">$2.00/M Argon in</span>
+                </div>
+              </div>
+
+              <div class="glass-card">
+                <div class="stat-label">
+                  <span>Actual cost (Cost-Saver)</span>
+                </div>
+                <div class="stat-value" id="sbs-actual-cost">$4.18</div>
+                <div class="stat-foot">
+                  <span class="delta-badge good" id="sbs-cache-hit-rate">86% cached @ $0.20/M</span>
+                  <span id="sbs-cache-saved-tag">$4.12 from cache</span>
+                </div>
+              </div>
+
+              <div class="glass-card">
+                <div class="stat-label">
+                  <span>Code &amp; reasoning quality</span>
+                </div>
+                <div class="stat-value" id="sbs-quality-score">100% Argon 4</div>
+                <div class="stat-foot">
+                  <span class="delta-badge good">Bit-for-bit KV-cache</span>
+                  <span>No Flash downgrade</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- Side-by-Side Comparison Cards: Cost-Saver vs Legacy -->
+            <section class="sbs-comparison-grid" aria-label="Side-by-side comparison of Cost-Saver vs Legacy version">
+              <article class="sbs-card active-mode" id="sbs-card-saver">
+                <div class="sbs-head">
+                  <span class="sbs-title">Cost-Saver Version (Default · Active)</span>
+                  <span class="state-pill eves" id="sbs-badge-saver">Default · Active</span>
+                </div>
+                <div class="sbs-price" id="sbs-card-saver-price">$4.18</div>
+                <div class="sbs-rows">
+                  <div class="sbs-row">
+                    <span>Coding &amp; Reasoning Model</span>
+                    <strong>Gemini 4 Argon (High) · Untouched</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>System + Tools + Rolling History Input</span>
+                    <strong id="sbs-saver-input-cost">$0.20 / 1M tok (90% cache discount)</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>Background Email / Task JSON Triage</span>
+                    <strong>thinkingLevel: low (−68% thought tok)</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>Video (&gt;10m) &amp; Mail Embedding Cache</span>
+                    <strong>100 tok/s + session LRU dedup</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>EVES Outcome &amp; Code Quality</span>
+                    <strong class="dot-run">98.4% pass (0.0% quality loss)</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="sbs-card" id="sbs-card-legacy">
+                <div class="sbs-head">
+                  <span class="sbs-title">Previous Version (Uncached / Legacy)</span>
+                  <span class="state-pill done" id="sbs-badge-legacy">Available via 1-Click Revert</span>
+                </div>
+                <div class="sbs-price" id="sbs-card-legacy-price">$11.03</div>
+                <div class="sbs-rows">
+                  <div class="sbs-row">
+                    <span>Coding &amp; Reasoning Model</span>
+                    <strong>Gemini 4 Argon (High)</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>System + Tools + Rolling History Input</span>
+                    <strong id="sbs-legacy-input-cost">$2.00 / 1M tok (re-billed every turn)</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>Background Email / Task JSON Triage</span>
+                    <strong>Unbounded default thinking (5× rate)</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>Video (&gt;10m) &amp; Mail Embeddings</span>
+                    <strong>300 tok/s up to 45m · Re-embedded</strong>
+                  </div>
+                  <div class="sbs-row">
+                    <span>EVES Outcome &amp; Code Quality</span>
+                    <strong>98.4% pass (identical model weights)</strong>
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <!-- Side-by-Side SVG Chart & Breakdown Table -->
+            <section class="charts-grid" aria-label="Side-by-side cost charts">
+              <figure class="chart-figure" id="sbs-chart-figure">
+                <div class="chart-header">
+                  <div class="chart-title-wrap">
+                    <h2>Cumulative spend: Cost-Saver vs. What It Would Have Cost ($)</h2>
+                    <p class="chart-subtitle">Side-by-side across the active window · Same prompts, same Argon 4 outputs</p>
+                  </div>
+                </div>
+                <div class="chart-legend" role="group" aria-label="Comparison series key">
+                  <span class="legend-item legend-static">
+                    <span class="legend-line-key series-bg-2"></span>
+                    <span>Would Have Cost (Legacy Uncached)</span>
+                  </span>
+                  <span class="legend-item legend-static">
+                    <span class="legend-line-key series-bg-1"></span>
+                    <span>Actual Spend (Cost-Saver Default)</span>
+                  </span>
+                  <span class="legend-item legend-static">
+                    <span class="legend-line-key series-bg-3"></span>
+                    <span>Net Dollars Saved</span>
+                  </span>
+                </div>
+                <div class="svg-plot-wrap">
+                  <svg id="sbs-svg" viewBox="0 0 540 200" role="img" aria-label="Side-by-side line chart comparing Would Have Cost vs Actual Cost-Saver spend"></svg>
+                </div>
+              </figure>
+
+              <figure class="chart-figure" id="sbs-breakdown-figure">
+                <div class="chart-header">
+                  <div class="chart-title-wrap">
+                    <h2>Optimization breakdown by feature (Actual vs. Would-Have-Cost)</h2>
+                    <p class="chart-subtitle">Where every saved dollar comes from across Eden Code &amp; askeden.com</p>
+                  </div>
+                </div>
+                <div class="viz-table-wrap visible">
+                  <table class="viz-table" id="sbs-breakdown-table">
+                    <thead>
+                      <tr>
+                        <th>Optimization Layer</th>
+                        <th>Would Cost</th>
+                        <th>Actual</th>
+                        <th>Saved</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sbs-breakdown-tbody"></tbody>
+                  </table>
+                </div>
+              </figure>
+            </section>
           </div>
         </div>
 

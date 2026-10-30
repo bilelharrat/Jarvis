@@ -140,25 +140,7 @@ class Receipts:
             return False
 
     def task_event(self, kind: str, data: dict[str, Any]) -> None:
-        """hub.add_task_sink: a code turn that changed files ended (and its video proof,
-        when one was recorded)."""
-        entry = data.get("entry") or {}
-        if kind == "task_log" and entry.get("role") == "video":
-            waiter = self.filming.get(data.get("id"))
-            if waiter is not None and not waiter.done():
-                waiter.set_result(entry)
-            return
-        if kind != "task_finished" or data.get("task_kind") != "code" or not data.get("files"):
-            return
-        task = self.hub.tasks.tasks.get(data.get("id"))
-        if task is None:
-            return
-        spawn = getattr(self.hub, "_spawn", None)
-        coro = self.write(task, dict(data), time.time() - 5)
-        if spawn is not None:
-            spawn(coro)
-        else:  # pragma: no cover - every hub has it
-            coro.close()
+        return  # Automatic post-turn proof cards disabled to match Claude Code output format
 
     def verified(self, event: dict[str, Any]) -> None:
         """hub.add_event_sink(cv_verify): the check after a turn is done."""

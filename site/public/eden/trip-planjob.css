@@ -1,0 +1,58 @@
+/* A plan being made (trip-ui.js planProgress): the step and its clock, the first sketch (faint, dashed: not checked),
+   then the draft's days with each place's Google answer ticking in. Only what's new fades in, once; nothing loops;
+   nothing moves under reduced motion (DESIGN.md §7). Loaded by trip-ui.js on first use. */
+.tp-live{margin-top:8px;display:grid;gap:8px}
+.tp-head{display:flex;align-items:baseline;gap:10px;font-size:12.5px;color:var(--text2)}
+.tp-step{flex:1;min-width:0}
+.tp-clock{font-variant-numeric:tabular-nums;color:var(--text3);font-size:11.5px}
+.tp-tag{font-size:10.5px;letter-spacing:.02em;text-transform:uppercase;color:var(--text3);margin-top:2px}
+.tp-sketch{border:1px dashed color-mix(in srgb,var(--text3) 45%,transparent);border-radius:10px;padding:8px 10px;opacity:.72}
+.tp-day{display:grid;gap:2px}
+.tp-dayhead{font-size:12px;font-weight:600;color:var(--text)}
+.tp-daytitle{font-weight:400;color:var(--text3)}
+.tp-stops{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.tp-stop{display:grid;grid-template-columns:16px 40px 1fr;gap:6px;align-items:baseline;font-size:12px;color:var(--text)}
+.tp-stop.sketch{grid-template-columns:40px 1fr;color:var(--text2)}
+.tp-stop.empty{display:block;color:var(--text3)}
+.tp-at{font-variant-numeric:tabular-nums;color:var(--text3)}
+.tp-body{display:grid;min-width:0}
+.tp-name{overflow-wrap:anywhere}
+.tp-said,.tp-change{font-size:11px;color:var(--text3);overflow-wrap:anywhere}
+.tp-change{color:var(--text2)}
+.tp-mark{width:16px;height:16px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;line-height:1;font-weight:700;color:#fff;align-self:start;margin-top:1px}
+.tp-stop.wait .tp-mark{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--text3) 55%,transparent)}
+.tp-stop.ok .tp-mark{background:var(--green,#34c759)}
+.tp-stop.bad .tp-mark{background:var(--warn,#ff9f0a)}
+.tp-stop.fixed .tp-mark{background:var(--accent)}
+.tp-stop.info .tp-mark{background:color-mix(in srgb,var(--text3) 70%,transparent)}
+.tp-stop.gone .tp-mark{background:var(--danger,#ff453a)}
+.tp-stop.gone .tp-name{text-decoration:line-through;color:var(--text3)}
+
+/* entrances: once per item, a stagger within a day; the mark pops once when its answer comes */
+.tp-new{animation:tp-in var(--dur-3,360ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1)) both;animation-delay:calc(var(--i,0) * var(--stagger,35ms))}
+.tp-mark.tp-new{animation:tp-pop var(--dur-2,220ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both;animation-delay:0ms}
+@keyframes tp-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes tp-pop{from{transform:scale(.6);opacity:.3}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.tp-new,.tp-mark.tp-new{animation:none}}
+
+/* The finished plan in the Travel pane (travel-plan.js planPanel): the first thing a new traveller sees. A title, the
+   facts as quiet pairs, the days as the live view drew them, then what Eden checked and changed in a soft inset. */
+.tv-planned{gap:14px}
+.tvp-title{margin:0;font:600 20px/1.25 var(--font-display,inherit);letter-spacing:-.01em;color:var(--text)}
+.tvp-facts{display:flex;flex-wrap:wrap;gap:6px 18px}
+.tvp-fact{display:grid;gap:1px}
+.tvp-k{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--text3)}
+.tvp-v{font-size:13px;color:var(--text)}
+.tvp-days{gap:12px;margin-top:0}
+.tvp-days .tp-dayhead{font-size:13px}
+.tvp-days .tp-stop{font-size:13px;padding:3px 0}
+.tvp-days .tp-said,.tvp-days .tp-change{font-size:11.5px}
+.tvp-checked{display:grid;gap:6px;padding:12px 14px;border-radius:14px;background:color-mix(in srgb,var(--text3) 7%,transparent)}
+.tvp-checked .tc-notice{font-size:12.5px;color:var(--text)}
+.tvp-checked .tc-why{font-size:12px;color:var(--text2);line-height:1.45;margin:0}
+.tvp-checked .tc-list{font-size:12px;color:var(--text2);margin:0;padding-left:16px;display:grid;gap:4px;line-height:1.45}
+.tvp-checked .tc-raw summary{cursor:pointer;font-size:12px;color:var(--text2)}
+.tvp-checked .tc-raw a{color:var(--accent)}
+/* the chat card's finished plan: the days, compact */
+.toolcard .tp-live{margin:8px 0 4px}
+.tp-stop.plain .tp-mark{background:none}

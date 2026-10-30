@@ -12,8 +12,25 @@
 <script type="module" src="/s/share-view.js"></script>
 </head>
 <body class="shr-page">
-<main id="shr" aria-live="polite"><p class="shr-note">Opening the shared chat…</p></main>
-<footer class="shr-foot">A read-only copy someone shared from <a href="/" rel="noopener">Eden</a>. It was encrypted in their browser; the key is in this link after the #, so the server can’t read it. Links in it say where they go; pictures aren’t loaded. <a id="shrReport" href="mailto:support@askeden.com?subject=Report%20a%20shared%20Eden%20chat">Report this chat</a></footer>
+<!-- Inline SVG sprite for code block copy, lock, and link icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 017.5 4H16"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 018 0v3"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M10 6H6.5A2.5 2.5 0 004 8.5v9A2.5 2.5 0 006.5 20h9a2.5 2.5 0 002.5-2.5V14"/></symbol>
+</svg>
+<div class="shr-shell">
+  <header class="shr-topbar glass">
+    <a class="shr-brand" href="/" rel="noopener">
+      <span class="orb" aria-hidden="true"></span>
+      <span class="shr-brand-name">Eden</span>
+    </a>
+    <span class="shr-pill"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span>Read-only snapshot</span></span>
+    <span class="shr-tb-sp"></span>
+    <a class="shr-open-btn" href="/" rel="noopener"><span>Open Eden</span><svg class="ic" aria-hidden="true"><use href="#i-ext"/></svg></a>
+  </header>
+  <main id="shr" aria-live="polite"><p class="shr-note">Opening the shared chat…</p></main>
+  <footer class="shr-foot">A read-only copy someone shared from <a href="/" rel="noopener">Eden</a>. It was encrypted in their browser; the key is in this link after the #, so the server can’t read it. Links in it say where they go; pictures aren’t loaded. <a id="shrReport" href="mailto:support@askeden.com?subject=Report%20a%20shared%20Eden%20chat">Report this chat</a></footer>
+</div>
 <div id="toast" class="shr-toast" role="status" aria-live="polite"></div>
 <noscript><p class="shr-note">This shared chat is end-to-end encrypted: your browser opens it with the key in the link, which needs JavaScript.</p></noscript>
 </body>

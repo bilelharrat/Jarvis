@@ -8,17 +8,24 @@ from pathlib import Path
 
 from claude_agent_sdk.types import SessionMessage
 
+import pytest
 from jarvis import tasks
 from jarvis.tasks import (
     AGENT_TOOLS,
     EDIT_TOOLS,
-    TRANSCRIPT_KEEP,
     _history_blocks,
     _history_said,
     approval_detail,
     describe_tool,
     image_count,
 )
+
+TRANSCRIPT_KEEP = 400
+
+
+@pytest.fixture(autouse=True)
+def _fast_keep(monkeypatch):
+    monkeypatch.setattr(tasks, "TRANSCRIPT_KEEP", TRANSCRIPT_KEEP)
 
 CWD = Path("/Users/someone/Projects/app")
 

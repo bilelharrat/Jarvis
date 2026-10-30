@@ -112,6 +112,50 @@
   let sessionCap = 20;
   let isolatedSeries = null;
   let useTexture = false;
+  let costSaverMode = true;
+
+  const SAVINGS_BASE = {
+    session: {
+      wouldHaveCost: 11.03,
+      actualCost: 4.18,
+      cacheSaved: 4.12,
+      routingSaved: 2.09,
+      thinkingSaved: 0.42,
+      mediaEmbedSaved: 0.22,
+      wouldCurve: [1.85, 3.60, 5.45, 7.20, 9.15, 11.03],
+      actualCurve: [0.95, 1.55, 2.20, 2.85, 3.52, 4.18]
+    },
+    today: {
+      wouldHaveCost: 39.20,
+      actualCost: 14.80,
+      cacheSaved: 14.60,
+      routingSaved: 7.40,
+      thinkingSaved: 1.55,
+      mediaEmbedSaved: 0.85,
+      wouldCurve: [6.20, 12.80, 19.40, 25.90, 32.50, 39.20],
+      actualCurve: [2.80, 5.10, 7.60, 10.05, 12.40, 14.80]
+    },
+    "7d": {
+      wouldHaveCost: 181.50,
+      actualCost: 68.40,
+      cacheSaved: 67.80,
+      routingSaved: 34.20,
+      thinkingSaved: 7.10,
+      mediaEmbedSaved: 4.00,
+      wouldCurve: [28.0, 58.5, 89.0, 119.5, 150.0, 181.5],
+      actualCurve: [11.2, 22.8, 34.1, 45.6, 57.0, 68.4]
+    },
+    "30d": {
+      wouldHaveCost: 642.80,
+      actualCost: 241.90,
+      cacheSaved: 240.10,
+      routingSaved: 121.40,
+      thinkingSaved: 25.20,
+      mediaEmbedSaved: 14.20,
+      wouldCurve: [98.0, 204.0, 312.0, 422.0, 531.0, 642.8],
+      actualCurve: [39.0, 79.5, 120.2, 161.0, 201.4, 241.9]
+    }
+  };
 
   const WORKSPACE_SCALE = {
     all: 1.0,
@@ -271,7 +315,10 @@
   function getActiveSlice() {
     const base = SLICES[currentRange];
     const scale = WORKSPACE_SCALE[currentWorkspace] || 1.0;
-    const rawSpend = parseFloat(base.spend.replace("$", "")) * scale;
+    const sbsBase = SAVINGS_BASE[currentRange] || SAVINGS_BASE.session;
+    const rawSaverSpend = parseFloat(base.spend.replace("$", "")) * scale;
+    const rawLegacySpend = sbsBase.wouldHaveCost * scale;
+    const rawSpend = costSaverMode ? rawSaverSpend : rawLegacySpend;
     const spendStr = "$" + rawSpend.toFixed(2);
     const capVal = currentRange === "session" ? sessionCap : (currentRange === "today" ? 50 : (currentRange === "7d" ? 150 : 500));
     const capLabel = currentRange === "session" ? "session cap" : (currentRange === "today" ? "daily cap" : (currentRange === "7d" ? "weekly cap" : "monthly cap"));
@@ -282,8 +329,9 @@
     Object.keys(base.series).forEach(k => {
       series[k] = base.series[k].map(v => Math.max(1, Math.round(v * scale)));
     });
+    const legacyFactor = costSaverMode ? 1.0 : (rawLegacySpend / Math.max(0.01, rawSaverSpend));
     const bars = base.bars.map(b => {
-      const cVal = parseFloat(b.cost.replace("$", "")) * scale;
+      const cVal = parseFloat(b.cost.replace("$", "")) * scale * legacyFactor;
       return {
         role: b.role,
         argon: Math.max(1, Math.round(b.argon * scale)),
@@ -301,7 +349,19 @@
       tokens: tokensStr,
       assumptions: String(Math.max(1, Math.round(parseInt(base.assumptions.replace(/,/g, ""), 10) * scale))),
       series,
-      bars
+      bars,
+      sbs: {
+        wouldHaveCost: rawLegacySpend,
+        actualSaverCost: rawSaverSpend,
+        activeCost: rawSpend,
+        savedTotal: Math.max(0, rawLegacySpend - rawSaverSpend),
+        cacheSaved: sbsBase.cacheSaved * scale,
+        routingSaved: sbsBase.routingSaved * scale,
+        thinkingSaved: sbsBase.thinkingSaved * scale,
+        mediaEmbedSaved: sbsBase.mediaEmbedSaved * scale,
+        wouldCurve: sbsBase.wouldCurve.map(v => Number((v * scale).toFixed(2))),
+        actualCurve: sbsBase.actualCurve.map(v => Number((v * scale).toFixed(2)))
+      }
     };
   }
 
@@ -677,6 +737,265 @@
     });
   }
 
+  function renderSavingsView() {
+    const slice = getActiveSlice();
+    const sbs = slice.sbs;
+    if (!sbs) return;
+
+    const pct = sbs.wouldHaveCost > 0 ? ((sbs.savedTotal / sbs.wouldHaveCost) * 100).toFixed(1) : "0.0";
+    const setTxt = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+
+    setTxt("sbs-hero-saved", costSaverMode ? `$${sbs.savedTotal.toFixed(2)}` : `$0.00 (Legacy On)`);
+    setTxt("sbs-hero-pct-pill", costSaverMode ? `${pct}% saved` : `0% saved · Legacy Mode`);
+    setTxt("sbs-saved-caption", `Cost-Saver $${sbs.actualSaverCost.toFixed(2)} vs $${sbs.wouldHaveCost.toFixed(2)} would-have-cost`);
+    setTxt("sbs-would-have-cost", `$${sbs.wouldHaveCost.toFixed(2)}`);
+    setTxt("sbs-actual-cost", `$${sbs.actualSaverCost.toFixed(2)}`);
+    setTxt("sbs-cache-saved-tag", `$${sbs.cacheSaved.toFixed(2)} from cache`);
+    setTxt("sbs-card-saver-price", `$${sbs.actualSaverCost.toFixed(2)}`);
+    setTxt("sbs-card-legacy-price", `$${sbs.wouldHaveCost.toFixed(2)}`);
+
+    const meter = document.getElementById("sbs-saved-meter");
+    if (meter) meter.style.width = (costSaverMode ? Math.min(100, parseFloat(pct)) : 0) + "%";
+
+    const cardSaver = document.getElementById("sbs-card-saver");
+    const cardLegacy = document.getElementById("sbs-card-legacy");
+    const badgeSaver = document.getElementById("sbs-badge-saver");
+    const badgeLegacy = document.getElementById("sbs-badge-legacy");
+    const modePill = document.getElementById("savings-mode-pill");
+    const modeHeading = document.getElementById("savings-mode-heading");
+
+    if (cardSaver) cardSaver.classList.toggle("active-mode", costSaverMode);
+    if (cardLegacy) cardLegacy.classList.toggle("active-mode", !costSaverMode);
+    if (badgeSaver) {
+      badgeSaver.className = costSaverMode ? "state-pill eves" : "state-pill done";
+      badgeSaver.textContent = costSaverMode ? "Default · Active" : "Standby (Click to Restore)";
+    }
+    if (badgeLegacy) {
+      badgeLegacy.className = !costSaverMode ? "state-pill warn" : "state-pill done";
+      badgeLegacy.textContent = !costSaverMode ? "Active · Legacy Uncached" : "Available via 1-Click Revert";
+    }
+    if (modePill) {
+      modePill.className = costSaverMode ? "state-pill eves" : "state-pill warn";
+      modePill.innerHTML = `<span class="state-dot"></span>${costSaverMode ? "Active: Cost-Saver Engine (Default)" : "Active: Legacy Uncached Engine"}`;
+    }
+    if (modeHeading) {
+      modeHeading.textContent = costSaverMode
+        ? "Gemini 4 Argon Explicit + Rolling History Caching · 0.0% Quality Loss"
+        : "Legacy Uncached Mode · Re-billing full prompt & history every turn ($2.00/M)";
+    }
+
+    const tbody = document.getElementById("sbs-breakdown-tbody");
+    if (tbody) {
+      while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+      const rows = [
+        {
+          layer: "1. Explicit + Rolling History & Image Cache (Gemini / Claude / OpenAI / Kimi)",
+          would: sbs.actualSaverCost + sbs.cacheSaved,
+          actual: sbs.actualSaverCost,
+          saved: sbs.cacheSaved
+        },
+        {
+          layer: "2. Stable Provenance & Memory Boundaries + Dynamic Tail Split",
+          would: sbs.cacheSaved * 0.42,
+          actual: sbs.cacheSaved * 0.04,
+          saved: sbs.cacheSaved * 0.38
+        },
+        {
+          layer: "3. Model Router vs. All-Opus Baseline",
+          would: sbs.actualSaverCost + sbs.routingSaved,
+          actual: sbs.actualSaverCost,
+          saved: sbs.routingSaved
+        },
+        {
+          layer: "4. Flash 3.8 JSON thinkingLevel: low + Memory Pre-Filter",
+          would: sbs.thinkingSaved * 1.45,
+          actual: sbs.thinkingSaved * 0.45,
+          saved: sbs.thinkingSaved
+        },
+        {
+          layer: "5. Video (>10m low-res) + Session Embed Dedup",
+          would: sbs.mediaEmbedSaved * 1.5,
+          actual: sbs.mediaEmbedSaved * 0.5,
+          saved: sbs.mediaEmbedSaved
+        },
+        {
+          layer: "Total (Cost-Saver vs. Would-Have-Cost)",
+          would: sbs.wouldHaveCost,
+          actual: sbs.actualSaverCost,
+          saved: sbs.savedTotal,
+          bold: true
+        }
+      ];
+      rows.forEach(r => {
+        const tr = document.createElement("tr");
+        [
+          r.layer,
+          `$${r.would.toFixed(2)}`,
+          `$${r.actual.toFixed(2)}`,
+          `−$${r.saved.toFixed(2)}`
+        ].forEach((val, idx) => {
+          const td = document.createElement("td");
+          if (r.bold) {
+            const st = document.createElement("strong");
+            st.textContent = val;
+            if (idx === 3) st.style.color = "var(--status-run)";
+            td.appendChild(st);
+          } else {
+            td.textContent = val;
+            if (idx === 3) td.style.color = "var(--status-run)";
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    const svg = document.getElementById("sbs-svg");
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    const W = 540, H = 200;
+    const padL = 46, padR = 68, padT = 14, padB = 26;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const maxVal = Math.ceil(Math.max(...sbs.wouldCurve) * 1.15);
+
+    [0, Math.round(maxVal / 2), maxVal].forEach(t => {
+      const y = padT + plotH - (t / maxVal) * plotH;
+      const line = document.createElementNS(svgNS, "line");
+      line.setAttribute("x1", padL);
+      line.setAttribute("x2", padL + plotW);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("stroke", t === 0 ? "var(--axis-line)" : "var(--grid-line)");
+      line.setAttribute("stroke-width", "1");
+      svg.appendChild(line);
+
+      const lbl = document.createElementNS(svgNS, "text");
+      lbl.setAttribute("x", padL - 8);
+      lbl.setAttribute("y", y + 4);
+      lbl.setAttribute("text-anchor", "end");
+      lbl.setAttribute("fill", "var(--text3)");
+      lbl.setAttribute("font-size", "10.5");
+      lbl.setAttribute("font-family", "var(--font-mono)");
+      lbl.textContent = `$${t}`;
+      svg.appendChild(lbl);
+    });
+
+    const n = slice.intervals.length;
+    slice.intervals.forEach((label, i) => {
+      const x = padL + (i / (n - 1)) * plotW;
+      const txt = document.createElementNS(svgNS, "text");
+      txt.setAttribute("x", x);
+      txt.setAttribute("y", H - 6);
+      txt.setAttribute("text-anchor", "middle");
+      txt.setAttribute("fill", "var(--text2)");
+      txt.setAttribute("font-size", "10.5");
+      txt.setAttribute("font-family", "var(--font-mono)");
+      txt.textContent = label;
+      svg.appendChild(txt);
+    });
+
+    const wouldPts = sbs.wouldCurve.map((v, i) => ({
+      x: padL + (i / (n - 1)) * plotW,
+      y: padT + plotH - (v / maxVal) * plotH,
+      v
+    }));
+    const actualPts = sbs.actualCurve.map((v, i) => ({
+      x: padL + (i / (n - 1)) * plotW,
+      y: padT + plotH - (v / maxVal) * plotH,
+      v
+    }));
+
+    const area = document.createElementNS(svgNS, "path");
+    const dArea = [
+      `M ${wouldPts[0].x} ${wouldPts[0].y}`,
+      ...wouldPts.slice(1).map(p => `L ${p.x} ${p.y}`),
+      ...[...actualPts].reverse().map(p => `L ${p.x} ${p.y}`),
+      "Z"
+    ].join(" ");
+    area.setAttribute("d", dArea);
+    area.setAttribute("fill", "var(--series-3)");
+    area.setAttribute("opacity", "0.16");
+    svg.appendChild(area);
+
+    const drawSeries = (pts, colorVar, dashed = false) => {
+      const path = document.createElementNS(svgNS, "path");
+      path.setAttribute("d", pts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" "));
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", colorVar);
+      path.setAttribute("stroke-width", "2.2");
+      if (dashed) path.setAttribute("stroke-dasharray", "5,4");
+      svg.appendChild(path);
+
+      pts.forEach(p => {
+        const dot = document.createElementNS(svgNS, "circle");
+        dot.setAttribute("cx", p.x);
+        dot.setAttribute("cy", p.y);
+        dot.setAttribute("r", "4");
+        dot.setAttribute("fill", colorVar);
+        dot.setAttribute("stroke", "var(--surface-chart)");
+        dot.setAttribute("stroke-width", "1.8");
+        svg.appendChild(dot);
+      });
+
+      const last = pts[pts.length - 1];
+      const lbl = document.createElementNS(svgNS, "text");
+      lbl.setAttribute("x", last.x + 8);
+      lbl.setAttribute("y", last.y + 4);
+      lbl.setAttribute("fill", "var(--text)");
+      lbl.setAttribute("font-size", "10.5");
+      lbl.setAttribute("font-weight", "600");
+      lbl.textContent = `$${last.v.toFixed(2)}`;
+      svg.appendChild(lbl);
+    };
+
+    drawSeries(wouldPts, "var(--series-2)", true);
+    drawSeries(actualPts, "var(--series-1)", false);
+  }
+
+  function setCostSaverEngine(enabled) {
+    costSaverMode = Boolean(enabled);
+    document.querySelectorAll("[data-engine-mode]").forEach(btn => {
+      const isSaver = btn.getAttribute("data-engine-mode") === "cost-saver";
+      btn.classList.toggle("active", isSaver === costSaverMode);
+    });
+    fetch("/api/chat/spend", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-jarvis-chat": "1" },
+      body: JSON.stringify({ costSaver: costSaverMode })
+    }).catch(() => {});
+    updateDashboardSlice(currentRange);
+    showToast(
+      costSaverMode
+        ? "Cost-Saver Engine active (default) · 90% off cached Argon 4 input, 0% quality loss"
+        : "Reverted to Legacy Uncached Engine · full prompt & history billed every turn"
+    );
+  }
+
+  document.querySelectorAll("[data-engine-mode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      setCostSaverEngine(btn.getAttribute("data-engine-mode") === "cost-saver");
+    });
+  });
+
+  const btnUseCostSaver = document.getElementById("btn-use-cost-saver");
+  if (btnUseCostSaver) {
+    btnUseCostSaver.addEventListener("click", () => setCostSaverEngine(true));
+  }
+  const btnRevertLegacy = document.getElementById("btn-revert-legacy");
+  if (btnRevertLegacy) {
+    btnRevertLegacy.addEventListener("click", () => setCostSaverEngine(false));
+  }
+  const sbsCardSaver = document.getElementById("sbs-card-saver");
+  if (sbsCardSaver) {
+    sbsCardSaver.addEventListener("click", () => setCostSaverEngine(true));
+  }
+  const sbsCardLegacy = document.getElementById("sbs-card-legacy");
+  if (sbsCardLegacy) {
+    sbsCardLegacy.addEventListener("click", () => setCostSaverEngine(false));
+  }
+
   let toastTimer = null;
   function showToast(msg) {
     const toast = document.getElementById("dash-toast");
@@ -706,6 +1025,7 @@
       document.getElementById("kpi-assumptions").textContent = s.assumptions;
       renderLineChart();
       renderBarChart();
+      renderSavingsView();
       if (scroll) scroll.classList.remove("refetching");
     }, 70);
   }
@@ -1068,6 +1388,9 @@
     { group: "Views", label: "01 · Fleet & Telemetry Overview", meta: "View 01", run: () => switchView("fleet") },
     { group: "Views", label: "02 · Parallel Agent Grid (6 Worktrees)", meta: "View 02", run: () => switchView("grid") },
     { group: "Views", label: "03 · Turn Receipts, Assumptions & EVES Ledger", meta: "View 03", run: () => switchView("receipts") },
+    { group: "Views", label: "04 · Cost-Saver vs. Would-Have-Cost Side-by-Side", meta: "View 04", run: () => switchView("savings") },
+    { group: "Engine", label: "Use Cost-Saver Engine (Default · 0% Quality Loss)", meta: "Default", run: () => setCostSaverEngine(true) },
+    { group: "Engine", label: "Revert to Previous Legacy Uncached Engine", meta: "Legacy", run: () => setCostSaverEngine(false) },
     { group: "Agent Fleet", label: "Focus @coord · Coordinator · Engine Split", meta: "Argon 4", run: () => selectAgent("coord", true) },
     { group: "Agent Fleet", label: "Focus @sec · IPC & Preload Audit", meta: "Opus 5.5", run: () => selectAgent("sec", true) },
     { group: "Agent Fleet", label: "Focus @ios · iOS App Store 1.2 Prep", meta: "Sonnet 5.5", run: () => selectAgent("ios", true) },
@@ -1423,4 +1746,5 @@
 
   renderLineChart();
   renderBarChart();
+  renderSavingsView();
 })();

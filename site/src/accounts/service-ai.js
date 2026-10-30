@@ -28,10 +28,40 @@ export const FALLBACKS = [
 export const SKIP_SIGNATURE = 'skip_thought_signature_validator';
 
 const off = (env, name) => /^(off|0|false|no)$/i.test(String(env[name] ?? '').trim());
+const QUOTA_RE = /usage limit|rate_limit|rate limit|credit balance|out of credit|quota|exceeded|billing|regain access/i;
+
+export function parseAnthropicKeys(env = {}) {
+  const seen = new Set(['']);
+  const out = [];
+  for (const raw of [env.ANTHROPIC_API_KEY, env.ANTHROPIC_FALLBACK_KEYS]) {
+    for (const part of String(raw || '').split(',')) {
+      const k = part.trim();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        out.push(k);
+      }
+    }
+  }
+  return out;
+}
+
+export function anthropicHeadersFor(rawKey, extra = {}) {
+  const s = String(rawKey || '').trim();
+  const idx = s.indexOf('#');
+  const apiKey = idx > 0 && s.startsWith('sk-ant-') ? s.slice(0, idx).trim() : s;
+  const workspaceId = idx > 0 && s.startsWith('sk-ant-') ? s.slice(idx + 1).trim() : '';
+  return {
+    'content-type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    ...(workspaceId ? { 'anthropic-workspace-id': workspaceId } : {}),
+    ...extra,
+  };
+}
 
 /** The stand-in for Claude when there's no service Anthropic key; null when there's one, or nothing. */
 export function serviceFallback(env = {}) {
-  if (String(env.ANTHROPIC_API_KEY || '').trim()) return null;
+  if (parseAnthropicKeys(env).length) return null;
   for (const f of FALLBACKS) {
     const key = String(env[f.keyVar] || '').trim();
     if (key && !off(env, f.switchVar)) return { provider: f.provider, model: f.model, key };
@@ -40,20 +70,46 @@ export function serviceFallback(env = {}) {
 }
 
 /** Whether the service has any AI key for these features. */
-export const serviceAiReady = (env = {}) => Boolean(String(env.ANTHROPIC_API_KEY || '').trim()) || Boolean(serviceFallback(env));
+export const serviceAiReady = (env = {}) => parseAnthropicKeys(env).length > 0 || Boolean(serviceFallback(env));
 
 /**
- * One Anthropic Messages call on the service's key: Anthropic itself, or the stand-in. A Response
+ * One Anthropic Messages call on the service's key: Anthropic itself (with automatic failover
+ * across comma-separated/fallback keys on quota exhaustion), or the stand-in. A Response
  * in Anthropic's shape either way; throws where fetch would (couldn't reach it); null with no key.
  */
 export async function serviceFetch(env, payload, { signal, fetch: f = (u, i) => fetch(u, i), url = ANTHROPIC_MESSAGES } = {}) {
-  if (String(env.ANTHROPIC_API_KEY || '').trim()) {
-    return f(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify(payload),
-      signal,
-    });
+  const geminiKey = String(env.GEMINI_API_KEY || '').trim();
+  const wantedModel = String(payload?.model || '');
+  if (wantedModel.startsWith('gemini-') && geminiKey && !off(env, 'EDEN_GEMINI')) {
+    const { status, message, error } = await fallbackMessages({ provider: 'gemini', model: wantedModel, key: geminiKey }, payload, { signal, fetch: f });
+    if (error) return new Response(JSON.stringify({ type: 'error', error }), { status, headers: { 'content-type': 'application/json' } });
+    if (payload.stream) return new Response(sseOf(message), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    return new Response(JSON.stringify(message), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  const antKeys = parseAnthropicKeys(env);
+  if (antKeys.length) {
+    let lastRes = null;
+    for (let i = 0; i < antKeys.length; i++) {
+      const res = await f(url, {
+        method: 'POST',
+        headers: anthropicHeadersFor(antKeys[i]),
+        body: JSON.stringify(payload),
+        signal,
+      });
+      if (res.ok) return res;
+      lastRes = res;
+      if (i + 1 < antKeys.length) {
+        const shouldRetry =
+          res.status === 402 ||
+          res.status === 429 ||
+          res.status === 529 ||
+          ((res.status === 400 || res.status === 401 || res.status === 403) &&
+            QUOTA_RE.test(await res.clone().text().catch(() => '')));
+        if (shouldRetry) continue;
+      }
+      return res;
+    }
+    if (lastRes) return lastRes;
   }
   const fb = serviceFallback(env);
   if (!fb) return null;
@@ -66,7 +122,12 @@ export async function serviceFetch(env, payload, { signal, fetch: f = (u, i) => 
 /** An Anthropic message as the events a streamed answer would have sent. */
 export function sseOf(message) {
   const ev = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
-  const out = [ev('message_start', { message: { ...message, content: [], stop_reason: null, usage: { input_tokens: message.usage.input_tokens, output_tokens: 0 } } })];
+  const startUsage = {
+    input_tokens: message.usage.input_tokens,
+    output_tokens: 0,
+    ...(message.usage.cache_read_input_tokens ? { cache_read_input_tokens: message.usage.cache_read_input_tokens } : {}),
+  };
+  const out = [ev('message_start', { message: { ...message, content: [], stop_reason: null, usage: startUsage } })];
   message.content.forEach((block, index) => {
     if (block.type === 'text') {
       out.push(ev('content_block_start', { index, content_block: { type: 'text', text: '' } }));
@@ -121,6 +182,8 @@ function toGemini(payload) {
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (typeof payload.temperature === 'number') body.generationConfig.temperature = payload.temperature;
   if (Array.isArray(payload.stop_sequences) && payload.stop_sequences.length) body.generationConfig.stopSequences = payload.stop_sequences.slice(0, 5);
+  const effort = payload.output_config && typeof payload.output_config.effort === 'string' ? payload.output_config.effort.toLowerCase() : '';
+  if (effort === 'low' || effort === 'medium') body.generationConfig.thinkingConfig = { thinkingLevel: effort };
   const schema = schemaOf(payload);
   if (schema) Object.assign(body.generationConfig, { responseMimeType: 'application/json', responseJsonSchema: schema });
   const tools = customTools(payload.tools);
@@ -145,7 +208,7 @@ function fromGemini(body, model) {
   const u = body.usageMetadata || {};
   const reason = cand.finishReason || (body.promptFeedback && body.promptFeedback.blockReason ? 'SAFETY' : 'STOP');
   const stop = content.some((b) => b.type === 'tool_use') ? 'tool_use' : reason === 'MAX_TOKENS' ? 'max_tokens' : /SAFETY|PROHIBITED|BLOCKLIST|SPII|RECITATION|OTHER/.test(reason) && !content.length ? 'refusal' : 'end_turn';
-  return message(model, content, stop, u.promptTokenCount, (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0));
+  return message(model, content, stop, u.promptTokenCount, (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), u.cachedContentTokenCount || 0);
 }
 
 function toOpenAi(payload, model) {
@@ -210,7 +273,7 @@ function fromOpenAi(body, model) {
 }
 
 const toolId = () => `toolu_${crypto.randomUUID().replace(/-/g, '')}`;
-const message = (model, content, stop, input, output) => ({
+const message = (model, content, stop, input, output, cacheRead = 0) => ({
   id: `msg_${crypto.randomUUID().replace(/-/g, '')}`,
   type: 'message',
   role: 'assistant',
@@ -218,7 +281,11 @@ const message = (model, content, stop, input, output) => ({
   content,
   stop_reason: stop,
   stop_sequence: null,
-  usage: { input_tokens: Number(input) || 0, output_tokens: Number(output) || 0 },
+  usage: {
+    input_tokens: Math.max(0, (Number(input) || 0) - (Number(cacheRead) || 0)),
+    output_tokens: Number(output) || 0,
+    ...(Number(cacheRead) > 0 ? { cache_read_input_tokens: Number(cacheRead) } : {}),
+  },
 });
 
 /** The stand-in's answer: { status, message } or { status, error: { type, message } }. Throws where fetch would. */

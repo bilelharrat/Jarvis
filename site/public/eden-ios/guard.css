@@ -1,0 +1,83 @@
+/* Protection against hidden instructions (guard.js): the source strip on a reply that read content
+   from outside, the "possible hidden instructions" badge, the approval card for a held action,
+   held images and visible link destinations. Atelier tokens (app.css). */
+
+/* source strip */
+.g-strip{margin:0 0 10px;border-radius:12px;background:rgba(120,120,128,.07);box-shadow:inset 0 0 0 .5px var(--hairline);font-size:12px;color:var(--text2)}
+.g-strip.flagged{background:rgba(255,159,10,.08);box-shadow:inset 0 0 0 .5px rgba(255,159,10,.32)}
+.g-strip summary{display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px;padding:6px 10px;cursor:pointer;list-style:none;min-height:28px;border-radius:12px}
+.g-strip summary::-webkit-details-marker{display:none}
+.g-strip summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.g-strip summary .ic{flex:none;color:var(--text3)}
+.g-strip.flagged summary>.ic:first-child{color:var(--warn)}
+.g-strip-t{flex:1 1 180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-chev{transition:transform .2s var(--spring)}
+.g-strip[open] .g-chev{transform:rotate(90deg)}
+.g-strip-body{padding:0 12px 10px}
+.g-note{margin:2px 0 8px;color:var(--text3);font-size:11.5px;line-height:1.45}
+.g-srcs,.g-flags{list-style:none;margin:0;padding:0}
+.g-src{padding:7px 0;border-top:.5px solid var(--sep)}
+.g-src-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.g-kind{font-weight:600;color:var(--text)}
+.g-title{color:var(--text2);overflow-wrap:anywhere}
+.g-origin,.g-hidden{font-size:11px;color:var(--text3);margin-top:2px;overflow-wrap:anywhere}
+.g-flags{margin-top:4px}
+.g-flags li{font-size:11.5px;margin-top:3px;line-height:1.4}
+.g-flags b{font-weight:600;color:var(--text)}
+.g-flags q{display:block;color:var(--text3);font-family:var(--mono);font-size:11px;overflow-wrap:anywhere;quotes:"“" "”"}
+
+/* the badge */
+.g-badge{display:inline-flex;align-items:center;gap:4px;flex:none;font-size:10.5px;font-weight:600;letter-spacing:.01em;color:#b25e00;background:rgba(255,159,10,.16);border-radius:8px;padding:1px 7px;white-space:nowrap}
+[data-theme="dark"] .g-badge{color:#ffcc80;background:rgba(255,159,10,.2)}
+.g-badge .ic{width:11px;height:11px}
+
+/* approval card */
+.g-card{border-radius:var(--r-md);padding:12px 14px;margin:10px 0;font-size:13px;color:var(--text)}
+.g-card.warned{box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 1px rgba(255,159,10,.45),var(--sh1)}
+.g-head{display:flex;gap:10px;align-items:flex-start}
+.g-shield{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex:none;border-radius:9px;background:rgba(255,159,10,.14);color:var(--warn)}
+.g-head-t{display:flex;flex-direction:column;gap:1px;min-width:0}
+.g-head-t b{font-size:13.5px;font-weight:600}
+.g-head-t span{color:var(--text2);font-size:12.5px;overflow-wrap:anywhere}
+.g-reason{margin:8px 0 0;color:var(--text2);font-size:12px;line-height:1.45}
+.g-details{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:10px 0 0;padding:9px 11px;border-radius:10px;background:rgba(120,120,128,.08);font-size:12.5px}
+.g-details dt{color:var(--text3);font-weight:500}
+.g-details dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:9.5em;overflow:auto}
+.g-warns{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
+.g-warns li{display:flex;gap:7px;align-items:flex-start;font-size:12px;line-height:1.4;padding:7px 10px;border-radius:9px;background:rgba(255,159,10,.12);box-shadow:inset 0 0 0 .5px rgba(255,159,10,.35)}
+.g-warns .ic{flex:none;margin-top:2px;color:var(--warn)}
+.g-warns span{min-width:0;overflow-wrap:anywhere}
+.g-warns code{font-family:var(--mono);font-size:11.5px;font-weight:600}
+.g-after{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;color:var(--text3)}
+.g-after-s{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:2px 8px;border-radius:8px;background:rgba(120,120,128,.1);color:var(--text2);overflow-wrap:anywhere}
+.g-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}
+.g-acts .btn{min-height:32px}
+.g-acts .btn.g-risky{background:rgba(255,159,10,.18);color:#9a4f00;box-shadow:inset 0 0 0 .5px rgba(255,159,10,.5)}
+[data-theme="dark"] .g-acts .btn.g-risky{color:#ffcc80}
+.g-acts .btn.g-risky:hover{background:rgba(255,159,10,.26)}
+.g-foot{margin-top:6px;text-align:right;font-size:11px;color:var(--text3)}
+.g-card.answered{padding:9px 14px;opacity:.85}
+.g-card.answered.warned{box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh1)}
+.g-card.answered .g-head-t span{font-size:12px}
+.g-state{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text2)}
+.g-state.done,.g-state.approved{color:var(--run)}
+.g-state.denied,.g-state.expired{color:var(--text3)}
+.g-state.failed{color:var(--danger)}
+
+/* held images and link destinations in a reply that read untrusted content (markdown.js) */
+.g-img{display:inline-flex;align-items:center;gap:7px;max-width:100%;margin:2px 0;padding:5px 10px;border-radius:10px;font:inherit;font-size:12.5px;color:var(--text);background:rgba(120,120,128,.1);box-shadow:inset 0 0 0 .5px var(--hairline);cursor:pointer;text-align:left;vertical-align:middle}
+.g-img:hover{background:rgba(120,120,128,.16)}
+.g-img:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.g-img .ic{flex:none;color:var(--text3)}
+.g-img-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.g-img-h{flex:none;color:var(--text3);font-size:11.5px}
+.g-img-open{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin:4px 0 6px;padding:8px 10px;border-radius:10px;font-size:12px;color:var(--text2);background:rgba(255,159,10,.08);box-shadow:inset 0 0 0 .5px rgba(255,159,10,.3)}
+.g-img-open code{font-family:var(--mono);font-size:11px;overflow-wrap:anywhere;color:var(--text)}
+.g-dest{display:inline;margin-left:4px;font-family:var(--mono);font-size:.82em;color:var(--text3);overflow-wrap:anywhere;word-break:break-all}
+
+@media (max-width:640px){
+  .g-details{grid-template-columns:1fr;gap:1px}
+  .g-details dd{margin-bottom:5px}
+  .g-acts .btn{flex:1;justify-content:center;min-height:38px}
+  .g-foot{text-align:center}
+}

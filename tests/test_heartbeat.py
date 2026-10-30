@@ -203,7 +203,7 @@ async def test_what_it_looks_at_and_how_someone_elses_words_are_fenced(rig):
     assert "Pasta timer:" in prompt
     options = factory.made[0].options
     assert (
-        options.model == "claude-haiku-4-5"
+        options.model == "gemini-3.8-flash"
         and options.max_turns == 4
         and options.max_budget_usd == 0.05
     )

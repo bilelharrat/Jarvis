@@ -1,0 +1,27 @@
+/* Eden Slides' Media tray (deck-media.js, web only). Lives inside .deck-tool-content, so it stays a compact
+   tray: one search row, one sideways row of results, then the picked item's credit and Insert. */
+.deck-media{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
+.deck-media-form{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%}
+.deck-media-kinds{display:flex;gap:4px;flex:none}
+.deck-media-kinds .cap[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.deck-media-q{flex:1 1 160px;min-width:0;min-height:40px;box-sizing:border-box;padding:6px 10px;border:1px solid var(--hairline);border-radius:10px;background:var(--content);color:var(--text);font:inherit;font-size:13px}
+.deck-media-q:focus-visible,.deck-media-alt:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.deck-tool-content .deck-media-status{margin:0;font-size:12px;color:var(--text2);min-height:1em}
+.deck-media-status:empty{display:none}
+.deck-media-results{min-height:0}
+.deck-media .deck-media-tile{width:104px;padding:4px;gap:3px;flex-direction:column;align-items:stretch;max-width:none}
+.deck-media-tile img{width:100%;height:58px;object-fit:cover;border-radius:6px;background:var(--content2);display:block}
+.deck-media-tile img.deck-media-icon{object-fit:contain;height:40px;padding:9px 0;background:transparent}
+.deck-media-glyph{display:flex;align-items:center;justify-content:center;height:58px;border-radius:6px;background:var(--content2);color:var(--accent);font-size:22px}
+.deck-media-cap{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.deck-media-detail{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;width:100%}
+.deck-tool-content .deck-media-credit{margin:0;font-size:12px;color:var(--text);line-height:1.4;overflow-wrap:anywhere}
+.deck-media-credit a{color:var(--accent)}
+.deck-media-alt{flex:1 1 200px;min-width:0;min-height:40px;box-sizing:border-box;padding:6px 10px;border:1px solid var(--hairline);border-radius:10px;background:var(--content);color:var(--text);font:inherit;font-size:13px}
+.deck-media-colors{display:flex;align-items:center;gap:4px}
+.deck-media-colors input[type="color"]{width:40px;height:40px;padding:2px;border:1px solid var(--hairline);border-radius:10px;background:var(--content)}
+.deck-media-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:5px;vertical-align:-1px;border:1px solid var(--hairline)}
+.deck-media-preview{max-width:min(320px,100%);max-height:120px;border-radius:8px}
+audio.deck-media-preview{height:40px}
+@media (max-height:700px){.deck-media .deck-media-tile{width:92px}.deck-media-tile img{height:48px}.deck-media-glyph{height:48px}}
+@media (prefers-reduced-motion:reduce){.deck-media-results{scroll-behavior:auto}}

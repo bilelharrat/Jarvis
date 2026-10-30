@@ -22,7 +22,12 @@
 import { detectSensitive } from './privacy-rules.js';
 
 export const SHARE_VERSION = 1;
-export const SHARE_LIMITS = { messages: 400, text: 100_000, title: 120, bytes: 2 * 1024 * 1024, max: 100 };
+export const SHARE_LIMITS = { messages: 400, text: 100_000, title: 120, bytes: 2 * 1024 * 1024, max: 100, collaborators: 20, replies: 100, replyText: 20_000, name: 40 };
+export const SHARE_ROLES = [
+  { k: 'viewer', label: 'Viewer · can read' },
+  { k: 'commenter', label: 'Commenter · can read & reply' },
+  { k: 'collaborator', label: 'Collaborator · can reply & add messages' },
+];
 export const EXPIRY = [
   { k: 'never', label: 'Never (until you revoke it)', ms: 0 },
   { k: '1d', label: '1 day', ms: 864e5 },
@@ -67,13 +72,14 @@ export function shareable(c) {
 }
 
 /** The snapshot of the picked messages (ids from shareable()), exactly what the link will show. */
-export function buildSnapshot({ title, items, picked, now = Date.now() }) {
+export function buildSnapshot({ title, items, picked, mode, now = Date.now() }) {
   const keep = (items || []).filter((x) => picked.has(x.id)).slice(0, SHARE_LIMITS.messages);
   return {
     v: SHARE_VERSION,
     title: oneLine(title, SHARE_LIMITS.title) || 'Shared chat',
     shared: now,
-    messages: keep.map((x) => ({ role: x.role, text: clean(x.text, SHARE_LIMITS.text), ...(x.model ? { model: x.model } : {}), ...(x.at ? { at: x.at } : {}) })),
+    ...(mode === 'collaborate' ? { mode: 'collaborate' } : {}),
+    messages: keep.map((x) => ({ role: x.role, text: clean(x.text, SHARE_LIMITS.text), ...(x.model ? { model: x.model } : {}), ...(x.at ? { at: x.at } : {}), ...(x.author ? { author: oneLine(x.author, SHARE_LIMITS.name) } : {}) })),
   };
 }
 
@@ -84,8 +90,15 @@ export function checkSnapshot(x) {
     v: SHARE_VERSION,
     title: oneLine(x.title, SHARE_LIMITS.title) || 'Shared chat',
     shared: Number.isFinite(x.shared) ? x.shared : 0,
+    ...(x.mode === 'collaborate' ? { mode: 'collaborate' } : {}),
     messages: x.messages.slice(0, SHARE_LIMITS.messages).filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
-      .map((m) => ({ role: m.role, text: clean(m.text, SHARE_LIMITS.text), model: typeof m.model === 'string' ? oneLine(m.model, 60) : '', at: Number.isFinite(m.at) ? m.at : 0 })),
+      .map((m) => ({
+        role: m.role,
+        text: clean(m.text, SHARE_LIMITS.text),
+        model: typeof m.model === 'string' ? oneLine(m.model, 60) : '',
+        at: Number.isFinite(m.at) ? m.at : 0,
+        ...(typeof m.author === 'string' && oneLine(m.author, SHARE_LIMITS.name) ? { author: oneLine(m.author, SHARE_LIMITS.name) } : {}),
+      })),
   };
 }
 
@@ -125,7 +138,13 @@ const b64u = (bytes) => { let s = ''; const b = new Uint8Array(bytes); for (let 
 const unb64u = (s) => { const t = String(s).replace(/-/g, '+').replace(/_/g, '/'); const bin = atob(t + '='.repeat((4 - (t.length % 4)) % 4)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
 export const KEY_RE = /^[A-Za-z0-9_-]{43}$/; // 32 bytes, base64url
 export const ID_RE = /^[A-Za-z0-9_-]{22}$/; // 16 bytes, base64url (the server picks it)
+export const TOKEN_RE = /^[A-Za-z0-9_-]{22,43}$/; // 16–32 bytes, base64url (collaborator seat token)
+export const SEAT_ID_RE = /^[A-Za-z0-9_-]{8,16}$/;
 const AAD = new TextEncoder().encode('eden-share-v1');
+const REPLY_AAD = new TextEncoder().encode('eden-share-reply-v1');
+
+export const newCollaboratorToken = () => b64u(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+export const newSeatId = () => b64u(globalThis.crypto.getRandomValues(new Uint8Array(6)));
 
 /** { key (base64url, for the link), blob (JSON text for the server: { v, iv, ct }) }. */
 export async function sealSnapshot(snapshot, subtle = globalThis.crypto.subtle) {
@@ -134,6 +153,43 @@ export async function sealSnapshot(snapshot, subtle = globalThis.crypto.subtle) 
   const key = await subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
   const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: AAD }, key, new TextEncoder().encode(JSON.stringify(snapshot)));
   return { key: b64u(raw), blob: JSON.stringify({ v: SHARE_VERSION, iv: b64u(iv), ct: b64u(ct) }) };
+}
+
+/** Seals a collaborator's reply ({ author, role, text, at }) with the share's key so the server stores only ciphertext. */
+export async function sealReply(reply, keyText, subtle = globalThis.crypto.subtle) {
+  if (!KEY_RE.test(String(keyText || ''))) throw new Error('This link is missing its key.');
+  const payload = {
+    v: SHARE_VERSION,
+    author: oneLine(reply && reply.author, SHARE_LIMITS.name) || 'Collaborator',
+    role: reply && reply.role === 'assistant' ? 'assistant' : 'user',
+    text: clean(reply && reply.text, SHARE_LIMITS.replyText),
+    ...(reply && reply.model ? { model: oneLine(reply.model, 60) } : {}),
+    at: Number.isFinite(reply && reply.at) ? reply.at : Date.now(),
+  };
+  if (!payload.text.trim()) throw new Error('Write a message first.');
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const key = await subtle.importKey('raw', unb64u(keyText), 'AES-GCM', false, ['encrypt']);
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: REPLY_AAD }, key, new TextEncoder().encode(JSON.stringify(payload)));
+  return JSON.stringify({ v: SHARE_VERSION, iv: b64u(iv), ct: b64u(ct) });
+}
+
+/** Opens a collaborator's encrypted reply with the share's key. */
+export async function openReply(blob, keyText, subtle = globalThis.crypto.subtle) {
+  if (!KEY_RE.test(String(keyText || ''))) throw new Error('Missing key.');
+  let env;
+  try { env = typeof blob === 'string' ? JSON.parse(blob) : blob; } catch { env = null; }
+  if (!env || env.v !== SHARE_VERSION || typeof env.iv !== 'string' || typeof env.ct !== 'string') throw new Error('Damaged reply.');
+  const key = await subtle.importKey('raw', unb64u(keyText), 'AES-GCM', false, ['decrypt']);
+  const plain = await subtle.decrypt({ name: 'AES-GCM', iv: unb64u(env.iv), additionalData: REPLY_AAD }, key, unb64u(env.ct));
+  const x = JSON.parse(new TextDecoder().decode(plain));
+  if (!x || typeof x !== 'object' || typeof x.text !== 'string') throw new Error('Damaged reply.');
+  return {
+    role: x.role === 'assistant' ? 'assistant' : 'user',
+    author: oneLine(x.author, SHARE_LIMITS.name) || 'Collaborator',
+    text: clean(x.text, SHARE_LIMITS.replyText),
+    model: typeof x.model === 'string' ? oneLine(x.model, 60) : '',
+    at: Number.isFinite(x.at) ? x.at : 0,
+  };
 }
 
 /** The snapshot in `blob`, opened with the link's key, checked; throws a plain-English Error. */
@@ -152,12 +208,71 @@ export async function openSnapshot(blob, keyText, subtle = globalThis.crypto.sub
   return checkSnapshot(x);
 }
 
-/** The link to share: the page's address, then the key after # (never sent to the server). */
-export const shareLink = (origin, id, key) => `${String(origin).replace(/\/+$/, '')}/s/${id}#${key}`;
-/** The key in a page's location.hash ('#<key>' or '#k=<key>'), or ''. */
-export const keyFromHash = (hash) => { const h = String(hash || '').replace(/^#/, '').replace(/^k=/, ''); return KEY_RE.test(h) ? h : ''; };
+/** The link to share: the page's address, then the key after # (and optional collaborator token & name). */
+export const shareLink = (origin, id, key, collab = null) => {
+  const base = `${String(origin).replace(/\/+$/, '')}/s/${id}#${key}`;
+  if (!collab || !collab.token) return base;
+  const params = new URLSearchParams();
+  params.set('c', collab.token);
+  if (collab.name) params.set('n', oneLine(collab.name, SHARE_LIMITS.name));
+  if (collab.role && collab.role !== 'collaborator') params.set('r', collab.role);
+  return `${base}&${params.toString()}`;
+};
+
+/** Parses location.hash ('#<key>' or '#<key>&c=<token>&n=<name>'): { key, token, name, role }. */
+export function parseShareHash(hash) {
+  const raw = String(hash || '').replace(/^#/, '');
+  if (!raw) return { key: '', token: '', name: '', role: '' };
+  const parts = raw.split('&');
+  const first = parts[0].replace(/^k=/, '');
+  const key = KEY_RE.test(first) ? first : '';
+  let token = '';
+  let name = '';
+  let role = '';
+  if (parts.length > 1) {
+    const sp = new URLSearchParams(parts.slice(1).join('&'));
+    const c = sp.get('c') || '';
+    if (TOKEN_RE.test(c)) token = c;
+    name = oneLine(sp.get('n') || '', SHARE_LIMITS.name);
+    const r = sp.get('r') || '';
+    if (r === 'viewer' || r === 'commenter' || r === 'collaborator') role = r;
+  }
+  return { key, token, name, role };
+}
+
+/** The key in a page's location.hash ('#<key>' or '#k=<key>' or '#<key>&c=...'), or ''. */
+export const keyFromHash = (hash) => parseShareHash(hash).key;
 /** The share id in /s/<id>, or ''. */
 export const idFromPath = (p) => { const m = /^\/s\/([A-Za-z0-9_-]{22})\/?$/.exec(String(p || '')); return m ? m[1] : ''; };
 
-/** A share as the owner keeps it on the chat (synced end-to-end encrypted with it): the key stays with the owner. */
-export const shareRecord = ({ id, key, title, created, expires, count }) => ({ id, key, title: oneLine(title, SHARE_LIMITS.title), created, expires: expires || null, count });
+/** Normalizes a collaborator seat record ({ id, name, role, token, created }). */
+export function cleanCollaborators(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const c of list) {
+    if (!c || typeof c !== 'object') continue;
+    const id = SEAT_ID_RE.test(String(c.id || '')) ? String(c.id) : '';
+    const token = TOKEN_RE.test(String(c.token || '')) ? String(c.token) : '';
+    const name = oneLine(c.name, SHARE_LIMITS.name);
+    if (!id || !token || !name || seen.has(id)) continue;
+    seen.add(id);
+    const role = c.role === 'viewer' || c.role === 'commenter' ? c.role : 'collaborator';
+    const expires = Number.isFinite(c.expires) && c.expires > 0 ? c.expires : null; // this link alone stops then
+    out.push({ id, name, role, token, created: Number.isFinite(c.created) ? c.created : Date.now(), ...(expires ? { expires } : {}), ...(c.people === true ? { people: true } : {}) });
+    if (out.length >= SHARE_LIMITS.collaborators) break;
+  }
+  return out;
+}
+
+/** A share as the owner keeps it on the chat (synced end-to-end encrypted with it): the key and collaborators stay with the owner. */
+export const shareRecord = ({ id, key, title, created, expires, count, mode, collaborators }) => ({
+  id,
+  key,
+  title: oneLine(title, SHARE_LIMITS.title),
+  created,
+  expires: expires || null,
+  count,
+  ...(mode === 'collaborate' ? { mode: 'collaborate' } : {}),
+  ...(Array.isArray(collaborators) && collaborators.length ? { collaborators: cleanCollaborators(collaborators) } : {}),
+});

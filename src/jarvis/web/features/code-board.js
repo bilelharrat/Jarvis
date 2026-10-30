@@ -104,173 +104,88 @@
   board.hidden = true;
   $('cc').querySelector('.jc-main').append(board);
 
-  // Inject full Eden Code Agent Dashboard markup
+  // Inject full Eden Code Agent Dashboard markup (Option A: Tahoe Unified Toolbar & Apple Segmented Control)
   board.innerHTML = `<a class="skip-link" href="#dashboard-main">Skip to dashboard content</a>
 
   <div class="stage">
-    <!-- Top Mockup Bar -->
-    <nav class="mockup-switcher" aria-label="Mockup view and surface controls">
-      <div class="switcher-brand">
+    <!-- Apple Tahoe Unified 48px Header Toolbar -->
+    <header class="tahoe-toolbar" aria-label="Agent Board Toolbar">
+      <!-- Left: Eden Tile + Title + Worktree Branch Chip -->
+      <div class="tahoe-left">
         <span class="eden-tile" aria-hidden="true">
           <svg viewBox="43 81 410 422" fill="none" stroke="#fff" stroke-width="22" stroke-linejoin="round">
             <polygon points="211,93 314,90 444,236 343,353 249,352 333,251"/>
             <polygon points="252,235 160,346 282,491 186,494 52,350 151,234"/>
           </svg>
         </span>
-        <span>Eden Code · Agent Dashboard</span>
+        <span class="tahoe-title">Agent Board</span>
         <span class="coral-dash" aria-hidden="true"></span>
+        <span class="branch-chip" id="workspace-branch-chip">⎇ ios-app-store-prep · 3 worktrees</span>
       </div>
 
-      <div class="switcher-tabs" role="tablist" aria-label="Dashboard Mockup Screens">
-        <button type="button" class="mockup-tab active" role="tab" aria-selected="true" data-view-target="fleet">
-          <span class="tab-num">01</span> Fleet &amp; Telemetry
+      <!-- Center: Apple Translucent Segmented Control (Tabs 01-04) -->
+      <nav class="tahoe-segmented" role="tablist" aria-label="Dashboard Screens">
+        <button type="button" class="tahoe-seg-btn active" role="tab" aria-selected="true" data-view-target="fleet">
+          Fleet <span class="tahoe-badge">6</span>
         </button>
-        <button type="button" class="mockup-tab" role="tab" aria-selected="false" data-view-target="grid">
-          <span class="tab-num">02</span> Parallel Agent Grid (6-Split)
+        <button type="button" class="tahoe-seg-btn" role="tab" aria-selected="false" data-view-target="grid">
+          Parallel Grid
         </button>
-        <button type="button" class="mockup-tab" role="tab" aria-selected="false" data-view-target="receipts">
-          <span class="tab-num">03</span> Receipts, Assumptions &amp; EVES
+        <button type="button" class="tahoe-seg-btn" role="tab" aria-selected="false" data-view-target="receipts">
+          Receipts &amp; EVES
         </button>
-        <button type="button" class="mockup-tab" role="tab" aria-selected="false" data-view-target="lanes">
-          <span class="tab-num">04</span> Classic Lanes
+        <button type="button" class="tahoe-seg-btn" role="tab" aria-selected="false" data-view-target="lanes">
+          Lanes
         </button>
-      </div>
+      </nav>
 
-      <div class="switcher-actions">
-        <button type="button" class="pill-toggle" id="texture-toggle" aria-pressed="false" title="Toggle 45°/135° directional CVD textures on chart fills">
-          CVD Texture: Off
+      <!-- Right: Quick Tools + Close Button -->
+      <div class="tahoe-right">
+        <button type="button" class="tahoe-action-btn" id="cmd-trigger" title="Search agents, files, receipts (⌘K)">
+          ⌕ <kbd>⌘K</kbd>
         </button>
-        <button type="button" class="pill-toggle" id="theme-toggle" aria-pressed="false">
-          Surface: Dark Glass
+        <button type="button" class="tahoe-action-btn" id="dash-new-session-btn" title="Start a new Eden Code session">
+          + New
         </button>
-        <button type="button" class="pill-toggle cs-board-close-btn" id="cs-board-close" title="Close Agent Board (Esc)">✕ Close</button>
+        <button type="button" class="tahoe-action-btn" id="theme-toggle" aria-pressed="false" title="Toggle surface glass theme">
+          ◐
+        </button>
+        <button type="button" class="tahoe-action-btn" id="dash-settings-btn" title="Open Eden Code Settings">
+          ⚙
+        </button>
+        <button type="button" class="tahoe-close-circle cs-board-close-btn" id="cs-board-close" data-action="close-board" title="Close Agent Board (Esc)">✕</button>
       </div>
-    </nav>
+    </header>
+
+    <!-- Slim 38px Telemetry & Filter Strip -->
+    <div class="tahoe-substrip" aria-label="Global dashboard filters">
+      <div class="substrip-left">
+        <div class="range-pills" role="group" aria-label="Time range">
+          <button type="button" class="range-btn active" data-range="session">Active Session</button>
+          <button type="button" class="range-btn" data-range="today">Today</button>
+          <button type="button" class="range-btn" data-range="7d">7 Days</button>
+          <button type="button" class="range-btn" data-range="30d">30 Days</button>
+        </div>
+        <span class="substrip-sep" aria-hidden="true">·</span>
+        <div class="filter-group">
+          <label class="filter-label" for="repo-filter">Workspace</label>
+          <select id="repo-filter" class="glass-select">
+            <option value="all">All workspaces (3)</option>
+            <option value="askeden">askeden</option>
+            <option value="eden-code">Eden Code</option>
+            <option value="model-router">Model Router</option>
+          </select>
+        </div>
+      </div>
+      <div class="substrip-right">
+        <span class="state-pill eves" id="workspace-eves-pill" title="Eden's verification and evaluation system">EVES · 98.4% pass</span>
+        <button type="button" class="cap-trigger" id="header-cap-btn" title="Click to adjust session spend cap">Session cap: $20.00</button>
+      </div>
+    </div>
 
     <!-- Eden Code Window -->
     <div class="eden-window">
-      <aside class="sidebar" aria-label="Active Agents Sidebar">
-        <div class="window-bar">
-          <div class="traffic-lights" aria-hidden="true">
-            <span class="tl close"></span>
-            <span class="tl min"></span>
-            <span class="tl max"></span>
-          </div>
-          <div class="sidebar-brand">
-            <span>Eden Code</span>
-          </div>
-        </div>
-
-        <button type="button" class="search-trigger" id="cmd-trigger">
-          <span>⌕ Search agents, files, receipts…</span>
-          <kbd>⌘K</kbd>
-        </button>
-
-        <div class="side-label">
-          <span>Agent Fleet</span>
-          <span id="sidebar-active-count">4 running · 1 wait</span>
-        </div>
-
-        <div class="agent-roster" id="agent-roster">
-          <button type="button" class="agent-item active" data-agent-id="coord" data-workspace="eden-code">
-            <div class="agent-item-top">
-              <span class="agent-name">Coordinator · Engine Split</span>
-              <span class="state-pill run"><span class="state-dot"></span>Run</span>
-            </div>
-            <div class="agent-meta">
-              <span>Argon 4 · High</span>
-              <span>$1.42 · 38s</span>
-            </div>
-          </button>
-
-          <button type="button" class="agent-item" data-agent-id="sec" data-workspace="eden-code">
-            <div class="agent-item-top">
-              <span class="agent-name">IPC &amp; Preload Audit</span>
-              <span class="state-pill wait" id="roster-pill-sec"><span class="state-dot"></span>Wait OK</span>
-            </div>
-            <div class="agent-meta">
-              <span>Opus 5.5 · High</span>
-              <span>$1.18 · 2m</span>
-            </div>
-          </button>
-
-          <button type="button" class="agent-item" data-agent-id="ios" data-workspace="askeden">
-            <div class="agent-item-top">
-              <span class="agent-name">iOS App Store 1.2 Prep</span>
-              <span class="state-pill run"><span class="state-dot"></span>Run</span>
-            </div>
-            <div class="agent-meta">
-              <span>Sonnet 5.5 · Med</span>
-              <span>$0.84 · 1m</span>
-            </div>
-          </button>
-
-          <button type="button" class="agent-item" data-agent-id="router" data-workspace="model-router">
-            <div class="agent-item-top">
-              <span class="agent-name">Router Benchmark Probe</span>
-              <span class="state-pill run"><span class="state-dot"></span>Run</span>
-            </div>
-            <div class="agent-meta">
-              <span>Flash 3.8 · Low</span>
-              <span>$0.19 · 24s</span>
-            </div>
-          </button>
-
-          <button type="button" class="agent-item" data-agent-id="eves" data-workspace="askeden">
-            <div class="agent-item-top">
-              <span class="agent-name">EVES UI Self-Check</span>
-              <span class="state-pill eves"><span class="state-dot"></span>Verified</span>
-            </div>
-            <div class="agent-meta">
-              <span>Flash 3.8 · Pass</span>
-              <span>$0.55 · 19s</span>
-            </div>
-          </button>
-        </div>
-
-        <div class="sidebar-foot">
-          <span class="router-badge" id="sidebar-router-badge">
-            <span class="model-dot"></span>
-            <span id="sidebar-router-label">Eden Router · Auto</span>
-          </span>
-          <button type="button" class="cap-trigger cap-trigger-compact" id="sidebar-cap-btn" title="Edit session spend cap">$4.18 / $20</button>
-        </div>
-      </aside>
-
       <main class="workspace" id="dashboard-main">
-        <header class="workspace-header">
-          <div class="workspace-title-group">
-            <h1>Eden Code Agent Dashboard</h1>
-            <span class="branch-chip" id="workspace-branch-chip">⎇ ios-app-store-prep · 3 worktrees</span>
-            <span class="state-pill eves" id="workspace-eves-pill" title="Eden's verification and evaluation system">EVES (Eden's verification and evaluation system) · 98.4% pass</span>
-          </div>
-          <div class="header-right">
-            <button type="button" class="cap-trigger" id="header-cap-btn" title="Click to adjust session spend cap">Session cap: $20.00</button>
-          </div>
-        </header>
-
-        <!-- Single Global Filter Bar above all charts & stats (Dataviz interaction.md) -->
-        <section class="filter-bar" aria-label="Global dashboard filters">
-          <div class="filter-group">
-            <span class="filter-label">Window</span>
-            <div class="range-pills" role="group" aria-label="Time range">
-              <button type="button" class="range-btn active" data-range="session">Active Session</button>
-              <button type="button" class="range-btn" data-range="today">Today</button>
-              <button type="button" class="range-btn" data-range="7d">7 Days</button>
-              <button type="button" class="range-btn" data-range="30d">30 Days</button>
-            </div>
-          </div>
-
-          <div class="filter-group">
-            <label class="filter-label" for="repo-filter">Workspace</label>
-            <select id="repo-filter" class="glass-select">
-              <option value="all">All workspaces (3)</option>
-              <option value="askeden">askeden</option>
-              <option value="eden-code">Eden Code</option>
-              <option value="model-router">Model Router</option>
-            </select>
-          </div>
-        </section>
 
         <div class="dashboard-scroll" id="dashboard-scroll">
           <!-- ========================================================= -->
@@ -881,9 +796,11 @@
     board,
     isOpen: () => isOpen(),
     open: () => open(),
+    close: () => close(),
     addLane(lane) { extraLanes.push(lane); extraLanes.sort((a, b) => (a.order || 0) - (b.order || 0)); schedule(); },
     refresh() { schedule(); },
   };
+  root.closeEdenCodeBoard = close;
 
   const shared = () => F.codeSessions || { meta: new Map(), unread: new Set() };
   const metaOf = (id) => shared().meta.get(id) || {};
@@ -902,11 +819,13 @@
   }
 
   function close() {
+    board.querySelectorAll('.open').forEach((m) => m.classList.remove('open'));
     const hadFocus = board.contains(document.activeElement);
     board.hidden = true;
-    if (hadFocus) toggle.focus();
-    $('cc').classList.remove('cs-board-on');
-    toggle.setAttribute('aria-pressed', 'false');
+    if (hadFocus && toggle) toggle.focus();
+    const cc = $('cc');
+    if (cc) cc.classList.remove('cs-board-on');
+    if (toggle) toggle.setAttribute('aria-pressed', 'false');
     clearInterval(B.timer);
     if (typeof moveGlider === 'function') moveGlider();
   }
@@ -930,15 +849,34 @@
     }
   });
 
-  const covered = () => !$('jc-menu').hidden || [...document.querySelectorAll('[role="dialog"]')].some((d) => !d.closest('[hidden]'));
+  const hasOpenInnerModal = () => [...board.querySelectorAll('.glass-modal-backdrop, .glass-popover')].some((d) => d.classList.contains('open'));
+  const covered = () => !$('jc-menu').hidden || [...document.querySelectorAll('[role="dialog"]')].some((d) => !board.contains(d) && !d.closest('[hidden]'));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && isOpen() && !$('cc').hidden && !covered()) {
+      if (hasOpenInnerModal()) {
+        board.querySelectorAll('.glass-modal-backdrop.open, .glass-popover.open').forEach((d) => d.classList.remove('open'));
+        e.stopPropagation(); e.preventDefault();
+        return;
+      }
       e.stopPropagation(); e.preventDefault(); close();
     }
   }, true);
 
-  const closeBtn = board.querySelector('#cs-board-close');
-  if (closeBtn) closeBtn.addEventListener('click', close);
+  board.addEventListener('click', (e) => {
+    const closeTarget = e.target.closest('#cs-board-close, .cs-board-close-btn, [data-action="close-board"], .tl.close');
+    if (closeTarget) {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  }, true);
+  board.querySelectorAll('#cs-board-close, .cs-board-close-btn, [data-action="close-board"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    });
+  });
 
   F.on('jc_select', () => { if (isOpen()) close(); });
   F.on('code_board', (ev) => { B.figures = ev.items || {}; schedule(); });
@@ -1854,7 +1792,7 @@
     html.setAttribute("data-theme", next);
     if (themeBtn) {
       themeBtn.setAttribute("aria-pressed", String(next === "light"));
-      themeBtn.textContent = next === "light" ? "Surface: Daylight Frost" : "Surface: Dark Glass";
+      themeBtn.title = next === "light" ? "Surface: Daylight Frost (click to toggle)" : "Surface: Dark Glass (click to toggle)";
     }
     document.body.setAttribute(
       "data-palette",
@@ -2185,9 +2123,10 @@
   let cmdSelectedIndex = 0;
 
   const COMMANDS = [
-    { group: "Views", label: "01 · Fleet & Telemetry Overview", meta: "View 01", run: () => switchView("fleet") },
-    { group: "Views", label: "02 · Parallel Agent Grid (6 Worktrees)", meta: "View 02", run: () => switchView("grid") },
-    { group: "Views", label: "03 · Turn Receipts, Assumptions & EVES Ledger", meta: "View 03", run: () => switchView("receipts") },
+    { group: "Views", label: "Fleet & Telemetry Overview", meta: "Fleet", run: () => switchView("fleet") },
+    { group: "Views", label: "Parallel Agent Grid (6 Worktrees)", meta: "Parallel Grid", run: () => switchView("grid") },
+    { group: "Views", label: "Turn Receipts, Assumptions & EVES Ledger", meta: "Receipts", run: () => switchView("receipts") },
+    { group: "Views", label: "Classic Kanban Lanes", meta: "Lanes", run: () => switchView("lanes") },
     { group: "Agent Fleet", label: "Focus @coord · Coordinator · Engine Split", meta: "Argon 4", run: () => selectAgent("coord", true) },
     { group: "Agent Fleet", label: "Focus @sec · IPC & Preload Audit", meta: "Opus 5.5", run: () => selectAgent("sec", true) },
     { group: "Agent Fleet", label: "Focus @ios · iOS App Store 1.2 Prep", meta: "Sonnet 5.5", run: () => selectAgent("ios", true) },
@@ -2196,7 +2135,9 @@
     { group: "Controls", label: "Toggle Surface: Dark Glass / Daylight Frost", meta: "Theme", run: () => toggleTheme() },
     { group: "Controls", label: "Toggle CVD 45° Diagonal Bar Texture", meta: "Accessibility", run: () => toggleTexture() },
     { group: "Controls", label: "Inspect Pending D1 Migration Confirmation", meta: "Principle 4", run: () => openStepInspector("sec-3") },
-    { group: "Controls", label: "Export EVES Verified Turn Receipt (JSON)", meta: "$4.18", run: () => { switchView("receipts"); showToast("Exported EVES turn receipt JSON ($4.18 · 42/43 verified)"); } }
+    { group: "Controls", label: "Export EVES Verified Turn Receipt (JSON)", meta: "$4.18", run: () => { switchView("receipts"); showToast("Exported EVES turn receipt JSON ($4.18 · 42/43 verified)"); } },
+    { group: "Controls", label: "Open Eden Code Settings", meta: "⌘,", run: () => { close(); const s = document.getElementById("jc-eden-settings"); if (s) s.click(); } },
+    { group: "Controls", label: "Close Agent Dashboard", meta: "ESC", run: () => close() }
   ];
 
   function renderCommandList(query = "") {
@@ -2361,7 +2302,7 @@
         switchView("receipts");
         showToast("Exported EVES turn receipt JSON ($4.18 · 42/43 verified)");
       } else if (action === "open-chat") {
-        showToast("Ask Eden Chat ready at / — agent fleet active");
+        close();
       }
     });
   });
@@ -2390,21 +2331,25 @@
     }
   });
 
-  // Window Traffic Lights
-  const maxTl = document.querySelector(".tl.max");
-  if (maxTl) {
-    maxTl.addEventListener("click", () => {
-      const stage = document.querySelector(".stage");
-      if (stage) {
-        const maximized = stage.classList.toggle("maximized");
-        showToast(maximized ? "Expanded window to full canvas" : "Restored window frame");
-      }
+  // Native Eden Code Left / Dashboard Controls (Settings, New Session, Close)
+  const dashSettingsBtn = document.getElementById("dash-settings-btn");
+  if (dashSettingsBtn) {
+    dashSettingsBtn.addEventListener("click", () => {
+      close();
+      const nativeSettings = document.getElementById("jc-eden-settings");
+      if (nativeSettings) nativeSettings.click();
     });
   }
-  document.querySelectorAll(".tl.close, .tl.min").forEach(tl => {
-    tl.addEventListener("click", () => {
-      showToast("Eden Code agent fleet continues running in background");
+  const dashNewBtn = document.getElementById("dash-new-session-btn");
+  if (dashNewBtn) {
+    dashNewBtn.addEventListener("click", () => {
+      close();
+      const nativeNew = document.getElementById("jc-new");
+      if (nativeNew) nativeNew.click();
     });
+  }
+  document.querySelectorAll(".tl.close").forEach(tl => {
+    tl.addEventListener("click", () => close());
   });
 
   // Composer Pill Cyclers & Live Prompt Dispatch

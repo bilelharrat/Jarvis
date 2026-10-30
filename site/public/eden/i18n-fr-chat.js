@@ -7,6 +7,24 @@
 // are split and each piece looked up here (dots(), sentences()).
 
 const X = {
+  /* Shared regular-chat / EVES activity thread */
+  'Activity thread': 'Fil d’activité',
+  'In progress': 'En cours',
+  'Pending': 'En attente',
+  'Not needed': 'Non nécessaire',
+  'Waiting for reply…': 'En attente de la réponse…',
+  'Reasoning…': 'Réflexion…',
+  'Reasoning stopped': 'Réflexion interrompue',
+  'Reasoned': 'Réflexion terminée',
+  'Writing reply…': 'Rédaction de la réponse…',
+  'Reply interrupted': 'Réponse interrompue',
+  'Reply failed': 'Échec de la réponse',
+  'Activity ended': 'Activité terminée',
+  'Search · no sources returned': 'Recherche · aucune source reçue',
+  'Reply reached the model’s output limit.': 'La réponse a atteint la limite de sortie du modèle.',
+  'Subscription: not billed': 'Abonnement : non facturé',
+  'Mac context': 'Contexte du Mac',
+  'Mac context failed': 'Échec du contexte du Mac',
   /* ---------- chat.js ---------- */
   'Wait for the reply, or stop it first': 'Attendez la réponse, ou arrêtez-la d’abord',
   'This chat is still loading. Send it again once its messages are here.': 'Cette discussion est encore en chargement. Renvoyez votre message une fois ses messages arrivés.',
@@ -75,6 +93,8 @@ const X = {
   'Start over in a new chat': 'Recommencer dans une nouvelle discussion',
   'Summarize into a new chat': 'Résumer dans une nouvelle discussion',
   'Route console': 'Console de routage',
+  'Split view: up to 6 chats side by side · /split close': 'Vue scindée : jusqu’à 6 discussions côte à côte · /split close',
+  'Split view: up to 10 chats side by side · /split close': 'Vue scindée : jusqu’à 10 discussions côte à côte · /split close',
   'Settings and API keys': 'Réglages et clés API',
   'Light, dark or system': 'Clair, sombre ou système',
   'Stop the reply': 'Arrêter la réponse',
@@ -93,6 +113,14 @@ const X = {
   'Send': 'Envoyer',
   'New line': 'Nouvelle ligne',
   'Steer: queue for the running Code step': 'Réorienter : en file pour l’étape Code en cours',
+  'Steer: into the running step': 'Réorienter : dans l’étape en cours sans l’interrompre',
+  'Split view: add a pane': 'Vue scindée : ajouter un panneau',
+  'Split view: move between panes': 'Vue scindée : passer d’un panneau à l’autre',
+  'Split view: go to a pane': 'Vue scindée : aller à un panneau',
+  'Send it into the running step now, without stopping it': 'L’envoyer dans l’étape en cours maintenant, sans l’arrêter',
+  'Stop (Esc). Type to steer instead: it goes in without stopping the reply': 'Arrêter (Échap). Tapez plutôt pour réorienter : cela s’ajoute sans arrêter la réponse',
+  ' — into the running step': ' — dans l’étape en cours',
+  'Queued': 'En file',
   'Your earlier messages': 'Vos messages précédents',
   'Switch mode': 'Changer de mode',
   'Mode menu': 'Menu des modes',
@@ -413,10 +441,25 @@ const X = {
   'Open Settings': 'Ouvrir les Réglages',
   'Privacy mode: only models on this Mac answer, and nothing is looked up on the web.': 'Mode confidentialité : seuls les modèles de ce Mac répondent, et rien n’est recherché sur le web.',
   'Waiting for the first words…': 'En attente des premiers mots…',
+  'Draft · being checked': 'Brouillon · en cours de vérification',
   'No answer.': 'Pas de réponse.',
   'Only the first part of this answer is kept here.': 'Seule la première partie de cette réponse est conservée ici.',
   'What each model said': 'Ce que chaque modèle a dit',
   'EVES progress': 'Progression d’EVES',
+  'Ask models': 'Interroger les modèles',
+  'Check facts': 'Vérifier les faits',
+  'Check disputes': 'Vérifier les désaccords',
+  'Preparing models': 'Préparation des modèles',
+  'Cost pending': 'Coût en attente',
+  'Waiting for the models’ independent answers.': 'En attente des réponses indépendantes des modèles.',
+  'Running factual checks on the answers.': 'Vérification des faits dans les réponses.',
+  'Comparing the answers for agreement and differences.': 'Comparaison des accords et des différences entre les réponses.',
+  'Looking for evidence for disputed claims.': 'Recherche de preuves pour les affirmations contestées.',
+  'Writing the answer from the checked results.': 'Rédaction de la réponse à partir des résultats vérifiés.',
+  'Preparing the verification run.': 'Préparation de la vérification.',
+  'Verification could not finish.': 'La vérification n’a pas pu aboutir.',
+  'Verification stopped before completion.': 'La vérification a été arrêtée avant la fin.',
+  'Checks finished. Model agreement does not guarantee accuracy.': 'Vérifications terminées. L’accord des modèles ne garantit pas l’exactitude.',
   'Stop (Esc)': 'Arrêter (Échap)',
   'The models': 'Les modèles',
   'EVES is checking this answer': 'EVES vérifie cette réponse',
@@ -565,6 +608,15 @@ const price = (p) => String(p).replace(/subscription/g, 'abonnement').replace(/c
 
 /** Patterns for one piece (no " · " joins, one sentence): what dots() and sentences() look pieces up with. */
 const PIECES = [
+  [/^(\d+) models selected$/, (_, n) => `${n} modèles sélectionnés`],
+  [/^(\d+) cached input tokens reused$/, (_, n) => `${n} jetons d’entrée en cache réutilisés`],
+  [/^(\d+) web sources? returned$/, (_, n) => `${n} source${n === '1' ? '' : 's'} web reçue${n === '1' ? '' : 's'}`],
+  [/^Estimated (\$[\d.]+)$/, (_, cost) => `Estimation : ${cost}`],
+  [/^(\$[\d.]+) actual cost$/, (_, cost) => `${cost} coût réel`],
+  [/^(\d+) of (\d+) answers returned$/, (_, n, total) => `${n} réponses reçues sur ${total}`],
+  [/^(\d+) models? failed$/, (_, n) => `${n} modèle(s) en échec`],
+  [/^(\d+) models? stopped$/, (_, n) => `${n} modèle(s) arrêté(s)`],
+  [/^(.+) so far$/, (_, cost) => `${cost} jusqu’ici`],
   // chat.js
   [/^Retried with (.+) — the first model declined$/, 'Nouvel essai avec $1 — le premier modèle a refusé'],
   [/^(.+) failed \((.+)\); retried on the next choice\.$/, (_, m, r) => `${X[m] || m} a échoué (${r}) ; nouvel essai avec le choix suivant.`],
@@ -721,6 +773,9 @@ function stronger(w) { const m = new RegExp(`^(.+) at ${EFF_RE} effort$`).exec(w
 
 /** Patterns for whole strings made of joined pieces; tried before the piece patterns. */
 const JOINED = [
+  [/^(?:Routed|Reasoned|Reasoning…|Reasoning stopped|\$[\d.]+) · .+$/, (v) => dots(v)],
+  [/^(?:\d+ of \d+ answers returned|Preparing models) · .+$/, (v) => dots(v)],
+  [/^(.+)\. Coverage is reduced\.$/, (_, counts) => `${dots(counts)}. La couverture est réduite.`],
   // the status line under the composer
   [/^(?:Temporary · not saved|Always allowed: [^·]+)(?: · .+)?$/, (v) => dots(v)],
   // a lane's foot, the EVES lane meta and the models list ("Done · high effort · 8.2 s · $0.012")

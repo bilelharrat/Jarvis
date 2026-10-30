@@ -3,8 +3,8 @@
 // research cards and sources, drafts pagers. Actions are data-act attributes handled by
 // one delegated listener (app.js).
 
-import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys, fileType } from './util.js';
-import { state, siblings, summarizeInput, nodeText, attachmentData, persona } from './state.js';
+import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys, fileType, fmtTimestamp } from './util.js';
+import { state, ui, path, siblings, parentOf, summarizeInput, nodeText, attachmentData, persona, isBilelAccount } from './state.js';
 import { renderMarkdown, CANVAS_LANGS } from './markdown.js';
 import { parseEmailDraft } from './md-plain.js';
 import { ratedBadge } from './router.js';
@@ -13,18 +13,23 @@ import { isSpeaking } from './voice.js';
 import { IN_APP } from './native.js';
 import { withoutEssayBlocks, writingEssay, streamingEssay } from './eden-tools.js';
 import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton } from './compare.js';
-import { approvalCard, isTainted, sourceStrip } from './guard.js';
+import { approvalCard, isFlagged, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
 import { browserCard, stepChips } from './browser-agent.js';
-import { imageFigures } from './image-mode.js';
+import { imageFigures, videoFigures } from './image-mode.js';
 import { toolCards } from './tools-ui.js'; // Google Calendar / Gmail approval cards
 import { feedbackButtons } from './learned.js';
+import { evesRateControls } from './eves.js';
+import { evesCheckButton, evesCheckBlock } from './eves-check.js'; // "Check with EVES": off by default, never in the iPhone app
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
 import { groundingStrip, stripSources } from './course-strip.js'; // not courses.js: the Courses panel loads when it opens (panels.js)
 import { t as tx, locale } from './i18n.js';
 import { spentWords, stepsView } from './research-model.js'; // Q2: research's progress steps
 import { deckPart } from './deck-card.js'; // Q14: slide decks
+import { sheetPart } from './sheet-entry.js'; // Q15: inline Excel workbooks
+import { createActivityThread, updateActivityThread } from './activity-thread.js';
+import { progressView } from './progress-model.js';
 
 // The essay writer (essay.js, askeden.com in a browser only; never in the app): Eden's essay text while it streams is drawn
 // in the open essay (essay.js essayPreview), one reply at a time; the chat shows a note and the count, not the text twice.
@@ -37,11 +42,101 @@ function livePreview(node, live) {
   import('./essay.js').then((E) => E.essayPreview(live)).catch(() => {});
 }
 
-export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), meta: new Set(), editing: null };
+export const ui_open = { thinks: new Set(), thinkClosed: new Set(), tools: new Set(), expanded: new Set(), meta: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
 setLaneRenderer((c, node) => assistantMessage(c, node, false, { lane: true }));
 
 const TOOL_ICONS = { Read: 'doc', Grep: 'search', Glob: 'search', LS: 'folder', Edit: 'edit', MultiEdit: 'edit', Write: 'edit', NotebookEdit: 'edit', Bash: 'term', BashOutput: 'term', WebSearch: 'globe', WebFetch: 'globe', TodoWrite: 'list', Task: 'spark' };
+
+// Keep disclosure controls and the trace body alive through streaming message redraws.
+const activityViews = new WeakMap();
+function liveTurnProgress(c, node) {
+  if (IN_APP || !node || node.role !== 'assistant' || (node.eves && !node.eves.skipped)) return null;
+  const progress = progressView(node, Date.now());
+  if (!progress) return null;
+  const stream = c && state.streams.get(c.id);
+  if (!stream || stream.node !== node) progress.canStop = false;
+  let view = activityViews.get(node);
+  if (!view) {
+    view = createActivityThread({ id: `turn-${node.id}`, onStop: () => {
+      // Resolve the current stream at click time; a stale historical card must never stop another turn.
+      const stream = c && state.streams.get(c.id);
+      if (!node.streaming || !stream || stream.node !== node) return;
+      if (stream.kind === 'chat') dispatchEvent(new CustomEvent('eden:choice', { detail: { kind: 'stop', c, node } }));
+      stream.abort();
+    } });
+    view.trace = el('div', { class: 'activity-trace', 'data-no-i18n': '' });
+    view.sources = el('div', 'activity-sources');
+    view.body.append(view.trace, view.sources);
+    activityViews.set(node, view);
+  }
+  updateActivityThread(view, progress);
+  if (view.trace.textContent !== progress.trace) view.trace.textContent = progress.trace;
+  view.trace.hidden = !progress.trace;
+  if (isTainted(node) && !isFlagged(node)) {
+    const strip = sourceStrip(node);
+    while (view.sources.firstChild) view.sources.firstChild.remove();
+    if (strip) {
+      view.sources.append(strip);
+      view.sources.hidden = false;
+    } else view.sources.hidden = true;
+  } else {
+    view.sources.hidden = true;
+  }
+  return view.root;
+}
+
+function fmtAnswerDuration(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s < 10 ? s.toFixed(2) : s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  return `${m}m ${rem}s`;
+}
+
+function answerElapsedMs(node) {
+  if (!node) return null;
+  if (node.eves && typeof node.eves.startedAt === 'number' && typeof node.eves.doneAt === 'number' && node.eves.doneAt >= node.eves.startedAt) {
+    return node.eves.doneAt - node.eves.startedAt;
+  }
+  if (typeof node.startedAt === 'number' && typeof node.doneAt === 'number' && node.doneAt >= node.startedAt) {
+    return node.doneAt - node.startedAt;
+  }
+  return null;
+}
+
+function bilelTimerBadge(node) {
+  if (!isBilelAccount() || !node || node.role !== 'assistant' || node.streaming) return null;
+  const ms = answerElapsedMs(node);
+  const label = fmtAnswerDuration(ms);
+  if (!label) return null;
+  return el(
+    'span',
+    {
+      class: 'bilel-timer',
+      title: `Answer duration: ${Math.round(ms)} ms`,
+      'data-no-i18n': '',
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        marginLeft: '6px',
+        padding: '2px 7px',
+        borderRadius: '999px',
+        fontSize: '11px',
+        fontWeight: '500',
+        fontVariantNumeric: 'tabular-nums',
+        fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+        color: 'var(--text3)',
+        background: 'rgba(120, 120, 128, 0.1)',
+      },
+    },
+    ico('clock', 11),
+    label,
+  );
+}
 
 export function renderMessage(c, node, { last } = {}) {
   if (node.role !== 'user') { const g = openGroupOf(c, node); if (g) return compareView(c, g.user); } // answers side by side (G1, G6)
@@ -73,7 +168,8 @@ function userMessage(c, node, last) {
     const label = /chat/i.test(what) ? 'Searched your chats' : /calendar/i.test(what) ? 'Checked your calendar' : /mail/i.test(what) ? 'Checked your mail' : 'Looked something up';
     return el('div', { class: 'msg tool-step', 'data-id': node.id }, el('span', 'tool-step-line', ico('search', 13), tx(label)));
   }
-  const wrap = el('div', { class: `msg user${last ? ' last' : ''}`, 'data-id': node.id });
+  const timeTitle = fmtTimestamp(node.startedAt || node.created || node.doneAt);
+  const wrap = el('div', { class: `msg user${last ? ' last' : ''}`, 'data-id': node.id, ...(timeTitle ? { title: timeTitle } : {}) });
   if (ui_open.editing === node.id) {
     const ta = el('textarea', { 'aria-label': 'Edit your message', 'data-edit': '1' });
     ta.value = node.content || '';
@@ -110,9 +206,12 @@ function userMessage(c, node, last) {
   if (files.length) wrap.append(el('div', 'u-files', ...files));
   for (const ctx of node.context || []) bubble.append(el('span', 'ctxchip', `⧉ ${ctx.title}`));
   if (text || bubble.querySelector('.ctxchip') || (!pics.length && !files.length)) wrap.append(bubble); // a picture alone has no empty bubble
+  const evc = c.kind === 'code' ? null : evesCheckBlock(node, () => ui.updateMessage(c, node, { keepScroll: true })); // a pasted text / document checked
+  if (evc) wrap.append(evc);
   wrap.append(el('div', 'msg-acts',
     pager(c, node, 'Branch'),
     el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy message' }, ico('copy')),
+    c.kind === 'code' ? null : evesCheckButton(node),
     c.kind === 'code' ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'edit', title: 'Edit and resend (new branch)', 'aria-label': 'Edit and resend' }, ico('edit'))));
   return wrap;
 }
@@ -133,7 +232,8 @@ function routeChip(node) {
 function assistantMessage(c, node, last, { lane = false } = {}) {
   // which model answered, where, why and any fallback: shown only after a tap on the reply (owner, 2026-10-12)
   const showMeta = lane || ui_open.meta.has(node.id);
-  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}${showMeta ? '' : ' meta-hidden'}`, 'data-id': node.id });
+  const timeTitle = fmtTimestamp(node.startedAt || node.created || node.doneAt);
+  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}${showMeta ? '' : ' meta-hidden'}`, 'data-id': node.id, ...(timeTitle ? { title: timeTitle } : {}) });
   if (node.route) {
     const head = el('div', 'msg-head');
     head.append(el('div', 'chip-wrap', routeChip(node), whereBadge(node.route)));
@@ -144,10 +244,12 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     wrap.append(el('div', 'msg-head', el('div', 'chip-wrap', el('span', { class: 'chip imp-model', title: 'Imported: the model named in the export' }, node.importedModel))));
   }
   const bubble = el('div', 'bubble');
-  { const strip = sourceStrip(node); if (strip) bubble.append(strip); } // what this reply read from outside (H8)
-  if (node.autoSearched && node.role === 'assistant') bubble.append(el('div', { class: 'auto-search', style: 'display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;opacity:.85' }, ico('globe', 14), el('span', 'chip-s', node.streaming && !(node.parts && node.parts.length) ? 'Searching the web…' : 'Searched the web'))); // auto-search (autosearch-rules.js)
-  const sources = node.citations || [];
   const research = node.mode === 'research';
+  const hasProgressPill = !IN_APP && !research && Boolean((node.eves && !node.eves.skipped) || progressView(node, Date.now()));
+  { const strip = (!hasProgressPill || isFlagged(node)) ? sourceStrip(node) : null; if (strip) bubble.append(strip); } // what this reply read from outside (H8; folded into the progress pill unless flagged)
+  const isVaultServed = Boolean((node.route && Array.isArray(node.route.notes) && node.route.notes.some((n) => /EVES Immutable Vault/i.test(n))) || (node.verification && node.verification.label && /EVES Vault/i.test(node.verification.label.text || '')));
+  if ((IN_APP || node.mode === 'research') && node.autoSearched && !isVaultServed && node.role === 'assistant' && !(node.route && (node.route.image || node.route.video))) bubble.append(el('div', { class: 'auto-search', style: 'display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;opacity:.85' }, ico('globe', 14), el('span', 'chip-s', node.streaming && !(node.parts && node.parts.length) ? 'Searching the web…' : 'Searched the web'))); // auto-search (autosearch-rules.js)
+  const sources = node.citations || [];
   if (research) {
     const live = node.streaming;
     const secs = node.doneAt && node.startedAt ? Math.max(1, Math.round((node.doneAt - node.startedAt) / 1000)) : 0;
@@ -172,7 +274,10 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     if (sources.length) card.append(sourceList(sources));
     bubble.append(card);
   }
-  if (node.thinking || (node.streaming && node.thinkingLive)) {
+  if (!IN_APP && !research) {
+    const prog = liveTurnProgress(c, node);
+    if (prog) bubble.append(prog);
+  } else if (node.thinking || (node.streaming && node.thinkingLive)) {
     const open = ui_open.thinks.has(node.id);
     const live = node.streaming && node.thinkingLive;
     const secs = node.thinkMs ? Math.max(1, Math.round(node.thinkMs / 1000)) : 0;
@@ -186,19 +291,23 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   if (chips) bubble.append(chips);
   const pics = imageFigures(node); // Eden's pictures, or "Drawing…" while one is made (image-mode.js)
   if (pics) bubble.append(pics);
+  const vids = videoFigures(node); // Eden's videos, or "Making your video…" while Veo renders (image-mode.js)
+  if (vids) bubble.append(vids);
   const parts = node.parts || [];
   for (const [i, part] of parts.entries()) {
     if (part.type === 'text') {
       const dp = deckPart(c, node, stripSources(part.text)); // Q14: a deck's JSON shows as its card, not code (deck-card.js)
-      const text = ESSAYS ? withoutEssayBlocks(dp.text) : dp.text; // a checked reply's <sources> block shows as the strip below (courses.js); the essay writer's blocks never show
+      const sp = sheetPart(c, node, dp.text); // Q15: a spreadsheet's JSON shows as its Excel card, not code (sheet-entry.js)
+      const text = ESSAYS ? withoutEssayBlocks(sp.text) : sp.text; // a checked reply's <sources> block shows as the strip below (courses.js); the essay writer's blocks never show
       const writing = ESSAYS && node.streaming && writingEssay(part.text); // Eden writing in the open essay (essay.js): a note, not the text twice
-      if (!text && !dp.card && !writing) continue;
+      if (!text && !dp.card && !sp.card && !writing) continue;
       if (text) {
         const md = el('div', 'md');
         md.append(renderMarkdown(text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
         bubble.append(md);
       }
       if (dp.card) bubble.append(dp.card);
+      if (sp.card) bubble.append(sp.card);
       if (writing) {
         // the words appear in the essay as they come (essay.js essayPreview), and how many so far here (T19d)
         const live = streamingEssay(part.text);
@@ -212,7 +321,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     else if (part.type === 'mac') bubble.append(macCard(c, node, part)); // what Eden read on the Mac (files.js)
   }
   if (ESSAYS && !node.streaming && previewing === node.id) livePreview(node, null); // the reply ended: the real change lands (tools-ui.js)
-  if (node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive && !pics) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
+  if ((IN_APP || research) && node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive && !pics && !vids) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
   if (sources.length && !research) bubble.append(sourceList(sources));
   if (node.grounding && !node.streaming) bubble.append(groundingStrip(node.grounding)); // Eden for Education (courses.js)
   if (!node.streaming) {
@@ -233,7 +342,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   if (node.memory) { // memory across chats changed in this turn: the chip opens Settings › Memory (app.js)
     const m = node.memory;
     const label = m.action === 'deleted' || m.action === 'cleared' ? 'Memory updated · forgotten' : m.action === 'kept' ? 'Already in memory' : 'Memory updated';
-    bubble.append(el('button', { type: 'button', class: 'mem-chip', title: m.text || 'Manage memory', onclick: () => dispatchEvent(new CustomEvent('eden:open-memory')) }, ico('bulb', 12), label));
+    bubble.append(el('button', { type: 'button', class: 'mem-chip', title: m.text || 'Manage memory', ...(m.text ? { 'data-no-i18n': '' } : {}), onclick: () => dispatchEvent(new CustomEvent('eden:open-memory')) }, ico('bulb', 12), label));
   }
   if (node.error) {
     const plus = limitAction(node.error); // the included AI ran out: Get Plus (plan.js), where it's sold here
@@ -242,10 +351,13 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   } else if (node.finish === 'aborted') bubble.append(el('div', 'stopped', 'Stopped.'));
   else if (node.finish === 'length' && !(node.tools || []).some((t) => t.note === 'cutoff')) bubble.append(el('div', 'notice warn', 'Cut off at the model’s output limit.', last && !lane ? el('button', { type: 'button', class: 'cap primary', 'data-act': 'continue', style: 'margin-left:8px' }, 'Continue') : null));
   wrap.append(bubble);
+  const evc = c.kind === 'code' || lane ? null : evesCheckBlock(node, () => ui.updateMessage(c, node, { keepScroll: true })); // "Check with EVES" result
+  if (evc) wrap.append(evc);
   if (!node.streaming) {
     wrap.append(el('div', 'msg-acts',
       lane ? null : pager(c, node, 'Draft'),
       el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy reply' }, ico('copy')),
+      c.kind === 'code' || lane ? null : evesCheckButton(node, nodeText(node)),
       // a reply long enough to be essay text: into the essay writer, without the chat around it (essay.js pasteIntoEssay; website only)
       !ESSAYS || lane || c.kind === 'code' || countWords(withoutEssayBlocks(nodeText(node))) < 60 ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'to-essay', title: 'Paste into essay: just the essay, in its format', 'aria-label': 'Paste into essay' }, ico('edit')),
       lane || !parseEmailDraft(nodeText(node)) ? null : el('button', { type: 'button', class: 'cap', 'data-act': 'open-mail', title: 'Open this draft in Eden’s Mail composer to review and send' }, ico('mail', 14), 'Open in Mail'),
@@ -254,9 +366,350 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
       lane ? null : feedbackButtons(c, node), // H2: 👍 / 👎 teach the router (learned.js)
       nodeText(node).trim() && !IN_APP ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
       c.kind === 'code' || lane ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'regen', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Try again', 'aria-label': 'Try again' }, ico('retry')),
-      node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null));
+      node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null,
+      c.kind === 'code' || lane ? null : evesRateControls(node, { inline: true }),
+      bilelTimerBadge(node)));
+    if (last && !lane && !node.error && node.finish !== 'aborted') {
+      const followUps = followUpSuggestions(c, node);
+      if (followUps.length) {
+        wrap.append(el('div', { class: 'msg-followups', role: 'group', 'aria-label': tx('Suggested follow-ups') },
+          ...followUps.map((q) => {
+            const prompt = tx(q);
+            return el('button', { type: 'button', class: 'followup-btn', 'data-act': 'followup', 'data-prompt': prompt, title: tx('Send follow-up (Shift+click to edit first)') },
+              el('span', { class: 'followup-ic', 'aria-hidden': 'true' }, '↳'),
+              el('span', 'followup-tx', prompt),
+              ico('chevr', 12, 'followup-arr'));
+          })));
+      }
+    }
   }
   return wrap;
+}
+
+const FOLLOWUP_OFFER_PATTERNS = [
+  /(?:would you like me to|want me to|should i|shall i|do you want me to|if you(?:'d| would) like,\s*i can(?:\s+also)?|i can also|let me know if you(?:'d| would) like me to|happy to|i'd be happy to)\s+([^?.!\n]{6,96})[?.!]?/gi,
+  /(?:would you like|do you want)\s+(?:a|an|the|some|more)\s+([^?.!\n]{6,80})\?/gi,
+  /(?:next,\s*(?:we|i)\s+(?:can|could)|from here,\s*(?:we|i)\s+(?:can|could))\s+([^?.!\n]{6,92})[?.!]?/gi,
+];
+
+const STOP_HEADINGS_RE = /^(?:summary|overview|introduction|intro|conclusion|final thoughts|tl;?dr|answer|short answer|quick answer|steps|step\s*\d+.*|part\s*\d+.*|phase\s*\d+.*|option\s*\d+.*|approach\s*\d+.*|method\s*\d+.*|example|examples|options|pros|cons|pros\s*(?:&|and)\s*cons|trade-?offs|key\s+takeaways|takeaways|key\s+points|notes|note|details|result|results|output|code|solution|the\s+fix|root\s+cause|why\s+this\s+happens|how\s+it\s+works|how\s+to\s+use(?:\s+it)?|usage|comparison|table|background|context|prerequisites|requirements|installation|setup|configuration|next\s+steps|follow-?ups?|what\s+changed|changes|caveats|limitations|references|sources|verdict|recommendation|recommendations|bottom\s+line|in\s+short|breakdown|walkthrough|analysis|checklist|faq|questions|summary\s+table)$/i;
+
+const ACTION_VERB_START_RE = /^(?:add|apply|audit|benchmark|build|change|check|clean|compare|compile|configure|convert|create|debug|deploy|design|draft|explain|extract|find|fix|format|generate|give|group|help|implement|improve|include|inspect|install|integrate|investigate|list|make|map|merge|migrate|mock|move|optimize|outline|parse|plan|polish|prepare|profile|prove|refactor|remove|rename|replace|review|rewrite|run|scaffold|search|set\s+up|show|simplify|solve|split|summarize|switch|tailor|test|tighten|trace|translate|turn|update|upgrade|validate|verify|walk\s+through|write)\b/i;
+
+function normalizeOfferAction(raw, isNounOffer = false) {
+  if (!raw) return '';
+  let s = String(raw)
+    .replace(/\*\*|__|`/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '')
+    .replace(/^(?:to\s+|and\s+|also\s+)/i, '')
+    .replace(/\s+(?:for you|if you want|if you'd like|if needed|as well|next|now|instead|too)\s*$/i, '')
+    .replace(/[?.!,:;]+$/, '')
+    .trim();
+  if (!s) return '';
+  if (isNounOffer && !ACTION_VERB_START_RE.test(s)) {
+    s = `Give me a ${s}`;
+  }
+  s = s
+    .replace(/\bmy\b/gi, 'your')
+    .replace(/\byour\s+own\b/gi, 'my own');
+  if (s.length < 6 || s.length > 88) return '';
+  if (/^(?:it|this|that|them|something|anything|more|other)$/i.test(s)) return '';
+  return s[0].toUpperCase() + s.slice(1);
+}
+
+function extractReplyOffers(text) {
+  const offers = [];
+  const pushOffer = (cand) => {
+    if (!cand) return;
+    const low = cand.toLowerCase();
+    if (!offers.some((x) => x.toLowerCase() === low)) offers.push(cand);
+  };
+
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const tailText = lines.slice(-10).join('\n');
+
+  for (let pIdx = 0; pIdx < FOLLOWUP_OFFER_PATTERNS.length; pIdx++) {
+    const re = new RegExp(FOLLOWUP_OFFER_PATTERNS[pIdx].source, 'gi');
+    let m;
+    while ((m = re.exec(tailText))) {
+      const body = m[1].trim();
+      const isNoun = pIdx === 1;
+      const parts = body.split(/\s+or\s+(?=(?:add|build|compare|convert|create|debug|deploy|design|draft|explain|find|fix|generate|give|help|implement|improve|include|make|optimize|outline|plan|refactor|review|rewrite|run|set\s+up|show|simplify|summarize|tailor|test|turn|update|walk|write)\b)/i);
+      for (const part of parts) {
+        const clean = normalizeOfferAction(part.replace(/\s+or\s+.*$/i, ''), isNoun);
+        if (clean) pushOffer(clean);
+      }
+    }
+  }
+
+  // Check for a trailing "Next steps" / "If you'd like, I can:" bullet list
+  for (let i = Math.max(0, lines.length - 9); i < lines.length; i++) {
+    if (/(?:next steps|would you like me to|if you(?:'d| would) like,?\s*(?:i|we)\s*(?:can|could)|possible follow-?ups|want me to)\s*:$/i.test(lines[i])) {
+      for (let j = i + 1; j < lines.length && j <= i + 5; j++) {
+        const bm = /^(?:[-*•]|\d+[.)])\s+(.+)$/.exec(lines[j]);
+        if (!bm) break;
+        const clean = normalizeOfferAction(bm[1].split(/\s+[—–-]\s+/)[0]);
+        if (clean && ACTION_VERB_START_RE.test(clean)) pushOffer(clean);
+      }
+    }
+  }
+
+  return offers.slice(0, 3);
+}
+
+function cleanTopicCandidate(raw) {
+  if (!raw) return '';
+  let clean = String(raw)
+    .replace(/\*\*|__|`/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^[\d.)\s•*-]+/, '')
+    .replace(/^(?:the|a|an|this|that|these|those|my|our|your)\s+/i, '')
+    .replace(/\s+(?:in\s+detail|step\s+by\s+step|simply|for\s+beginners|with\s+examples?|overview|summary|guide|tutorial)$/i, '')
+    .replace(/[?.!,:;]+$/, '')
+    .trim();
+  if (clean.length < 3 || clean.length > 38) return '';
+  if (STOP_HEADINGS_RE.test(clean)) return '';
+  if (/^(?:how|what|why|when|where|which|who|can|could|should|would|is|are|do|does|did|will|please|help|tell|give|show|make|write|create|build|fix)\b/i.test(clean)) return '';
+  if (/\b(?:summary|overview|conclusion|takeaways|step\s+\d|option\s+\d|pros\s+and\s+cons)\b/i.test(clean)) return '';
+  return clean;
+}
+
+export function extractReplyTopic(text, uText) {
+  const candidates = [];
+  // 1. User question explicit topic ("explain X", "what is X", "how does X work", "about X")
+  const uPatterns = [
+    /(?:explain|what\s+is|what\s+are|what's|define|overview\s+of|guide\s+to|introduction\s+to|learn\s+about|tell\s+me\s+about|understand)\s+([a-zA-Z0-9][a-zA-Z0-9\s.+/#_-]{2,36}?)(?:\s+(?:and|or|in|for|with|to|from|vs|versus|work|works)\b|[?.!,;]|$)/i,
+    /(?:how\s+does|how\s+do|why\s+does|why\s+do|why\s+is)\s+([a-zA-Z0-9][a-zA-Z0-9\s.+/#_-]{2,34}?)\s+(?:work|happen|matter|differ|compare|behave|scale|fail)/i,
+    /(?:about|for|on|using|with)\s+([A-Z][a-zA-Z0-9.+/#_-]*(?:\s+[A-Za-z0-9.+/#_-]+){0,3})(?:[?.!,;]|$)/,
+  ];
+  for (const re of uPatterns) {
+    const m = re.exec(uText);
+    if (m && m[1]) candidates.push(m[1]);
+  }
+  // 2. Non-generic markdown headings in the assistant's reply
+  const hRe = /^#{1,3}\s+([^\n#*]{3,44})$/gm;
+  let hm;
+  while ((hm = hRe.exec(text))) {
+    candidates.push(hm[1]);
+  }
+  // 3. Inline code identifier or bold key term in the first paragraph
+  const firstPara = String(text || '').split(/\n{2,}/)[0] || '';
+  const b = /\*\*([^*\n`]{3,36})\*\*/.exec(firstPara);
+  if (b && b[1]) candidates.push(b[1]);
+
+  for (const raw of candidates) {
+    const clean = cleanTopicCandidate(raw);
+    if (clean) return clean;
+  }
+  return '';
+}
+
+function detectCodeBlockInfo(text) {
+  const re = /```([\w+-]*)\n([\s\S]+?)```/g;
+  const langs = [];
+  let totalLines = 0;
+  let hasTests = false;
+  let m;
+  while ((m = re.exec(text))) {
+    const lang = (m[1] || '').toLowerCase();
+    if (lang === 'deck' || lang === 'deck-patch' || lang === 'slides' || lang === 'eden-sheet') continue;
+    const body = m[2] || '';
+    if (lang) langs.push(lang);
+    totalLines += body.split('\n').length;
+    if (/\b(?:describe\(|it\(|test\(|assert|expect\(|pytest|unittest|#\[test\]|func\s+Test)/i.test(body)) {
+      hasTests = true;
+    }
+  }
+  if (!totalLines) return null;
+  const primaryLang = langs[0] || '';
+  const fnMatch = /\b(?:function|def|fn|func|class|interface|type|const)\s+([A-Za-z_]\w{2,30})\b/.exec(text);
+  return {
+    lang: primaryLang,
+    lines: totalLines,
+    hasTests,
+    symbol: fnMatch ? fnMatch[1] : '',
+  };
+}
+
+/** ChatGPT-style contextual follow-up suggestions for a finished assistant reply. */
+export function followUpSuggestions(c, node) {
+  if (!c || !node || node.role !== 'assistant' || node.streaming || node.error || node.finish === 'aborted') return [];
+  const rawText = withoutEssayBlocks(nodeText(node) || '').trim();
+  if (!rawText) return [];
+  // Eden Travel's own address (travel.js STANDALONE): next steps for the trip, not the chat's general ones
+  if (typeof document !== 'undefined' && document.body.classList.contains('travel-standalone')) {
+    const asked = new Set((c ? path(c) : []).filter((n) => n && n.role === 'user' && n.content).map((n) => String(n.content).trim().toLowerCase()));
+    const member = document.body.classList.contains('travel-member'); // on someone else's trip: suggesting, not booking
+    return (member ? ['Suggest a fix for what Eden noticed', 'Suggest a better order for this day', 'What should I pack for this trip?'] : ['Fix what Eden noticed on this trip', 'Find flights for this trip', 'Which of my cards should pay for each booking?', 'Book the stay and the activities']).filter((x) => !asked.has(x.toLowerCase())).slice(0, 3);
+  }
+  const cacheKey = `${node.doneAt || 0}:${rawText.length}`;
+  if (node._followUpsKey === cacheKey && Array.isArray(node._followUps)) return node._followUps;
+
+  const user = parentOf(c, node);
+  const uText = (user && user.content ? String(user.content) : '').trim();
+  const askedBefore = new Set(
+    (c ? path(c) : [])
+      .filter((n) => n && n.role === 'user' && n.content)
+      .map((n) => String(n.content).trim().toLowerCase()),
+  );
+
+  const out = [];
+  // 1. Explicit offers & next-step bullets from the assistant's reply
+  for (const offer of extractReplyOffers(rawText)) {
+    out.push(offer);
+  }
+
+  const topic = extractReplyTopic(rawText, uText);
+  const codeInfo = detectCodeBlockInfo(rawText);
+  const isDeckReply = /```[ \t]*(?:deck|deck-patch|slides)\b/i.test(rawText);
+  const isSheetReply = /```[ \t]*eden-sheet\b/i.test(rawText);
+
+  // 2. Domain-specific, high-signal recommendations
+  if (isDeckReply) {
+    out.push(
+      'Add a slide with a data chart and key metrics',
+      'Make the slides more visual with another diagram and image slide',
+      'Add an executive summary slide at the beginning',
+    );
+  } else if (isSheetReply) {
+    out.push(
+      'Add a summary KPI dashboard tab with charts',
+      'Add sensitivity analysis and scenario modeling formulas',
+      'Apply conditional formatting to highlight top and bottom performers',
+    );
+  } else if (c.kind === 'code') {
+    if (/\b(?:error|fail|bug|traceback|exception|broken)\b/i.test(rawText)) {
+      out.push(
+        'Fix the failing test or error and re-run to verify',
+        'Trace the root cause and check for similar bugs elsewhere',
+        'Add a regression test covering this failure case',
+      );
+    } else {
+      out.push(
+        'Run the test suite to verify these changes',
+        'Review the diff for edge cases or unintended regressions',
+        'Commit these changes with a clear commit message',
+      );
+    }
+  } else if (codeInfo) {
+    const sym = codeInfo.symbol ? ` \`${codeInfo.symbol}\`` : '';
+    if (/^(?:sql|postgres|postgresql|mysql|sqlite)$/i.test(codeInfo.lang)) {
+      out.push(
+        'Add indexes and explain the query execution plan',
+        'Rewrite this query to handle NULLs and edge cases safely',
+        'Show sample seed data and expected query output',
+      );
+    } else if (/^(?:html|css|scss|svg|jsx|tsx|vue|svelte)$/i.test(codeInfo.lang)) {
+      out.push(
+        'Make this responsive for mobile and dark mode',
+        'Improve keyboard accessibility, ARIA labels, and focus states',
+        'Polish the animations, spacing, and visual hierarchy',
+      );
+    } else if (/^(?:sh|bash|zsh|shell|dockerfile|yaml|yml|toml)$/i.test(codeInfo.lang)) {
+      out.push(
+        'Add error handling, dry-run mode, and clear status logs',
+        'Explain every flag and option used here',
+        'Harden this for production and security best practices',
+      );
+    } else if (/\b(?:error|bug|fix|traceback|exception|crash|undefined|null|nan)\b/i.test(uText)) {
+      out.push(
+        `Add a unit test to prevent this bug${sym} from regressing`,
+        'Are there other places where this same edge case could happen?',
+        'Walk through why the original code failed step by step',
+      );
+    } else {
+      if (!codeInfo.hasTests) {
+        out.push(`Write unit tests${sym} covering edge cases and failure modes`);
+      } else {
+        out.push('Add property-based or integration tests for tricky edge cases');
+      }
+      if (codeInfo.lines >= 12) {
+        out.push(`Refactor${sym} to be cleaner, more idiomatic, and easier to maintain`);
+      } else {
+        out.push('Show how to integrate this into a complete, runnable example');
+      }
+      out.push(
+        'What are the time/space complexity and performance bottlenecks here?',
+        `Walk through how${sym || ' this code'} works line by line`,
+      );
+    }
+  } else if (parseEmailDraft(rawText) || /\b(?:email|letter|reply|message|draft|slack|linkedin|outreach|memo)\b/i.test(uText)) {
+    out.push(
+      'Make it shorter, punchier, and more direct',
+      'Make the tone warmer and more conversational',
+      'Give me 2 alternative versions: one firmer, one softer',
+      'Draft a polite follow-up in case they don’t reply',
+    );
+  } else if (node.mode === 'research' || (node.citations && node.citations.length >= 2)) {
+    out.push(
+      topic ? `Summarize the key findings on ${topic} in 5 bullet points` : 'Summarize the key findings in 5 bullet points',
+      'What are the strongest counterarguments, limitations, or open questions?',
+      'Turn this into a one-page executive brief with recommendations',
+      'Compare the primary sources and where they disagree',
+    );
+  } else if (/\|[^\n]+\|\n\|[\s:|-]+\|/.test(rawText) || /\b(?:compare|vs\.?|versus|difference between|pros and cons|which is better)\b/i.test(uText)) {
+    out.push(
+      topic ? `Which option is best for ${topic} in practice, and why?` : 'Which option would you recommend for most people, and why?',
+      'Add a row comparing cost, learning curve, and long-term maintenance',
+      'Give me a concrete decision checklist to pick the right one',
+    );
+  } else if (/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\b(?:theorem|proof|equation|derivative|integral|matrix|probability|formula)\b/i.test(rawText)) {
+    out.push(
+      'Walk through a concrete numerical example step by step',
+      'Explain the intuition behind this formula in plain English',
+      'What are the key assumptions and when does this break down?',
+    );
+  } else if (/\b(?:plan|roadmap|schedule|strategy|architecture|migration|checklist|itinerary|curriculum)\b/i.test(uText)) {
+    out.push(
+      'Break Phase 1 down into concrete, actionable tasks for day one',
+      'What are the biggest risks or bottlenecks in this plan, and how do we mitigate them?',
+      'Turn this into a prioritized checklist with rough time estimates',
+    );
+  } else if (/\b(?:rewrite|edit|proofread|essay|article|blog|post|story|script|copy|headline|bio)\b/i.test(uText)) {
+    out.push(
+      'Tighten the prose and cut any filler words',
+      'Give me 3 stronger opening hooks for this piece',
+      'Adapt this for a more technical, executive audience',
+    );
+  } else if (topic) {
+    out.push(
+      `Walk through a concrete real-world example of ${topic}`,
+      `What are the most common pitfalls and misconceptions with ${topic}?`,
+      `Go deeper into how ${topic} works under the hood`,
+      `Summarize ${topic} into a quick mental model or cheat sheet`,
+    );
+  } else {
+    const wordCount = rawText.split(/\s+/).length;
+    if (wordCount > 220) {
+      out.push(
+        'Summarize the key takeaways in 3 concise bullet points',
+        'Turn this into a practical step-by-step action checklist',
+        'What are the main trade-offs or edge cases I should watch out for?',
+      );
+    } else {
+      out.push(
+        'Give me a concrete real-world example of this in action',
+        'Go deeper into the edge cases and trade-offs',
+        'Turn this into a quick step-by-step checklist',
+      );
+    }
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of out) {
+    const clean = String(item || '').trim();
+    if (!clean) continue;
+    const k = clean.toLowerCase();
+    if (seen.has(k) || askedBefore.has(k) || uText.toLowerCase() === k) continue;
+    seen.add(k);
+    unique.push(clean);
+    if (unique.length === 3) break;
+  }
+  node._followUpsKey = cacheKey;
+  node._followUps = unique;
+  return unique;
 }
 
 function sourceList(sources) {
@@ -439,11 +892,33 @@ function permCard(c, part, index) {
 /* ---------- empty state ---------- */
 
 export function emptyState(c, { onSuggest }) {
+  // Eden Travel's own address (travel.js STANDALONE): Ask Eden about the trip, nothing else
+  if (typeof document !== 'undefined' && document.body.classList.contains('travel-standalone')) {
+    // without Plus (travel.js sets travel-noplus from the server's answer): what Plus gives, and no suggestions that would fail
+    if (document.body.classList.contains('travel-noplus')) {
+      return el('div', { id: 'empty' }, el('h1', '', 'Eden Travel is part of Eden Plus'),
+        el('p', 'lead', 'With Plus, Ask Eden plans whole trips with you, checks every hour, price and travel time against its source, books flights and stays, and keeps watch while you travel.'));
+    }
+    const city = document.body.dataset.tripCity || ''; // the trip on show (travel.js paint)
+    // a trip shared with this person (travel.js member mode): read and suggest, never their own cards or bookings
+    if (document.body.classList.contains('travel-member')) {
+      const T = [['What’s the plan today?', `What’s on today on the ${city || ''} trip, and is anything running late?`], ['Suggest a change', `I’d like to suggest a change to the ${city || ''} trip: `], ['Weather', `What’s the weather for each day of the ${city || ''} trip?`], ['Getting around', `How do we get between the stops on today’s plan of the ${city || ''} trip?`]];
+      return el('div', { id: 'empty' }, el('h1', '', city ? `Plan ${city} together` : 'Plan together'),
+        el('p', 'lead', 'This trip is shared with you. Ask Eden about it, or suggest a change: it goes to the organiser, who decides.'),
+        el('div', 'sugg', ...T.map(([t, x]) => el('button', { type: 'button', onclick: () => onSuggest(x.replace(/ {2}/g, ' '), t) }, el('b', '', t), el('span', '', x.replace(/ {2}/g, ' '))))));
+    }
+    const TRIP = city
+      ? [['Fix my day', `Is anything on my ${city} trip closed or running late? Propose a fix`], ['Which card?', `Which of my cards earns the most on my ${city} bookings?`], ['Track my flight', `How is my flight for the ${city} trip doing right now?`], ['Find my bookings', `Find my ${city} bookings in my email and add them to the trip`]]
+      : [['Plan a trip', 'Plan a trip with me: where, when, who’s coming and the pace'], ['Find my bookings', 'Find my travel bookings in my email and make a trip from them'], ['Track a flight', 'Track a flight for me: I’ll give you the number'], ['Which card?', 'Which of my cards earns the most on flights and hotels?']];
+    return el('div', { id: 'empty' }, el('h1', '', city ? `Ask Eden about ${city}` : 'Where to next?'),
+      el('p', 'lead', city ? `Eden reads your ${city} trip and what was checked: hours, travel times and prices, each with its source. It proposes changes; nothing changes until you apply them.`
+        : 'Tell Eden where and when. Every hour, price and travel time it gives you shows what it was checked against, and nothing is booked until you say so.'),
+      el('div', 'sugg', ...TRIP.map(([t, x]) => el('button', { type: 'button', onclick: () => onSuggest(x, t) }, el('b', '', t), el('span', '', x)))));
+  }
   const meta = state.meta;
   const code = c && c.kind === 'code';
   const p = c && persona(c.personaId);
   const box = el('div', { id: 'empty' },
-    el('div', 'orb', ''),
     el('h1', p && !code ? { 'data-no-i18n': '' } : '', code ? `Code in ${c.project ? c.project.name : 'a project'}` : p ? p.name : 'What can I help with?'),
     el('p', 'lead', code ? 'Eden plans, reads, edits and runs commands in this project through Claude Code. Approvals show here.'
       : c && c.temp ? 'Temporary chat: nothing is saved. Each message is routed to the best model for it.'

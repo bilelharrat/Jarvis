@@ -29,10 +29,11 @@ export function providerGlyph(id, name) {
  */
 export function keyStatus(p, k, hosted) {
   const key = k || {};
+  const fbText = key.fallbackCount > 0 ? ` · ${key.fallbackCount} backup key${key.fallbackCount === 1 ? '' : 's'} ready` : '';
   if (key.set) {
-    if (key.source === 'env') return { pill: 'Environment', tone: 'env', detail: 'Set in the environment; it wins over a saved key.' };
-    if (key.source === 'account') return { pill: 'Using your key', tone: 'own', detail: `····${key.last4 || ''}${key.added ? ` · added ${new Date(key.added).toLocaleDateString(globalThis.document && document.documentElement.lang === 'fr' ? 'fr-FR' : undefined)}` : ''}`.trim() };
-    return { pill: 'Using your key', tone: 'own', detail: 'Saved on this Mac' };
+    if (key.source === 'env') return { pill: 'Environment', tone: 'env', detail: `Set in the environment${key.hint ? ` (${key.hint})` : ''}${fbText}; it wins over a saved key.` };
+    if (key.source === 'account') return { pill: 'Using your key', tone: 'own', detail: `····${key.last4 || ''}${key.added ? ` · added ${new Date(key.added).toLocaleDateString(globalThis.document && document.documentElement.lang === 'fr' ? 'fr-FR' : undefined)}` : ''}${fbText}`.trim() };
+    return { pill: 'Using your key', tone: 'own', detail: `${key.hint ? `${key.hint} · ` : ''}Saved on this Mac${fbText}` };
   }
   if (hosted) return p && p.available ? { pill: 'Included AI', tone: 'included', detail: 'Chats use your plan’s included AI until you add a key.' } : { pill: 'Not set', tone: 'off', detail: 'Add a key to use these models.' };
   if (p && p.id === 'anthropic' && p.available) return { pill: 'Subscription', tone: 'sub', detail: 'No key needed: Claude works through your Claude Code subscription.' };

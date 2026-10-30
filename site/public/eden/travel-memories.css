@@ -1,0 +1,87 @@
+/* Memories (travel-memories.js): the route, the day-by-day reel, the numbers, sharing, and the book (@media print).
+   Eden Glass accent for UI; day colours as the journey map; Travel gold stays on the logo, never here. */
+.tvm-root{display:flex;flex-direction:column;gap:16px}
+.tvm-head{padding:8px 4px 0}
+.tvm-back{display:flex;width:max-content;margin:0 0 12px -4px}
+.tvm-title{font:700 clamp(28px,4.4vw,40px)/1.1 -apple-system,"SF Pro Display",system-ui,sans-serif;letter-spacing:-.02em;margin:6px 0 4px;color:var(--text)}
+.tvm-dates{margin:0;color:var(--text2);font-size:15px}
+.tvm-card{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.tvm-card-title{display:block;font-size:17px;margin:4px 0 2px;color:var(--text)}
+
+.tvm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px 18px}
+.tvm-stat{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tvm-stat b{font:700 26px/1.1 -apple-system,"SF Pro Display",system-ui,sans-serif;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.tvm-stat span{font-size:13px;color:var(--text2)}
+.tvm-stat small{font-size:11.5px;color:var(--text3)}
+.tvm-span{grid-column:1/-1}
+
+.tvm-map .tv-mapimg{border-radius:14px;overflow:hidden}
+.tvm-legend{display:flex;flex-wrap:wrap;gap:6px 14px;list-style:none;margin:10px 0 0;padding:0;font-size:12.5px;color:var(--text2)}
+.tvm-legend li{display:inline-flex;align-items:center;gap:6px}
+.tvm-legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.tvm-legend i.tvm-sq{border-radius:3px;background:#fff;box-shadow:inset 0 0 0 2px var(--text2)}
+
+.tvm-day{padding:4px 2px 8px;border-top:1px solid var(--hairline)}
+.tvm-day-head{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 10px;margin:14px 0 10px}
+.tvm-day-head h3{grid-column:2;margin:0;font-size:20px;letter-spacing:-.01em;color:var(--text)}
+.tvm-day-head small{grid-column:2}
+.tvm-dot{width:10px;height:10px;border-radius:50%;background:var(--day)}
+
+/* the reel: one wide cover, then a row that scrolls and snaps (no autoplay, no loop) */
+.tvm-reel{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(150px,30%);grid-template-rows:auto;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px;margin-bottom:10px;-webkit-overflow-scrolling:touch}
+.tvm-reel .tvm-ph.cover{grid-column:span 2}
+.tvm-ph{position:relative;display:block;padding:0;border:0;border-radius:14px;overflow:hidden;background:rgba(120,120,128,.12);aspect-ratio:4/3;cursor:zoom-in;scroll-snap-align:start}
+.tvm-ph img{width:100%;height:100%;object-fit:cover;display:block}
+.tvm-ph:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.tvm-unplaced{position:absolute;left:8px;bottom:8px;font-size:11px;padding:2px 7px;border-radius:999px;color:#fff;background:rgba(0,0,0,.5)}
+@media (prefers-reduced-motion:no-preference){
+  html.eden-motion .tvm-ph{transition:transform var(--dur-2,220ms) var(--ease-snappy,cubic-bezier(.32,.72,0,1))}
+  html.eden-motion .tvm-ph:hover{transform:translateY(-2px)}
+  html.eden-motion .tvm-ph:active{transform:scale(.98)}
+  #travelPane.tv-enter .tvm-ph{animation:tvm-in var(--dur-3,360ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1)) both;animation-delay:calc(var(--i,0) * var(--stagger,35ms))}
+  .tvm-reel{scroll-behavior:smooth}
+}
+@keyframes tvm-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.tvm-stops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tvm-stops li{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:14px}
+.tvm-at{font-variant-numeric:tabular-nums;color:var(--text3);min-width:42px}
+.tvm-name{color:var(--text)}
+.tvm-status{font-size:11.5px;padding:1px 8px;border-radius:999px;color:var(--text2);background:rgba(120,120,128,.12)}
+.tvm-status.booked{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+
+.tvm-undated-list{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.tvm-undated-list li{display:flex;flex-direction:column;gap:6px}
+
+.tvm-share{display:flex;align-items:flex-start;gap:12px;margin-top:14px;cursor:pointer}
+.tvm-share input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent)}
+.tvm-share span{display:flex;flex-direction:column;gap:2px}
+.tvm-share small{color:var(--text3);font-size:12px}
+.tv-btn.busy{opacity:.7;pointer-events:none}
+
+/* one photo, full, over everything */
+.tvm-light{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:56px 16px 16px;background:rgba(0,0,0,.86);outline:none}
+.tvm-light figure{margin:0;max-width:min(1100px,100%);max-height:100%;display:flex;flex-direction:column;gap:10px}
+.tvm-light img{max-width:100%;max-height:72vh;object-fit:contain;border-radius:12px}
+.tvm-light figcaption{display:flex;flex-direction:column;gap:4px;color:#fff}
+.tvm-light figcaption .tv-fine{color:rgba(255,255,255,.7)}
+.tvm-light .tv-input{min-width:200px;flex:1}
+.tvm-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;border-radius:50%;font-size:28px;line-height:1;color:#fff;background:rgba(255,255,255,.14);cursor:pointer}
+.tvm-nav.prev{left:12px}.tvm-nav.next{right:12px}
+.tvm-close{position:fixed;top:12px;right:12px;color:#fff}
+@media (max-width:640px){.tvm-reel{grid-auto-columns:minmax(130px,70%)}.tvm-nav{top:auto;bottom:16px;transform:none}}
+
+/* the book: only the memories, a day to a page, photos in a grid, nothing interactive */
+@media print{
+  html.tvm-printing body *{visibility:hidden}
+  html.tvm-printing .tvm-root,html.tvm-printing .tvm-root *{visibility:visible}
+  html.tvm-printing .tvm-root{position:absolute;left:0;top:0;width:100%;color:#000}
+  html.tvm-printing .tvm-tools,html.tvm-printing .tvm-back,html.tvm-printing .tvm-light,html.tvm-printing .tvm-undated select,html.tvm-printing .tvm-unplaced{display:none!important}
+  html.tvm-printing .glass-card{background:none;box-shadow:none;border:0;backdrop-filter:none;-webkit-backdrop-filter:none;padding:0}
+  html.tvm-printing .tvm-head{break-after:page;padding-top:30vh;text-align:center}
+  html.tvm-printing .tvm-day{break-before:page;border:0}
+  html.tvm-printing .tvm-reel{display:grid;grid-auto-flow:row;grid-template-columns:repeat(3,1fr);overflow:visible}
+  html.tvm-printing .tvm-reel .tvm-ph.cover{grid-column:1/-1;aspect-ratio:16/9}
+  html.tvm-printing .tvm-ph{break-inside:avoid;animation:none;transform:none}
+  html.tvm-printing .tvm-title,html.tvm-printing .tvm-day-head h3,html.tvm-printing .tvm-name,html.tvm-printing .tvm-stat b{color:#000}
+}

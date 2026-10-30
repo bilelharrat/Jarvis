@@ -7,10 +7,12 @@
 (function loadFeatures() {
   const PANE_SCRIPTS = /\/features\/(code[-_][\w-]*)\.js(\?|$)/;
   const paneOnly = typeof inSplitPane !== 'undefined' && inSplitPane;
+  const stem = (href) => (/\/features\/([\w-]+)\.(?:js|css)(\?|$)/.exec(href) || [])[1] || '';
   fetch('/features.json', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : {}))
     .then(({ scripts = [], styles = [] } = {}) => {
-      for (const href of styles) {
+      const skipped = new Set(paneOnly ? scripts.filter((src) => !PANE_SCRIPTS.test(src)).map(stem) : []);
+      for (const href of styles.filter((h) => !skipped.has(stem(h)))) {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
         link.href = href;

@@ -478,7 +478,7 @@ test('a task from a sentence: the model proposes, nothing is saved until the own
   assert.deepEqual(proposal.actions, ['notify', 'draft']);
   assert.deepEqual(problems, []);
   assert.ok(costUSD > 0);
-  assert.equal(world.models[0].model, 'claude-haiku-4-5', 'a cheap model');
+  assert.equal(world.models[0].model, 'gemini-3.8-flash', 'a cheap model');
   assert.equal(world.models[0].output_config.format.type, 'json_schema', 'a strict output form');
   assert.equal((await account.storage.list({ prefix: 'task:' })).size, 0, 'nothing saved');
   assert.ok((await account.storage.get('usage')).trial_spent > 0, 'the proposal is counted');
@@ -505,7 +505,7 @@ test('a task run: the mail goes to the model as untrusted data, a draft is writt
   await account.alarm();
   // What the model saw.
   const sent = world.models[0];
-  assert.equal(sent.model, 'claude-haiku-4-5');
+  assert.equal(sent.model, 'gemini-3.8-flash');
   const user = sent.messages[0].content;
   const boundary = /<<<EDEN_UNTRUSTED b=([0-9a-f]{24}) id=S1 kind=mail>>>/.exec(user)[1];
   assert.match(sent.system, new RegExp(`b=${boundary} is new for this run`));

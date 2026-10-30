@@ -1,0 +1,13 @@
+# DEV ONLY: `wrangler dev --local` for test/deck-room-dev/e2e.mjs. Not a deploy config (no routes, its own name).
+name = "deck-room-dev-local-only"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+[[durable_objects.bindings]]
+name = "DECK_ROOMS"
+class_name = "DeckRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeckRoom"]

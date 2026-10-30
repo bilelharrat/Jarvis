@@ -41,12 +41,13 @@ export function routeSettings() {
   const provs = availableProviders();
   return {
     level: s.level, efficiency: s.efficiency, performance: s.performance,
-    providers: provs,
+    ...(state.meta ? { providers: provs } : {}),
     classifier: classifierUsable() ? s.classifier : 'off',
     subscriptionClaude: !!s.subscriptionClaude,
+    ...(s.evesModel ? { evesModel: s.evesModel } : {}),
   };
 }
-export function settingsSig() { const r = routeSettings(); return JSON.stringify([r.level, r.efficiency, r.performance, r.providers, r.classifier, r.subscriptionClaude]); }
+export function settingsSig() { const r = routeSettings(); return JSON.stringify([r.level, r.efficiency, r.performance, r.providers, r.classifier, r.subscriptionClaude, r.evesModel]); }
 function classifierUsable() { return !state.meta || !state.meta.classifier || state.meta.classifier.available !== false; }
 
 export function currentOverride() {

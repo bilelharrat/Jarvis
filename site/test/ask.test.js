@@ -329,7 +329,7 @@ test('an ask streams Eden’s answer as text, on the included AI, held then bill
 
   const { payload, headers } = sent[0];
   assert.equal(headers['x-api-key'], 'sk-test');
-  assert.equal(payload.model, 'claude-sonnet-5-5');
+  assert.equal(payload.model, 'gemini-3.8-flash');
   assert.equal(payload.max_tokens, ASK.answerTokens);
   assert.equal(payload.stream, true);
   assert.ok(!payload.tools, 'no tools: an ask only reads what it was sent');
@@ -402,11 +402,11 @@ test('no allowance left: 402 before Claude; Claude failing: 502, nothing billed,
 
 test('rate limits and the Eden-on-the-web allow-list apply to asks', async () => {
   const { owner, access_token } = await connected();
-  env.EDEN_RATE = rateLimiter(1);
+  env.USER_RATE = rateLimiter(1); // a signed-in person's actions (USER_RATE: a ceiling against scripts only)
   assert.equal((await askEden(access_token)).status, 200);
   assert.equal((await askEden(access_token)).status, 429);
-  assert.deepEqual(env.EDEN_RATE.keys, [`ask:${owner.account.id}`, `ask:${owner.account.id}`]);
-  env.EDEN_RATE = rateLimiter(100);
+  assert.deepEqual(env.USER_RATE.keys, [`ask:${owner.account.id}`, `ask:${owner.account.id}`]);
+  env.USER_RATE = rateLimiter(100);
   env.EDEN_ACCOUNTS = '00000000-0000-8000-8000-000000000000';
   assert.equal((await askEden(access_token)).status, 403);
 });

@@ -9,12 +9,12 @@
 
 .deck.jc .jc-main > .cs-board {
   position: absolute;
-  inset: 12px 12px 12px 0;
+  inset: 0;
   z-index: 50;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 20px;
+  border-radius: 18px;
   background: var(--bg);
   backdrop-filter: blur(40px) saturate(190%);
   -webkit-backdrop-filter: blur(40px) saturate(190%);
@@ -22,7 +22,7 @@
   box-shadow: inset 0 1px 0 var(--rim), 0 20px 50px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
-body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
+body.in-app .deck.jc .jc-main > .cs-board { inset: 0; }
 .deck.jc .jc-main > .cs-board[hidden] { display: none; }
 .deck.jc.cs-board-on .jc-toolbar, .deck.jc.cs-board-on .jc-body, .deck.jc.cs-board-on .jc-dock { visibility: hidden; }
 .jc-icon.cs-board-btn[aria-pressed="true"] { background: rgb(var(--c-accent, 0 122 255) / 0.14); color: rgb(var(--c-accent-ink, 0 122 255)); }
@@ -58,22 +58,20 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
   position: relative;
   width: 100%;
   height: 100%;
-  padding: 12px 14px 18px;
+  padding: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-.cs-board .mockup-switcher {
-  flex-shrink: 0;
-  margin-bottom: 2px;
+  gap: 0;
+  overflow: hidden;
 }
 .cs-board .eden-window {
   flex: 1;
   min-height: 0;
   height: auto;
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
 }
 
 
@@ -242,10 +240,9 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
     --clear-shadow: 0 10px 30px -14px rgb(0 0 0 / 0.14);
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  .cs-board *, .cs-board *::before, .cs-board *::after { box-sizing: border-box; }
 
-  html, body {
-    height: 100%;
+  .cs-board {
     font-family: var(--font-sans);
     color: var(--text);
     background-color: var(--bg-deep);
@@ -255,8 +252,8 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
       radial-gradient(540px 460px at 75% 16%, var(--wash-3), transparent 65%),
       radial-gradient(480px 420px at 22% 88%, var(--wash-4), transparent 65%);
     -webkit-font-smoothing: antialiased;
-    overflow: hidden;
   }
+  .cs-board[hidden] { display: none !important; }
 
   .skip-link {
     position: absolute;
@@ -283,37 +280,36 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
   .stage {
     width: 100%;
     height: 100%;
-    padding: 10px 12px;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0;
+    overflow: hidden;
   }
 
-  /* ── Top Mockup Switcher Bar ── */
-  .mockup-switcher {
-    display: flex;
+  /* ==========================================================================
+     OPTION A: MACOS TAHOE UNIFIED 48PX TOOLBAR & APPLE SEGMENTED CONTROL
+     ========================================================================== */
+  .tahoe-toolbar {
+    height: 48px;
+    padding: 0 14px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
-    padding: 6px 12px;
-    border-radius: 999px;
+    border-bottom: 1px solid var(--hairline);
     background: var(--glass2);
-    backdrop-filter: blur(30px) saturate(180%);
-    -webkit-backdrop-filter: blur(30px) saturate(180%);
-    border: 1px solid var(--hairline);
-    box-shadow: inset 0 1px 0 var(--rim), var(--sh-card);
-    font-size: 12px;
-    color: var(--text2);
+    backdrop-filter: blur(36px) saturate(185%);
+    -webkit-backdrop-filter: blur(36px) saturate(185%);
+    box-shadow: inset 0 1px 0 var(--rim);
     flex-shrink: 0;
-    flex-wrap: wrap;
+    z-index: 10;
   }
-  .switcher-brand {
+  .tahoe-left {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--text);
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    min-width: 0;
   }
   .eden-tile {
     width: 22px;
@@ -326,74 +322,152 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
     flex-shrink: 0;
   }
-  .eden-tile svg { width: 15px; height: 15px; }
+  .eden-tile svg { width: 14px; height: 14px; }
   .coral-dash {
     display: inline-block;
-    width: 7px;
-    height: 2.5px;
+    width: 6px;
+    height: 2px;
     border-radius: 2px;
     background: #d9604f;
-    margin-left: 2px;
-    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  .tahoe-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .branch-chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--glass-pill);
+    border: 1px solid var(--hairline);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .switcher-tabs {
-    display: flex;
+  /* Apple Tahoe Segmented Control */
+  .tahoe-segmented {
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
-    background: var(--glass-pill);
     padding: 3px;
-    border-radius: 999px;
-    border: 1px solid var(--hairline);
+    border-radius: 9px;
+    background: rgba(0, 0, 0, 0.28);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+    border: 0.5px solid var(--hairline);
+    gap: 2px;
   }
-  .mockup-tab {
+  .tahoe-seg-btn {
     border: 0;
     background: transparent;
     color: var(--text2);
-    font-size: 11.5px;
-    font-weight: 550;
-    padding: 5px 12px;
-    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 7px;
     cursor: pointer;
-    transition: all 160ms var(--ease-spring);
+    transition: all 140ms var(--ease-spring);
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    white-space: nowrap;
   }
-  .mockup-tab:hover { color: var(--text); }
-  .mockup-tab.active {
-    background: var(--accent);
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(10, 132, 255, 0.32);
+  .tahoe-seg-btn:hover { color: var(--text); }
+  .tahoe-seg-btn.active {
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 0.5px 0 rgba(255, 255, 255, 0.22);
   }
-  .tab-num {
+  .tahoe-badge {
     font-family: var(--font-mono);
     font-size: 10px;
-    opacity: 0.8;
+    padding: 1px 5px;
+    border-radius: 99px;
+    background: rgba(10, 132, 255, 0.26);
+    color: #64b5ff;
   }
 
-  .switcher-actions {
+  /* Right Tools + Circular Close */
+  .tahoe-right {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 6px;
   }
-  .pill-toggle {
+  .tahoe-action-btn {
+    height: 28px;
+    min-width: 28px;
+    padding: 0 9px;
+    border-radius: 7px;
     border: 1px solid var(--hairline);
     background: var(--glass-pill);
-    color: var(--text);
-    font-size: 11px;
-    font-weight: 550;
-    padding: 4px 10px;
-    border-radius: 999px;
+    color: var(--text2);
+    font-size: 11.5px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
     cursor: pointer;
-    box-shadow: inset 0 1px 0 var(--rim);
-    transition: transform 150ms var(--ease-spring), background 150ms var(--ease-spring);
+    transition: all 140ms var(--ease-spring);
   }
-  .pill-toggle:hover { background: var(--glass-card-hover); }
-  .pill-toggle[aria-pressed="true"] {
-    background: var(--accent-soft);
-    border-color: var(--accent);
-    color: var(--accent);
+  .tahoe-action-btn:hover {
+    background: var(--glass-card-hover);
+    color: var(--text);
+  }
+  .tahoe-action-btn kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    opacity: 0.75;
+  }
+  .tahoe-close-circle {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--hairline);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 140ms var(--ease-spring);
+  }
+  .tahoe-close-circle:hover {
+    background: rgba(255, 69, 58, 0.22);
+    color: #ff6961;
+    border-color: rgba(255, 69, 58, 0.45);
+  }
+
+  /* ── Slim 38px Sub-strip (Filters + EVES Telemetry) ── */
+  .tahoe-substrip {
+    height: 38px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--hairline);
+    background: rgba(0, 0, 0, 0.16);
+    flex-shrink: 0;
+    font-size: 11.5px;
+  }
+  .substrip-left, .substrip-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .substrip-sep {
+    color: var(--text3);
+    font-size: 12px;
   }
 
   /* ── Main Eden Code App Window ── */
@@ -401,13 +475,13 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: 232px 1fr;
-    border-radius: var(--r-lg);
+    grid-template-columns: 1fr;
+    border-radius: 0;
     background: var(--glass-window);
     backdrop-filter: blur(36px) saturate(185%);
     -webkit-backdrop-filter: blur(36px) saturate(185%);
-    border: 1px solid var(--hairline);
-    box-shadow: inset 0 1px 0 var(--rim), var(--sh-float);
+    border: 0;
+    box-shadow: inset 0 1px 0 var(--rim);
     overflow: hidden;
   }
 
@@ -585,58 +659,7 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
     min-height: 0;
   }
 
-  .workspace-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--hairline);
-    background: var(--glass);
-    backdrop-filter: blur(30px) saturate(180%);
-    -webkit-backdrop-filter: blur(30px) saturate(180%);
-    flex-shrink: 0;
-  }
-  .workspace-title-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-  .workspace-title-group h1 {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.015em;
-    color: var(--text);
-    white-space: nowrap;
-  }
-  .branch-chip {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text2);
-    padding: 2px 8px;
-    border-radius: var(--r-sm);
-    background: var(--glass-pill);
-    border: 1px solid var(--hairline);
-  }
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  /* ── Dataviz Filter Row: ONE row above everything it scopes (interaction.md) ── */
-  .filter-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--hairline-subtle);
-    background: rgba(255, 255, 255, 0.02);
-    flex-shrink: 0;
-    flex-wrap: wrap;
-  }
+  /* ── Dataviz Range Pills & Select (used in substrip & tables) ── */
   .filter-group {
     display: flex;
     align-items: center;

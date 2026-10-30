@@ -1,3 +1,32 @@
+/* .deck-editor is built only by the !IN_APP toolbar. An open tool panel is a compact tray in the flow: the stage
+   shrinks and the live slide rescales, so it stays whole and visible while you pick a theme or layout. */
+/* One row of controls when it fits (Add slide, Present, then the tool disclosures); they wrap when narrow. */
+.deck-editor{position:relative;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:none;min-height:0;padding:8px 10px;background:var(--content)}
+.deck-editor .deck-core{flex-wrap:wrap;overflow:visible;border:0;padding:0}
+.deck-tools{display:flex;flex:none;flex-wrap:wrap;gap:6px;padding:0}
+.deck-disclosure{cursor:pointer;border:1px solid var(--hairline);border-radius:14px;padding:9px 14px;min-height:40px;box-sizing:border-box;font:inherit;font-size:13px;color:var(--text);background:var(--content2)}
+.deck-disclosure::after{content:' ▾'}
+.deck-disclosure[aria-expanded="true"]{border-color:var(--accent)}
+.deck-tool-panels{flex:none;flex-basis:100%;margin:2px -10px -8px;max-height:min(232px,34dvh);min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 10px 8px;background:var(--content);border-bottom:1px solid var(--hairline)}
+.deck-tool-content{padding:8px;border:1px solid var(--hairline);border-radius:14px;background:var(--content2);display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.deck-tool-panels[hidden],.deck-tool-content[hidden]{display:none}
+.deck-tool-content h4,.deck-tool-content p{flex-basis:100%;margin:0;font-size:12px;color:var(--text)}
+.deck-tool-content p{color:var(--text2);line-height:1.4}
+.deck-tool-content h4 small{font-weight:400;color:var(--text2)}
+/* Theme and layout choices: one row each that scrolls sideways, so the tray stays short at any width. */
+.deck-choices{display:flex;gap:6px;width:100%;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding:2px;margin:-2px;scrollbar-width:thin}
+.deck-choice{flex:none;width:92px;display:flex;flex-direction:column;align-items:stretch;gap:4px;text-align:left;padding:5px;border:1px solid var(--hairline);border-radius:9px;background:var(--content);color:var(--text);font:inherit;font-size:11px;line-height:1.25;cursor:pointer;min-height:40px;scroll-snap-align:start;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-choice[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:-2px}
+.deck-swatch{display:flex;align-items:center;justify-content:space-between;padding:4px 7px;border-left:4px solid;border-radius:6px;font-size:15px;font-weight:600}
+.deck-swatch>span{width:12px;height:12px;border-radius:50%}
+.deck-layout-icon{font-size:15px;color:var(--accent);padding:0 2px;letter-spacing:2px}
+.deck-tool-head{display:flex;align-items:center;gap:8px;width:100%}
+.deck-tool-head h4{flex:1 1 auto;min-width:0}
+.deck-tool-head p{flex:1 1 auto;min-width:0}.deck-tool-head .cap{flex:none}
+.deck-tool-head .deck-theme{flex:0 1 auto;width:auto;max-width:min(220px,55%)}
+@media (max-height:700px){.deck-choice{flex-direction:row;align-items:center;width:auto;max-width:150px;gap:6px}.deck-swatch{font-size:13px;gap:5px;padding:3px 6px}}
+.deck-editor button,.deck-editor select{min-height:40px}
+.deck-editor :is(button,summary,select):focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 /* Slide decks in the canvas (ROADMAP Q14, deck.js). The slides themselves are styled inside their
    sandboxed frame (deck-render.js); this is Eden's toolbar around them. */
 #artPreview:has(.deck-stage){display:flex;flex-direction:column;overflow:hidden}
@@ -14,10 +43,290 @@
 .deck-stage .deck-frame{width:100%;height:100%;border:0;display:block;background:transparent}
 .deck-stage:fullscreen{background:#000}
 .deck-stage.deck-full{position:fixed;inset:0;z-index:1000;background:#000}
-.deck-exit{position:absolute;top:max(10px,env(safe-area-inset-top));right:10px;z-index:2;display:flex;align-items:center;gap:4px;font:600 13px -apple-system,system-ui,sans-serif;color:#fff;background:rgba(30,32,40,.7);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:6px 12px;cursor:pointer;backdrop-filter:blur(12px)}
+.deck-exit{position:absolute;top:max(10px,env(safe-area-inset-top));right:10px;z-index:2;display:flex;align-items:center;gap:4px;font:600 13px -apple-system,system-ui,sans-serif;color:#fff;background:rgba(30,32,40,.7);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:6px 12px;cursor:pointer;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 .deck-exit[hidden]{display:none}
 .deck-empty{max-width:520px;margin:48px auto;padding:0 20px;text-align:center;color:var(--text2);font-size:14px;line-height:1.5}
 .deck-empty h3{color:var(--text);font-size:18px;margin:0 0 8px}
 .deck-empty-acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}
 .artlink.deck-link.bad .ic{color:var(--warn,#c2410c)}
-@media (max-width:640px){.deck-bar{padding:6px 8px}.deck-empty{margin-top:24px}}
+.artlink.deck-link.has-stage{flex-direction:column;align-items:stretch;padding:10px;gap:10px;border-radius:18px}
+.artlink.deck-link .dc-bar{display:flex;align-items:center;gap:10px;width:100%}
+.dc-stage{border-radius:14px;padding:16px 18px;background:radial-gradient(65% 80% at 12% 10%,color-mix(in srgb,var(--dc-ac) 24%,transparent),transparent 70%),radial-gradient(60% 70% at 90% 90%,color-mix(in srgb,var(--dc-ac2) 22%,transparent),transparent 70%),linear-gradient(135deg,var(--dc-bg),var(--dc-bg2));color:var(--dc-fg);cursor:pointer;border:1px solid color-mix(in srgb,var(--dc-mu) 24%,transparent);box-shadow:0 8px 24px rgba(0,0,0,.12);transition:transform .16s ease,box-shadow .16s ease}
+.dc-stage:hover{transform:translateY(-1px);box-shadow:0 12px 30px rgba(0,0,0,.18)}
+.dc-cover{display:flex;align-items:center;gap:16px;min-height:94px}
+.dc-cover-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.dc-kicker{align-self:flex-start;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--dc-ac);background:color-mix(in srgb,var(--dc-ac) 15%,transparent);padding:2px 8px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dc-ac) 30%,transparent)}
+.dc-title{font-size:17px;font-weight:800;line-height:1.18;letter-spacing:-.02em;color:var(--dc-fg);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dc-sub{font-size:12.5px;line-height:1.35;color:var(--dc-mu);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dc-cover-pic{width:124px;height:78px;border-radius:10px;overflow:hidden;flex:none;box-shadow:0 6px 16px rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.22)}
+.dc-cover-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.dc-strip{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--dc-mu) 18%,transparent)}
+.dc-pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dc-fg) 8%,transparent);color:var(--dc-fg);max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dc-pill.dc-more{color:var(--dc-ac);font-weight:700}
+@media (max-width:640px){.deck-bar{padding:6px 8px}.deck-empty{margin-top:24px}.dc-cover-pic{width:92px;height:62px}}
+/* Web only (deck-card.js adds .deck-web outside the iPhone app): the card follows its own width, so a narrow
+   center column beside the canvas never breaks a word mid-way or squeezes the title beside the picture. */
+.deck-link.deck-web{container-type:inline-size}
+.deck-link.deck-web .dc-kicker{max-width:100%;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-link.deck-web :is(.dc-title,.dc-sub,.dc-bar b){overflow-wrap:normal;word-break:normal}
+.deck-link.deck-web .dc-bar{flex-wrap:wrap}
+.deck-link.deck-web .dc-bar .grow span{color:var(--text2)} /* AA on light: --text3 was 3.4:1 */
+@container (max-width:360px){
+  .deck-link.deck-web .dc-stage{padding:12px 14px}
+  .deck-link.deck-web .dc-cover{flex-direction:column-reverse;align-items:stretch;gap:10px;min-height:0}
+  .deck-link.deck-web .dc-cover-pic{width:100%;height:auto;aspect-ratio:16/7}
+  .deck-link.deck-web .dc-title{font-size:15px;-webkit-line-clamp:3}
+  .deck-link.deck-web .dc-strip{margin-top:10px;padding-top:8px}
+  .deck-link.deck-web .dc-pill{max-width:100%}
+  .deck-link.deck-web .dc-bar .grow{flex:1 1 calc(100% - 36px)}
+  .deck-link.deck-web .dc-bar .cap{flex:1 1 auto;justify-content:center}
+}
+@container (max-width:240px){.deck-link.deck-web .dc-pill:nth-child(n+3):not(.dc-more){display:none}}
+@media (prefers-reduced-motion:reduce){.deck-web .dc-stage,.deck-web .dc-stage:hover{transition:none;transform:none}.deck-choices{scroll-behavior:auto}}
+
+/* Brand kits (deck-brand.js, web only): a row of kits in the Design tray, the logo's corner and size, and the kit
+   editor dialog. Follows the tray: 9px choices, 40px targets, Eden Glass tokens. */
+.deck-brand{display:flex;flex-direction:column;gap:6px;width:100%}
+.deck-brand .deck-choice[data-key^="logo"]{width:auto;flex-direction:row;align-items:center;gap:6px;padding:5px 9px}
+.deck-brand-dots{display:flex;gap:3px}.deck-brand-dots>span{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--hairline)}
+.deck-brand-label{align-self:center;flex:none;font-size:11px;font-weight:600;color:var(--text2);padding-right:2px}
+.deck-brand-hint{font-size:11px;color:var(--text2);margin:0}
+.deck-brand-note{font-weight:400;color:var(--text2);min-height:1.3em}
+.deck-brand-dialog .deck-brand-hint{margin:-2px 0 8px;font-size:12px;line-height:1.4}
+.deck-brand-dialog{position:fixed;inset:0;margin:auto;height:fit-content;width:min(560px,calc(100vw - 32px));max-height:min(86dvh,760px);overflow:auto;border:none;border-radius:20px;padding:18px 20px;background:var(--content);color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.16)}
+.deck-brand-dialog::backdrop{background:rgba(0,0,0,.28);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.deck-brand-dialog h3{margin:0 0 10px;font-size:17px}.deck-brand-dialog h4{margin:14px 0 6px;font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em}
+.deck-brand-dialog input[type="text"],.deck-brand-dialog select{font:inherit;font-size:13px;min-height:36px;padding:4px 8px;border:1px solid var(--hairline);border-radius:9px;background:var(--content2);color:var(--text)}
+.deck-brand-name{width:100%;font-size:15px!important}
+.deck-brand-palette{display:flex;flex-direction:column;gap:6px}
+.deck-brand-color{display:flex;align-items:center;gap:6px}.deck-brand-color input[type="text"]{flex:1 1 auto;min-width:0}
+.deck-brand-color input[type="color"]{width:40px;height:36px;padding:2px;border:1px solid var(--hairline);border-radius:9px;background:var(--content2)}
+.deck-brand-preview{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px;font-size:12px;color:var(--text2)}
+.deck-brand-fonts,.deck-brand-logos{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.deck-brand-field{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:600;color:var(--text2)}
+.deck-brand-file{display:flex;align-items:flex-end;gap:8px;width:100%}.deck-brand-file>span{flex:1 1 auto;font-size:18px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deck-brand-logos .deck-choices{align-items:center}
+.deck-brand-logo{display:inline-flex;align-items:center;gap:2px;flex:none}
+.deck-brand-logo .deck-choice img{height:28px;max-width:84px;object-fit:contain}
+.deck-brand-dialog .deck-choice[aria-checked="true"]{outline:2px solid var(--accent);outline-offset:-2px}
+.deck-brand-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.deck-brand-acts .grow{flex:1}
+.deck-brand-dialog .cap,.deck-brand-dialog .iconbtn{min-height:36px}
+.deck-brand-foot{margin-top:16px}
+.deck-brand-del{color:#d70015}
+.deck-brand-err{color:#d70015;font-size:12px;margin:8px 0 0}.deck-brand-err:empty{display:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .deck-brand-del,:root:not([data-theme="light"]) .deck-brand-err{color:#ff6961}}
+[data-theme="dark"] .deck-brand-del,[data-theme="dark"] .deck-brand-err{color:#ff6961}
+
+/* Eden Slides look (2026-10-24, web only; research_notes/slides-mockups). One button, one "on" state, one tray and one
+   dialog shell for every slide tool, so the eight Canva-style features read as one product. These selectors only exist
+   in the !IN_APP editor and its dialogs; :root lifts them over each tool's own stylesheet, which loads later. Tokens only. */
+:root{--slides-line:color-mix(in srgb,var(--text) 13%,transparent)}
+:root :is(.deck-editor,.deck-panel,.dtpl,.dpt,.deck-brand-dialog,.drz-dialog,.dtr-dialog) :is(.cap,.btn),:root .deck-disclosure{display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;min-height:40px;padding:0 14px;border:1px solid var(--slides-line);border-radius:14px;background:var(--content);color:var(--text);box-shadow:none;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap}
+:root :is(.deck-editor .deck-core,.deck-tools)>:is(.cap,.deck-disclosure){background:var(--content2)}
+:root :is(.deck-editor,.deck-panel,.dtpl,.dpt,.deck-brand-dialog,.drz-dialog,.dtr-dialog) :is(.cap,.btn):not(:disabled):hover,:root .deck-disclosure:hover{border-color:color-mix(in srgb,var(--text) 28%,transparent)}
+:root :is(.deck-editor,.deck-panel,.dtpl,.dpt,.deck-brand-dialog,.drz-dialog,.dtr-dialog) :is(.cap,.btn).primary{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast,#fff)}
+:root :is(.deck-editor,.deck-panel,.dtpl,.dpt,.deck-brand-dialog,.drz-dialog,.dtr-dialog) :is(.cap,.btn,.dtpl-tab,.dtpl-cat,.drz-format)[aria-pressed="true"],:root .deck-disclosure[aria-expanded="true"]{background:var(--content);border-color:var(--accent);outline:0;box-shadow:inset 0 0 0 1px var(--accent);color:var(--text)}
+:root .deck-disclosure::after{content:'▾';font-size:10px;opacity:.7}
+:root :is(.deck-editor,.deck-panel) .cap svg{width:14px;height:14px}
+/* Toolbar: Add slide, Present, Templates on one row, then the trays in the mockups' order as one block that wraps
+   inside the toolbar, never off its edge (at 390px Animate…Comments used to be cut off). */
+:root .deck-tools{max-width:100%}
+:root .deck-tools>.deck-disclosure{padding:0 12px;gap:4px}
+:root :is(.deck-editor,.deck-panel) .deck-theme{min-height:40px;border-radius:12px;border:1px solid var(--slides-line);background:var(--content);color:var(--text);font-size:13px;padding:0 10px}
+/* Trays: a card with 12px semibold titles, grey hints, and the same accent ring on every chosen choice. */
+:root .deck-tool-content{border-radius:16px;padding:10px 12px;gap:8px}
+:root .deck-tool-content h4{font-size:12px;font-weight:600}
+:root .deck-tool-content .deck-choice{border-color:var(--slides-line);border-radius:12px}
+:root .deck-tool-content .deck-choice[aria-pressed="true"]{outline:0;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+:root .deck-tool-content .deck-choice[data-key="kit:new"]{border-style:dashed}
+:root .deck-brand .deck-tool-head h4{flex:none}
+:root .deck-brand .deck-tool-head .deck-brand-hint{flex:1 1 auto;text-align:right}
+:root #deck-tools-comments-button[data-count]:not([data-count=""])::after{content:attr(data-count) ' ▾';margin-left:2px;min-width:0;height:auto;padding:0;border-radius:0;background:none;color:var(--text2);font-size:12px;font-weight:600}
+/* Dialogs (templates, photo tools, resize, translate, brand kit): a 20px card, a 17px title, a boxed 40px close. */
+:root :is(.dtpl,.dpt,.deck-brand-dialog,.drz-dialog,.dtr-dialog){border-radius:20px;background:var(--content);color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.16)}
+:root :is(.dtpl-head h2,.dpt-head h3,.deck-brand-dialog h3,.drz-body h3,.dtr-body h3){font-size:17px;font-weight:600}
+:root :is(.dtpl-x,.dpt-head .iconbtn){display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;min-height:40px;border-radius:12px;border:1px solid var(--slides-line);background:var(--content);color:var(--text)}
+:root :is(.dtpl-tab,.dtpl-cat){border-color:var(--slides-line);font-weight:600}
+:root :is(.dtpl-search,.dtpl-topic,.deck-media-q,.deck-media-alt,.deck-cm-text,.dtr-body select){border:1px solid var(--slides-line);border-radius:12px;box-shadow:none}
+:root .drz-format{border-color:var(--slides-line)}
+/* Eden Slides editor shell (deck-shell.js, web only, 2026-10-24): Keynote's layout in Eden Glass. A slim glass toolbar of
+   labelled icon buttons, the navigator and canvas (inside the slide frame), and an Inspector on the right that becomes a
+   bottom sheet when narrow. 8px rhythm, 8/10/14px radii, one accent, 200–300ms springs (none under reduced motion). */
+/* Wide for the editor (artifact.js setWide; essay.css has the same rule but loads only with the essay writer) */
+#artifact.full:has(.dsh){position:fixed;inset:8px;width:auto!important;max-width:none;margin:0;z-index:60;box-shadow:var(--sh2,0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.16))}
+#artifact.full:has(.dsh) #divider{display:none}
+#artPreview:has(.dsh){display:flex;flex-direction:column;overflow:hidden}
+.dsh-pop,.dsh-sheet{--dsh-ease:cubic-bezier(.32,.72,0,1);--dsh-glass:var(--glass2,rgba(250,250,252,.72));--dsh-line:var(--slides-line,rgba(0,0,0,.12));--dsh-fill:color-mix(in srgb,var(--text) 6%,transparent);--dsh-fill2:color-mix(in srgb,var(--text) 10%,transparent);--dsh-sel:color-mix(in srgb,var(--accent) 14%,transparent);}
+.dsh{--dsh-ease:cubic-bezier(.32,.72,0,1);--dsh-glass:var(--glass2,rgba(250,250,252,.72));--dsh-line:var(--slides-line,rgba(0,0,0,.12));--dsh-fill:color-mix(in srgb,var(--text) 6%,transparent);--dsh-fill2:color-mix(in srgb,var(--text) 10%,transparent);--dsh-sel:color-mix(in srgb,var(--accent) 14%,transparent);position:relative;display:flex;flex-direction:column;flex:1;min-height:0;container:dsh/inline-size;font:13px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;color:var(--text);background:var(--content2)}
+:is(.dsh,.dsh-pop,.dsh-sheet) :is(button,input,select){font-family:inherit}
+.dsh-ic{flex:none;display:block}
+/* toolbar */
+.dsh-toolbar{position:relative;z-index:3;display:flex;align-items:center;gap:2px;padding:4px 8px;min-height:60px;box-sizing:border-box;flex:none;background:var(--content);border-bottom:.5px solid var(--hairline);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.dsh-toolbar{background:var(--dsh-glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}}
+.dsh-toolbar::-webkit-scrollbar{display:none}
+.dsh-group{display:flex;align-items:center;gap:2px;flex:none}
+.dsh-group+.dsh-group:not(.dsh-g-insert,.dsh-g-inspector){margin-left:6px}
+.dsh-flex{flex:1 1 8px;min-width:8px}
+.dsh-tool{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:52px;min-height:52px;padding:4px 6px;box-sizing:border-box;border:0;border-radius:10px;background:transparent;color:var(--text);cursor:pointer;transition:background-color .2s var(--dsh-ease),color .2s var(--dsh-ease)}
+.dsh-tool-ic{display:grid;place-items:center;width:36px;height:26px;border-radius:7px;transition:background-color .2s var(--dsh-ease)}
+.dsh-tool-l{font-size:11px;font-weight:500;line-height:1.1;white-space:nowrap;color:var(--text2)}
+.dsh-tool:hover .dsh-tool-ic{background:var(--dsh-fill)}
+.dsh-tool:active .dsh-tool-ic{background:var(--dsh-fill2)}
+.dsh-tool:is([aria-pressed="true"],[aria-expanded="true"]) .dsh-tool-ic{background:var(--dsh-sel);color:var(--accent)}
+.dsh-tool:is([aria-pressed="true"],[aria-expanded="true"]) .dsh-tool-l{color:var(--accent)}
+.dsh-tool.primary .dsh-tool-ic{background:var(--accent);color:#fff}
+.dsh-tool.primary:hover .dsh-tool-ic{background:color-mix(in srgb,var(--accent) 88%,#000)}
+:is(.dsh,.dsh-pop,.dsh-sheet) :is(button,[role="radio"],input,select,a,[tabindex]):focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 75%,transparent);outline-offset:1px}
+/* body: canvas (the frame draws navigator, slide and notes) and the Inspector */
+.dsh-body{position:relative;flex:1;min-height:0;display:flex}
+.dsh-canvas{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
+.dsh-canvas>.deck-stage{flex:1;min-height:0}
+.dsh-inspector{display:none;flex:none;width:300px;flex-direction:column;min-height:0;box-sizing:border-box;border-left:.5px solid var(--hairline);background:var(--content)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.dsh-inspector{background:var(--dsh-glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}}
+.dsh-insp-open .dsh-inspector{display:flex;animation:dsh-in .24s var(--dsh-ease)}
+@keyframes dsh-in{from{opacity:0;transform:translateX(12px)}}
+.dsh-insp-tabs{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:.5px solid var(--hairline)}
+.dsh-insp-tabs .dsh-seg{flex:1}
+.dsh-insp-tabs .dsh-seg [role="radio"]{flex:1 1 auto;padding:0 6px}
+.dsh-insp-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 0 24px}
+.dsh-insp-sel{margin:12px 16px 0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2)}
+.dsh-sec{padding:8px 16px 14px;border-bottom:.5px solid var(--hairline)}
+.dsh-sec:last-child{border-bottom:0}
+.dsh-sec-head{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;min-height:32px;margin:0;padding:4px 0;border:0;background:none;color:var(--text);font-size:13px;font-weight:600;text-align:left;cursor:pointer}
+.dsh-sec-head.static{cursor:default}
+.dsh-sec-head svg{color:var(--text2);transition:transform .2s var(--dsh-ease)}
+.dsh-sec-head[aria-expanded="false"] svg{transform:rotate(-90deg)}
+.dsh-sec-body{display:flex;flex-direction:column;gap:8px;padding-top:4px}
+.dsh-sec-body[hidden]{display:none}
+.dsh-sec-body>p,.dsh-hint{margin:0;font-size:12px;line-height:1.4;color:var(--text2)}
+.dsh-sec-body h4{margin:4px 0 0;font-size:12px;font-weight:600;color:var(--text2)}
+/* kit */
+.dsh-seg{display:flex;gap:2px;padding:2px;border-radius:9px;background:var(--dsh-fill)}
+.dsh-seg [role="radio"]{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:4px;min-height:28px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:var(--text);font-size:12px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .2s var(--dsh-ease),box-shadow .2s var(--dsh-ease)}
+.dsh-seg [role="radio"] span{overflow:hidden;text-overflow:ellipsis}
+.dsh-seg [aria-checked="true"]{background:var(--content);box-shadow:0 1px 2px rgba(0,0,0,.14),0 0 0 .5px rgba(0,0,0,.06);font-weight:600}
+.dsh-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:0 12px;box-sizing:border-box;border:.5px solid var(--dsh-line);border-radius:8px;background:var(--content);color:var(--text);font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;box-shadow:0 .5px 1px rgba(0,0,0,.06);transition:background-color .2s var(--dsh-ease),border-color .2s var(--dsh-ease)}
+.dsh-btn:hover{background:color-mix(in srgb,var(--content) 92%,var(--text))}
+.dsh-btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+.dsh-btn.primary:hover{background:color-mix(in srgb,var(--accent) 88%,#000)}
+.dsh-btn.quiet{background:transparent;border-color:transparent;box-shadow:none;color:var(--accent)}
+.dsh-btn.small{min-height:28px;padding:0 10px;font-size:12px}
+.dsh-btn[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+.dsh-btn:disabled,.dsh-iconbtn:disabled{opacity:.45;cursor:default}
+.dsh-btns{display:flex;flex-wrap:wrap;gap:6px}
+.dsh-btns>.dsh-btn{flex:1 1 calc(50% - 3px)}
+.dsh-iconbtn{display:inline-grid;place-items:center;width:32px;height:32px;min-height:32px;padding:0;flex:none;border:0;border-radius:8px;background:transparent;color:var(--text2);cursor:pointer}
+.dsh-iconbtn:hover{background:var(--dsh-fill);color:var(--text)}
+.dsh-iconbtn[aria-pressed="true"]{background:var(--dsh-sel);color:var(--accent)}
+.dsh-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px}
+.dsh-row-l{font-size:12px;color:var(--text2);flex:none}
+.dsh-row-c{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;flex:1}
+:is(.dsh,.dsh-pop,.dsh-sheet) select,.dsh-select{min-height:32px;max-width:100%;padding:0 26px 0 10px;border:.5px solid var(--dsh-line);border-radius:8px;background:var(--content) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M7 9l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 9px center;color:var(--text);font-size:13px;-webkit-appearance:none;appearance:none;box-shadow:0 .5px 1px rgba(0,0,0,.06)}
+.dsh-lr{display:flex;align-items:center;gap:10px;width:100%;min-height:36px;padding:6px 8px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--text);font-size:13px;text-align:left;cursor:pointer}
+.dsh-lr:hover{background:var(--dsh-fill)}
+.dsh-lr.on{background:var(--dsh-sel)}
+.dsh-lr>svg{color:var(--text2)}
+.dsh-lr>svg:first-child{color:var(--accent)}
+.dsh-lr-t{flex:1;min-width:0;display:flex;flex-direction:column}
+.dsh-lr-t small{color:var(--text2);font-size:11.5px}
+.dsh-stepper{display:inline-flex;align-items:center;gap:2px;border:.5px solid var(--dsh-line);border-radius:8px;background:var(--content);padding:0 2px}
+.dsh-num{width:52px;min-height:30px;border:0;background:none;color:var(--text);font-size:13px;text-align:right;-moz-appearance:textfield}
+.dsh-num::-webkit-inner-spin-button{-webkit-appearance:none}
+.dsh-unit{color:var(--text2);font-size:12px;padding-right:4px}
+.dsh-step{display:grid;place-items:center;width:24px;height:28px;border:0;border-radius:6px;background:none;color:var(--text2);cursor:pointer}
+.dsh-step:hover{background:var(--dsh-fill)}
+.dsh-slider-w{display:flex;align-items:center;gap:8px}
+.dsh-slider{flex:1;accent-color:var(--accent);min-height:28px}
+.dsh-slider-v{min-width:40px;text-align:right;font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums}
+.dsh-well{width:28px;height:28px;min-height:28px;padding:0;border-radius:50%;border:.5px solid var(--dsh-line);background:var(--well);box-shadow:inset 0 0 0 2px var(--content);cursor:pointer}
+.dsh-swatches{display:grid;grid-template-columns:repeat(6,28px);gap:8px}
+.dsh-swatch{width:28px;height:28px;padding:0;border-radius:50%;border:.5px solid var(--dsh-line);background:var(--well);cursor:pointer}
+.dsh-swatch.none{background:linear-gradient(135deg,transparent 45%,#ff453a 46%,#ff453a 54%,transparent 55%),var(--content)}
+.dsh-swatch[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:2px}
+.dsh-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px 20px;text-align:center;color:var(--text2)}
+.dsh-empty-ic{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:var(--dsh-fill);color:var(--accent);margin-bottom:4px}
+.dsh-empty h3{margin:0;font-size:15px;font-weight:600;color:var(--text)}
+.dsh-empty p{margin:0;max-width:300px;font-size:13px;line-height:1.45}
+.dsh-empty-acts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
+.dsh-hint-card{display:grid;grid-template-columns:auto 1fr;align-items:start;gap:4px 8px;margin:12px 12px 0;padding:10px 12px;border-radius:10px;background:var(--dsh-sel);color:var(--text);font-size:12px;line-height:1.4}
+.dsh-hint-card>svg{color:var(--accent);margin-top:1px}
+.dsh-hint-card p{margin:0}
+.dsh-hint-card .dsh-btn{grid-column:2;justify-self:start;margin-left:-10px}
+/* choices (themes, layouts, transitions): a wrapping grid of cards, Keynote's master and theme chooser */
+.dsh-choices{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px}
+.dsh-choices .deck-choice{width:auto;min-height:44px;flex-direction:column;align-items:stretch;padding:6px;border-radius:10px;border:.5px solid var(--dsh-line);background:var(--content);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:border-color .2s var(--dsh-ease),box-shadow .2s var(--dsh-ease)}
+.dsh-choices .deck-choice:hover{border-color:color-mix(in srgb,var(--text) 28%,transparent)}
+.dsh-choices .deck-choice[aria-pressed="true"]{outline:0;border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
+.dsh-choices .deck-layout-icon{font-size:14px}
+.dsh-choices .deck-choice{text-transform:capitalize}
+/* popovers, menus and sheets */
+.dsh-pop{position:fixed;z-index:90;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;line-height:1.35;box-sizing:border-box;min-width:200px;max-width:min(380px,calc(100vw - 16px));max-height:min(72dvh,600px);overflow:auto;overscroll-behavior:contain;padding:8px;border-radius:14px;border:.5px solid var(--hairline);background:var(--content);color:var(--text);box-shadow:0 0 0 .5px rgba(0,0,0,.04),0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.18);animation:dsh-pop .22s var(--dsh-ease);font-size:13px}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.dsh-pop{background:color-mix(in srgb,var(--content) 82%,transparent);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}}
+@keyframes dsh-pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+.dsh-pop[data-side="top"]{animation-name:dsh-pop-up}@keyframes dsh-pop-up{from{opacity:0;transform:translateY(4px) scale(.98)}}
+.dsh-pop:focus{outline:none}
+.dsh-pop-title{margin:2px 4px 8px;font-size:12px;font-weight:600;color:var(--text2)}
+.dsh-toolpop{width:320px}
+.dsh-toolpop .dsh-sec{padding:4px 4px 10px}
+.dsh-menu{padding:5px;min-width:232px}
+.dsh-menu-list{display:flex;flex-direction:column}
+.dsh-mi{display:flex;align-items:center;gap:8px;min-height:30px;padding:3px 8px;border:0;border-radius:6px;background:none;color:var(--text);font-size:13px;text-align:left;cursor:pointer}
+.dsh-mi-ic{display:grid;place-items:center;width:18px;color:var(--text2)}
+.dsh-mi-l{flex:1;white-space:nowrap}
+.dsh-mi kbd{margin-left:16px;font:inherit;font-size:12px;color:var(--text2);letter-spacing:.04em}
+.dsh-mi:is(:hover,:focus):not(:disabled){background:var(--accent);color:#fff;outline:none}
+.dsh-mi:is(:hover,:focus):not(:disabled) :is(.dsh-mi-ic,kbd){color:#fff}
+.dsh-mi.danger{color:var(--danger,#ff3b30)}
+.dsh-mi:disabled{opacity:.4;cursor:default}
+.dsh-menu-sep{height:.5px;margin:5px 8px;background:var(--hairline)}
+.dsh-menu-h{padding:6px 8px 2px;font-size:11px;font-weight:600;color:var(--text2)}
+.dsh-point{position:fixed;width:0;height:0;pointer-events:none}
+.dsh-sheet{margin:auto;width:min(560px,calc(100vw - 32px));max-height:min(86dvh,800px);padding:0;border:0;border-radius:20px;background:var(--content);color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.16);overflow:hidden;font:13px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+.dsh-sheet.wide{width:min(960px,calc(100vw - 32px))}
+.dsh-sheet[open]{display:flex;flex-direction:column;animation:dsh-sheet .3s var(--dsh-ease, cubic-bezier(.32,.72,0,1))}
+@keyframes dsh-sheet{from{opacity:0;transform:translateY(16px) scale(.98)}}
+.dsh-sheet::backdrop{background:rgba(0,0,0,.28);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.dsh-sheet-head{display:flex;align-items:center;gap:8px;padding:14px 12px 10px 20px;border-bottom:.5px solid var(--hairline)}
+.dsh-sheet-head h2{flex:1;margin:0;font-size:17px;font-weight:600}
+.dsh-sheet-body{flex:1;min-height:0;overflow:auto;padding:16px 20px}
+.dsh-sheet-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:.5px solid var(--hairline)}
+/* the notice line (alt text, Google Slides, photo search) under the toolbar */
+.dsh>.deck-panel{position:relative;z-index:2;border-bottom:.5px solid var(--hairline);background:var(--content)}
+/* the canvas fits a narrower window: the Inspector floats over the canvas instead of squeezing it */
+@container dsh (max-width:900px){
+  .dsh-inspector{position:absolute;top:8px;right:8px;bottom:8px;z-index:4;width:min(288px,calc(100% - 16px));border:.5px solid var(--hairline);border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.16)}
+  .dsh-tool{min-width:46px}
+  .dsh-g-insert .dsh-tool-l,.dsh-g-collab .dsh-tool-l{font-size:10.5px}
+}
+@container dsh (max-width:720px){
+  .dsh-tool-l{display:none}
+  .dsh-tool{min-height:44px;min-width:44px}
+  .dsh-toolbar{min-height:52px}
+}
+/* phones: icons only (each still has its name), and the Inspector is a bottom sheet with a grabber */
+@media (max-width:640px){
+  .dsh-toolbar{gap:0;padding:4px}
+  .dsh-tool-l{display:none}
+  .dsh-tool{min-width:44px;min-height:44px;padding:2px}
+  .dsh-group+.dsh-group:not(.dsh-g-insert,.dsh-g-inspector){margin-left:0}
+  .dsh-flex{flex:0 0 6px;min-width:6px}
+  .dsh-inspector{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:70;width:auto;max-height:62dvh;border:0;border-top:.5px solid var(--hairline);border-radius:16px 16px 0 0;box-shadow:0 -8px 40px rgba(0,0,0,.18);padding-bottom:env(safe-area-inset-bottom)}
+  .dsh-insp-open .dsh-inspector{animation:dsh-up .3s var(--dsh-ease)}
+  .dsh-insp-tabs{padding-top:16px;position:relative}
+  .dsh-insp-tabs::before{content:'';position:absolute;top:6px;left:50%;width:36px;height:5px;margin-left:-18px;border-radius:3px;background:var(--dsh-fill2)}
+  :is(.dsh,.dsh-pop,.dsh-sheet) :is(.dsh-btn,.dsh-iconbtn,.dsh-seg [role="radio"],.dsh-lr,.dsh-sec-head,.dsh-mi,select){min-height:44px}
+  .dsh-iconbtn{width:44px;height:44px}
+}
+@keyframes dsh-up{from{transform:translateY(100%)}}
+@media (pointer:coarse){:is(.dsh,.dsh-pop,.dsh-sheet) :is(.dsh-btn,.dsh-iconbtn,.dsh-seg [role="radio"],.dsh-lr,.dsh-sec-head,.dsh-mi,select,.deck-choice){min-height:44px}.dsh-iconbtn{width:44px;height:44px}.dsh-well,.dsh-swatch{width:36px;height:36px}}
+@media (prefers-reduced-motion:reduce){.dsh *,.dsh-pop,.dsh-pop *,.dsh-sheet[open]{animation:none!important;transition:none!important}}
+@media (prefers-contrast:more){.dsh{--dsh-line:color-mix(in srgb,var(--text) 45%,transparent)}.dsh-tool-l,.dsh-row-l,.dsh-insp-sel{color:var(--text)}}
+/* free-form styles (deck-freeform.js) inside the Inspector: the kit's buttons */
+.dsh-inspector .deck-free .cap{min-height:28px;padding:0 10px;border:.5px solid var(--dsh-line);border-radius:8px;background:var(--content);color:var(--text);font-size:12px;font-weight:500;box-shadow:0 .5px 1px rgba(0,0,0,.06)}
+.dsh-inspector .deck-free .cap[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+.dsh-inspector .deck-free-style{border-top:0;padding-top:0;gap:8px}
+.dsh-inspector .deck-free-style h4{font-size:12px;font-weight:600;color:var(--text2);margin:0}
+.dsh-inspector .deck-free-sw{width:100%;gap:6px}.dsh-inspector .deck-free-l{min-width:72px}
+@media (pointer:coarse){.dsh-inspector .deck-free .cap{min-height:44px}}
+.dsh-tool[hidden]{display:none}
+.dsh-more{flex:none}

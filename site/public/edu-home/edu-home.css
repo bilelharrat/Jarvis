@@ -98,13 +98,39 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}footer a:hover{color:var(--i
 .legal a{text-decoration:underline}
 .legal .lede{font-size:19px;margin:12px 0 0}
 .logo{width:36px;height:36px;border-radius:10px;box-shadow:0 2px 8px rgba(14,39,71,.15)}
+
+/* Educator pilot lead capture & guides */
+.lead-band{display:grid;grid-template-columns:1.1fr 1fr;gap:40px;align-items:center;margin:40px 0 56px;padding:42px 44px;border-radius:26px;background:var(--card);border:1.5px solid var(--ink);box-shadow:0 24px 60px -32px rgba(14,39,71,.35)}
+.lead-band h2{margin:0 0 10px;font:400 clamp(26px,3.4vw,36px)/1.12 var(--serif)}
+.lead-band .sub{margin:0 0 16px;font-size:16px}
+.lead-perks{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:14.5px;color:var(--ink2)}
+.lead-perks li::before{content:"✓ ";color:var(--coral);font-weight:700}
+.lead-form{display:flex;flex-direction:column;gap:12px}
+.lead-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lead-form label{display:flex;flex-direction:column;gap:5px;font:600 12.5px var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--ink2)}
+.lead-form input{width:100%;padding:13px 15px;border-radius:12px;border:1.5px solid var(--line);background:var(--paper);color:var(--ink);font:400 15.5px var(--sans)}
+.lead-form input:focus{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
+.lead-form button{cursor:pointer;justify-content:center;font-size:16px}
+.lead-status{margin:4px 0 0;padding:10px 14px;border-radius:10px;font:500 13.5px var(--mono);background:var(--paper2);color:var(--ink)}
+.lead-status[data-kind="ok"]{background:rgba(22,128,58,.12);color:#145a2b}
+.lead-status[data-kind="err"]{background:rgba(217,96,79,.15);color:#982d1e}
+.lead-status[hidden]{display:none}
+.guides-preview{margin:0 0 56px}
+.guides-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:18px}
+.guide-card{display:flex;flex-direction:column;justify-content:space-between;padding:24px 26px;border-radius:20px;background:var(--card);border:1px solid var(--line);transition:transform .16s ease,border-color .16s ease}
+.guide-card:hover{transform:translateY(-2px);border-color:var(--ink)}
+.guide-card small{font:500 11.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--coral)}
+.guide-card h3{margin:8px 0 10px;font:500 20px/1.25 var(--serif);color:var(--ink)}
+.guide-card p{margin:0 0 14px;font-size:14.5px;color:var(--ink2);line-height:1.5}
+.guide-card .more{font:600 13.5px var(--mono);color:var(--ink)}
+
 @media (max-width:860px){
-  .hero,.cols{grid-template-columns:1fr}
+  .hero,.cols,.lead-band,.lead-row,.guides-grid{grid-template-columns:1fr}
   .hero{padding-top:48px;gap:36px}
   .feature,.feature:nth-child(even){display:block}
   .feature>.fvid,.feature:nth-child(even)>.fvid{margin-top:22px}
   .top nav a:not(.pill){display:none}
   .features{gap:64px}
-  .col{padding:24px}
+  .col,.lead-band{padding:24px}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}h1 u{animation:none}.btn,.fbtn{transition:none}}

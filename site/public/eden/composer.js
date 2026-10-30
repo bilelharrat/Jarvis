@@ -20,7 +20,10 @@ import { api } from './api.js';
 import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calendar / @mail scope chips
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
-import { imagesAvailable } from './image-mode.js';
+import { imagesAvailable, videosAvailable } from './image-mode.js';
+import { IN_APP } from './native.js';
+import { followUpSuggestions, extractReplyTopic } from './render.js';
+import { formatScheduledTime, runScheduledCodeTaskNow, cancelScheduledCodeTask, scheduleTaskDialog } from './code.js';
 import { stripBidi, putDraft, getDraft, storeDrafts, packDraftFiles, unpackDraftFiles, DRAFT_KEY, DRAFT_FILES_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
 
 let H = {}; // handlers from app.js
@@ -39,6 +42,7 @@ const ICON_PATHS = {
   chat: ['M2.6 4.2A1.6 1.6 0 0 1 4.2 2.6h7.6a1.6 1.6 0 0 1 1.6 1.6v5.4a1.6 1.6 0 0 1-1.6 1.6H6.4L3.4 13.6V11.2h-.8a.0 .0 0 0 1 0 0z'],
   search: ['M7 2.4a4.6 4.6 0 1 1 0 9.2 4.6 4.6 0 0 1 0-9.2z', 'M10.4 10.4l3.4 3.4'],
   image: ['M2.2 2.6h11.6v10.8H2.2z', 'M5.6 7.2a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z', 'M2.2 11.4l3.6-3.4 2.6 2.2 2.2-2 3.2 3'],
+  video: ['M2 3.8a1.2 1.2 0 0 1 1.2-1.2h6.6a1.2 1.2 0 0 1 1.2 1.2v8.4a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 12.2z', 'M11 6.4l3-1.8v6.8l-3-1.8'],
   slides: ['M2.2 3h11.6v7.6H2.2z', 'M8 10.6v2.6', 'M5.4 13.8h5.2', 'M4.6 8.2l2-2.2 1.6 1.4 2.6-2.8'],
   research: ['M8 1.8a6.2 6.2 0 1 1 0 12.4A6.2 6.2 0 0 1 8 1.8z', 'M1.8 8h12.4', 'M8 1.8c1.7 1.6 2.6 3.7 2.6 6.2S9.7 12.6 8 14.2C6.3 12.6 5.4 10.5 5.4 8S6.3 3.4 8 1.8z'],
   clip: ['M13.2 7.3l-5.3 5.3a3.2 3.2 0 0 1-4.5-4.5L8.8 2.7a2.1 2.1 0 0 1 3 3L6.6 11a1 1 0 0 1-1.5-1.5l4.9-4.9'],
@@ -55,8 +59,11 @@ const ICON_PATHS = {
   plus: ['M8 3v10M3 8h10'],
   compare: ['M2.4 3.4h4.4v9.2H2.4z', 'M9.2 3.4h4.4v9.2H9.2z'],
   up: ['M8 13V3.8', 'M4.4 7.4L8 3.8l3.6 3.6'],
+  mail: ['M2.4 3.6h11.2a.6.6 0 0 1 .6.6v7.6a.6.6 0 0 1-.6.6H2.4a.6.6 0 0 1-.6-.6V4.2a.6.6 0 0 1 .6-.6z', 'M2 4.2l6 4.6 6-4.6'],
+  plane: ['M14 2L7.2 8.8', 'M14 2l-4.4 12-2.4-5.2L2 6.4z'],
   mac: ['M3 3.4h10a.6.6 0 0 1 .6.6v6.8H2.4V4a.6.6 0 0 1 .6-.6z', 'M1.2 12.6h13.6'],
   screen: ['M2.4 2.8h11.2a.6.6 0 0 1 .6.6v7.2a.6.6 0 0 1-.6.6H2.4a.6.6 0 0 1-.6-.6V3.4a.6.6 0 0 1 .6-.6z', 'M6 13.6h4M8 11.2v2.4', 'M5 5.6h6M5 8h3.6'],
+  sheet: ['M2.4 2.6h11.2a.6.6 0 0 1 .6.6v9.6a.6.6 0 0 1-.6.6H2.4a.6.6 0 0 1-.6-.6V3.2a.6.6 0 0 1 .6-.6z', 'M1.8 6.2h12.4', 'M1.8 9.8h12.4', 'M6.2 2.6v10.8'],
 };
 export function icon(name, size = 16) {
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -72,7 +79,8 @@ export const CHAT_MODES = [
   { id: 'research', icon: 'research', label: 'Research', note: 'Searches widely, then writes a structured report (high effort)' },
   { id: 'compare', icon: 'compare', label: 'Compare', note: 'Up to 3 models answer side by side, then a short summary' },
   { id: 'slides', icon: 'slides', label: 'Slides', note: 'A slide deck from your prompt, files or this chat, shown in the canvas' }, // Q14 (deck.js)
-  { id: 'image', icon: 'image', label: 'Image', note: 'Eden draws a picture from your words, or changes one you attach (GPT Image)' }, // image-mode.js; askeden.com only, when switched on
+  { id: 'image', icon: 'image', label: 'Image', note: 'Eden draws a picture from your words, or changes one you attach (Imagen 4 & Gemini)' }, // image-mode.js
+  { id: 'video', icon: 'video', label: 'Video', note: 'Eden makes a short video clip from your words, or animates a picture (Veo 3)' }, // image-mode.js
 ];
 /** Compare needs two models you can use (askeden.com: the hosted Claude models). */
 const compareOff = () => (state.meta && availableModels().length < 2 ? 'Compare needs at least two models: add another API key in Settings' : '');
@@ -84,39 +92,189 @@ export const CODE_MODES = [
   { id: 'plan', css: 'plan', icon: 'plan', label: 'Plan', note: 'Explores and plans; changes nothing until you approve' },
   { id: 'bypassPermissions', css: 'auto', icon: 'auto', label: 'Auto', note: 'Runs anything without asking', danger: true },
 ];
-const modesFor = (c) => (c && c.kind === 'code' ? CODE_MODES : CHAT_MODES.filter((m) => m.id !== 'image' || imagesAvailable())); // Image: only where pictures are switched on (image-mode.js)
+const modesFor = (c) => (c && c.kind === 'code' ? CODE_MODES : CHAT_MODES.filter((m) => (m.id === 'image' ? imagesAvailable() : m.id === 'video' ? videosAvailable() : true))); // Image & Video: only where switched on (image-mode.js)
 const curMode = () => { const c = state.current; return c ? c.mode : (state.pendingMode || 'chat'); };
 
 /* ---------- slash commands, keys ---------- */
 const SLASH_CHAT = [
   ['new', 'New chat'], ['temp', 'New temporary chat (not saved)'], ['chat', 'Chat mode'], ['search', 'Search mode: web, with sources'],
-  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['image', 'Image mode: Eden draws a picture'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
+  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['image', 'Image mode: Eden draws a picture'], ['video', 'Video mode: Eden makes a short video'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
   ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
   ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
   ['canvas', 'Open the canvas'], ['rename', 'Rename: /rename New name'], ['export', 'Save the chat as Markdown'], ['pin', 'Pin or unpin this chat'],
-  ['copy', 'Copy the last reply'], ['clear', 'Start over in a new chat'], ['compact', 'Summarize into a new chat'],
-  ['route', 'Route console'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
+  ['copy', 'Copy the last reply'], ['clear', 'Start over in a new chat'],
+  ['route', 'Route console'], ['split', 'Split view: up to 10 chats side by side · /split close'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
 ];
 const SLASH_CODE = [
-  ['code', 'New Code session'], ['manual', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'], ['plan', 'Plan first, you approve'],
-  ['auto', 'Auto: run anything without asking'], ['changes', 'Show what changed'], ['todos', 'The to-do list'], ['activity', 'Tool activity (⌘J)'],
+  ['code', 'New Code session'], ['later', 'Schedule a timed task or resume later: /later 2am [what to do]'], ['schedule', 'Schedule a timed task for this session: /schedule 2am [what to do]'],
+  ['manual', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'], ['plan', 'Plan first, you approve'],
+  ['auto', 'Auto: run anything without asking'], ['compact', 'Compact the code session context'], ['changes', 'Show what changed'], ['todos', 'The to-do list'], ['activity', 'Tool activity (⌘J)'],
 ];
 const KEYS = [
-  ['⏎', 'Send'], ['⇧⏎', 'New line'], ['⌘⏎', 'Steer: queue for the running Code step'], ['↑ ↓', 'Your earlier messages'],
+  ['⏎', 'Send'], ['⇧⏎', 'New line'], ['⌘⏎', 'Steer: into the running step'], ['↑ ↓', 'Your earlier messages'],
   ['⇧⇥', 'Switch mode'], ['⌘⇧M', 'Mode menu'], ['⌘⇧I', 'Model'], ['⌘⇧E', 'Effort'], ['⌘U', 'Attach files'],
-  ['⌘K', 'Search and commands'], ['⌘N', 'New chat'], ['⌘B', 'Sidebar'], ['⌘⌥0', 'Inspector'], ['⌘J', 'Code activity'], ['⌘,', 'Settings'],
+  ['⌘K', 'Search and commands'], ['⌘N', 'New chat'], ['⌘B', 'Sidebar'], ['⌘⇧\\', 'Split view: add a pane'], ['⌘⌥←→↑↓', 'Split view: move between panes'], ['⌘1–0', 'Split view: go to a pane'], ['⌘⌥0', 'Inspector'], ['⌘J', 'Code activity'], ['⌘,', 'Settings'],
   ['Esc', 'Stop, or close a menu or pane'], ['/', 'Commands'], ['@', 'Mention a note or persona'],
 ];
 
 let pickIndex = 0;
 let attachments = [];
 const reading = new Set();
-const MAX_FILES = 6, MAX_BINARY = 6 * 1024 * 1024, MAX_TEXT = 400 * 1024, MAX_TOTAL = 20 * 1024 * 1024;
+const MAX_FILES = 12, MAX_BINARY = 100 * 1024 * 1024, MAX_TEXT = 50 * 1024 * 1024 * 1024, MAX_TOTAL = 100 * 1024 * 1024 * 1024;
 let mentionItems = []; // async @ results
 let mentionQuery = null;
+let dismissedGhost = '';
+let currentGhostFull = '';
+let ghostTyping = null; // { full, pos, timer }
 
 const input = () => $('deck-input');
+
+const SMART_STARTERS = [
+  'Write a short, friendly email declining a meeting',
+  'Write a clear, professional follow-up email',
+  'Explain how this works step by step in plain English',
+  'Summarize this into key bullet points and action items',
+  'Compare the pros, cons, and trade-offs in a table',
+  'Help me brainstorm 5 creative ideas for a project',
+  'Draft a concise executive summary',
+  'How do I fix this issue and prevent it from happening again?',
+  'Review this text and make it clearer and more concise',
+  'Create a step-by-step study or project plan',
+  'Give me a concrete real-world example',
+  'What are the most common mistakes to avoid?',
+  'Make an HTML page with a bouncing ball animation',
+  'Make a table comparing three note-taking apps',
+  'Debug this error and explain the root cause',
+  'Refactor this code to be cleaner and more idiomatic',
+  'Write unit tests covering edge cases and failure modes',
+  'Turn these notes into a structured action checklist',
+  'Rewrite this to be shorter, punchier, and more direct',
+  'What are the strongest counterarguments to this view?',
+  'Design a clean architecture and data model for ',
+  'Walk through a concrete numerical example step by step',
+];
+
+function convTopic(c) {
+  if (!c) return '';
+  const nodes = path(c);
+  const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
+  const lastUser = [...nodes].reverse().find((n) => n.role === 'user' && n.content);
+  if (lastAsst || lastUser) {
+    const extracted = extractReplyTopic(lastAsst ? nodeText(lastAsst) : '', lastUser ? String(lastUser.content || '') : '');
+    if (extracted) return extracted;
+  }
+  const t = String(c.title || '').replace(/…$/, '').trim();
+  if (t && !/^(new chat|untitled|chat|conversation)$/i.test(t) && t.length >= 3 && t.length <= 42) return t;
+  return '';
+}
+
+function smartPromptCandidates() {
+  const c = state.current;
+  const nodes = c ? path(c) : [];
+  const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
+  const followUps = lastAsst ? followUpSuggestions(c, lastAsst) : [];
+  const askedBefore = new Set(
+    nodes
+      .filter((n) => n && n.role === 'user' && n.content)
+      .map((n) => String(n.content).trim().toLowerCase()),
+  );
+  const topic = convTopic(c);
+  const mode = curMode();
+  const list = [...followUps];
+  if (c && c.kind === 'code') {
+    list.push(
+      'Run the test suite to verify these changes',
+      'Review the uncommitted diff for bugs and regressions',
+      'Commit these changes with a clear commit message',
+      'Fix the failing test and re-run to verify',
+      'Explain how this project is laid out and where the entry points are',
+      'Check for lint or type errors and fix them',
+      'Write unit tests for the new changes',
+    );
+  }
+  if (topic) {
+    list.push(
+      `Explain ${topic} in simple terms with a concrete example`,
+      `Summarize the key points about ${topic} in bullet points`,
+      `What are the pros, cons, and trade-offs of ${topic}?`,
+      `How do I get started with ${topic} step by step?`,
+      `What are the most common pitfalls with ${topic}?`,
+      `Compare the best options and alternatives for ${topic}`,
+    );
+  }
+  if (mode === 'search') {
+    list.push(
+      topic ? `What are the latest updates and news on ${topic}?` : 'What are the latest updates and news on ',
+      topic ? `Find the official documentation and release notes for ${topic}` : 'Find the official documentation and release notes for ',
+      'Compare current prices, specs, and reviews for ',
+    );
+  } else if (mode === 'research') {
+    list.push(
+      topic ? `Write a comprehensive research report on ${topic}` : 'Write a comprehensive research report on ',
+      topic ? `Compare the leading approaches and benchmarks for ${topic}` : 'Compare the leading approaches and benchmarks for ',
+      'What changed in web accessibility rules this year?',
+    );
+  } else if (mode === 'image') {
+    list.push(
+      'Draw a detailed, cinematic illustration of ',
+      'Create a clean minimalist icon or logo for ',
+      'Design a high-contrast diagram showing ',
+    );
+  } else if (mode === 'slides') {
+    list.push(
+      topic ? `Create a 10-slide presentation deck on ${topic}` : 'Create a 10-slide presentation deck on ',
+      'Make a pitch deck covering problem, solution, and traction',
+    );
+  }
+  list.push(...SMART_STARTERS);
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const k = item.toLowerCase();
+    if (seen.has(k) || askedBefore.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
+export function matchSmartPrompts(raw, candidates = smartPromptCandidates(), dismissed = dismissedGhost) {
+  if (!raw || typeof raw !== 'string') return [];
+  const q = raw.toLowerCase();
+  const qTrim = q.trim();
+  if (qTrim.length < 2 || q.length > 64 || /^[/?@]/.test(qTrim)) return [];
+  const tokens = qTrim.split(/\s+/).filter(Boolean);
+  const scored = [];
+  for (let idx = 0; idx < candidates.length; idx++) {
+    const cand = candidates[idx];
+    if (!cand || cand === dismissed || cand.length <= raw.length + 2) continue;
+    const low = cand.toLowerCase();
+    if (low.startsWith(q)) {
+      scored.push({
+        score: 100 - Math.min(idx, 30),
+        label: raw,
+        help: cand.slice(raw.length),
+        value: cand,
+        prefix: true,
+      });
+      continue;
+    }
+    if (qTrim.length >= 3 && tokens.every((t) => low.includes(t))) {
+      const firstPos = low.indexOf(tokens[0]);
+      const boundary = firstPos === 0 || /[\s`'"(-]/.test(low[firstPos - 1] || '');
+      scored.push({
+        score: (boundary ? 65 : 45) - Math.min(idx, 25),
+        label: raw,
+        help: ` → ${cand}`,
+        value: cand,
+        prefix: false,
+      });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 4);
+}
 
 function suggestions() {
   const inp = input();
@@ -124,7 +282,7 @@ function suggestions() {
   if (inp.value === '?') return { kind: 'keys', items: KEYS.map(([key, help]) => ({ label: key, help, value: '' })) };
   if (/^\/[\w.:-]*$/.test(v)) {
     const q = v.slice(1).toLowerCase();
-    const list = [...SLASH_CHAT.filter(([n]) => n !== 'image' || imagesAvailable()), ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))];
+    const list = [...SLASH_CHAT.filter(([n]) => (n === 'image' ? imagesAvailable() : n === 'video' ? videosAvailable() : true)), ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))];
     return { kind: 'slash', items: list.filter(([n]) => n.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })).slice(0, 40) };
   }
   const m = v.match(/(?:^|\s)@([\w./-]*)$/);
@@ -136,6 +294,17 @@ function suggestions() {
     return { kind: 'at', query: m[1], items: [...scopes, ...personas, ...mentionItems].slice(0, 14) };
   }
   mentionQuery = null;
+  if (!inp.value.includes('\n') && inp.selectionStart === inp.value.length) {
+    const raw = inp.value;
+    const matches = matchSmartPrompts(raw);
+    if (matches.length) {
+      return {
+        kind: 'smart',
+        typed: raw,
+        items: matches,
+      };
+    }
+  }
   return { kind: '', items: [] };
 }
 
@@ -158,25 +327,160 @@ function renderSuggestions() {
   const s = suggestions();
   const box = $('cc-slash');
   box.hidden = !s.items.length;
-  pickIndex = Math.min(pickIndex, Math.max(0, s.items.length - 1));
+  box.classList.toggle('smart-pop', s.kind === 'smart');
+  if (s.kind === 'smart') {
+    if (pickIndex >= s.items.length) pickIndex = -1;
+  } else {
+    pickIndex = Math.min(Math.max(0, pickIndex), Math.max(0, s.items.length - 1));
+  }
   const kids = [];
   if (s.kind === 'keys') kids.push(el('div', 'pop-head', 'Shortcuts'));
   s.items.forEach((item, i) => {
-    const b = el('button', { type: 'button', class: i === pickIndex ? 'active' : '', role: 'option', 'aria-selected': String(i === pickIndex), id: `sugg-${i}` });
+    const active = i === pickIndex;
+    const b = el('button', { type: 'button', class: active ? 'active' : '', role: 'option', 'aria-selected': String(active), id: `sugg-${i}` });
     if (s.kind === 'at') b.append(el('code', '', item.label), item.help ? el('span', '', item.help) : '');
-    else b.append(el('strong', '', item.label), el('span', '', item.help));
+    else if (s.kind === 'smart') {
+      b.append(
+        el('span', { class: 'sm-ic', 'aria-hidden': 'true' }, '✦'),
+        el('span', 'sm-tx', el('strong', '', item.label), el('span', '', item.help)),
+        ((active || (pickIndex < 0 && i === 0)) && !isTouch()) ? el('kbd', 'sm-tab', 'Tab') : '',
+      );
+    } else b.append(el('strong', '', item.label), el('span', '', item.help));
     b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s, item); });
     kids.push(b);
   });
   box.replaceChildren(...kids);
-  input().setAttribute('aria-activedescendant', s.items.length ? `sugg-${pickIndex}` : '');
+  input().setAttribute('aria-activedescendant', s.items.length && pickIndex >= 0 ? `sugg-${pickIndex}` : '');
+  renderGhostSuggestion(s);
+}
+
+function finishGhostTyping() {
+  if (!ghostTyping) return false;
+  cancelAnimationFrame(ghostTyping.timer);
+  const full = ghostTyping.full;
+  ghostTyping = null;
+  const inp = input();
+  inp.value = full;
+  inp.selectionStart = inp.selectionEnd = full.length;
+  currentGhostFull = '';
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  if (ghost) { ghost.hidden = true; ghost.classList.remove('swiping'); ghost.style.removeProperty('--ghost-swipe'); }
+  if (wrap) wrap.classList.remove('has-ghost', 'typing-ghost');
+  keepDraftSoon();
+  grow();
+  setPreviewText(inp.value);
+  renderCtxRing();
+  return true;
+}
+
+function renderGhostSuggestion(s = suggestions()) {
+  if (ghostTyping) return;
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  if (!ghost || !wrap) return;
+  const inp = input();
+  const c = state.current;
+  const streaming = c && state.streams.has(c.id);
+  let match = null;
+  if (!streaming && !inp.value.includes('\n') && inp.selectionStart === inp.value.length) {
+    if (!inp.value && $('cc-slash').hidden) {
+      const nodes = c ? path(c) : [];
+      const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
+      const followUps = lastAsst ? followUpSuggestions(c, lastAsst) : [];
+      const top = followUps[0] || '';
+      if (top && top !== dismissedGhost) match = { typed: '', rest: top, full: top };
+    } else if (s && s.kind === 'smart' && s.items.length) {
+      const item = s.items[pickIndex >= 0 ? pickIndex : 0] || s.items.find((x) => x.prefix);
+      if (item && item.prefix !== false && item.value !== dismissedGhost) match = { typed: item.label, rest: item.help, full: item.value };
+    }
+  }
+  if (!match) {
+    currentGhostFull = '';
+    ghost.hidden = true;
+    ghost.classList.remove('swiping');
+    ghost.style.removeProperty('--ghost-swipe');
+    wrap.classList.remove('has-ghost', 'typing-ghost');
+    return;
+  }
+  currentGhostFull = match.full;
+  $('jc-ghost-typed').textContent = match.typed;
+  $('jc-ghost-rest').textContent = match.rest;
+  const tabBadge = $('jc-ghost-tab');
+  if (tabBadge) {
+    const isMobileDevice = isTouch() || (typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 680px)').matches);
+    tabBadge.hidden = isMobileDevice;
+  }
+  ghost.hidden = false;
+  wrap.classList.add('has-ghost');
+}
+
+function acceptGhostSuggestion({ animate = true } = {}) {
+  if (ghostTyping) return finishGhostTyping();
+  if (!currentGhostFull) return false;
+  const inp = input();
+  const full = currentGhostFull;
+  const startPos = inp.value.length;
+  currentGhostFull = '';
+  $('cc-slash').hidden = true;
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!animate || reducedMotion || full.length <= startPos + 1 || !ghost || !wrap) {
+    inp.value = full;
+    inp.selectionStart = inp.selectionEnd = full.length;
+    keepDraftSoon();
+    grow();
+    setPreviewText(inp.value);
+    renderGhostSuggestion({ kind: '', items: [] });
+    renderCtxRing();
+    inp.focus({ preventScroll: true });
+    return true;
+  }
+  ghost.hidden = false;
+  ghost.classList.remove('swiping');
+  ghost.style.removeProperty('--ghost-swipe');
+  wrap.classList.add('has-ghost', 'typing-ghost');
+  inp.focus({ preventScroll: true });
+  const stepChars = Math.max(2, Math.ceil((full.length - startPos) / 11));
+  ghostTyping = { full, pos: startPos, timer: 0 };
+  const tick = () => {
+    if (!ghostTyping) return;
+    ghostTyping.pos = Math.min(full.length, ghostTyping.pos + stepChars);
+    const cur = full.slice(0, ghostTyping.pos);
+    const rem = full.slice(ghostTyping.pos);
+    inp.value = cur;
+    inp.selectionStart = inp.selectionEnd = cur.length;
+    $('jc-ghost-typed').textContent = cur;
+    $('jc-ghost-rest').textContent = rem;
+    grow();
+    if (ghostTyping.pos >= full.length) {
+      finishGhostTyping();
+      return;
+    }
+    ghostTyping.timer = requestAnimationFrame(tick);
+  };
+  ghostTyping.timer = requestAnimationFrame(tick);
+  return true;
 }
 
 function pick(s, item) {
   const inp = input();
-  if (s.kind === 'keys') { inp.value = ''; $('cc-slash').hidden = true; inp.focus(); return; }
+  if (s.kind === 'keys') { inp.value = ''; $('cc-slash').hidden = true; renderGhostSuggestion(); inp.focus(); return; }
+  if (s.kind === 'smart') {
+    inp.value = item.value;
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+    $('cc-slash').hidden = true;
+    keepDraftSoon();
+    grow();
+    setPreviewText(inp.value);
+    renderGhostSuggestion({ kind: '', items: [] });
+    renderCtxRing();
+    inp.focus();
+    return;
+  }
   if (s.kind === 'slash') {
-    const needsArg = ['model', 'effort', 'rename', 'level', 'persona', 'note'].includes(item.value);
+    const needsArg = ['model', 'effort', 'rename', 'level', 'persona', 'note', 'later', 'schedule'].includes(item.value);
     inp.value = `/${item.value}${needsArg ? ' ' : ''}`;
     $('cc-slash').hidden = true;
     if (!needsArg) $('deck-composer').requestSubmit();
@@ -211,17 +515,20 @@ function recallMessage(step) {
 }
 
 /* ---------- the orb and the drawer ---------- */
-let composerExpanded = false;
-let composerPinned = false;
+const COMPOSER_OPEN_KEY = IN_APP ? 'jc-composer-open' : 'jc-composer-web-open';
+let composerExpanded = !IN_APP;
+let composerPinned = !IN_APP;
 try {
-  composerPinned = localStorage.getItem('jc-composer-pinned') === '1';
-  composerExpanded = composerPinned || localStorage.getItem('jc-composer-open') === '1';
+  const savedPin = localStorage.getItem('jc-composer-pinned');
+  composerPinned = savedPin === null ? !IN_APP : savedPin === '1';
+  const savedOpen = localStorage.getItem(COMPOSER_OPEN_KEY);
+  composerExpanded = composerPinned || (savedOpen === null ? !IN_APP : savedOpen === '1');
 } catch { /* private mode */ }
 function setComposerExpanded(v, { focus = true } = {}) {
   composerExpanded = v;
   $('deck-composer').classList.toggle('expanded', v);
   $('jc-orb').setAttribute('aria-expanded', v ? 'true' : 'false');
-  try { localStorage.setItem('jc-composer-open', v ? '1' : '0'); } catch { /* */ }
+  try { localStorage.setItem(COMPOSER_OPEN_KEY, v ? '1' : '0'); } catch { /* */ }
   if (v && focus) input().focus();
 }
 
@@ -235,9 +542,11 @@ function grow() {
 const TEXT_FILE = /\.(md|markdown|txt|log|json|jsonl|csv|tsv|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|m?js|cjs|tsx?|jsx|vue|svelte|py|pyi|rb|go|rs|java|kt|kts|swift|m|mm|c|h|cc|cpp|hpp|cs|php|pl|lua|r|dart|scala|sh|bash|zsh|fish|sql|graphql|proto|env\.example|gitignore|dockerfile|makefile|gradle|plist|strings|diff|patch)$/i;
 const TEXT_TYPES = ['application/json', 'application/xml', 'application/javascript', 'application/x-yaml', 'application/yaml', 'application/toml', 'application/x-sh', 'application/sql'];
 const DOC_FILE = /\.(pdf|epub|docx|pptx)$/i; // documents: their text is read here (course-extract.js) and attached as text
-const MAX_DOC = 60 * 1024 * 1024; // the file itself; what's attached is its text, at most MAX_TEXT
+const SHEET_FILE = /\.(xlsx|xlsm|xls)$/i; // Excel workbooks: opened in the spreadsheet canvas & attached as context
+const MAX_DOC = 50 * 1024 * 1024 * 1024; // the file itself: up to 50 GB virtually unlimited document scale
 function fileKind(file) {
   if (isVideo(file)) return 'video';
+  if (SHEET_FILE.test(file.name)) return 'sheet';
   if (DOC_FILE.test(file.name)) return 'doc';
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('text/') || TEXT_TYPES.includes(file.type) || TEXT_FILE.test(file.name) || /^(Makefile|Dockerfile|Gemfile|Procfile|LICENSE|README)$/i.test(file.name)) return 'text';
@@ -333,14 +642,15 @@ async function addVideo(file) {
 export function addFile(file) {
   if (!file) return;
   const kind = fileKind(file);
-  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos, PDF, EPUB, Word, PowerPoint, and text or code files.`); return; }
+  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos, Excel (.xlsx, .xls), PDF, EPUB, Word, PowerPoint, and text or code files.`); return; }
   const held = [...attachments, ...reading];
-  if (held.length >= MAX_FILES) { toast('Up to six attachments per message.'); return; }
+  if (held.length >= MAX_FILES) { toast('Up to 12 attachments per message.'); return; }
   if (kind === 'video') { addVideo(file); return; }
-  if (kind === 'doc') { addDocument(file); return; }
+  if (kind === 'sheet') { addSpreadsheet(file); return; }
+  if (kind === 'doc' || (kind === 'text' && file.size > 8 * 1024 * 1024)) { addDocument(file); return; }
   if (kind === 'image' && !cleaned.has(file)) { cleanPicture(file).then((f) => (f ? addFile(f) : toast(`${file.name} couldn’t be read.`))); return; }
-  if (kind === 'text' && file.size > MAX_TEXT) { toast(`${file.name} is over 400 KB.`); return; }
-  if (kind === 'image' && file.size > MAX_BINARY) { toast(`${file.name} is over 6 MB.`); return; }
+  if (kind === 'text' && file.size > MAX_TEXT) { toast(`${file.name} is over 50 GB.`); return; }
+  if (kind === 'image' && file.size > MAX_BINARY) { toast(`${file.name} is over 100 MB.`); return; }
   if (held.reduce((n, a) => n + (a.kind === 'video' ? 0 : a.size || 0), 0) + file.size > MAX_TOTAL) { toast(`${file.name} would make this message too big to send.`); return; }
   if (kind === 'image' && state.current && state.current.kind !== 'code') {
     const o = currentOverride();
@@ -358,7 +668,10 @@ export function addFile(file) {
       if (result.includes('\u0000')) { toast(`${file.name} isn’t a text file.`); return; }
       attachments.push({ kind, mime: file.type || 'text/plain', text: result, name: file.name, size: file.size });
       dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: result } })); // app.js (website only): a rubric opens the essay writer
-    } else attachments.push({ kind, mime: file.type, data: result.split(',', 2)[1], url: result, name: file.name, size: file.size });
+    } else {
+      attachments.push({ kind, mime: file.type, data: result.split(',', 2)[1], url: result, name: file.name, size: file.size });
+      dispatchEvent(new CustomEvent('eden:reroute'));
+    }
     renderAttachments();
   };
   if (kind === 'text') reader.readAsText(file); else reader.readAsDataURL(file);
@@ -369,26 +682,65 @@ export function addFile(file) {
  * checks each quote against it (edu/course.js filesForTurn). Only the text leaves this device.
  * A book longer than MAX_TEXT keeps its beginning, and says where it stops.
  */
-function addDocument(file) {
-  if (file.size > MAX_DOC) { toast(`${file.name} is over 60 MB.`); return; }
+function addSpreadsheet(file) {
+  if (file.size > 2 * 1024 * 1024 * 1024) { toast(`${file.name} is over 2 GB.`); return; }
   const held = [...attachments, ...reading];
-  if (held.length >= MAX_FILES) { toast('Up to six attachments per message.'); return; }
+  if (held.length >= MAX_FILES) { toast('Up to 12 attachments per message.'); return; }
   const slot = { kind: 'text', size: 0 };
   reading.add(slot);
   renderAttachments();
-  import('./course-extract.js').then(({ extractFile }) => extractFile(file)).then(({ parts, scanned }) => {
+  Promise.all([
+    import('./sheet.js'),
+    import('./sheet-io.mjs'),
+    import('./sheet-model.mjs'),
+    import('./sheet-formulajs.mjs'),
+  ]).then(async ([sheetUi, io, M, fns]) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const kind = io.kindOf(file.name);
+    const libs = kind === 'xlsx'
+      ? { ExcelJS: (await import('./sheet-exceljs.mjs')).default }
+      : kind === 'xls'
+        ? { XLSX: await import('./sheet-xls.mjs') }
+        : {};
+    const book = await io.readWorkbook(bytes, file.name, libs);
+    const calc = M.recalc(book, fns, {});
+    const ctx = M.sheetContext(book, calc, { active: 0 });
+    reading.delete(slot);
+    attachments.push({ kind: 'text', mime: 'text/plain', text: ctx.text, name: file.name, size: ctx.text.length });
+    renderAttachments();
+    await sheetUi.openSheetFile(file);
+  }, (e) => {
+    reading.delete(slot);
+    renderAttachments();
+    toast(`${file.name}: ${(e && e.message) || 'couldn’t be read as an Excel workbook.'}`);
+  });
+}
+
+function addDocument(file) {
+  if (file.size > MAX_DOC) { toast(`${file.name} is over 50 GB.`); return; }
+  const held = [...attachments, ...reading];
+  if (held.length >= MAX_FILES) { toast('Up to 12 attachments per message.'); return; }
+  const slot = { kind: 'text', size: 0 };
+  reading.add(slot);
+  renderAttachments();
+  Promise.all([import('./course-extract.js'), import('./book-index.mjs')]).then(async ([{ extractFile }, { buildBookIndex, HUGE_DOC_CHARS }]) => {
+    const { parts, scanned } = await extractFile(file);
     reading.delete(slot);
     if (!parts.length) { toast(scanned && scanned.length ? `${file.name} is a scan (pictures of pages) with no text to read.` : `${file.name} has no text Eden could read.`); renderAttachments(); return; }
     let text = '';
-    let cut = '';
     for (const p of parts) {
       const piece = `[${p.loc}]\n${p.text}\n\n`;
-      if (text.length + piece.length > MAX_TEXT) { cut = `[The rest of ${file.name} (from ${p.loc}) wasn’t attached: the file is longer than one message can carry. Ask about a part, or attach that part on its own.]`; break; }
+      if (text.length + piece.length > 500_000) break;
       text += piece;
     }
-    if (cut) { text += cut; toast(`${file.name} is long: its first part is attached (as much as one message carries).`); }
-    attachments.push({ kind: 'text', mime: 'text/plain', text: text.trim(), name: file.name, size: text.length });
-    dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: text.trim() } })); // app.js (website only): a rubric opens the essay writer
+    const cleanText = text.trim();
+    const isHuge = cleanText.length > HUGE_DOC_CHARS || parts.length > 20;
+    const bookIndex = isHuge ? buildBookIndex(parts, { name: file.name }) : null;
+    if (bookIndex) {
+      toast(`${file.name}: indexed ${parts.length.toLocaleString('en-US')} sections (${bookIndex.chapters.length} chapters, ${bookIndex.glossary.length} definitions) for fast retrieval.`);
+    }
+    attachments.push({ kind: 'text', mime: 'text/plain', text: cleanText, name: file.name, size: file.size, ...(bookIndex ? { bookIndex } : {}) });
+    dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: cleanText } })); // app.js (website only): a rubric opens the essay writer
     renderAttachments();
   }, (e) => { reading.delete(slot); renderAttachments(); toast(`${file.name}: ${e.message || 'couldn’t be read.'}`); });
 }
@@ -455,7 +807,7 @@ function removeChip(label, onRemove) {
 export function renderAttachments() {
   const box = $('jc-attach');
   const chips = attachments.map((a, i) => {
-    const drop = () => { attachments.splice(i, 1); renderAttachments(); input().focus(); };
+    const drop = () => { const wasImg = a.kind === 'image'; attachments.splice(i, 1); renderAttachments(); if (wasImg) dispatchEvent(new CustomEvent('eden:reroute')); input().focus(); };
     if (a.kind === 'image') return el('span', 'jc-thumb-img', el('img', { src: a.url, alt: a.name || 'Attached image' }), removeChip(a.name || 'image', drop));
     if (a.kind === 'video') return videoChip(a, removeChip(a.name || 'video', drop));
     const t = fileType(a.name, a.kind); // a card like the sent message's (render.js) and ChatGPT's: type square, name, type
@@ -731,8 +1083,9 @@ function renderCtxPop() {
   $('cx-bar').replaceChildren(...u.cats.map((cat, i) => { const seg = el('i'); seg.style.width = `${(100 * cat.tokens) / u.max}%`; seg.style.background = CX_COLORS[i % CX_COLORS.length]; return seg; }));
   $('cx-legend').replaceChildren(...u.cats.map((cat, i) => { const dot = el('i'); dot.style.background = CX_COLORS[i % CX_COLORS.length]; return el('li', '', dot, el('span', '', cat.name), el('b', '', fmtTokens(cat.tokens))); }));
   const m = modelInfo(u.modelId);
-  $('cx-note').textContent = `${m ? `Sized for ${m.name}` : 'Sized for a 200k window'}. An estimate (about 4 characters a token); the whole history goes with each message.`;
-  $('cx-compact').hidden = !path(state.current).length;
+  const isCode = !!(state.current && state.current.kind === 'code');
+  $('cx-note').textContent = `${m ? `Sized for ${m.name}` : 'Sized for a 200k window'}. ${isCode ? 'An estimate (about 4 characters a token).' : 'Eden automatically compacts older turns and indexes large files so your chat never hits context limits.'}`;
+  $('cx-compact').hidden = !isCode || !path(state.current).length;
 }
 function openCtx() {
   const pop = $('jc-ctx-pop');
@@ -743,7 +1096,7 @@ function openCtx() {
   renderCtxPop();
   placePopup(pop, $('jc-ctx'), 'auto');
   $('jc-ctx').setAttribute('aria-expanded', 'true');
-  $('cx-compact').focus();
+  ($('cx-compact').hidden ? $('cx-clear') : $('cx-compact')).focus();
 }
 function closeCtx(refocus) {
   const pop = $('jc-ctx-pop');
@@ -760,6 +1113,12 @@ function plusMenu() {
   const pid = c ? c.personaId : state.draftPersona;
   openMenu($('jc-plus'), [
     { icon: 'clip', label: 'Add files or photos', key: '⌘U', run: () => $('jc-file').click() },
+    { icon: 'sheet', label: 'Excel spreadsheet', note: 'New, open .xlsx/.xls/.csv, or Google Sheets', sub: () => [
+      { icon: 'plus', label: 'New spreadsheet', note: 'Open blank workbook in canvas', run: () => import('./sheet.js').then((m) => m.newSheetCanvas()) },
+      { icon: 'clip', label: 'Open Excel or CSV file…', note: '.xlsx, .xls, .csv from this computer', run: () => import('./sheet.js').then((m) => m.openUpload()) },
+      { icon: 'mac', label: 'From your Mac…', note: 'Search spreadsheets on your Mac', run: () => import('./sheet.js').then((m) => m.openMacSearch()) },
+      { icon: 'sheet', label: 'From Google Sheets…', note: 'Google Picker', run: () => import('./sheet.js').then((m) => m.openGoogle()) },
+    ] },
     { icon: 'note', label: 'Note from your Mac', note: state.jarvis.available ? 'Search your second brain, attach as context' : (state.jarvis.reason || 'Your Mac isn’t connected'), run: () => H.openBrain() },
     ...macMenuItems(), // Use my Mac, Ask about my screen (files.js)
     { icon: 'persona', label: 'Persona', note: persona(pid) ? persona(pid).name : 'Custom instructions', sub: () => [
@@ -768,12 +1127,33 @@ function plusMenu() {
       '-',
       { icon: 'plus', label: 'New persona…', run: () => H.editPersona(null) },
     ] },
+    ...(c && c.kind === 'code' ? [{ icon: 'clock', label: 'Schedule timed task…', note: 'Resume or run at a set time (e.g. 2:00 AM)', run: () => scheduleTaskDialog(c) }] : []),
     { icon: 'clock', label: 'Temporary chat', note: 'Not saved', switch: !!(c && c.temp), keepOpen: false, run: () => H.newTemp() },
     '-',
     { icon: 'slash', label: 'Commands', key: '/', run: showSlash },
     { icon: 'gear', label: 'Settings', key: '⌘,', run: () => H.openSettings(0) },
   ]);
 }
+/* ---------- Eden Travel's own address (travel-standalone): the + beside the box, for the trip ---------- */
+const onTravel = () => document.body.classList.contains('travel-standalone');
+const tripCity = () => document.body.dataset.tripCity || ''; // the trip on show (travel.js paint)
+function askNow(text) {
+  setComposerText(text);
+  $('deck-composer').requestSubmit();
+}
+function travelMenu() {
+  const city = tripCity();
+  const browsing = $('jc-browse').getAttribute('aria-pressed') === 'true';
+  openMenu($('jc-orb'), [
+    { icon: 'clip', label: 'Add a ticket or booking', note: 'A photo, PDF or confirmation', run: () => $('jc-file').click() },
+    { icon: 'mail', label: 'Find my bookings in email', note: city ? `Adds them to your ${city} trip` : 'Flights, stays and tickets', run: () => askNow(city ? `Find my ${city} bookings in my email and add them to the trip.` : 'Find my travel bookings in my email and make a trip from them.') },
+    { icon: 'plane', label: 'Track a flight', note: 'Delays, gate and terminal', run: () => setComposerText('Track flight ') },
+    { icon: 'research', label: 'Book on the provider’s site', note: 'Eden fills their checkout; you pay them', switch: browsing, keepOpen: false, run: () => $('jc-browse').click() },
+    '-',
+    { icon: 'gear', label: 'Settings', note: 'Model and voice', run: () => H.openSettings(0) },
+  ]);
+}
+
 function showSlash() {
   const inp = input();
   if (!inp.value.startsWith('/')) inp.value = `/${inp.value.trimStart()}`;
@@ -863,39 +1243,63 @@ export function renderComposer() {
   else { $('jc-router-label').textContent = 'Router'; $('jc-router-sub').textContent = `Level ${state.settings.level}`; }
   chip.title = p && p.pick ? `The router’s pick for this text: ${p.pick.name} · ${effortLabel(p.pick.effort)}${p.rated ? ' (rated by Gemini)' : ' (rules)'}` : 'The router’s pick for what you type';
   if (chipPopOpenFor(chip)) openChipPop(chip, routerPopContent());
-  // cost and context
+  // cost and context (shown only when coding)
   const s = sessionCost(c);
   const lastTurn = s.turns.at(-1);
-  $('cc-meta').textContent = s.turns.length ? `${fmtCost(lastTurn)} turn · ${fmtCost(s.total)} session${s.notional ? '*' : ''}` : '';
+  $('cc-meta').hidden = !code;
+  $('cc-meta').textContent = code && s.turns.length ? `${fmtCost(lastTurn)} turn · ${fmtCost(s.total)} session${s.notional ? '*' : ''}` : '';
+  $('jc-ctx').hidden = !code;
+  if (!code) { closeCtx(); closeCostPop(); }
   const u = contextUse();
   $('jc-ctx-ring').style.strokeDashoffset = String(50.3 * (1 - u.percent / 100));
   $('jc-ctx-text').textContent = `${u.percent}%`;
   $('jc-ctx').classList.toggle('warn', u.percent >= 70 && u.percent < 90);
   $('jc-ctx').classList.toggle('full', u.percent >= 90);
   $('jc-ctx').title = `Context window: ${fmtTokens(u.tokens)} of ${fmtTokens(u.max)}`;
-  renderCtxPop();
-  // send ↔ stop; steer only for a running Code turn
+  if (code) renderCtxPop();
+  // send ↔ stop; steer while a turn is running (without interrupting it)
   const send = $('jc-send');
   send.classList.toggle('stop', !!streaming);
   send.setAttribute('aria-label', streaming ? 'Stop' : 'Send');
-  send.title = streaming ? 'Stop (Esc). Type to steer instead: it waits for the reply' : 'Send (⏎)';
+  send.title = streaming ? 'Stop (Esc). Type to steer instead: it goes in without stopping the reply' : 'Send (⏎)';
   $('jc-steer').hidden = !streaming;
   $('deck-composer').classList.toggle('busy', !!streaming);
   input().placeholder = code ? `Ask Eden to plan, build or fix something in ${c.project ? c.project.name : 'this project'}…`
     : curMode() === 'search' ? 'Search the web — answers with sources…' : curMode() === 'research' ? 'What should I research? A sourced report…'
     : curMode() === 'image' ? 'Describe the picture, or attach one to change…'
     : curMode() === 'slides' ? (state.current && state.current.deckVersions && state.current.deckVersions.length ? 'Change the deck: “make slide 3 shorter”, “add a slide about costs”…' : 'Describe the deck, or attach a file to build it from…')
-    : curMode() === 'compare' ? 'Ask several models at once — answers side by side…' : 'Message Eden — routed automatically…';
+    : curMode() === 'compare' ? 'Ask several models at once — answers side by side…'
+    : onTravel() ? (tripCity() ? `Ask about your ${tripCity()} trip…` : 'Where to, and when?')
+    : 'Message Eden — routed automatically…';
   renderEstimate(); // the routed model, its cost and time, above the input (compare.js)
   renderEvesChip(); // EVES: Off / On / Auto, and the draft's price (eves.js)
-  // the queue (steer)
+  // the queue (steer without interrupting, matching Eden Code) + scheduled timed tasks
   const q = (c && c.queue) || [];
-  $('jc-queue').hidden = !q.length;
-  $('jc-queue').replaceChildren(...q.map((item) => el('li', item.state === 'queued' && !code ? 'jc-queued jc-queued-wait' : 'jc-queued',
-    el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : code ? 'Steer' : 'Queued — sends when Eden finishes'),
-    el('span', { class: 'jc-queued-text', title: item.text }, el('span', { 'data-no-i18n': '' }, item.text), item.state === 'sent' ? ' — sent to the running step' : ''), // the person's words are never translated
-    item.state === 'queued' ? el('button', { type: 'button', class: 'jc-queued-steer', title: code ? 'Send into the running step now' : 'Stop this reply (keeping what it wrote) and send this now', onclick: () => H.steerNow(item.id) }, code ? 'Steer now' : 'Send now (stop reply)') : null,
-    item.state === 'sent' ? null : el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Remove from the queue', onclick: () => H.dropQueued(item.id) }, '×'))));
+  const sched = (code && Array.isArray(c.scheduled)) ? c.scheduled : [];
+  const canSteer = Boolean(streaming);
+  $('jc-queue').hidden = !q.length && !sched.length;
+  $('jc-queue').replaceChildren(
+    ...sched.map((item) => {
+      const leftSec = Math.max(0, Math.round((item.at - Date.now()) / 1000));
+      const h = Math.floor(leftSec / 3600);
+      const mins = Math.floor((leftSec % 3600) / 60);
+      const pad = (n) => String(n).padStart(2, '0');
+      const countdown = h ? `${h}:${pad(mins)}:${pad(leftSec % 60)}` : `${mins}:${pad(leftSec % 60)}`;
+      return el('li', 'jc-queued jc-queued-wait',
+        el('span', 'jc-queued-kicker', `Scheduled · ${formatScheduledTime(item.at)} (${countdown})`),
+        el('span', { class: 'jc-queued-text', title: item.text }, el('span', { 'data-no-i18n': '' }, item.display || item.text)),
+        el('button', { type: 'button', class: 'jc-queued-steer', title: 'Run this timed task right now', onclick: () => runScheduledCodeTaskNow(c, item.id) }, 'Run now'),
+        el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Cancel timed task', onclick: () => cancelScheduledCodeTask(c, item.id) }, '×'));
+    }),
+    ...q.map((item) => {
+      const steered = item.state === 'sent' || item.state === 'sending' || Boolean(item.steer);
+      return el('li', item.state === 'queued' && !steered ? 'jc-queued jc-queued-wait' : 'jc-queued',
+        el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : item.steer ? 'Steered' : 'Queued'),
+        el('span', { class: 'jc-queued-text', title: item.text }, el('span', { 'data-no-i18n': '' }, item.text), item.state === 'sent' ? ' — sent to the running step' : item.steer ? ' — into the running step' : ''), // the person's words are never translated
+        item.state === 'queued' && !item.steer && canSteer ? el('button', { type: 'button', class: 'jc-queued-steer', title: 'Send it into the running step now, without stopping it', onclick: () => H.steerNow(item.id) }, 'Steer now') : null,
+        item.state === 'sent' ? null : el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Remove from the queue', onclick: () => H.dropQueued(item.id) }, '×'));
+    }),
+  );
   // the status line
   const bits = [];
   if (c && c.temp) bits.push('Temporary · not saved');
@@ -903,6 +1307,7 @@ export function renderComposer() {
   if (streaming) bits.push(noKeys(code ? 'Working… Esc stops' : 'Replying… Esc stops'));
   $('cc-status').textContent = bits.join(' · ');
   renderAttachments();
+  renderGhostSuggestion();
 }
 
 /* ---------- Esc, in order ---------- */
@@ -995,9 +1400,19 @@ export function initComposer(handlers) {
   const inp = input();
   if (composerExpanded) setComposerExpanded(true, { focus: false });
   $('deck-composer').classList.toggle('pinned', composerPinned);
-  $('jc-orb').addEventListener('click', () => setComposerExpanded(!composerExpanded));
+  if (onTravel()) { // Eden Travel: the mark is a +, its menu is the trip's (travelMenu); no drawer of models and modes
+    $('jc-orb').setAttribute('aria-label', 'Add to your trip');
+    $('jc-orb').title = 'Add a ticket, find bookings, track a flight';
+    $('jc-orb').setAttribute('aria-haspopup', 'menu');
+    document.addEventListener('eden:trip-shown', () => renderComposer());
+  }
+  $('jc-orb').addEventListener('click', () => {
+    if (!onTravel()) return setComposerExpanded(!composerExpanded);
+    if (menuOpenFor($('jc-orb'))) closeMenu(); else travelMenu();
+  });
   $('jc-orb').addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (onTravel()) return;
     composerPinned = !composerPinned;
     try { localStorage.setItem('jc-composer-pinned', composerPinned ? '1' : '0'); } catch { /* */ }
     $('deck-composer').classList.toggle('pinned', composerPinned);
@@ -1015,6 +1430,7 @@ export function initComposer(handlers) {
   });
   $('deck-composer').addEventListener('submit', (e) => {
     e.preventDefault();
+    finishGhostTyping();
     // iOS: end the typing session before reading the words. The blur commits a pending
     // autocorrection into the value (R2-18), and no autocorrect bubble is left floating over the
     // emptied field (B12). The field gets its focus back after (unless something else took it).
@@ -1037,9 +1453,11 @@ export function initComposer(handlers) {
       if (H.slash(word.toLowerCase(), rest.join(' ').trim())) { done(); return; }
     }
     if (streaming) {
-      // steer without interrupting: the text waits above the composer (or goes into the Code step)
+      // steer without interrupting: ⌘↩ or Steer steers into the running step; ⏎ queues (unless Queue follow-ups is off)
       if (attachments.length) { toast('Attachments go with a new message: stop the reply first, or wait'); return; }
-      H.queue(text); done(); return;
+      const willSteer = steer || Boolean(state.settings && state.settings.queueFollowUps === false);
+      if (H.queue(text, { steer: willSteer }) === false) return;
+      done(); return;
     }
     if ([...reading].some((s) => s.kind === 'video')) { toast('Wait for the video to finish uploading'); return; }
     const videos = attachments.filter((a) => a.kind === 'video');
@@ -1056,6 +1474,7 @@ export function initComposer(handlers) {
   }
   function finish(hadFocus, typedIn) {
     recall.index = -1;
+    dismissedGhost = '';
     // (on iOS the field was blurred before its words were read: submit above, B12 / R2-18)
     inp.value = '';
     if (hadFocus) inp.focus({ preventScroll: true });
@@ -1064,22 +1483,152 @@ export function initComposer(handlers) {
     inp.style.height = '';
     $('cc-slash').hidden = true;
     setPreviewText('');
-    if (!composerPinned) setComposerExpanded(false, { focus: true });
+    if (IN_APP && !composerPinned) setComposerExpanded(false, { focus: true });
     renderComposer();
   }
+  if ($('jc-ghost-tab')) {
+    $('jc-ghost-tab').addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      acceptGhostSuggestion({ animate: true });
+    });
+  }
+  const ghostWrap = $('jc-input-wrap');
+  if (ghostWrap) {
+    ghostWrap.setAttribute('data-noswipe', '');
+    let swipeState = null; // { x0, y0, t0, dx, dy, accepted }
+    const clearSwipeVisual = () => {
+      const g = $('jc-ghost');
+      if (g) { g.classList.remove('swiping'); g.style.removeProperty('--ghost-swipe'); }
+    };
+    const startSwipe = (x, y) => {
+      if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; return; }
+      swipeState = { x0: x, y0: y, t0: performance.now(), dx: 0, dy: 0, accepted: false };
+    };
+    const moveSwipe = (x, y, ev) => {
+      if (!swipeState || swipeState.accepted) return;
+      if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; clearSwipeVisual(); return; }
+      const dx = x - swipeState.x0;
+      const dy = y - swipeState.y0;
+      swipeState.dx = dx;
+      swipeState.dy = dy;
+      if (Math.abs(dy) > 22 && Math.abs(dy) > Math.abs(dx)) {
+        swipeState = null;
+        clearSwipeVisual();
+        return;
+      }
+      if (dx > 6 && dx > Math.abs(dy) * 1.2) {
+        if (ev && ev.cancelable) ev.preventDefault();
+        const g = $('jc-ghost');
+        if (g) {
+          g.classList.add('swiping');
+          g.style.setProperty('--ghost-swipe', String(Math.min(1, dx / 36)));
+        }
+        if (dx >= 36 && performance.now() - swipeState.t0 < 800) {
+          swipeState.accepted = true;
+          clearSwipeVisual();
+          acceptGhostSuggestion({ animate: true });
+        }
+      }
+    };
+    const endSwipe = () => {
+      if (!swipeState) return;
+      const { dx, dy, t0, accepted } = swipeState;
+      swipeState = null;
+      clearSwipeVisual();
+      if (accepted) return;
+      const dt = Math.max(1, performance.now() - t0);
+      const vx = dx / dt;
+      if (dx >= 24 && dx > Math.abs(dy) * 1.3 && (dx >= 30 || vx >= 0.28) && dt < 700) {
+        acceptGhostSuggestion({ animate: true });
+      }
+    };
+    ghostWrap.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) { swipeState = null; return; }
+      startSwipe(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    ghostWrap.addEventListener('touchmove', (e) => {
+      if (!swipeState || e.touches.length !== 1) return;
+      moveSwipe(e.touches[0].clientX, e.touches[0].clientY, e);
+    }, { passive: false });
+    ghostWrap.addEventListener('touchend', endSwipe, { passive: true });
+    ghostWrap.addEventListener('touchcancel', () => { swipeState = null; clearSwipeVisual(); }, { passive: true });
+    ghostWrap.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' || e.button !== 0) return;
+      if (inp.value && inp.selectionStart !== inp.value.length) return;
+      startSwipe(e.clientX, e.clientY);
+    });
+    ghostWrap.addEventListener('pointermove', (e) => {
+      if (!swipeState || e.pointerType === 'touch' || !(e.buttons & 1)) return;
+      moveSwipe(e.clientX, e.clientY, e);
+    });
+    ghostWrap.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') endSwipe(); });
+    ghostWrap.addEventListener('pointercancel', () => { swipeState = null; clearSwipeVisual(); });
+    ghostWrap.addEventListener('wheel', (e) => {
+      if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) return;
+      if (Math.abs(e.deltaX) >= 24 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.8) {
+        e.preventDefault();
+        acceptGhostSuggestion({ animate: true });
+      }
+    }, { passive: false });
+  }
   inp.addEventListener('keydown', (e) => {
+    if (ghostTyping) {
+      finishGhostTyping();
+      if (e.key === 'Tab' || e.key === 'ArrowRight') { e.preventDefault(); return; }
+    }
     const s = suggestions();
     if (s.items.length && !$('cc-slash').hidden) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length; renderSuggestions(); return; }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (s.kind === 'smart' && pickIndex < 0) pickIndex = e.key === 'ArrowDown' ? 0 : s.items.length - 1;
+        else pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length;
+        renderSuggestions();
+        return;
+      }
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        pick(s, s.items[pickIndex >= 0 ? pickIndex : 0]);
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && (s.kind !== 'smart' || pickIndex >= 0)) {
+        e.preventDefault();
+        pick(s, s.items[pickIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        $('cc-slash').hidden = true;
+        if (s.kind === 'smart' && currentGhostFull) dismissedGhost = currentGhostFull;
+        renderGhostSuggestion({ kind: '', items: [] });
+        return;
+      }
     }
     if (e.key === 'Backspace' && !inp.value && inp.selectionStart === 0 && dropScope()) { e.preventDefault(); renderAttachments(); return; } // the @calendar / @mail chip
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); setMode(nextMode()); return; }
+    if (currentGhostFull && $('jc-ghost') && !$('jc-ghost').hidden) {
+      if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        acceptGhostSuggestion();
+        return;
+      }
+      if (e.key === 'ArrowRight' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && inp.selectionStart === inp.value.length) {
+        e.preventDefault();
+        acceptGhostSuggestion();
+        return;
+      }
+      if (e.key === 'Escape' && !inp.value) {
+        e.preventDefault();
+        e.stopPropagation();
+        dismissedGhost = currentGhostFull;
+        renderGhostSuggestion({ kind: '', items: [] });
+        return;
+      }
+    }
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) {
       const up = e.key === 'ArrowUp';
       const onEdge = up ? !inp.value.slice(0, inp.selectionStart).includes('\n') : !inp.value.slice(inp.selectionEnd).includes('\n');
-      if ((recall.index >= 0 || (up && !inp.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); return; }
+      if ((recall.index >= 0 || (up && !inp.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); renderGhostSuggestion(); return; }
     }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -1091,9 +1640,10 @@ export function initComposer(handlers) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('deck-composer').requestSubmit(); }
   });
   inp.addEventListener('input', () => {
+    if (ghostTyping) finishGhostTyping();
     keepDraftSoon();
     recall.index = -1;
-    pickIndex = 0;
+    pickIndex = /^[/?@]|\s@[\w./-]*$/.test(inp.value.slice(0, inp.selectionStart)) ? 0 : -1;
     renderSuggestions();
     grow();
     setPreviewText(inp.value);

@@ -403,6 +403,28 @@ test('EVES has its own site: /eves serves it; EVES_HOST makes evesverification.c
   assert.match(html, /answered from memory/);
 });
 
+test('Eden for Business has its own site: held without BUSINESS_HOST (names forward to askeden.com); with it, edenforbusiness.com is the front and www forwards', async () => {
+  const go = async (u, e) => {
+    const r = await worker.fetch(new Request(u, { redirect: 'manual' }), e, {});
+    return [r.status, r.headers.get('location')];
+  };
+  for (const host of ['edenforbusiness.com', 'www.edenforbusiness.com']) assert.deepEqual(await go(`https://${host}/`, env), [301, 'https://askeden.com/'], host);
+  const held = await worker.fetch(new Request(`${ORIGIN}/business`), env, {});
+  assert.notEqual(held.status, 200);
+  const on = { ...env, BUSINESS_HOST: 'edenforbusiness.com' };
+  const front = await worker.fetch(new Request('https://edenforbusiness.com/'), on, {});
+  assert.equal(front.status, 200);
+  assert.equal(await front.text(), 'asset /business-home/');
+  assert.doesNotMatch(front.headers.get('content-security-policy'), /unsafe-inline/);
+  assert.deepEqual(await go('https://www.edenforbusiness.com/x?y=1', on), [301, 'https://edenforbusiness.com/x?y=1']);
+  assert.deepEqual(await go('https://askeden.com/business', on), [301, 'https://edenforbusiness.com/']);
+  const html = read('public/business-home/index.html');
+  assert.doesNotMatch(html, /style=|onclick=/);
+  assert.match(html, /floc/);
+  assert.match(html, /Iberoamerican Technology Foundation/);
+  assert.doesNotMatch(html, /J\.A\.R\.V\.I\.S|Jarvis/);
+});
+
 test('askeden.ai and www.askeden.ai forward to askeden.com, keeping path and query', async () => {
   for (const host of ['askeden.ai', 'www.askeden.ai']) {
     const out = await worker.fetch(new Request(`https://${host}/edu?x=1`), env, {});
@@ -439,7 +461,7 @@ test('Eden for Education: /edu is its landing page signed out (only the language
 });
 
 test('the site pages in French: /lang/ serves the language script and each page\'s dictionary, nothing else; every page names one that exists', async () => {
-  const pages = ['home/index.html', 'signin/index.html', 'link/index.html', 'jarvis/index.html', 'daredevil/index.html', 'privacy/index.html', 'terms/index.html', 'edu-home/index.html', 'edu-home/privacy.html', 'edu-home/terms.html'];
+  const pages = ['home/index.html', 'signin/index.html', 'link/index.html', 'jarvis/index.html', 'daredevil/index.html', 'privacy/index.html', 'terms/index.html', 'edu-home/index.html', 'edu-home/privacy.html', 'edu-home/terms.html', 'travel-home/index.html'];
   for (const f of pages) {
     const html = read(`public/${f}`);
     const m = /<script src="\/lang\/site-i18n\.js" data-page="([a-z-]+)"><\/script>/.exec(html);
@@ -585,7 +607,7 @@ test('Eden Router has its own site: ROUTER_HOST makes edenrouter.com the front, 
   const html = read('public/router/index.html'); // the page itself: no script, no inline style (HOME_CSP)
   assert.match(html, /Eden Router/);
   assert.match(html, /href="\/router\/router\.css"/);
-  assert.doesNotMatch(html, /<script(?![^>]*src="\/(router\/router|home\/features)\.js")|style="/);   // the page's own script and the films' player
+  assert.doesNotMatch(html, /<script(?![^>]*src="\/(router\/router|home\/features|lang\/site-i18n)\.js")|style="/);   // the page's own script, the films' player, and the language script
   assert.match(html, /src="\/router\/film\.mp4" poster="\/router\/film\.jpg" width="1280" height="720" controls muted loop playsinline preload="none"/);
   assert.doesNotMatch(html, / autoplay/);
   for (const f of ['film.mp4', 'film.jpg']) assert.ok(fs.statSync(path.join(SITE, `public/router/${f}`)).size > 10_000 && fs.statSync(path.join(SITE, `public/router/${f}`)).size < 25 * 1024 * 1024, f);
@@ -636,8 +658,99 @@ test('Eden Mail: /mail is its page signed out and the app signed in; MAIL_HOST p
   assert.match(read('public/eden/mail.css'), /html\.mail-only #app[^{]*\{display:none!important\}/);
   assert.match(read('public/eden/panels.js'), /if \(mailOnly && openKey === 'mail'\) return false;/);
   // and at /mail its API is the site's (/api/chat/…), not /mail/api/… (which answers with a page: "Unexpected token '<'")
-  const root = (p) => p.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '').replace(/^\/mail$/, '').replace(/\/$/, '');
-  assert.ok(read('public/eden/api.js').includes(".replace(/^\\/mail$/, '')"));
+  const root = (p) => p.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '').replace(/^\/(?:mail|travel)$/, '').replace(/\/$/, '');
+  assert.ok(read('public/eden/api.js').includes(".replace(/^\\/(?:mail|travel)$/, '')")); // and at /travel (Eden Travel inside askeden.com)
   assert.equal(root('/mail'), '');
+  assert.equal(root('/travel'), '');
   assert.equal(root('/'), '');
+});
+
+test('iPhone/iPad app (EdenApp/ in User-Agent) gets the exact Apple-submitted /eden-ios assets and meta.eves=false, while browsers get /eden and meta.eves=true', async () => {
+  const session = await signedIn();
+  const iosUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) Mobile/15E148 EdenApp/1.0';
+  env.assets.length = 0;
+  const webRoot = await hit('/', { session });
+  assert.equal(webRoot.status, 200);
+  assert.deepEqual(env.assets, ['/eden/']);
+
+  env.assets.length = 0;
+  const iosRoot = await hit('/', { session, headers: { 'user-agent': iosUA } });
+  assert.equal(iosRoot.status, 200);
+  assert.deepEqual(env.assets, ['/eden-ios/']);
+  assert.notEqual(iosRoot.headers.get('etag'), webRoot.headers.get('etag'));
+
+  env.assets.length = 0;
+  const iosJs = await hit('/app.js', { session, headers: { 'user-agent': iosUA } });
+  assert.equal(iosJs.status, 200);
+  assert.deepEqual(env.assets, ['/eden-ios/app.js']);
+});
+
+test('Ask Eden Travel has its own site, held: without TRAVEL_HOST nothing is served and askedentravel.com is a doorway; with it, askedentravel.com is the front', async () => {
+  const go = async (u, e) => {
+    const r = await worker.fetch(new Request(u, { redirect: 'manual' }), e, {});
+    return [r.status, r.headers.get('location')];
+  };
+  // held: the page, its files and the names all stay off (DEPLOY_FREEZE, the owner's word)
+  // on since 2026-10-28 (the owner said go): the host and both custom domains are set
+  assert.match(read('wrangler.toml'), /^\s*TRAVEL_HOST\s*=\s*"askedentravel\.com"/m, 'TRAVEL_HOST is askedentravel.com');
+  assert.match(read('wrangler.toml'), /^\s*\{ pattern = "askedentravel\.com", custom_domain = true \}/m, 'askedentravel.com is a custom domain');
+  assert.match(read('wrangler.toml'), /^\s*\{ pattern = "www\.askedentravel\.com", custom_domain = true \}/m, 'www.askedentravel.com is a custom domain');
+  for (const host of ['askedentravel.com', 'www.askedentravel.com']) assert.deepEqual(await go(`https://${host}/`, env), [301, 'https://askeden.com/'], host);
+  for (const p of ['/travel', '/travel-home/travel-home.css', '/travel-home/features.js']) {
+    env.assets.length = 0;
+    await worker.fetch(new Request(`${ORIGIN}${p}`), env, {});
+    assert.ok(!env.assets.includes('/travel-home/') && !env.assets.includes(p), p);
+  }
+  // on
+  const on = { ...env, TRAVEL_HOST: 'askedentravel.com' };
+  const front = await worker.fetch(new Request('https://askedentravel.com/'), on, {});
+  assert.equal(front.status, 200);
+  assert.equal(await front.text(), 'asset /travel-home/');
+  const csp = front.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self';/);
+  assert.match(csp, /font-src https:\/\/fonts\.gstatic\.com/);
+  assert.doesNotMatch(csp, /unsafe-inline/);
+  for (const [from, to] of [['https://www.askedentravel.com/?a=1', 'https://askedentravel.com/?a=1'], [`${ORIGIN}/travel`, 'https://askedentravel.com/']]) assert.deepEqual(await go(from, on), [301, to], from);
+  // the app lives there: signing in there is askeden.com's sign-in, handed over (eden/site-handoff.js)
+  assert.deepEqual(await go('https://askedentravel.com/signin', on), [302, '/api/web/site-handoff/start']);
+  for (const cta of read('public/travel-home/index.html').matchAll(/class="(?:pill|btn navy)" href="([^"]+)"/g)) assert.equal(cta[1], '/api/web/site-handoff/start');
+  for (const p of ['/travel-home/travel-home.css', '/travel-home/features.js', '/travel-home/eden-logo.svg', '/travel-home/apple-touch-icon.png', '/lang/fr-travel-home.js']) {
+    const r = await worker.fetch(new Request(`https://askedentravel.com${p}`), on, {});
+    assert.equal(r.status, 200, p);
+    assert.equal(await r.text(), `asset ${p}`, p);
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff', p);
+  }
+  for (const f of ['travel-home.css', 'features.js', 'eden-logo.svg', 'apple-touch-icon.png']) assert.ok(fs.existsSync(path.join(SITE, 'public/travel-home', f)), f);
+
+  // the page: no inline script or style, its own script and the language script only; one h1, the skip link, the landmarks
+  const html = read('public/travel-home/index.html');
+  assert.match(html, /<link rel="apple-touch-icon" href="\/travel-home\/apple-touch-icon.png">/, 'a PNG for iOS, which ignores an SVG touch icon');
+  assert.match(read('public/travel-home/eden-logo.svg'), /#D8B45A/, 'the passport logo: gold on navy (DESIGN.md §1)');
+  assert.doesNotMatch(html, /style=|onclick=|<style/i);
+  for (const m of html.matchAll(/<script[^>]*>/g)) assert.ok(['<script src="/travel-home/features.js" defer>', '<script src="/lang/site-i18n.js" data-page="travel-home">'].includes(m[0]), m[0]);
+  assert.equal(html.match(/<h1[\s>]/g).length, 1);
+  assert.match(html, /<body>\s*<a class="skip" href="#main">/);
+  assert.match(html, /<main id="main">/);
+  for (const tag of ['header', 'footer']) assert.match(html, new RegExp(`<${tag}[\\s>]`), tag);
+  for (const m of html.matchAll(/<nav[^>]*>/g)) assert.match(m[0], /aria-label="[^"]+"/, m[0]);
+  assert.ok(!/<h4/.test(html), 'headings never skip a level');
+  // honest claims: it isn't open, the preview says it's illustrative, the numbers carry their source and caveat, no prices
+  assert.match(html, /Coming soon/);
+  assert.match(html, /Illustrative sample trip/);
+  assert.match(html, /not live data/);
+  for (const n of ['27%', '16%', '10%', '55%', '485', '16.2%']) assert.ok(html.includes(n), n);
+  assert.match(html, /Greetwell survey, August 2026/);
+  assert.match(html, /Send My Bag, October 2026/);
+  assert.match(html, /self-reported surveys; Eden didn’t run them/);
+  assert.doesNotMatch(html, /\$\d|free trial|J\.A\.R\.V\.I\.S|Jarvis/i);
+  assert.match(html, /EVES \(Eden’s verification and evaluation system\)/);   // EVES spelled out on first use
+  assert.equal((html.match(/Coming later/g) || []).length, 2);                // booking and the pickup link come after the planner
+  // the CSS: the cursor stops under reduced motion; 40px targets
+  const css = read('public/travel-home/travel-home.css');
+  assert.match(css, /prefers-reduced-motion:reduce\)\{[^\n]*h1 u\{animation:none\}/);
+  assert.match(css, /\.days button\{min-height:40px/);
+  // the French covers the page: every English key in fr-travel-home.js is on the page
+  const fr = read('public/lang/fr-travel-home.js');
+  const text = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+  for (const m of fr.matchAll(/^ {4}'([^']+)':/gm)) assert.ok(text.includes(m[1]) || html.includes(`"${m[1]}"`), `fr-travel-home.js: "${m[1]}" isn't on the page`);
 });

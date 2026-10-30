@@ -11,6 +11,7 @@ import base64
 import contextlib
 import dataclasses
 import functools
+import inspect
 import itertools
 import json
 import logging
@@ -65,6 +66,7 @@ from . import (
     interrupts,
     invoices,
     lang,
+    launches,
     livecontext,
     mac_tools,
     openai_relay,
@@ -211,6 +213,7 @@ TOOL_LABELS = {
     "browser_back": "Went back in the browser",
     "browser_screenshot": "Looked at the browser page",
     "browser_snapshot": "Looked over the browser page",
+    "browser_find": "Looked for something on the browser page",
     "browser_act": "Acted in the browser",
     "browser_wait": "Waited for the browser page",
     "browser_tabs": "Worked with browser tabs",
@@ -267,6 +270,42 @@ TOOL_LABELS.update(
 log = logging.getLogger("jarvis")
 
 REPLAY_KEEP = 3000  # transcript events kept for a window that reconnects
+# The feature loops (hub.register_loop names) that read the owner's own life (calendar,
+# mail, texts, contacts, reminders, calls, health, Focus, orders, invoices, memory's
+# journal) or reach outside services Eden Code never uses (Twilio, WhatsApp, chat
+# channels, markets, papers, the weather, watched pages). A backend Eden Code started
+# alone runs none of them until an Eden Secretary window joins it (window_joined); every
+# other loop is Eden Code's own (code_*, the Model Router, usage, PR watch, issues,
+# triggers…) or touches nothing of the owner's. tests/test_eden_code_app.py lists both,
+# so a new loop has to be put on one side or the other.
+PERSONAL_LOOPS = frozenset(
+    {
+        "reminders",  # wincalendar: the PC's calendar and its reminders
+        "whatsapp",
+        "price_alerts",  # stocks
+        "jarvis_mcp",  # the second brain, calendar and email for other apps
+        "memory",  # the daily notes and nightly dream over the owner's days
+        "timers",  # automation: the Secretary's timers, alarms and reminders
+        "triggers",  # automation: routines on the calendar, email and texts
+        "heartbeat",  # automation: the check-in that speaks up
+        "meeting_agent",
+        "orders",  # deliveries, read from email
+        "sms_line",  # Twilio
+        "oura",
+        "channels",  # Telegram, iMessage, WhatsApp, Signal, Slack, Discord
+        "wiki",  # the memory wiki and people map
+        "invoicing",
+        "mail_index",  # winmail: the PC's mail
+        "calls_live",
+        "paper_alerts",
+        "browser_watches",
+        "meeting_offer",
+        "weather_watch",
+        "calendar_look",
+        "focus",  # macOS Focus, read from ~/Library/DoNotDisturb
+        "wrapup",  # the evening wrap-up
+    }
+)
 # What a reconnecting window is sent again: a session's transcript as it grew. Everything
 # else is state the snapshot carries whole.
 REPLAYED = {"task_log", "task_log_update", "task_entry_meta"}
@@ -346,6 +385,7 @@ BASH_SECONDS = 120  # "!command" in Eden Code: how long it may run
 BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
+HOLD_SILENCE = 30.0  # hold to talk: a pause never ends it, letting go of the key does
 REMOTE_TURNS = 3  # the phones' turns waiting or running at once; past that they hear "busy"
 WINDOW_QUEUE = 3000  # events waiting for one window; one that stops reading is cut off
 WINDOW_BYTES = 32 * 1024 * 1024  # and at most this much of their text (terminal output,
@@ -695,11 +735,85 @@ def _text(text: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}]}
 
 
+class LazyConnect:
+    """Claude Code's client whose process starts at its first real use, not at connect().
+
+    Eden Code's own sessions each have a client of their own; the hub's conversation is
+    Eden Secretary's, so on Eden Code alone its Claude Code process (200+ MB, and a second
+    of startup) waits for the first question. Everything else reads through to the client."""
+
+    _NEEDS_NO_PROCESS = {"disconnect", "connect"}
+    _ASKS_IF_UP = {"get_context_usage", "get_mcp_status", "get_server_info"}
+    # Nothing to stop or change in a process that isn't running (a new one is built from the
+    # settings as they are then), so these never start one.
+    _NOTHING_IF_DOWN = {"interrupt", "set_model", "set_permission_mode", "stop_task"}
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self._up = False
+        self._starting: asyncio.Lock | None = None
+
+    async def _start(self) -> None:
+        if self._up:
+            return
+        if self._starting is None:
+            self._starting = asyncio.Lock()
+        async with self._starting:
+            if not self._up:
+                await self._client.connect()
+                self._up = True
+
+    async def connect(self) -> None:
+        """Deferred: the first query, interrupt or model change starts the process."""
+
+    async def disconnect(self) -> None:
+        if self._up:
+            self._up = False
+            await self._client.disconnect()
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._client, name)
+        if name.startswith("_") or not callable(attr):
+            return attr
+        if name in self._ASKS_IF_UP:
+
+            async def if_up(*args: Any, **kwargs: Any) -> Any:
+                if not self._up:
+                    raise RuntimeError("Claude Code isn't running yet")
+                return await attr(*args, **kwargs)
+
+            return if_up
+        if name in self._NOTHING_IF_DOWN:
+
+            async def if_up_else_nothing(*args: Any, **kwargs: Any) -> Any:
+                if self._up:
+                    return await attr(*args, **kwargs)
+
+            return if_up_else_nothing
+        if inspect.isasyncgenfunction(attr):
+
+            async def stream(*args: Any, **kwargs: Any):
+                await self._start()
+                async for item in attr(*args, **kwargs):
+                    yield item
+
+            return stream
+        if inspect.iscoroutinefunction(attr):
+
+            async def call(*args: Any, **kwargs: Any) -> Any:
+                await self._start()
+                return await attr(*args, **kwargs)
+
+            return call
+        return attr
+
+
 class Hub:
     def __init__(
         self,
         settings: Settings,
         *,
+        lazy_connect: bool | None = None,
         client_factory: Callable[..., Any] = ClaudeSDKClient,
         speaker: Speaker | None = None,
         transcriber: Any = None,
@@ -731,6 +845,7 @@ class Hub:
     ) -> None:
         self.settings = settings
         self.client_factory = client_factory
+        self._lazy_connect = lazy_connect
         self.prefs_store = prefs_store or PrefsStore()
         self.prefs = self.prefs_store.prefs
         self._prefs_unsaved = False  # a settings save failed (a full disk): tried again
@@ -766,14 +881,26 @@ class Hub:
         self.poll = poll
         # Which app started this backend (app/main.js sets JARVIS_PROFILE): "full" for
         # J.A.R.V.I.S., "code" for Eden Code on its own. A code backend opens no microphone,
-        # speaks no fillers and watches no screen until a J.A.R.V.I.S. window joins it
-        # (window_joined), so someone who only installed Eden Code is never listened to.
+        # speaks no fillers, watches no screen and reads none of the second brain's personal
+        # sources (Notes, Mail, Messages, Photos…: brain_sources.PERSONAL) until a
+        # J.A.R.V.I.S. window joins it (window_joined), so someone who only installed Eden
+        # Code is never listened to, nor their notes and messages read.
         self.profile = "code" if os.environ.get("JARVIS_PROFILE") == "code" else "full"
         # Which edition: app/main.js sets JARVIS_EDITION=daredevil for J.A.R.V.I.S. Daredevil, the same program with
         # screen-reader mode on from the start (features/accessibility.py: Auto means on there).
         self.edition = "daredevil" if os.environ.get("JARVIS_EDITION") == "daredevil" else ""
         self.app_windows: dict[str, int] = {}  # app -> windows open on this backend (server.socket)
         self.listener_factory = listener_factory
+        # Who else wants the hands-free microphone open besides Settings › Listening: Eden
+        # Code's Voice switch (features/code_voice_live.py), on demand. One listener serves
+        # every app on this backend: each says here whether it wants it (_wants_listener).
+        self.listen_wanted: list[Callable[[], bool]] = []
+        # Eden Code's conversation with a session: while this says so, an utterance in voice
+        # focus needs no wake word (_code_heard). None: the wake word, as before.
+        self.code_no_wake: Callable[[], bool] | None = None
+        self._ptt_finish: threading.Event | None = None  # hold to talk: set when let go
+        self._ears_warm: Any = None  # the speech model asked to load (each one once)
+        self._speech_loops = False  # the voice player and the fillers prepared (once a run)
         self.state = "idle"
         self.status: dict[str, Any] = {}
         self.turn: dict[str, Any] = {}
@@ -781,6 +908,7 @@ class Hub:
         self.approvals: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._subscribers: set[WindowQueue] = set()
+        self._watched = asyncio.Event()  # set while a window is open (the polls below wait on it)
         # Every event is numbered (seq): a window that reconnects says the last it had, and
         # gets the snapshot and then the session events it missed (REPLAYED), from these.
         self.seq = 0
@@ -800,6 +928,7 @@ class Hub:
         self._announce_texts: list[str] = []  # heads-ups waiting to be said, as one
         self._announcer: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
+        self._personal_started = False  # _spawn_personal_loops ran (it runs once)
         self._stopping = False
         self._rid = ""
         self._control_rid = ""
@@ -1173,6 +1302,7 @@ class Hub:
         self._request_contexts: list[Callable[[str, str | None], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
         self._webhook: Callable[[str, Any], Any] | None = None
+        self._webhook_routes: dict[str, Callable[[Any], Any]] = {}  # name -> a feature's door
         self.routes: list[Any] = []  # feature modules' own addresses on the window's server
         # The conversation's own hooks: its options at each connect, each request just
         # before Claude gets it, and every message of its stream.
@@ -1223,10 +1353,16 @@ class Hub:
         labels: dict[str, str] | None = None,
         quiet: tuple[str, ...] | list[str] = (),
         web: tuple[str, ...] | list[str] = (),
+        replace: bool = False,
     ) -> None:
         """A feature's tool server for the brain (built at each connect), what the brain is
         told about it, the Activity drawer's labels for its tools, and which of its tools
-        return nothing private (quiet) or pages anyone can write (web)."""
+        return nothing private (quiet) or pages anyone can write (web). A name already
+        taken raises ValueError unless replace says it's meant (winmail's "mail" on a PC,
+        in place of Mail.app's): the second server took the first's place without a word
+        (REL3-9: two features named theirs "calls", and tell_call was gone)."""
+        if name in self._extra_servers and not replace:
+            raise ValueError(f"a tool server named {name!r} is registered already")
         self._extra_servers[name] = build
         if prompt:
             self._extra_prompts.append(prompt if callable(prompt) else (lambda p=prompt: p))
@@ -1401,12 +1537,22 @@ class Hub:
         request) gives (status, body). The handler checks its own tokens and limits."""
         self._webhook = handler
 
+    def register_webhook_route(self, name: str, handler: Callable[[Any], Any]) -> None:
+        """A feature's own POST /hooks/<name> (Linear's and Slack's, say): await
+        handler(request) gives (status, body), ahead of the owner's own webhooks. The
+        handler checks its own tokens, signatures and limits."""
+        self._webhook_routes[name] = handler
+
     async def inbound_hook(self, name: str, request: Any) -> tuple[int, dict[str, Any]]:
-        """server.py's /hooks/<name>: the registered handler's answer, or 404 without one."""
+        """server.py's /hooks/<name>: a feature's route of that name, else the registered
+        handler's answer, or 404 without one."""
+        route = self._webhook_routes.get(name)
         handler = self._webhook
-        if handler is None:
+        if route is None and handler is None:
             return 404, {"error": "not found"}
         try:
+            if route is not None:
+                return await route(request)
             return await handler(name, request)
         except Exception:
             log.exception("a webhook failed")
@@ -1514,34 +1660,24 @@ class Hub:
             stale = not self.kb.notes or not self.kb.clusters or self.kb.age_hours() > 24
             if self._brain_sources_on() and stale:
                 self._spawn(self.rebuild_brain())
-            self._spawn(self._refresh_recent())
             self._spawn(self._vitals_loop())
             if self.profile == "full":
                 self._spawn_voice_loops()
             self._spawn(self.hands_guard.probe.prepare())  # the accessibility probe, built once
-            self._spawn(self.shortcuts.refresh())
-            self._spawn(self.watcher.run())
-            self._spawn(self.interrupts.run())
-            self._spawn(self.suggester.run())
-            self._spawn(self.delegate.run())
-            self._spawn(self.answering.run())
-            self._spawn(
-                fileindex.keep_fresh(
-                    self.files,
-                    enabled=lambda: self.prefs.file_index,
-                    progress=self._files_progress,
-                )
-            )
-            self._spawn(self._routine_clock())
-            self._spawn(self._markets_loop())
-            self._spawn(self._defense_loop())
             self._spawn(self._plan_loop())
             self._spawn(self._sysmon_loop())
             self._spawn(self._awake_loop())
             self._spawn(self._number_gemini_starters())
+            # The relays listen before the feature loops start: code_sessions brings back
+            # sessions on Gemini or OpenAI-compatible models, which need one to point at.
+            await self._relay_if_needed()
             for name, factory in self._loops:
-                self._spawn(self._feature_loop(name, factory))
-        await self._relay_if_needed()
+                if name not in PERSONAL_LOOPS:
+                    self._spawn(self._feature_loop(name, factory))
+            if self.profile == "full":
+                self._spawn_personal_loops()
+        else:
+            await self._relay_if_needed()
         # Hands steering the Mac: lets go of a held button if the window stops talking.
         self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
         if self.prefs.remote_enabled:
@@ -1549,13 +1685,76 @@ class Hub:
         if self.profile == "full":
             self._start_listening()
 
+    def _spawn_personal_loops(self) -> None:
+        """What reads the owner's own life or talks to services only Eden Secretary uses:
+        the calendar and its heads-ups, texts and email (the interrupter, suggestions,
+        delegated conversations, the last week's mail and texts), calls answered on Twilio,
+        the file index, routines, markets, the HUD's Defense pings, the Mac's Shortcuts,
+        and the feature loops in PERSONAL_LOOPS. Started once: at start on Eden
+        Secretary's backend, when the first Eden Secretary window joins on Eden Code's."""
+        if self._personal_started:
+            return
+        self._personal_started = True
+        self._spawn(self._refresh_recent())
+        self._spawn(self.shortcuts.refresh())
+        self._spawn(self.watcher.run())
+        self._spawn(self.interrupts.run())
+        self._spawn(self.suggester.run())
+        self._spawn(self.delegate.run())
+        self._spawn(self.answering.run())
+        self._spawn(
+            fileindex.keep_fresh(
+                self.files,
+                enabled=lambda: self.prefs.file_index,
+                progress=self._files_progress,
+            )
+        )
+        self._spawn(self._routine_clock())
+        self._spawn(self._markets_loop())
+        self._spawn(self._defense_loop())
+        for name, factory in self._loops:
+            if name in PERSONAL_LOOPS:
+                self._spawn(self._feature_loop(name, factory))
+
     def _spawn_voice_loops(self) -> None:
         """What only a voice assistant needs running: the speech player and its fillers,
         the location clock and the names hearing learns."""
-        self._spawn(self._prepare_player())
-        self._spawn(self._prepare_fillers())
+        self._spawn_speech_loops()
         self._spawn(self._location_loop())
         self._spawn(self._hearing_names_loop())
+
+    def _spawn_speech_loops(self) -> None:
+        """The speech player and the fillers, prepared once a run: by Eden Secretary's start
+        or its first window, or by Eden Code's Voice switch (start_ears), whichever is first."""
+        if self._speech_loops:
+            return
+        self._speech_loops = True
+        self._spawn(self._prepare_player())
+        self._spawn(self._prepare_fillers())
+
+    def start_ears(self) -> None:
+        """Eden's ears and voice on demand, for a backend that started without them (Eden
+        Code's, hub.profile "code"): the speech model loads and the voice player gets
+        ready. Nothing of the owner's own life starts (no location clock, no names from
+        the calendar or Contacts): that waits for an Eden Secretary window, as before.
+        Safe to call again: each part starts once a run."""
+        self._warm_up_ears()
+        if self.poll:
+            self._spawn_speech_loops()
+
+    def _wants_listener(self) -> bool:
+        """Whether the hands-free microphone should be open: Settings › Listening's
+        hands-free on a backend that listens (Eden Secretary's, or one an Eden Secretary
+        window woke), or any app on it asking (listen_wanted: Eden Code's Voice switch)."""
+        if self.prefs.hands_free and self.profile == "full":
+            return True
+        for wanted in list(self.listen_wanted):
+            try:
+                if wanted():
+                    return True
+            except Exception:  # a broken feature's say opens no microphone
+                log.exception("a feature's listen check failed")
+        return False
 
     def _start_listening(self) -> None:
         if self.prefs.hands_free:
@@ -1569,8 +1768,9 @@ class Hub:
         when the model is ready."""
         ears = self.transcriber
         warm_up = getattr(ears, "warm_up", None)
-        if warm_up is None:
+        if warm_up is None or self._ears_warm is ears:
             return
+        self._ears_warm = ears  # each speech model once (a new language's is a new one)
         try:
             fetching = hasattr(ears, "cached") and not ears.cached()
         except Exception:  # noqa: BLE001
@@ -1612,6 +1812,9 @@ class Hub:
             if self.poll:
                 self._spawn(self._briefing_clock())
                 self._spawn_voice_loops()
+                self._spawn_personal_loops()  # the calendar, mail, texts, calls…
+                if self._brain_sources_on():  # what Eden Code alone left unread
+                    self._spawn(self.rebuild_brain())
             self._start_listening()
         self.emit("app_windows", windows=dict(self.app_windows), profile=self.profile)
 
@@ -1654,6 +1857,10 @@ class Hub:
                 options.model = cfg["model"]
                 options.env = {**(options.env or {}), **cfg["env"]}
                 options.settings = cfg.get("settings") or options.settings  # a built-in: signed in
+                from .key_proxy import replace_pass  # (the last connect's pass goes)
+
+                replace_pass(self.__dict__.setdefault("_run_passes", {}), "conversation",
+                             cfg.get("settings"))  # fmt: skip
                 self._connected_ref = ref
             except ValueError as exc:  # gone, or its key: Claude it is, and say why
                 self.emit("error", text=f"The fallback model isn't usable: {exc}")
@@ -1674,6 +1881,14 @@ class Hub:
             except Exception:
                 log.exception("a feature's connect hook failed")
         self.client = self.client_factory(options=options)
+        if self._lazy_connect is None:  # Eden Code alone, on the real Claude Code
+            self._lazy_connect = (
+                self.profile == "code"
+                and self.client_factory is ClaudeSDKClient
+                and os.environ.get("JARVIS_LAZY_CLAUDE") != "0"  # (the way back, should it bite)
+            )
+        if self._lazy_connect and self.profile == "code":
+            self.client = LazyConnect(self.client)
         self._conn_cost = None  # a new connection's running total starts again
         await self.client.connect()
 
@@ -2272,7 +2487,33 @@ class Hub:
             return True
         if self.meeting is not None:
             return True
+        if self._code_work_running():
+            return True
         return any(t.get("status") in ("running", "waiting") for t in self.tasks.public())
+
+    def _code_work_running(self) -> bool:
+        """Eden Code's own work a restart would cut off, besides its sessions: a job running
+        in one of its terminals, a ! command, a test run, a check of a session's preview.
+        (An open terminal sitting at its prompt loses nothing: it isn't counted.) A part
+        that can't be asked counts as idle: it never holds an update back for good."""
+        terms = getattr(self, "code_terminal", None)
+        if terms is not None:
+            if getattr(terms, "runs", None):
+                return True
+            shells = getattr(getattr(terms, "shells", None), "items", None) or {}
+            for shell in list(shells.values()):
+                with contextlib.suppress(Exception):
+                    if not shell.exited and shell.busy():
+                        return True
+        verify = getattr(self, "code_verify", None)
+        if verify is not None:
+            runs = getattr(getattr(verify, "tests", None), "runs", None) or {}
+            if any(getattr(r, "status", "") == "running" for r in list(runs.values())):
+                return True
+            checks = getattr(verify, "sessions", None) or {}
+            if any(getattr(c, "checking", False) for c in list(checks.values())):
+                return True
+        return False
 
     def remote_state(self) -> dict[str, Any]:
         return {
@@ -2662,7 +2903,17 @@ class Hub:
     def subscribe(self) -> WindowQueue:
         queue = WindowQueue()
         self._subscribers.add(queue)
+        self._watched.set()
         return queue
+
+    async def _watched_sleep(self, seconds: float) -> None:
+        """The pause between a poll's rounds; with no window open, no timer at all: it waits
+        for one to open (and then goes straight round, so the numbers are there at once)."""
+        if self._subscribers:
+            await asyncio.sleep(seconds)
+            return
+        self._watched.clear()
+        await self._watched.wait()
 
     def unsubscribe(self, queue: WindowQueue) -> None:
         self._subscribers.discard(queue)
@@ -2670,6 +2921,7 @@ class Hub:
             self.desktop_hands.disconnect()
             self.workbench.watch_simulator(None)
             self.simulator.stop()
+            self._watched.clear()
             self._window_gone()
 
     def _window_gone(self) -> None:
@@ -2807,6 +3059,8 @@ class Hub:
         linked_task, linked_words = self._voice_link
         if not spoken and linked_task is not None and linked_task is _current_task():
             spoken = linked_words
+        if (context or {}).get("tap_only"):
+            spoken = ""  # a card only a tap answers (Bypass asked for by voice)
         self._voice_link = (None, "")
         future = asyncio.get_running_loop().create_future()
         self._approval_at = time.monotonic()
@@ -3728,7 +3982,11 @@ class Hub:
 
         return on_level
 
-    async def listen(self) -> None:
+    async def listen(self, hold: bool = False) -> None:
+        """Push-to-talk: one utterance, ended by a pause (the orb, ⌥Space). hold: a key held
+        down (Eden Code's hold to talk, features/code_voice_live.py): pauses don't end it,
+        letting go does (finish_push_to_talk). While a session is in voice focus, what's
+        said goes to it, as hands-free speech does."""
         if self._listener is not None and self._listener.running:
             self._arm()
             return
@@ -3737,18 +3995,22 @@ class Hub:
         self._listen_gen += 1
         gen = self._listen_gen
         cancel = self._mic_cancel = threading.Event()
+        finish = self._ptt_finish = threading.Event() if hold else None
+        silence = HOLD_SILENCE if hold else self.settings.silence_seconds
         self.set_state("listening")
         try:
             recorder = self.recorder
             if recorder is None:
                 from .listen import pick_input_device, record_utterance
 
+                held = {"finish": finish} if finish is not None else {}  # (only when held)
                 recorder = functools.partial(
-                    record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
+                    record_utterance,
+                    device=pick_input_device(self.prefs.mic),
+                    cancel=cancel,
+                    **held,
                 )
-            audio = await asyncio.to_thread(
-                recorder, self.settings.silence_seconds, self._level_callback()
-            )
+            audio = await asyncio.to_thread(recorder, silence, self._level_callback())
             if audio is None or gen != self._listen_gen:  # silence, or Stop meanwhile
                 self.emit("heard", text="")
                 return
@@ -3763,14 +4025,34 @@ class Hub:
         finally:
             if self._mic_cancel is cancel:
                 self._mic_cancel = None
+            if self._ptt_finish is finish:
+                self._ptt_finish = None
             if gen == self._listen_gen and self.state in ("listening", "transcribing"):
                 self.set_state("idle")
         if gen != self._listen_gen:  # stopped while it was being transcribed
             self.emit("heard", text="")
             return
         self.emit("heard", text=text)
-        if text:
+        if text and self.voicecode.focus is not None:
+            await self._code_said(text)
+        elif text:
             await self.ask(text)
+
+    def finish_push_to_talk(self) -> None:
+        """The hold-to-talk key let go: the recording ends there and what was said is
+        heard (nothing, when it was let go before any words)."""
+        finish, self._ptt_finish = self._ptt_finish, None
+        if finish is not None:
+            finish.set()
+
+    async def _code_said(self, text: str) -> None:
+        """Push-to-talk while voice coding: the words were plainly for the session in focus
+        (the key was pressed for them), so no wake word is needed. An answer to its open
+        question is taken as one; anything else is a command or a message for it."""
+        if self._answer_code_approval(text, woke=True):
+            return
+        if await self._voice_allows():
+            await self.voicecode.handle(text)
 
     async def dictate(self, on: bool = True) -> None:
         """The composer's mic, as in Claude Code: what the user says next is typed into
@@ -3846,7 +4128,7 @@ class Hub:
     # ── hands-free ──
 
     def _apply_hands_free(self) -> None:
-        if self.prefs.hands_free:
+        if self._wants_listener():
             if self._listener is not None and self._listener.running:
                 return
             loop = asyncio.get_running_loop()
@@ -4314,7 +4596,7 @@ class Hub:
         already dropped JARVIS's own voice.) An answer to the session's open question is
         taken as one, even said over the question as it's read."""
         woke, command = lang.find_wake(text, self.language)
-        armed = self._armed()
+        armed = self._armed() or self._no_wake_needed()
         if self.state == "speaking":
             if woke or lang.is_stop(text, self.language):
                 await self.stop()  # quiet JARVIS first
@@ -4345,6 +4627,18 @@ class Hub:
             return
         if await self._voice_allows():
             await self.voicecode.handle(request)
+
+    def _no_wake_needed(self) -> bool:
+        """Eden Code's conversation mode (code_no_wake): the session in focus hears every
+        utterance, no wake word. Its own voice is already dropped (on_heard's echo check)."""
+        check = self.code_no_wake
+        if check is None:
+            return False
+        try:
+            return bool(check())
+        except Exception:
+            log.exception("the no-wake-word check failed")
+            return False
 
     def say(self, text: str, follow_up: bool = True) -> None:
         """Say something outside a JARVIS turn (voice-code narration and replies), then
@@ -4459,9 +4753,13 @@ class Hub:
         if score(best) < 0.34:
             titles = "; ".join(p["title"][:60] for p in past[:3])
             return f"I couldn't tell which. The latest are: {titles}."
-        fresh = self.tasks.start(
-            "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"]
-        )
+        from .tasks import bypass_vouched
+
+        # (a session in Bypass carries on in it into the past one: proved when it went in)
+        with bypass_vouched() if task.mode == "auto" else contextlib.nullcontext():
+            fresh = self.tasks.start(
+                "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"]
+            )
         self.voicecode.focus = fresh.id
         self.voicecode._changed()
         return f"Back in {best['title'][:80]}. What next?"
@@ -4617,6 +4915,10 @@ class Hub:
         }
         if self.brain_extension is not None:
             args.update(self.brain_extension.build_args())
+        if self.profile == "code":  # Eden Code alone reads none of the owner's own life
+            from .brain_sources import PERSONAL
+
+            args["withhold"] = sorted(PERSONAL)
         proc = None
         try:
             proc = self._build_proc = await asyncio.create_subprocess_exec(
@@ -4803,14 +5105,23 @@ class Hub:
     # ── Claude Code deck: projects and git ──
 
     async def _git(self, path: Path, *args: str, timeout: float = 15) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "-C",
-            str(path),
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
+        from . import code_changes
+
+        env = code_changes.git_env(path)  # (a container's copy: its git data pinned)
+        if env is None:
+            return ""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "-C",
+                str(path),
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=env,
+            )
+        except OSError:  # no git on this Mac (or a folder gone): no answer, as for no repo
+            return ""
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         except TimeoutError:  # a hung credential prompt, a huge repo: give up on it
@@ -5159,7 +5470,9 @@ class Hub:
         """The address an Eden Code session's next browser action lands on: the tab it
         names (tab), else its own tab's page, or the tab on show while it has none (where
         such a session acts)."""
-        tab = tab or self.browser_tabs.session_tab(task_id)
+        tab = tab or self.browser_tabs.acting_tab(
+            task_id
+        )  # (the pane's tab on show while it's open)
         where = {"tab": tab} if tab else {}
 
         async def read(action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -5899,7 +6212,7 @@ class Hub:
         from claude_agent_sdk import query as sdk_query
 
         options = ClaudeAgentOptions(
-            model=MODELS["haiku"],
+            model="gemini-3.8-flash",
             system_prompt=interrupts.TRIAGE_PROMPT,
             tools=[],
             allowed_tools=[],
@@ -6101,7 +6414,7 @@ class Hub:
                         await self._sysmon_send()
                 except Exception:  # a process gone mid-read, a tool missing: next time
                     log.exception("system monitor failed")
-            await asyncio.sleep(SYSMON_EVERY)
+            await self._watched_sleep(SYSMON_EVERY)
 
     async def _sysmon_send(self) -> None:
         tab = self._sysmon_tab
@@ -6123,7 +6436,7 @@ class Hub:
                 if plan:
                     self.usage.plan(plan)
                     self._usage_changed()
-            await asyncio.sleep(2)
+            await self._watched_sleep(2)
 
     def _usage_provider(self, ref: str | None, cost: float) -> tuple[str, float]:
         """Which added API provider an answer went to ("" for Claude on the subscription),
@@ -6258,6 +6571,7 @@ class Hub:
         if self.providers.kind_of(ref) == "gemini":
             from .gemini_proxy import PROXY
 
+            PROXY.set_cost_saver(self.prefs.feature("code_router_cost_saver") is not False)
             await PROXY.start()
         await openai_relay.ready(self.providers, ref)  # an OpenAI-compatible one: its relay
 
@@ -6378,20 +6692,29 @@ class Hub:
                 self.tasks._log(task, "system", f"Couldn't move this session to {name}.")
                 return
             task.reopen_now = True
+            # For the receipt (code_receipts): every fallback is said there too, not only in
+            # the transcript line below.
+            task.fallbacks = [
+                *task.fallbacks[-4:],
+                {
+                    "from": str(was["label"] or self.providers.describe(was["model"]) or "Claude"),
+                    "to": str(name),
+                    "why": str(CLAUDE_WHY.get(why, why)),
+                    "at": time.time(),
+                },
+            ]
             moved = f"so this session moved to {name} to carry on"
-            said = f"Claude couldn't answer ({CLAUDE_WHY.get(why, why)}), {moved}."
-            if not str(was["ref"]).startswith("custom:"):  # it was on Claude: back there later
+            # (Said of the model that failed: Model Router's fallback moves another provider's
+            # model to its next pick too, and that wasn't Claude.)
+            who = "Claude"
+            if str(was["ref"]).startswith("custom:"):
+                who = str(was["label"] or self.providers.describe(was["ref"]) or "That model")
+            said = f"{who} couldn't answer ({CLAUDE_WHY.get(why, why)}), {moved}."
+            if not str(was["ref"]).startswith("custom:"):  # it was on Claude: stays on fallback
                 task.fell_back_from = was
-                own = was["label"] or self.providers.describe(was["model"]) or "Claude"
                 if self._claude_back_at > time.time():  # used up till then (_claude_back)
                     at = _clock(self._claude_back_at)
-                    said = (
-                        f"Claude can't answer until {at} (its usage limit), {moved}. Your "
-                        f"first message after {at} takes it back to {own}."
-                    )
-                else:  # no word on when: it tries Claude again after half an hour
-                    at = _clock(time.time() + FALLBACK_SECONDS)
-                    said += f" Your first message after {at} tries {own} again."
+                    said = f"Claude can't answer until {at} (its usage limit), {moved}."
             self.tasks._log(task, "system", said)
             self.tasks.send(
                 task.id,
@@ -6661,13 +6984,27 @@ class Hub:
 
     def _model_config(self, ref: str) -> dict[str, Any]:
         """A model picked in Eden Code (a prefs key, "custom:…" or a Claude id) as a
-        session needs it. One that's gone falls back to the default, with a note."""
+        session needs it. One that's gone falls back to the default, with a note. One of
+        Eden chat's ("eden:…") is the model the owner's key for it runs."""
+        ref = self.providers.resolve(ref)
         try:
             cfg = self.providers.session_config(ref)
         except ValueError as exc:
             self.emit("error", text=str(exc))
-            cfg = self.providers.session_config("")
-            ref = ""
+            fb = self._fallback_ref() if hasattr(self, "_fallback_ref") else ""
+            if fb and fb != ref and self.providers.known(fb):
+                cfg = self.providers.session_config(fb)
+                ref = fb
+            else:
+                cfg = self.providers.session_config("")
+                ref = ""
+        # Its pass is never spent: a session's every connect makes its own, fresh from the
+        # store (TaskManager.options_for). Kept, one per task_new, best-of variant and
+        # multi-repo copy, they piled up and pushed live sessions' passes out of MAX_GRANTS.
+        from .key_proxy import GRANTS, pass_in
+
+        if made := pass_in(cfg.get("settings")):
+            GRANTS.revoke(made)
         return {**cfg, "ref": ref if cfg["model"] else ""}
 
     async def _task_model(self, task_id: int, ref: str) -> None:
@@ -6684,6 +7021,9 @@ class Hub:
             )
         else:
             await self.tasks.set_model(task_id, model, cfg["label"], cfg["ref"])
+        limit = getattr(self, "code_limit", None)  # off Claude: its limit isn't waited out
+        if limit is not None and task.hold_until > 0 and task.model_ref.startswith("custom:"):
+            limit.leave(task, self.providers.describe(task.model_ref))
 
     def _providers_changed(self) -> None:
         self.emit("providers", **self.providers.public())
@@ -6900,8 +7240,10 @@ class Hub:
                     plugins=[str(d) for d in (msg.get("plugins") or own.get("plugins") or [])[:10]],
                     # The composer's "Isolated copy" switch; absent, the owner's default.
                     isolate=msg["isolated"] if isinstance(msg.get("isolated"), bool) else None,
+                    **launches.stamp(msg),  # (who started it, and whether it's anyone's words)
                 )
             except ValueError as exc:
+                launches.refuse(msg, str(exc))  # (its starter stops waiting: REL3-8)
                 self.emit("error", text=str(exc))
             else:
                 if task.id in known:  # that session is already open: show it, never a copy
@@ -7106,6 +7448,8 @@ class Hub:
             if future is not None and not future.done():
                 result = msg.get("result")
                 future.set_result(result if isinstance(result, dict) else {"error": "bad result"})
+        elif kind == "code_browser_pane":  # Eden Code's Browser pane opened or closed
+            self.browser_tabs.set_pane(msg.get("open"))
         elif kind == "browser_result":
             future = self._browser_calls.get(str(msg.get("id")))
             if future is not None and not future.done():
@@ -7386,13 +7730,13 @@ class Hub:
                     checked = time.monotonic()
                 self.defense["latency"] = await defense.latency_ms()
                 self.emit("defense", **self.defense)
-            await asyncio.sleep(30)
+            await self._watched_sleep(30)
 
     async def _vitals_loop(self) -> None:
         while True:
             if self._subscribers:
                 self.emit("vitals", **self.vitals())
-            await asyncio.sleep(3)
+            await self._watched_sleep(3)
 
     async def _refresh_location(self) -> None:
         if not self.prefs.use_location:
@@ -7470,7 +7814,8 @@ class Hub:
     async def _poll_status(self) -> None:
         tick = 0
         while True:
-            await self._refresh_status(calendar=tick % 10 == 0)
+            # The next event comes from the owner's Calendar: not on Eden Code alone.
+            await self._refresh_status(calendar=tick % 10 == 0 and self.profile == "full")
             tick += 1
             await asyncio.sleep(30)
 

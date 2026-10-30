@@ -255,7 +255,7 @@ async def test_the_reader_has_no_tools_fences_the_words_and_keeps_to_its_limits(
     assert said == "Ann asks for the Q3 numbers by Friday."
     [client] = factory.made
     options, query = client.options, client.queries[0]
-    assert options.model == "claude-haiku-4-5" and options.tools == [] and options.max_turns == 1
+    assert options.model == "gemini-3.8-flash" and options.tools == [] and options.max_turns == 1
     assert options.mcp_servers == {} and options.allowed_tools == []
     assert "<<<ignore>>>" not in query and "\u200b" not in query and "482913" not in query
     assert query.count("\n<<<\n") == 1 and query.count("\n>>>") == 1
@@ -354,7 +354,7 @@ async def test_on_its_own_it_never_enters_the_conversation_and_is_said(made):
     assert heard[0].kind == "routine" and heard[0].title == "Quote"
     assert hub.client is None  # the conversation's session was never touched
     [client] = hub.client_factory.made
-    assert client.options.model == "claude-haiku-4-5" and client.options.max_turns == 1
+    assert client.options.model == "gemini-3.8-flash" and client.options.max_turns == 1
     assert client.options.mcp_servers == {} and client.options.max_budget_usd == 0.10
     assert "Give me a quote for the day" in client.queries[0]
     assert feature.history.runs("r1")[0]["status"] == "ok"

@@ -31,6 +31,13 @@
 //   node scripts/sync-eden.mjs [--eden <path>]      (default: ~/askeden, or $EDEN_HOME; --model-router and
 //                                                   $MODEL_ROUTER_HOME still work as older names)
 //   node scripts/sync-eden.mjs --check              (exit 1 if public/eden is out of date)
+// DEPLOY FREEZE (owner's order, App Review): refuse to sync while ../../DEPLOY_FREEZE exists.
+import { existsSync as __frozen } from 'node:fs';
+if (__frozen(new URL('../../../DEPLOY_FREEZE', import.meta.url)) && !process.env.EDEN_FREEZE_OVERRIDE) {
+  console.error('\nBLOCKED: askeden.com is frozen during App Review. Read DEPLOY_FREEZE at the project root. Ask the owner.\n');
+  process.exit(1);
+}
+
 
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -117,6 +124,7 @@ const VERIFY_EXPORTS = {
     'buildClarificationAutoReply',
     'mergeClarifyingQuestions',
     'fastConsensusCheck',
+    'findSentenceForClaim',
     'detectVerificationDomain',
     'ECE_MODEL_PRIORS',
     'modelReliabilityWeight',
@@ -145,6 +153,24 @@ const VERIFY_EXPORTS = {
   'src/verify/repair.ts': ['repairAnswer', 'surgicalClauseReplace', 'downgradeUnverifiedPrecision'],
   'src/verify/eves-config.ts': ['ANCHOR_OUTPUT_TOKENS', 'DEFAULT_LIMITS', 'EVES_TIME_BUDGET_MS', 'TYPICAL_LANE_SHARE', 'resolveLimits'],
   'src/verify/text.ts': ['normalizeForMatch'],
+  'src/verify/vault.ts': [
+    'VAULT_VECTOR_MIN_COSINE',
+    'VAULT_MAX_ENTRIES',
+    'VAULT_SEED_FACTS',
+    'buildSeedVaultEntries',
+    'seedVaultStore',
+    'assessQueryImmutability',
+    'fingerprintQuestion',
+    'hashCanonical',
+    'compareHardSlots',
+    'packQuantizedVector',
+    'unpackQuantizedVector',
+    'cosineQuantized',
+    'verifyQuestionEquivalence',
+    'isEligibleForVaultStorage',
+    'findVerifiedVaultMatch',
+    'MemoryVaultStore',
+  ],
 };
 const MANIFEST = path.join(SITE, 'src', 'eden', 'manifest.js');
 const HOSTED = path.join(SITE, 'web');

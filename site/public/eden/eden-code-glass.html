@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eden Code — Liquid Glass</title>
+<style>
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+    /* Dark Liquid Glass tokens */
+    --bg-wallpaper-1: #060911;
+    --bg-wallpaper-2: #0f172a;
+    --orb-1: rgba(56, 189, 248, 0.42);
+    --orb-2: rgba(14, 165, 233, 0.35);
+    --orb-3: rgba(37, 99, 235, 0.38);
+    --orb-4: rgba(29, 78, 216, 0.28);
+
+    --glass-window: rgba(16, 20, 30, 0.48);
+    --glass-sidebar: rgba(10, 14, 22, 0.38);
+    --glass-pane: rgba(255, 255, 255, 0.06);
+    --glass-pane-hover: rgba(255, 255, 255, 0.095);
+    --glass-elevated: rgba(255, 255, 255, 0.09);
+    --glass-pill: rgba(255, 255, 255, 0.075);
+    --glass-code: rgba(7, 10, 17, 0.62);
+
+    --border-specular: rgba(255, 255, 255, 0.24);
+    --border-hairline: rgba(255, 255, 255, 0.11);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+
+    --ink-1: rgba(255, 255, 255, 0.96);
+    --ink-2: rgba(255, 255, 255, 0.72);
+    --ink-3: rgba(255, 255, 255, 0.46);
+
+    --accent: #34d399;
+    --accent-glow: rgba(52, 211, 153, 0.24);
+    --cyan: #38bdf8;
+    --violet: #a78bfa;
+
+    /* Exact current Eden Code input bar tokens (app.css + eden-code.css) */
+    --c-ink: 245 245 247;
+    --c-ink-2: 178 178 184;
+    --c-muted: 140 140 147;
+    --c-subtle: 142 142 147;
+    --c-accent: 38 150 234;
+    --c-accent-ink: 112 190 248;
+    --c-glow: 64 176 240;
+    --c-success: 48 209 88;
+    --eden-accent: #0a84ff;
+    --eden-text3: #8e8e93;
+    --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0.02));
+    --clear-blur: blur(22px) saturate(175%);
+    --clear-rim: inset 0 1px 0 rgb(255 255 255 / 0.10), inset 0 0 0 0.5px rgb(255 255 255 / 0.06);
+    --clear-edge: 0 0 0 0.5px rgb(0 0 0 / 0.55);
+    --clear-shadow: 0 10px 30px -14px rgb(0 0 0 / 0.6);
+    --eden-mark-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23fff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  [data-theme="light"] {
+    --bg-wallpaper-1: #dbeafe;
+    --bg-wallpaper-2: #e0f2fe;
+    --orb-1: rgba(56, 189, 248, 0.48);
+    --orb-2: rgba(14, 165, 233, 0.40);
+    --orb-3: rgba(59, 130, 246, 0.44);
+    --orb-4: rgba(96, 165, 250, 0.32);
+
+    --glass-window: rgba(255, 255, 255, 0.54);
+    --glass-sidebar: rgba(245, 247, 252, 0.44);
+    --glass-pane: rgba(255, 255, 255, 0.60);
+    --glass-pane-hover: rgba(255, 255, 255, 0.78);
+    --glass-elevated: rgba(255, 255, 255, 0.74);
+    --glass-pill: rgba(255, 255, 255, 0.66);
+    --glass-code: rgba(241, 245, 249, 0.78);
+
+    --border-specular: rgba(255, 255, 255, 0.90);
+    --border-hairline: rgba(15, 23, 42, 0.10);
+    --border-subtle: rgba(15, 23, 42, 0.06);
+
+    --ink-1: rgba(15, 23, 42, 0.95);
+    --ink-2: rgba(15, 23, 42, 0.66);
+    --ink-3: rgba(15, 23, 42, 0.46);
+
+    --accent: #059669;
+    --accent-glow: rgba(16, 185, 129, 0.22);
+    --cyan: #0284c7;
+    --violet: #7c3aed;
+
+    /* Exact current Eden Code light input bar tokens */
+    --c-ink: 29 29 31;
+    --c-ink-2: 86 86 92;
+    --c-muted: 110 110 115;
+    --c-subtle: 134 134 139;
+    --c-accent: 11 135 214;
+    --c-accent-ink: 8 106 172;
+    --c-glow: 56 168 232;
+    --c-success: 40 180 76;
+    --eden-accent: #0a84ff;
+    --eden-text3: #86868b;
+    --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.16));
+    --clear-blur: blur(22px) saturate(175%);
+    --clear-rim: inset 0 1px 0 rgb(255 255 255 / 0.75), inset 0 0 0 0.5px rgb(255 255 255 / 0.45);
+    --clear-edge: 0 0 0 0.5px rgb(0 0 0 / 0.09);
+    --clear-shadow: 0 10px 30px -14px rgb(0 0 0 / 0.20);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    font-family: var(--font-sans);
+    color: var(--ink-1);
+    background: linear-gradient(135deg, var(--bg-wallpaper-1), var(--bg-wallpaper-2));
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wallpaper {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(72px);
+    animation: floatOrb 18s ease-in-out infinite alternate;
+  }
+  .orb.o1 { width: 480px; height: 480px; top: -110px; left: -70px; background: var(--orb-1); }
+  .orb.o2 { width: 440px; height: 440px; bottom: -100px; right: 6%; background: var(--orb-2); animation-delay: -5s; }
+  .orb.o3 { width: 390px; height: 390px; top: 16%; right: 24%; background: var(--orb-3); animation-delay: -9s; }
+  .orb.o4 { width: 320px; height: 320px; bottom: 12%; left: 20%; background: var(--orb-4); animation-delay: -13s; }
+
+  @keyframes floatOrb {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    100% { transform: translate3d(24px, -18px, 0) scale(1.06); }
+  }
+
+  .desktop-stage {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mockup-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--glass-elevated);
+    backdrop-filter: blur(28px) saturate(190%);
+    -webkit-backdrop-filter: blur(28px) saturate(190%);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 var(--border-specular), 0 8px 24px rgba(0, 0, 0, 0.18);
+    font-size: 11.5px;
+    color: var(--ink-2);
+    align-self: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .mockup-controls strong {
+    color: var(--ink-1);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  .ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .ctrl-pill {
+    appearance: none;
+    border: 1px solid var(--border-hairline);
+    background: var(--glass-pill);
+    color: var(--ink-1);
+    font: 500 11px var(--font-sans);
+    padding: 3.5px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    transition: all 160ms var(--ease-spring);
+  }
+  .ctrl-pill:hover { background: var(--glass-pane-hover); }
+  .ctrl-pill.active {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--ink-1);
+  }
+
+  .eden-window {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 216px 1fr;
+    border-radius: 20px;
+    background: var(--glass-window);
+    backdrop-filter: blur(42px) saturate(195%);
+    -webkit-backdrop-filter: blur(42px) saturate(195%);
+    border: 1px solid var(--border-hairline);
+    box-shadow:
+      inset 0 1.5px 0 var(--border-specular),
+      inset 0 0 0 0.5px var(--border-subtle),
+      0 28px 70px -16px rgba(0, 0, 0, 0.55),
+      0 8px 24px -8px rgba(0, 0, 0, 0.28);
+    overflow: hidden;
+  }
+
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    background: var(--glass-sidebar);
+    border-right: 1px solid var(--border-hairline);
+    box-shadow: inset -1px 0 0 var(--border-subtle);
+    padding: 12px 10px;
+    gap: 10px;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .window-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 2px 4px;
+  }
+  .traffic-lights {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+  }
+  .tl {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.45), 0 1px 2px rgba(0,0,0,0.25);
+  }
+  .tl.close { background: #ff5f57; }
+  .tl.min   { background: #febc2e; }
+  .tl.max   { background: #28c840; }
+
+  .brand-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--ink-1);
+    white-space: nowrap;
+  }
+  .brand-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #34d399, #38bdf8);
+    box-shadow: 0 0 10px var(--accent);
+  }
+
+  .sidebar-top-actions { display: flex; gap: 5px; }
+  .glass-search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: var(--glass-pane);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    color: var(--ink-2);
+    font-size: 11.5px;
+  }
+  .glass-search input {
+    border: 0;
+    background: transparent;
+    color: var(--ink-1);
+    font: inherit;
+    width: 100%;
+    outline: none;
+  }
+  .glass-search input::placeholder { color: var(--ink-3); }
+
+  .new-btn {
+    padding: 6px 9px;
+    border-radius: 10px;
+    border: 1px solid var(--border-hairline);
+    background: var(--glass-elevated);
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    color: var(--ink-1);
+    font: 600 11.5px var(--font-sans);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .seg-rail {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    padding: 2.5px;
+    border-radius: 10px;
+    background: var(--glass-pane);
+    border: 1px solid var(--border-subtle);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
+  }
+  .seg-btn {
+    border: 0;
+    background: transparent;
+    color: var(--ink-2);
+    font: 500 11px var(--font-sans);
+    padding: 4.5px 0;
+    border-radius: 7.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .seg-btn.active {
+    background: var(--glass-elevated);
+    color: var(--ink-1);
+    box-shadow: inset 0 1px 0 var(--border-specular), 0 2px 6px rgba(0,0,0,0.16);
+  }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    padding: 2px 4px 0;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .session-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .session-card {
+    padding: 8px 9px;
+    border-radius: 11px;
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .session-card:hover {
+    background: var(--glass-pane);
+    border-color: var(--border-subtle);
+  }
+  .session-card.active {
+    background: var(--glass-elevated);
+    border-color: var(--border-hairline);
+    box-shadow:
+      inset 0 1px 0 var(--border-specular),
+      0 6px 16px -6px rgba(0, 0, 0, 0.25);
+  }
+  .session-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+  }
+  .session-title span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session-sub {
+    font-size: 10.5px;
+    color: var(--ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .status-dot {
+    width: 6.5px;
+    height: 6.5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    padding-top: 7px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--ink-2);
+  }
+  .engine-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3.5px 8px;
+    border-radius: 999px;
+    background: var(--glass-pane);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    font-size: 10.5px;
+    color: var(--ink-1);
+    white-space: nowrap;
+  }
+
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+  }
+
+  .top-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-hairline);
+    background: rgba(255, 255, 255, 0.02);
+    flex-wrap: wrap;
+  }
+  .crumb {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  .crumb-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .branch-pill {
+    font: 500 10.5px var(--font-mono);
+    padding: 2.5px 7px;
+    border-radius: 999px;
+    background: var(--glass-pill);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    color: var(--cyan);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .glass-capsule {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--glass-pane);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 var(--border-specular), 0 4px 14px rgba(0,0,0,0.14);
+    flex-shrink: 0;
+  }
+  .cap-btn {
+    border: 0;
+    background: transparent;
+    color: var(--ink-2);
+    font: 500 11px var(--font-sans);
+    padding: 4px 8px;
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .cap-btn:hover {
+    color: var(--ink-1);
+    background: var(--glass-pane-hover);
+  }
+  .cap-btn.active {
+    color: var(--ink-1);
+    background: var(--glass-elevated);
+    box-shadow: inset 0 1px 0 var(--border-specular), 0 2px 6px rgba(0,0,0,0.16);
+  }
+  .cap-count {
+    font: 600 9.5px var(--font-mono);
+    padding: 1px 4.5px;
+    border-radius: 999px;
+    background: var(--accent-glow);
+    color: var(--accent);
+  }
+
+  .pane-grid {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px 6px;
+    overflow: hidden;
+    grid-template-columns: 1fr;
+  }
+  .pane-grid[data-layout="2"] { grid-template-columns: 1fr 1fr; }
+  .pane-grid[data-layout="6"] {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+  }
+
+  .glass-pane-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    border-radius: 15px;
+    background: var(--glass-pane);
+    backdrop-filter: blur(28px) saturate(185%);
+    -webkit-backdrop-filter: blur(28px) saturate(185%);
+    border: 1px solid var(--border-hairline);
+    box-shadow:
+      inset 0 1px 0 var(--border-specular),
+      0 12px 32px -12px rgba(0, 0, 0, 0.28);
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .glass-pane-card.focused {
+    border-color: rgba(52, 211, 153, 0.45);
+    box-shadow:
+      inset 0 1px 0 var(--border-specular),
+      0 0 0 1px rgba(52, 211, 153, 0.20),
+      0 14px 36px -12px rgba(0, 0, 0, 0.36);
+  }
+
+  .pane-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 11px;
+    color: var(--ink-2);
+  }
+  .pane-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--ink-1);
+    min-width: 0;
+  }
+  .pane-title-txt {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pane-branch {
+    font: 500 10px var(--font-mono);
+    color: var(--ink-3);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .pane-num {
+    font: 600 9.5px var(--font-mono);
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--glass-elevated);
+    border: 1px solid var(--border-hairline);
+    color: var(--ink-2);
+    flex-shrink: 0;
+  }
+
+  .chat-stream {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .msg-user {
+    align-self: flex-end;
+    max-width: 92%;
+    padding: 7px 11px;
+    border-radius: 13px 13px 4px 13px;
+    background: var(--glass-elevated);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 var(--border-specular), 0 4px 12px rgba(0,0,0,0.14);
+    font-size: 11.5px;
+    line-height: 1.42;
+    color: var(--ink-1);
+  }
+  .attach-row {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+  }
+  .attach-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--glass-code);
+    border: 1px solid var(--border-hairline);
+    font: 500 10px var(--font-mono);
+    color: var(--cyan);
+    white-space: nowrap;
+  }
+
+  .tool-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tool-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--ink-2);
+    padding: 3px 7px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-subtle);
+    width: fit-content;
+    max-width: 100%;
+  }
+  .tool-bullet {
+    width: 5.5px;
+    height: 5.5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .tool-verb {
+    font-weight: 600;
+    color: var(--ink-1);
+    flex-shrink: 0;
+  }
+  .tool-arg {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .msg-assistant {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 11.5px;
+    line-height: 1.48;
+    color: var(--ink-1);
+  }
+  .glass-code-card {
+    border-radius: 10px;
+    background: var(--glass-code);
+    border: 1px solid var(--border-hairline);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 9px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--ink-2);
+    font-size: 10px;
+  }
+  .code-body {
+    padding: 7px 9px;
+    line-height: 1.45;
+    overflow-x: auto;
+    margin: 0;
+  }
+  .diff-add {
+    background: rgba(52, 211, 153, 0.14);
+    color: #6ee7b7;
+    display: block;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  [data-theme="light"] .diff-add {
+    color: #065f46;
+    background: rgba(16, 185, 129, 0.16);
+  }
+  .diff-del {
+    background: rgba(244, 63, 94, 0.14);
+    color: #fda4af;
+    display: block;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  [data-theme="light"] .diff-del {
+    color: #9f1239;
+    background: rgba(244, 63, 94, 0.15);
+  }
+
+  /* ── Exact Current Eden Code Input Bar (.jc-dock / .jc-composer from app.css + eden-code.css) ── */
+  .jc-dock { padding: 0 12px 10px; position: relative; }
+  .jc-column { max-width: 904px; margin: 0 auto; }
+  .jc-composer {
+    position: relative;
+    border-radius: 22px;
+    padding: 9px 10px 9px 12px;
+    background: var(--clear-fill);
+    backdrop-filter: var(--clear-blur);
+    -webkit-backdrop-filter: var(--clear-blur);
+    box-shadow: var(--clear-rim), var(--clear-edge), var(--clear-shadow);
+    transition: box-shadow 200ms ease;
+  }
+  .jc-composer:focus-within {
+    box-shadow: var(--clear-rim), 0 0 0 1px rgb(var(--c-accent) / 0.42), 0 0 0 4px rgb(var(--c-glow) / 0.12), var(--clear-shadow);
+  }
+  .jc-composer-top {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .jc-composer-top textarea {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: rgb(var(--c-ink));
+    font: inherit;
+    font-size: 14.5px;
+    line-height: 1.5;
+    min-height: 24px;
+    max-height: 220px;
+    padding: 3px 0;
+  }
+  .jc-composer-top textarea::placeholder { color: rgb(var(--c-subtle)); }
+  .jc-orb {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    margin-bottom: 1px;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgb(var(--c-accent));
+    background: rgb(var(--c-accent) / 0.13);
+    box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.32);
+    transition: background 200ms ease, box-shadow 200ms ease, transform 120ms ease;
+  }
+  .jc-orb::before {
+    content: "";
+    width: 15px;
+    height: 15px;
+    background: currentColor;
+    -webkit-mask: var(--eden-mark-light) center / contain no-repeat;
+    mask: var(--eden-mark-light) center / contain no-repeat;
+  }
+  .jc-composer.expanded .jc-orb {
+    color: #fff;
+    background: rgb(var(--c-accent));
+    box-shadow: 0 0 16px rgb(var(--c-glow) / 0.45);
+  }
+  .jc-round, .jc-send {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    margin-bottom: 1px;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .jc-round {
+    background: rgb(var(--c-ink) / 0.06);
+    color: rgb(var(--c-ink-2));
+    box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.11);
+  }
+  .jc-round:hover {
+    background: rgb(var(--c-ink) / 0.11);
+    color: rgb(var(--c-ink));
+  }
+  .jc-send {
+    background: var(--eden-accent);
+    color: #fff;
+    box-shadow: 0 2px 8px rgb(var(--c-accent) / 0.35);
+  }
+  .jc-composer-drawer {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 300ms cubic-bezier(0.32, 0.72, 0.24, 1);
+    width: 100%;
+  }
+  .jc-composer.expanded .jc-composer-drawer { grid-template-rows: 1fr; }
+  .jc-composer-drawer-in { overflow: hidden; min-height: 0; }
+  .jc-composer .jc-composer-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 0 2px;
+    margin-top: 9px;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 200ms ease 60ms, transform 260ms cubic-bezier(0.32, 0.72, 0.24, 1) 60ms;
+  }
+  .jc-composer .jc-composer-row::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 0.5px;
+    background: linear-gradient(90deg, transparent, rgb(var(--c-ink) / 0.14), transparent);
+  }
+  .jc-composer.expanded .jc-composer-row { opacity: 1; transform: none; }
+  .jc-composer-row > :is(.jc-pill, #jc-plus) {
+    height: 26px;
+    border: 0;
+    border-radius: 999px;
+    background: rgb(var(--c-ink) / 0.06);
+    box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.11);
+    color: rgb(var(--c-ink-2));
+    font-size: 12px;
+    font-weight: 550;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+  }
+  .jc-composer-row > .jc-pill { padding: 0 10px; gap: 6px; }
+  .jc-composer-row > #jc-plus { width: 26px; padding: 0; justify-content: center; }
+  .jc-composer-row > #jc-mode-btn {
+    color: rgb(var(--c-accent-ink));
+    background: rgb(var(--c-accent) / 0.15);
+    box-shadow: inset 0 0 0 0.5px rgb(var(--c-accent) / 0.4);
+  }
+  .jc-composer-row > #jc-model::before {
+    content: "";
+    flex: none;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgb(var(--c-success));
+    box-shadow: 0 0 6px rgb(var(--c-success) / 0.8);
+  }
+  .jc-spacer { flex: 1; }
+  .jc-statusline {
+    margin: 5px 12px 0;
+    font-size: 11px;
+    color: var(--eden-text3);
+  }
+
+  /* ── Eden Code Universal Command Palette (⌘K) — Exact Liquid Glass from Eden Chat + Claude Features ── */
+  #palette {
+    --pal-glass: rgba(18, 22, 32, 0.65);
+    --pal-rim: rgba(255, 255, 255, 0.22);
+    --pal-hairline: rgba(255, 255, 255, 0.12);
+    --pal-sep: rgba(255, 255, 255, 0.08);
+    --pal-text: #f5f5f7;
+    --pal-text2: #b2b2b8;
+    --pal-text3: #8e8e93;
+    --pal-accent: #0a84ff;
+    --pal-shadow: inset 0 0.5px 0 var(--pal-rim), inset 0 0 0 0.5px var(--pal-hairline), 0 4px 14px rgba(0, 0, 0, 0.45), 0 32px 76px rgba(0, 0, 0, 0.62);
+    position: fixed; inset: 0; z-index: 9999; background: rgba(0, 0, 0, 0.42);
+    display: none; align-items: flex-start; justify-content: center; padding-top: 14vh;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  [data-theme="light"] #palette {
+    --pal-glass: rgba(255, 255, 255, 0.72);
+    --pal-rim: rgba(255, 255, 255, 0.92);
+    --pal-hairline: rgba(60, 60, 67, 0.14);
+    --pal-sep: rgba(60, 60, 67, 0.08);
+    --pal-text: #1c1c1e;
+    --pal-text2: #6e6e73;
+    --pal-text3: #8e8e93;
+    --pal-accent: #007aff;
+    --pal-shadow: inset 0 0.5px 0 var(--pal-rim), inset 0 0 0 0.5px var(--pal-hairline), 0 2px 6px rgba(0, 0, 0, 0.06), 0 24px 64px rgba(0, 0, 0, 0.16);
+    background: rgba(0, 0, 0, 0.16);
+  }
+  #palette[hidden] { display: none !important; }
+  #palette.open { display: flex; }
+  #palette .pal-box {
+    width: min(620px, 94vw); border-radius: 20px; overflow: hidden;
+    background: var(--pal-glass);
+    backdrop-filter: blur(40px) saturate(190%); -webkit-backdrop-filter: blur(40px) saturate(190%);
+    box-shadow: var(--pal-shadow);
+    color: var(--pal-text);
+    animation: palIn 180ms cubic-bezier(.16, 1, .3, 1);
+    display: flex; flex-direction: column;
+  }
+  @keyframes palIn {
+    from { opacity: 0; transform: translateY(-14px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+  #palette .pal-in {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    border-bottom: 0.5px solid var(--pal-sep);
+  }
+  #palette .pal-in .ic { width: 18px; height: 18px; flex: none; color: var(--pal-text3); }
+  #palette .pal-in input {
+    flex: 1; min-width: 0; height: auto; min-height: 0; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; outline: none;
+    font-size: 16px; color: var(--pal-text); font-family: inherit;
+  }
+  #palette .pal-in input::placeholder { color: var(--pal-text3); }
+  #palette .pal-in .pal-esc {
+    font-size: 11px; color: var(--pal-text3); padding: 2px 6px; background: rgba(120, 120, 128, 0.16); border-radius: 5px; font-weight: 500;
+  }
+  #palette .pal-tabs {
+    display: flex; gap: 6px; padding: 8px 14px 4px; border-bottom: 0.5px solid var(--pal-sep); overflow-x: auto;
+  }
+  #palette .pal-tab {
+    font-size: 11px; font-weight: 550; padding: 3px 8px; border-radius: 6px; background: rgba(120,120,128,0.12); color: var(--pal-text2); cursor: pointer; border: 0; outline: none; transition: all 120ms ease;
+  }
+  #palette .pal-tab:hover { background: rgba(120,120,128,0.22); color: var(--pal-text); }
+  #palette .pal-tab.active { background: var(--pal-accent); color: #fff; }
+  #palette #palList { max-height: 380px; overflow-y: auto; padding: 6px; }
+  #palette .pal-grp {
+    padding: 8px 12px 4px; font-size: 10.5px; font-weight: 600;
+    color: var(--pal-text3); text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  #palette .pal-it {
+    display: flex; align-items: center; gap: 12px; padding: 9px 12px;
+    border-radius: 10px; font-size: 13.5px; cursor: pointer; color: var(--pal-text);
+    transition: background 80ms ease;
+  }
+  #palette .pal-it .ic { width: 16px; height: 16px; flex: none; color: var(--pal-text2); display: flex; align-items: center; justify-content: center; }
+  #palette .pal-it .ic-sym { font-family: var(--font-mono); font-weight: 700; font-size: 12px; color: #34d399; }
+  #palette .pal-it .t {
+    flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #palette .pal-it .t b { font-weight: 600; color: var(--pal-text); }
+  #palette .pal-it .t .pal-line-num { font-family: var(--font-mono); font-size: 11px; color: var(--pal-text3); margin-left: 6px; }
+  #palette .pal-it .pal-code-snippet {
+    display: block; font-family: var(--font-mono); font-size: 11.5px; color: var(--pal-text2); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #palette .pal-it .pal-code-snippet mark {
+    background: rgba(255, 214, 10, 0.28); color: #ffd60a; padding: 0 2px; border-radius: 3px;
+  }
+  [data-theme="light"] #palette .pal-it .pal-code-snippet mark {
+    background: rgba(180, 83, 9, 0.20); color: #b45309;
+  }
+  #palette .pal-it .sub {
+    font-size: 11.5px; color: var(--pal-text3); margin-left: auto; flex-shrink: 0;
+  }
+  #palette .pal-it kbd {
+    font: 500 11px var(--font-sans);
+    color: var(--pal-text3); padding: 2px 5px; border-radius: 4px; background: rgba(120,120,128,0.12);
+  }
+  #palette .pal-it.sel { background: var(--pal-accent); color: #fff; }
+  #palette .pal-it.sel .ic,
+  #palette .pal-it.sel .ic-sym,
+  #palette .pal-it.sel .sub,
+  #palette .pal-it.sel .pal-code-snippet,
+  #palette .pal-it.sel .t .pal-line-num,
+  #palette .pal-it.sel kbd { color: rgba(255, 255, 255, 0.88); }
+  #palette .pal-it.sel .pal-code-snippet mark { background: rgba(255, 255, 255, 0.35); color: #fff; }
+  #palette .pal-empty { padding: 32px 16px; text-align: center; color: var(--pal-text3); font-size: 13px; }
+  #palette .pal-foot {
+    display: flex; align-items: center; justify-content: space-between; padding: 10px 18px;
+    border-top: 0.5px solid var(--pal-sep);
+    font-size: 11px; color: var(--pal-text3);
+  }
+  #palette .pal-foot .pal-tips { display: flex; gap: 12px; }
+  #palette .pal-foot .pal-modes { display: flex; gap: 8px; font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+  <div class="wallpaper">
+    <div class="orb o1"></div>
+    <div class="orb o2"></div>
+    <div class="orb o3"></div>
+    <div class="orb o4"></div>
+  </div>
+
+  <div class="desktop-stage">
+    <div class="mockup-controls">
+      <span><strong>Eden Code</strong> · Liquid Glass</span>
+      <div class="ctrl-group">
+        <span>Layout:</span>
+        <button class="ctrl-pill" data-layout-btn="1">Single</button>
+        <button class="ctrl-pill active" data-layout-btn="2">2-Split</button>
+        <button class="ctrl-pill" data-layout-btn="6">6-Pane Grid</button>
+      </div>
+      <div class="ctrl-group">
+        <span>Surface:</span>
+        <button class="ctrl-pill active" data-theme-btn="dark">Dark Glass</button>
+        <button class="ctrl-pill" data-theme-btn="light">Daylight Frost</button>
+      </div>
+    </div>
+
+    <div class="eden-window">
+      <aside class="sidebar">
+        <div class="window-bar">
+          <div class="traffic-lights">
+            <span class="tl close"></span>
+            <span class="tl min"></span>
+            <span class="tl max"></span>
+          </div>
+          <div class="brand-badge">
+            <span class="brand-dot"></span>
+            <span>Eden Code</span>
+          </div>
+        </div>
+
+        <div class="sidebar-top-actions">
+          <div class="glass-search" id="btn-search-trigger" role="button" tabindex="0" title="Universal Search & Command Palette (⌘K)">
+            <span>⌕</span>
+            <input type="text" placeholder="Search files, symbols, commands… ⌘K" readonly style="cursor:pointer;" />
+          </div>
+          <button class="new-btn">+ New</button>
+        </div>
+
+        <div class="seg-rail">
+          <button class="seg-btn active">Code</button>
+          <button class="seg-btn">Browser</button>
+          <button class="seg-btn">Split (6)</button>
+        </div>
+
+        <div class="section-label">
+          <span>Active Workspace</span>
+          <span>askeden</span>
+        </div>
+
+        <div class="session-list">
+          <div class="session-card active">
+            <div class="session-title">
+              <span>Liquid Glass UI &amp; 6-Pane Split</span>
+              <span class="status-dot"></span>
+            </div>
+            <div class="session-sub">askeden · ios-app-store-prep · now</div>
+          </div>
+
+          <div class="session-card">
+            <div class="session-title">
+              <span>Native Argon 4 Engine Loop</span>
+            </div>
+            <div class="session-sub">eden-code · main · 14m</div>
+          </div>
+
+          <div class="session-card">
+            <div class="session-title">
+              <span>Claude Browser Parity &amp; DevBar</span>
+            </div>
+            <div class="session-sub">eden-code · main · 1h</div>
+          </div>
+
+          <div class="session-card">
+            <div class="session-title">
+              <span>Full-Window Drag Regions</span>
+            </div>
+            <div class="session-sub">eden-code · main · 2h</div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <span class="engine-pill">
+            <span class="status-dot"></span>
+            Argon 4 · Native
+          </span>
+          <span>14.9M</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="top-header">
+          <div class="crumb">
+            <span class="crumb-title">Liquid Glass UI &amp; 6-Pane Split</span>
+            <span class="branch-pill">⎇ ios-app-store-prep</span>
+          </div>
+
+          <div class="glass-capsule">
+            <button class="cap-btn">Changes <span class="cap-count">4</span></button>
+            <button class="cap-btn">Files</button>
+            <button class="cap-btn">Terminal</button>
+            <button class="cap-btn">Browser</button>
+            <button class="cap-btn active" id="cycle-split-btn">Split · <span id="split-badge">2</span>/6</button>
+          </div>
+        </header>
+
+        <section class="pane-grid" id="pane-grid" data-layout="2"></section>
+
+        <!-- Exact Current Eden Code Input Bar (#deck-composer.jc-composer) -->
+        <div class="jc-dock">
+          <div class="jc-column">
+            <form id="deck-composer" class="jc-composer expanded" autocomplete="off">
+              <div class="jc-composer-top">
+                <button type="button" class="jc-orb" id="jc-orb" aria-expanded="true" aria-label="Composer options" title="Options: add, mode, model, effort, context"></button>
+                <textarea id="deck-input" rows="1" placeholder="Ask Eden Code to plan, build or fix something…"></textarea>
+                <button type="button" class="jc-round" id="jc-dictate" aria-pressed="false" aria-label="Dictate" title="Dictate: say it, then read it and send">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4"/><path d="M3.3 7.6a4.7 4.7 0 0 0 9.4 0M8 12.4v2"/></svg>
+                </button>
+                <button type="submit" class="jc-send" aria-label="Send">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg>
+                </button>
+              </div>
+              <div class="jc-composer-drawer" id="jc-composer-drawer">
+                <div class="jc-composer-drawer-in">
+                  <div class="jc-composer-row">
+                    <button type="button" class="jc-round" id="jc-plus" title="Add (⌘U files)">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+                    </button>
+                    <button type="button" class="jc-pill" id="jc-mode-btn" title="Permission mode (⌘⇧M or ⇧Tab to switch)">
+                      <span id="jc-mode-label">Auto</span>
+                      <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3.8L5 6.3l2.5-2.5"/></svg>
+                    </button>
+                    <span class="jc-spacer"></span>
+                    <button type="button" class="jc-pill ghost" id="jc-model" title="Model (⌘⇧I)">
+                      <span id="jc-model-label">Argon 4</span>
+                      <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3.8L5 6.3l2.5-2.5"/></svg>
+                    </button>
+                    <button type="button" class="jc-pill ghost" id="jc-effort" title="Effort (⌘⇧E)">
+                      <svg width="15" height="15" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 14a6.5 6.5 0 1 1 12 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                      <span id="jc-effort-label">High</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </form>
+            <p class="jc-statusline"><span id="cc-mode">? for shortcuts</span></p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Unified Eden Code Command & Search Palette (#palette, identical to Eden Chat + Claude capabilities) -->
+  <div id="palette" role="dialog" aria-modal="true" aria-label="Universal search and command palette" hidden>
+    <div class="pal-box">
+      <div class="pal-in">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5l4.5 4.5"/></svg>
+        <input id="palInput" placeholder="Search files, symbols, code, chats or actions… (@files, #symbols, ?grep, >commands)" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list">
+        <span class="pal-esc">esc</span>
+      </div>
+      <div class="pal-tabs">
+        <button class="pal-tab active" data-pal-filter="all">All</button>
+        <button class="pal-tab" data-pal-filter="files">@ Files</button>
+        <button class="pal-tab" data-pal-filter="symbols"># Symbols</button>
+        <button class="pal-tab" data-pal-filter="code">? Code (Grep)</button>
+        <button class="pal-tab" data-pal-filter="chats">Chats</button>
+        <button class="pal-tab" data-pal-filter="actions">&gt; Actions</button>
+      </div>
+      <div id="palList" role="listbox" aria-label="Results"></div>
+      <div class="pal-foot">
+        <div class="pal-tips">
+          <span>↑↓ navigate</span>
+          <span>↵ select</span>
+          <span>⌥↵ mention in chat</span>
+          <span>esc close</span>
+        </div>
+        <div class="pal-modes">
+          <span>@files</span>
+          <span>#symbols</span>
+          <span>?grep</span>
+          <span>&gt;actions</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/eden-code-glass.js"></script>
+</body>
+</html>

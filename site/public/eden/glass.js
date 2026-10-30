@@ -42,6 +42,7 @@ export function capPhrase(text, max = MAX_PHRASE) {
  */
 export function phraseOfLabel(kind, text = '') {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (kind === 'eves_verified' && /^Verified by EVES Vault\b/i.test(t)) return 'Verified by EVES Vault';
   if (kind === 'eves_verified') return capPhrase(t && t.length <= 24 ? t : 'Verified');
   if (Object.prototype.hasOwnProperty.call(KIND_PHRASE, kind)) return KIND_PHRASE[kind];
   return capPhrase(t);

@@ -165,7 +165,18 @@ async function loadGoogle(r, seq, force) {
   if (!force && g.state === 'ready' && covers(g.range, r)) return;
   g.state = 'loading';
   let st;
-  try { st = await getJSON('/api/chat/gcal/status'); } catch (e) { if (seq === S.gSeq) { Object.assign(g, { state: 'error', reason: e.message }); render(); } return; }
+  try { st = await getJSON('/api/chat/gcal/status'); } catch (e) {
+    if (seq === S.gSeq) {
+      // 503/404 on askeden.com without a Mac: treat quietly as not configured
+      if (e && (e.status === 503 || e.status === 404)) {
+        Object.assign(g, { state: 'unset', reason: '', events: [], range: null });
+      } else {
+        Object.assign(g, { state: 'error', reason: e.message });
+      }
+      render();
+    }
+    return;
+  }
   if (seq !== S.gSeq) return;
   g.email = st.email || '';
   if (!st.configured || !st.connected || !st.calendar) {

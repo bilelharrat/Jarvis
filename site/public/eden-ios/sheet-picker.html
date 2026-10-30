@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Choose a file · Eden</title>
+<style>
+  :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f5f7; color: #1d1d1f; }
+  @media (prefers-color-scheme: dark) { body { background: #161618; color: #f5f5f7; } }
+  main { max-width: 420px; padding: 24px; text-align: center; }
+  p { color: #6e6e73; line-height: 1.45; }
+  button { font: inherit; padding: 8px 16px; border-radius: 9px; border: 0; background: #0a84ff; color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1 style="font-size:18px">Choose a file from Google Drive</h1>
+  <p id="msg">Opening the Google Picker…</p>
+  <p><button type="button" id="close">Close</button></p>
+</main>
+<script type="module" src="sheet-picker.js"></script>
+</body>
+</html>

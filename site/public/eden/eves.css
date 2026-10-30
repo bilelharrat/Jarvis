@@ -22,9 +22,10 @@
 body.eves-draft #jc-estimate { display: none; } /* see renderEvesChip */
 body.eves-draft #jc-router { opacity: .45; } /* its pick is not what will answer */
 
-/* ── Settings › Routing ── */
+/* ── Settings › Routing & Settings › EVES ── */
 .eves-set .seg { flex: none; min-width: 168px; }
-@media (max-width: 640px) { .eves-set .prov { flex-wrap: wrap; } .eves-set .seg { width: 100%; } }
+#setBody .eves-set .eves-model-sel, .eves-set select.eves-model-sel { flex: none; width: auto !important; max-width: 240px; min-width: 190px; }
+@media (max-width: 640px) { .eves-set .prov { flex-wrap: wrap; } .eves-set .seg, #setBody .eves-set .eves-model-sel { width: 100% !important; max-width: none; } }
 
 /* ── while it runs: the progress line above the reply ── */
 .msg.eves-live.eves-empty > .bubble { display: none; } /* the line above already says it is working */
@@ -131,6 +132,20 @@ body.eves-draft #jc-router { opacity: .45; } /* its pick is not what will answer
 .eves-models b { font-weight: 600; color: var(--text); }
 .eves-foot-line { font-size: 11.5px; color: var(--text3); }
 
+/* ── EVES thumbs up/down & Hallucination Flag (!IN_APP, Bilel & Malik only) ── */
+.eves-rate-bar { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.eves-rate-bar.inline { margin-left: 4px; }
+.eves-rate-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 2px 9px; border: 0; border-radius: 999px; background: rgba(120,120,128,.09); box-shadow: inset 0 0 0 .5px var(--hairline); font: inherit; font-size: 11.5px; font-weight: 550; color: var(--text2); cursor: pointer; transition: background-color .14s ease, color .14s ease, transform .12s ease; white-space: nowrap; }
+.eves-rate-btn .ic { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.eves-rate-btn:hover:not(:disabled) { background: rgba(120,120,128,.16); color: var(--text); }
+.eves-rate-btn:disabled { opacity: .65; cursor: progress; }
+.eves-rate-btn.up.on { background: rgba(52,199,89,.15); box-shadow: inset 0 0 0 .5px rgba(52,199,89,.45); color: var(--run); }
+[data-theme="light"] .eves-rate-btn.up.on { color: #1a7a3a; }
+.eves-rate-btn.down.on { background: rgba(255,59,48,.13); box-shadow: inset 0 0 0 .5px rgba(255,59,48,.4); color: var(--danger); }
+.eves-rate-btn.down.busy { background: rgba(255,159,10,.15); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.45); color: var(--warn); }
+.eves-rate-btn.down.fixed { background: rgba(52,199,89,.15); box-shadow: inset 0 0 0 .5px rgba(52,199,89,.45); color: var(--run); }
+[data-theme="light"] .eves-rate-btn.down.fixed { color: #1a7a3a; }
+
 @media (max-width: 640px) {
   .eves-run { padding: 8px 10px; }
   .eves-step:not(.active), .eves-arrow { display: none; }
@@ -160,3 +175,20 @@ body.eves-draft #jc-router { opacity: .45; } /* its pick is not what will answer
 @media (forced-colors: active) {
   .eves-pip { forced-color-adjust: none; }
 }
+
+/* EVES-specific content inside the shared web activity thread (app.css). Native tree unchanged. */
+html:not(.eden-app) .eves-activity .eves-progress-description { margin:0 0 10px; font-size:12px; line-height:1.5; }
+html:not(.eden-app) .eves-activity .eves-dots { flex-wrap:wrap; gap:7px; overflow:visible; margin:0; padding:0; }
+html:not(.eden-app) .eves-activity .eves-ldot { padding:4px 7px; border:1px solid var(--hairline); border-radius:9px; font-size:11px; max-width:100%; white-space:normal; flex-wrap:wrap; }
+html:not(.eden-app) .eves-activity .eves-ldot .nm,
+html:not(.eden-app) .eves-activity .eves-ldot .st { display:inline; overflow-wrap:anywhere; color:var(--at-muted); }
+html:not(.eden-app) .eves-activity .eves-ldot .nm { color:var(--text); }
+html:not(.eden-app) .eves-activity .eves-ldot .pdot { animation:none; }
+html:not(.eden-app) .eves-activity .eves-toggle { min-height:40px; padding-left:0; color:var(--at-muted); }
+html:not(.eden-app) .eves-activity .eves-note { font-size:12px; line-height:1.5; margin:8px 0; color:var(--at-muted); }
+html:not(.eden-app) .eves-activity .eves-lanes { grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); padding-bottom:10px; }
+
+/* ── the draft while it runs (eves.js draftView): the first model's answer, greyed and labelled, until the checked
+   answer replaces it. Never in the app (IN_APP). The label uses the mono tag style (DESIGN.md §3). ── */
+.eves-provisional-tag { display: inline-block; margin: 0 0 6px; font: 600 10.5px/1.4 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); }
+.eves-provisional > .md { color: var(--text2); } /* grey by colour, not opacity: links and buttons keep their contrast (DESIGN.md §9) */

@@ -58,6 +58,8 @@ function meta() {
     levels: LEVELS,
     classifier: { mode: 'always', available: true, reason: null },
     search: { available: true, via: 'gemini' },
+    images: { available: true, via: 'gemini' },
+    videos: { available: true, via: 'gemini' },
     eves: true, // EVES (eves-mock.js): the switch, the chip's price and the run are drawn in ?mock=1
     premiseCheck: true, // N19: the fact-check switches in Settings › Routing (both servers run them)
     answerCheck: true,
@@ -238,10 +240,54 @@ function toolAnswer(body, prompt) {
   return null;
 }
 
+function mockMediaB64(prompt, edit = false) {
+  try {
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 512;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 512, 512);
+    g.addColorStop(0, edit ? '#0b2545' : '#0E2747');
+    g.addColorStop(0.55, edit ? '#1d4ed8' : '#1677c9');
+    g.addColorStop(1, edit ? '#38bdf8' : '#d9604f');
+    x.fillStyle = g; x.fillRect(0, 0, 512, 512);
+    x.fillStyle = 'rgba(255,255,255,0.16)';
+    x.beginPath(); x.arc(256, 220, 110, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#ffffff'; x.font = '600 22px -apple-system, BlinkMacSystemFont, sans-serif';
+    x.textAlign = 'center';
+    x.fillText(String(prompt || 'Eden Picture').slice(0, 36), 256, 430);
+    return c.toDataURL('image/png').split(',')[1];
+  } catch {
+    return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  }
+}
+
 function chatStream(body, signal) {
   const msgs = body.messages || [];
   const last = msgs[msgs.length - 1] || { content: '' };
   const prompt = String(last.content || '');
+  const isVid = body.video === true || /^\s*(?:\/video\b|(?:make|generate|create|animate)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:short\s+)?(?:video|clip|animation)\b|now\s+animate\s+it\b)/i.test(prompt);
+  if (isVid && !/html|canvas|page/i.test(prompt)) {
+    const fromImage = Boolean(body.imageBase);
+    return sse([
+      [150, 'route', { model: 'veo-3.0-fast-generate-001', modelName: 'Veo 3 Fast', provider: 'gemini', effort: null, effortLabel: '', via: 'api', costUSD: 0.75, quality: 91, rated: false, ratedBy: 'rules', candidates: [{ model: 'veo-3.0-fast-generate-001', name: 'Veo 3 Fast', provider: 'gemini', quality: 91, costUSD: 0.75, chosen: true }, { model: 'veo-3.0-generate-001', name: 'Veo 3', provider: 'gemini', quality: 97, costUSD: 2.0, chosen: false }], fallbacks: [{ model: 'veo-2.0-generate-001', name: 'Veo 2', provider: 'gemini' }], warnings: [], rationale: fromImage ? 'Video: Veo 3 Fast animates the picture.' : 'Video: Veo 3 Fast generates the clip.', notes: ['1280×720, 5s clip'], where: 'Google (United States)', video: true }],
+      [350, 'video', { mime: 'video/mp4', data: 'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE=', size: '1280x720', seconds: 5, prompt, fromImage, model: 'veo-3.0-fast-generate-001', modelName: 'Veo 3 Fast' }],
+      [80, 'usage', { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUSD: 0.75, notional: false }],
+      [40, 'done', { finish: 'stop' }],
+    ], signal);
+  }
+  const isEdit = Boolean(body.imageBase) && /^(?:now\s+)?(?:make|change|turn|add|remove)\b.*\b(?:it|this|that)\b/i.test(prompt);
+  const isImg = body.image === true || isEdit || (/^\s*(?:\/image\b|(?:draw|paint|generate|create|make)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:watercolor\s+|red\s+)?(?:picture|image|photo|painting|illustration|fox|cat|lighthouse)\b)/i.test(prompt) && !/svg|logo|icon|drawing/i.test(prompt));
+  if (isImg) {
+    const model = isEdit ? 'gemini-2.5-flash-image' : 'imagen-4.0-generate-001';
+    const modelName = isEdit ? 'Gemini Flash Image' : 'Imagen 4';
+    const costUSD = isEdit ? 0.039 : 0.04;
+    return sse([
+      [150, 'route', { model, modelName, provider: 'gemini', effort: null, effortLabel: '', via: 'api', costUSD, quality: isEdit ? 91 : 93, rated: false, ratedBy: 'rules', candidates: [{ model, name: modelName, provider: 'gemini', quality: isEdit ? 91 : 93, costUSD, chosen: true }], fallbacks: [{ model: '@cf/black-forest-labs/flux-2-klein-4b', name: 'FLUX.2 klein', provider: 'cloudflare' }], warnings: [], rationale: isEdit ? 'Image edit: Gemini Flash Image modifies the starting picture.' : 'Image: Imagen 4 draws the picture.', notes: ['1024×1024, medium quality'], where: 'Google (United States)', image: true }],
+      [300, 'image', { mime: 'image/png', data: mockMediaB64(prompt, isEdit), size: '1024x1024', quality: 'medium', prompt, edit: isEdit, model, modelName }],
+      [80, 'usage', { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUSD, notional: false }],
+      [40, 'done', { finish: 'stop' }],
+    ], signal);
+  }
   const mode = body.mode || 'chat';
   const r = routeFor(prompt, body.settings || {}, body.override);
   // H2: the pick your profile leans to (the learned section, at the end)

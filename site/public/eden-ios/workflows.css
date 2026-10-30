@@ -1,0 +1,59 @@
+/* Saved workflows (workflows.js): the gallery, the editor, the run and schedule forms.
+   Atelier tokens (app.css). */
+
+.wf-card{width:min(720px,100%)}
+.wf-card .sheet-head .ic{color:var(--accent)}
+.wf-body{display:flex;flex-direction:column;gap:12px}
+
+/* gallery */
+.wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.wf-item{background:var(--content);border-radius:var(--r-md);padding:12px 13px;box-shadow:inset 0 0 0 .5px var(--hairline),0 1px 3px rgba(0,0,0,.05);display:flex;flex-direction:column;gap:8px;min-width:0}
+.wf-item-h{display:flex;align-items:flex-start;gap:6px}
+.wf-item-h h3{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.wf-tpl{font-size:12.5px;color:var(--text2);line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;flex:1}
+.wf-blank{display:inline-block;font-size:11.5px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:0 6px;margin:0 1px;line-height:1.5}
+.wf-chips{display:flex;flex-wrap:wrap;gap:5px}
+.wf-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:var(--text2);background:rgba(120,120,128,.12);border-radius:8px;padding:2px 8px}
+.wf-chip .ic{width:11px;height:11px}
+.wf-acts{display:flex;gap:6px;flex-wrap:wrap}
+.wf-acts .btn{font-size:12.5px;padding:5px 11px}
+.wf-acts .btn .ic{width:13px;height:13px}
+.wf-more{position:relative}
+.wf-more summary{list-style:none;cursor:pointer;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text2)}
+.wf-more summary::-webkit-details-marker{display:none}
+.wf-more summary:hover{background:rgba(120,120,128,.14)}
+.wf-menu{position:absolute;right:0;top:30px;z-index:3;min-width:170px;border-radius:12px;padding:5px;display:flex;flex-direction:column;box-shadow:var(--sh1)}
+.wf-menu button{text-align:left;font-size:13px;padding:7px 10px;border-radius:8px}
+.wf-menu button:hover{background:var(--accent-soft)}
+.wf-menu button.danger{color:var(--danger)}
+.wf-empty{text-align:center;padding:24px 12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.wf-empty-ico{width:46px;height:46px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center}
+.wf-empty h3{font-size:15px}
+.wf-empty .muted{max-width:420px}
+
+/* editor and forms */
+.wf-field select,.wf-field input[type=datetime-local],.wf-field input[type=file]{width:100%;border:0;background:var(--content2);border-radius:9px;padding:7px 10px;font:inherit;font-size:13px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.wf-hint{font-size:11.5px;color:var(--text3);line-height:1.4}
+.wf-tools{display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 12px}
+.wf-blanks{display:flex;flex-direction:column;gap:6px}
+.wf-blank-row{display:grid;grid-template-columns:max-content 1fr 1fr max-content;gap:6px;align-items:center}
+.wf-blank-row code{font-size:11.5px;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 6px}
+.wf-blank-row input[type=text]{min-width:0;border:0;background:var(--content2);border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.wf-req{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--text2)}
+.wf-req input{accent-color:var(--accent);width:auto;padding:0;background:none;box-shadow:none;flex:none} /* not a .field text box */
+.wf-three{display:grid;grid-template-columns:1.4fr 1fr .8fr;gap:10px}
+.wf-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wf-slots{display:flex;flex-direction:column;gap:5px}
+.wf-slot{display:flex;align-items:center;gap:7px;font-size:12.5px;background:var(--content2);border-radius:9px;padding:5px 8px;box-shadow:inset 0 0 0 .5px var(--hairline)}
+.wf-slot .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.wf-slot .iconbtn{width:24px;height:24px}
+.wf-slot-add{display:flex;gap:6px;flex-wrap:wrap}
+.wf-run .wf-tpl,.wf-sched .muted{margin-bottom:10px}
+
+@media (max-width:640px){
+  .wf-grid{grid-template-columns:1fr}
+  .wf-three,.wf-two{grid-template-columns:1fr}
+  .wf-blank-row{grid-template-columns:1fr 1fr}
+  .wf-blank-row code{grid-column:1/-1;justify-self:start}
+  .wf-acts .btn{flex:1;justify-content:center}
+}

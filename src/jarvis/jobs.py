@@ -523,7 +523,7 @@ class Reader:
     def options(self) -> ClaudeAgentOptions:
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
-            model=MODEL_IDS["haiku"],
+            model="gemini-3.8-flash",
             system_prompt=READER_SYSTEM + lang.reply_instruction(self.language()),
             tools=[],
             allowed_tools=[],
@@ -864,7 +864,7 @@ class JobRunner:
         workspace.mkdir(parents=True, exist_ok=True)
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
-            model=MODEL_IDS.get(model, MODEL_IDS["haiku"]),
+            model="gemini-3.8-flash" if model == "haiku" else MODEL_IDS.get(model, "gemini-3.8-flash"),
             system_prompt=ROUTINE_SYSTEM + lang.reply_instruction(self.language()),
             tools=builtins,
             allowed_tools=allowed,

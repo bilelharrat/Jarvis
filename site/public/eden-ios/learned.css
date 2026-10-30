@@ -1,0 +1,79 @@
+/* A router that learns from you (H2) and the spending autopilot (H3): the estimate line's
+   autopilot tag (inside .jc: the composer's Summit Glass tokens), the header ring's month
+   popover, the Route console's two cards, the 👍 / 👎 on a reply. Atelier tokens (app.css). */
+
+/* ── the estimate line's tag ── */
+.jc-est-ap { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px 0 7px; border: 0; border-radius: 999px; cursor: pointer; flex: 0 1 auto; min-width: 0;
+  font: 600 11px/1 var(--sans); white-space: nowrap; color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent-soft)); transition: background-color 120ms ease, transform 160ms var(--ease-spring); }
+.jc-est-ap .ap-l { overflow: hidden; text-overflow: ellipsis; }
+.jc-est-ap .ap-s { display: none; }
+.jc-est-ap:hover, .jc-est-ap[aria-expanded="true"] { transform: translateY(-1px); }
+.jc-est-ap.s3 { color: rgb(var(--c-warning)); background: rgb(var(--c-warning) / 0.12); }
+.jc-est-ap.off { color: rgb(var(--c-muted)); background: var(--pill-hover); }
+.jc-est-ap .ap-dot { width: 6px; height: 6px; border-radius: 3px; background: currentColor; flex: none; }
+
+/* ── the header ring: a button now (its popover is the month) ── */
+#tbCtx[role="button"] { cursor: pointer; border-radius: 8px; padding: 2px 4px; margin: -2px -4px; transition: background-color .15s ease; }
+#tbCtx[role="button"]:hover, #tbCtx[aria-expanded="true"] { background: var(--accent-soft); }
+#tbCtx.ap-on .ctxl::after { content: "·"; margin-left: 4px; color: var(--warn); font-weight: 700; }
+#spendPop { position: fixed; z-index: 86; width: 268px; max-width: calc(100vw - 16px); border-radius: 14px; padding: 12px; opacity: 0; pointer-events: none; visibility: hidden; transform: translateY(-4px);
+  transition: opacity .22s var(--spring), transform .22s var(--spring), visibility 0s linear .22s; }
+#spendPop.show { opacity: 1; pointer-events: auto; visibility: visible; transform: none; transition: opacity .22s var(--spring), transform .22s var(--spring); }
+#spendPop .ap-t2 { margin-top: 12px; }
+
+/* ── the month (popover, console card, settings) ── */
+.ap-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 12px; color: var(--text2); margin-top: 4px; }
+.ap-row b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.ap-saved b { color: var(--run); }
+.ap-sub { font-size: 11px; color: var(--text3); line-height: 1.4; margin-top: 4px; }
+.ap-meter { position: relative; height: 8px; border-radius: 999px; margin: 8px 0 2px; background: var(--content2); box-shadow: inset 0 0 0 .5px var(--hairline); overflow: hidden; }
+.ap-meter .ap-fill { position: absolute; inset: 0 auto 0 0; width: var(--w, 0%); border-radius: inherit; background: var(--accent); transition: width .5s var(--spring); }
+.ap-meter .ap-fc { position: absolute; top: 0; bottom: 0; left: 0; width: var(--f, 0%); border-right: 2px dotted var(--text3); opacity: .7; }
+.ap-meter.s1 .ap-fill { background: linear-gradient(90deg, var(--accent), #ffb340); }
+.ap-meter.s2 .ap-fill, .ap-meter.s3 .ap-fill { background: linear-gradient(90deg, #ffb340, var(--warn)); }
+.ap-state { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11.5px; font-weight: 500; color: var(--text2); line-height: 1.35; }
+.ap-state .ap-dot { width: 7px; height: 7px; border-radius: 4px; background: var(--run); flex: none; }
+.ap-state.s1 .ap-dot, .ap-state.s2 .ap-dot { background: #ffb340; }
+.ap-state.s3 .ap-dot { background: var(--warn); }
+.ap-models { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 5px; }
+.ap-models li { display: grid; grid-template-columns: minmax(0, 7.5em) 1fr auto; align-items: center; gap: 8px; font-size: 11px; color: var(--text2); }
+.ap-models .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-models .bar { height: 5px; border-radius: 3px; background: var(--content2); overflow: hidden; }
+.ap-models .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); opacity: .65; }
+.ap-models b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text); }
+.ap-budget { display: flex; align-items: center; gap: 6px; flex: none; }
+.ap-budget .acct-input { width: 92px; }
+.ap-set-body { margin-top: 10px; padding-top: 8px; border-top: .5px solid var(--sep); }
+.ap-card .cp-link, .lp-card .cp-link { margin-top: 10px; }
+
+/* ── "Learned from you" ── */
+.lp-rows { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.lp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "what adj" "n n"; column-gap: 8px; font-size: 12px; padding: 6px 8px; border-radius: 9px; background: var(--content2); }
+.lp-what { grid-area: what; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.lp-what b { color: var(--text); font-weight: 600; }
+.lp-adj { grid-area: adj; font-weight: 600; font-variant-numeric: tabular-nums; }
+.lp-row.up .lp-adj { color: var(--run); }
+.lp-row.down .lp-adj { color: var(--warn); }
+.lp-n { grid-area: n; font-size: 10.5px; color: var(--text3); margin-top: 1px; }
+.lp-card.off .lp-rows { opacity: .55; } /* learning off: shown, not applied */
+.lp-empty, .lp-more { font-size: 11.5px; color: var(--text3); line-height: 1.45; margin: 8px 0 0; }
+.lp-shadow { font-size: 11.5px; color: var(--text2); line-height: 1.45; margin-top: 10px; padding: 7px 9px; border-radius: 9px; background: var(--accent-soft); }
+.lp-shadow b { font-weight: 600; color: var(--text); }
+.lp-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.lp-where { font-size: 10.5px; color: var(--text3); line-height: 1.35; }
+.lp-foot .cap { flex: none; }
+
+/* ── 👍 / 👎 on a reply ── */
+.msg-acts .iconbtn.fb.on { color: var(--accent); background: var(--accent-soft); }
+.msg-acts .iconbtn.fb .ic { stroke-width: 1.7; }
+
+@media (max-width: 640px) {
+  /* a phone: the short word (the full sentence is the title and the menu) */
+  .jc-est-ap { flex: none; }
+  .jc-est-ap .ap-l { display: none; }
+  .jc-est-ap .ap-s { display: inline; }
+  #spendPop { width: min(300px, calc(100vw - 16px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jc-est-ap, #spendPop, .ap-meter .ap-fill { transition: none; }
+}

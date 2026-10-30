@@ -59,7 +59,7 @@
   let asked = { id: null, at: 0 };
   let form = { open: false, name: '', kind: 'command', target: '', transport: 'http', scope: 'local' };
   let armed = null;  // { name, timer }: a Remove pressed once
-  const paneShown = () => paneBody && paneBody.isConnected && typeof currentPane !== 'undefined' && currentPane === 'mcp';
+  const paneShown = () => paneBody && paneBody.isConnected && ((typeof currentPane !== 'undefined' && currentPane === 'mcp') || (root.document && !root.document.getElementById('settings')?.hidden && root.document.getElementById('settings')?.contains(paneBody)));
 
   function ask(task) {
     const now = Date.now();

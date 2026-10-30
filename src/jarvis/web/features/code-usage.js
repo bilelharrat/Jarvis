@@ -72,7 +72,7 @@
   let paneBody = null;
 
   function paneShown() {
-    return paneBody && paneBody.isConnected && typeof currentPane !== 'undefined' && currentPane === 'usage';
+    return paneBody && paneBody.isConnected && ((typeof currentPane !== 'undefined' && currentPane === 'usage') || (root.document && !root.document.getElementById('settings')?.hidden && root.document.getElementById('settings')?.contains(paneBody)));
   }
 
   // A meter: a bar, with the colour of how full it is.

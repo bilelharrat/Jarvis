@@ -169,7 +169,7 @@ async function writer(request, env) {
   if (!env.NEWS) throw new ApiError(503, 'not_set_up', 'Personal news isn’t set up here yet.');
   const session = await reader(request, env);
   if (!session) throw new ApiError(401, 'signed_out', 'Sign in to make News yours.');
-  await limited(env, 'EDEN_RATE', `news:${session.account}`);
+  await limited(env, 'USER_RATE', `news:${session.account}`);
   return session;
 }
 

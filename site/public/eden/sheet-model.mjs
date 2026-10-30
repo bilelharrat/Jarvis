@@ -31,7 +31,7 @@ export const LIMITS = {
 
 // ── the workbook ──
 
-export function newSheet(name = 'Sheet1') { return { name, cells: {}, widths: {}, freeze: 0, charts: [] }; }
+export function newSheet(name = 'Sheet1') { return { name, cells: {}, widths: {}, freeze: 0, charts: [], rules: [] }; }
 export function newWorkbook(title = 'Untitled spreadsheet') { return { title, sheets: [newSheet('Sheet1')] }; }
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -56,7 +56,7 @@ export function edit(wb, fn) {
     if (i < 0) throw new Error(`There’s no sheet called “${name}”.`);
     if (!own.has(next.sheets[i])) {
       const s = next.sheets[i];
-      next.sheets[i] = { ...s, cells: { ...s.cells }, widths: { ...s.widths }, charts: s.charts.slice() };
+      next.sheets[i] = { ...s, cells: { ...s.cells }, widths: { ...s.widths }, charts: s.charts.slice(), rules: (s.rules || []).slice() };
       own.add(next.sheets[i]);
     }
     return next.sheets[i];
@@ -145,17 +145,18 @@ export function recalc(wb, fns, { now } = {}) {
   const visiting = new Set();
   const trees = new Map();
   const dims = new Map();
+  const rawArrays = new Map();
   for (const s of wb.sheets) out.set(s.name.toLowerCase(), new Map());
   const dimOf = (s) => { if (!dims.has(s)) dims.set(s, extent(s)); return dims.get(s); };
   const valueAt = (sheetName, row, col) => {
     const s = sheetByName(wb, sheetName);
     if (!s) return err('#REF!');
     const addr = a1(row, col);
+    const memo = out.get(s.name.toLowerCase());
+    if (memo && memo.has(addr)) return memo.get(addr);
     const cell = s.cells[addr];
     if (!cell) return null;
     if (!cell.f) return cell.v ?? null;
-    const memo = out.get(s.name.toLowerCase());
-    if (memo.has(addr)) return memo.get(addr);
     const key = `${s.name.toLowerCase()}!${addr}`;
     if (visiting.has(key)) return err('#CIRC!');
     visiting.add(key);
@@ -163,7 +164,11 @@ export function recalc(wb, fns, { now } = {}) {
     try {
       let tree = trees.get(cell.f);
       if (!tree) { tree = parse(cell.f); trees.set(cell.f, tree); }
-      v = scalar(evaluate(tree, ctxFor(s.name, row, col)));
+      const raw = evaluate(tree, ctxFor(s.name, row, col));
+      if (Array.isArray(raw) && (raw.length > 1 || (Array.isArray(raw[0]) && raw[0].length > 1))) {
+        rawArrays.set(key, { s, row, col, addr, grid: Array.isArray(raw[0]) ? raw : [raw] });
+      }
+      v = scalar(raw);
     } catch (e) {
       v = isErr(e) && e.excel ? e : err('#NAME?');
     }
@@ -190,15 +195,44 @@ export function recalc(wb, fns, { now } = {}) {
       if (p) valueAt(s.name, p.row, p.col);
     }
   }
+  // Dynamic Array Spilling (FILTER, UNIQUE, SORT, SEQUENCE): spill multi-cell results into empty neighbouring cells
+  for (const { s, row, col, addr, grid } of rawArrays.values()) {
+    const memo = out.get(s.name.toLowerCase());
+    let blocked = false;
+    for (let dr = 0; dr < grid.length && !blocked; dr++) {
+      const rRow = grid[dr] || [];
+      for (let dc = 0; dc < rRow.length; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const targetAddr = a1(row + dr, col + dc);
+        if (s.cells[targetAddr] || memo.has(targetAddr)) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+    if (blocked) {
+      memo.set(addr, err('#SPILL!'));
+    } else {
+      for (let dr = 0; dr < grid.length; dr++) {
+        const rRow = grid[dr] || [];
+        for (let dc = 0; dc < rRow.length; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const targetAddr = a1(row + dr, col + dc);
+          memo.set(targetAddr, rRow[dc] ?? null);
+        }
+      }
+    }
+  }
   return out;
 }
 
-/** A cell's value for display and charts: the computed one for a formula. */
+/** A cell's value for display and charts: the computed one for a formula (or a dynamic array spill). */
 export function valueOf(sheet, addr, calc) {
   const c = sheet.cells[addr];
-  if (!c) return null;
-  if (c.f) { const m = calc && calc.get(sheet.name.toLowerCase()); return m && m.has(addr) ? m.get(addr) : null; }
-  return c.v ?? null;
+  if (c && c.f) { const m = calc && calc.get(sheet.name.toLowerCase()); return m && m.has(addr) ? m.get(addr) : null; }
+  if (c) return c.v ?? null;
+  const m = calc && calc.get(sheet.name.toLowerCase());
+  return m && m.has(addr) ? m.get(addr) : null;
 }
 
 // ── number formats (the common ones; anything else shows General) ──
@@ -291,7 +325,7 @@ export const FORMATS = [
 
 // ── change sets (what Eden proposes) ──
 
-export const OPS = ['set', 'fill', 'clear', 'format', 'addSheet', 'renameSheet', 'deleteSheet', 'sort', 'pivot', 'chart', 'freeze'];
+export const OPS = ['set', 'fill', 'clear', 'format', 'conditionalFormat', 'addSheet', 'renameSheet', 'deleteSheet', 'sort', 'pivot', 'chart', 'freeze'];
 /** Functions a proposed formula may not use: Google Sheets and Excel would fetch from the internet (and could carry the sheet's data out) or start programs. */
 export const BLOCKED_FUNCTIONS = ['IMPORTXML', 'IMPORTHTML', 'IMPORTDATA', 'IMPORTFEED', 'IMPORTRANGE', 'IMAGE', 'WEBSERVICE', 'FILTERXML', 'HYPERLINK', 'GOOGLEFINANCE', 'GOOGLETRANSLATE', 'DETECTLANGUAGE', 'RTD', 'CALL', 'REGISTER.ID', 'SQL.REQUEST', 'ENCODEURL', 'STOCKHISTORY', 'COPILOT'];
 
@@ -334,7 +368,7 @@ export function validateChangeSet(raw, wb) {
     const needSheet = !['addSheet'].includes(c.op);
     if (needSheet && !names.has(sheet.toLowerCase())) { errors.push(`${at}: there’s no sheet “${sheet}”.`); return; }
     const range = c.range === undefined ? null : parseRange(c.range);
-    const needRange = ['set', 'fill', 'clear', 'format', 'sort', 'pivot', 'chart'].includes(c.op);
+    const needRange = ['set', 'fill', 'clear', 'format', 'conditionalFormat', 'sort', 'pivot', 'chart'].includes(c.op);
     if (needRange && !range) { errors.push(`${at}: range must be like "A1" or "B2:D20".`); return; }
     if (range) { total += cellsIn(range); if (cellsIn(range) > LIMITS.cellsPerChange) { errors.push(`${at}: ${rangeText(range)} is too big (at most ${LIMITS.cellsPerChange.toLocaleString('en')} cells per change).`); return; } }
     const out = { op: c.op, sheet };
@@ -420,6 +454,17 @@ export function validateChangeSet(raw, wb) {
         out.rows = n;
         break;
       }
+      case 'conditionalFormat': {
+        const rule = typeof c.rule === 'string' ? c.rule : 'gt';
+        if (!['gt', 'lt', 'eq', 'between', 'contains'].includes(rule)) { errors.push(`${at}: rule must be gt, lt, eq, between or contains.`); return; }
+        out.rule = rule;
+        out.value = c.value ?? 0;
+        if (c.value2 !== undefined) out.value2 = c.value2;
+        out.fill = COLOR.test(c.fill || '') ? c.fill : '#dcfce7';
+        out.color = COLOR.test(c.color || '') ? c.color : '#166534';
+        if (typeof c.bold === 'boolean') out.bold = c.bold;
+        break;
+      }
       default: break;
     }
     changes.push(out);
@@ -496,6 +541,12 @@ export function applyChangeSet(wb, cs, { calc } = {}) {
         case 'chart': {
           const s = w.sheet(c.sheet);
           s.charts.push({ id: `c${Date.now().toString(36)}${s.charts.length}`, range: c.range, type: c.type, title: c.title });
+          break;
+        }
+        case 'conditionalFormat': {
+          const s = w.sheet(c.sheet);
+          s.rules = s.rules || [];
+          s.rules.push({ range: c.range, rule: c.rule, value: c.value, value2: c.value2, fill: c.fill, color: c.color, bold: c.bold });
           break;
         }
         default: break;
@@ -831,8 +882,35 @@ export const SHEET_SYSTEM = [
   '- {"op":"pivot","sheet":"Sales","range":"A1:F200","rows":"Region","values":"Revenue","agg":"sum|count|average|min|max","columns":null,"to":"Pivot by region"}: rows/values/columns name a header in the range’s first row (or a column letter). Eden computes it.',
   '- {"op":"chart","sheet":"Sales","range":"A1:B13","type":"bar|line|pie","title":"Revenue by month"}: the first column is the labels, the first row the series names.',
   '- {"op":"addSheet","name":"Summary"}, {"op":"renameSheet","sheet":"Sheet1","name":"Data"}, {"op":"deleteSheet","sheet":"Old"}, {"op":"freeze","sheet":"Sales","rows":1}',
-  'Rules: use real ranges from the context; cover the whole data (the context gives each sheet’s size even when only some cells are shown). Write Excel formulas (no array spills, no INDIRECT/OFFSET). Never use IMPORTXML, IMPORTDATA, IMPORTHTML, IMPORTRANGE, IMAGE, WEBSERVICE, HYPERLINK or links to other files: they are refused. For “clean up” edits, write the cleaned values with set (Eden can’t run scripts). Keep the change set as small as the request needs. Before the block, say in one or two sentences what it does.',
+  'Rules: use real ranges from the context; cover the whole data (the context gives each sheet’s size even when only some cells are shown). Write Excel formulas (including XLOOKUP, INDEX, MATCH, SUMIFS, COUNTIFS, LET, OFFSET, INDIRECT, FILTER, UNIQUE, SORT, SEQUENCE). Never use IMPORTXML, IMPORTDATA, IMPORTHTML, IMPORTRANGE, IMAGE, WEBSERVICE, HYPERLINK or links to other files: they are refused. For “clean up” edits, write the cleaned values with set (Eden can’t run scripts). Keep the change set as small as the request needs. Before the block, say in one or two sentences what it does.',
 ].join('\n');
+
+export const SHEET_CREATE_SYSTEM = [
+  'You are making a live, interactive Excel spreadsheet in Eden. Eden builds and calculates the workbook itself from your JSON change set and lets the user edit it in the canvas or download it as a native .xlsx file — so NEVER write Python code (no openpyxl, pandas, or scripts) or plain Markdown tables instead.',
+  'Reply with one or two short sentences summarizing the spreadsheet, then end your reply with exactly one fenced block whose language is eden-sheet, holding JSON: {"title": "Workbook Title", "summary": "one sentence", "changes": [ … ]}.',
+  'Start from a blank workbook that has one sheet named "Sheet1" (you can rename it with {"op":"renameSheet","sheet":"Sheet1","name":"…"} and add more sheets with {"op":"addSheet","name":"…"}).',
+  'Available operations in `changes`:',
+  '- {"op":"renameSheet","sheet":"Sheet1","name":"Model"} / {"op":"addSheet","name":"Summary"}',
+  '- {"op":"set","sheet":"Model","range":"A1:E1","values":[["Category","Q1","Q2","Q3","Total"]]}',
+  '- {"op":"fill","sheet":"Model","range":"E2:E10","formula":"=SUM(B2:D2)"}: writes the formula for the first cell and auto-shifts relative references across the range.',
+  '- {"op":"format","sheet":"Model","range":"A1:E1","bold":true,"fill":"#e8f0fe","color":"#1a1a1a","align":"center","numFmt":"$#,##0.00"}',
+  '- {"op":"freeze","sheet":"Model","rows":1}',
+  '- {"op":"chart","sheet":"Model","range":"A1:E6","type":"bar|line|pie","title":"Quarterly Breakdown"}',
+  '- {"op":"pivot","sheet":"Model","range":"A1:E20","rows":"Category","values":"Total","agg":"sum","to":"Pivot"}',
+  'Use real Excel formulas (=SUM, =AVERAGE, =IF, =XLOOKUP, =NPV, =IRR, =PMT, =FILTER, =UNIQUE, =SORT, =LET) for totals, margins, growth rates, and projections so the spreadsheet recalculates live when numbers change. Format headers (bold, subtle fill), currencies ($#,##0 or $#,##0.00), and percentages (0.0%).',
+].join('\n');
+
+const SHEET_ASK_RE = /\b(?:make|create|build|generate|design|draft|prepare|put together|give me|can you make|could you make|i need|we need|export)\b[\s\S]{0,65}?\b(?:excel\b|spreadsheet|\.xlsx\b|workbook|google\s*sheet|financial\s+model\s+in\s+excel|budget\s+sheet|tracker\s+sheet)\b|\b(?:in|as\s+an?|into\s+an?)\s+(?:excel\s+(?:file|sheet|workbook|spreadsheet|model)|\.xlsx\s+file|spreadsheet)\b/i;
+const SHEET_CODE_RE = /\b(?:python|openpyxl|pandas|xlsxwriter|script|code|function)\b/i;
+
+/**
+ * Automatically detect whether a user message in plain Chat is asking to create or export an Excel spreadsheet / workbook.
+ */
+export function wantsSpreadsheet(msg) {
+  const s = String(msg || '').trim();
+  if (!s || SHEET_CODE_RE.test(s)) return false;
+  return SHEET_ASK_RE.test(s);
+}
 
 /** The change set in a reply: the last ```eden-sheet (or ```json with "changes") block, parsed; null when there's none. */
 export function changeSetIn(text) {

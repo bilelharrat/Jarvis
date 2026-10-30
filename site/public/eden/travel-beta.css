@@ -1,0 +1,17 @@
+/* "Something's wrong" (travel-beta.js): the Travel bar's button and its sheet. Eden Glass, as travel-film.css's sheet;
+   nothing moves by itself. */
+.tvb-wrong .ic{opacity:.85}
+@container (max-width:900px){.tvb-wrong-label{display:none}}
+.tvb-sheet{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.6);outline:none}
+.tvb-card{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;display:flex;flex-direction:column;gap:8px}
+.tvb-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tvb-top h2{margin:0;font:700 22px/1.2 -apple-system,"SF Pro Display",system-ui,sans-serif;color:var(--text)}
+.tvb-top .tv-x{color:var(--text2)}
+.tvb-top .tv-x:hover{background:rgba(120,120,128,.16);color:var(--text)}
+.tvb-label{font-size:13px;font-weight:600;color:var(--text);margin-top:4px}
+.tvb-what{width:100%;min-height:110px;padding:10px 12px;border:1px solid rgba(120,120,128,.3);border-radius:12px;background:transparent;color:var(--text);font:inherit;font-size:15px;resize:vertical}
+.tvb-file{font:inherit;font-size:14px;color:var(--text);min-height:40px}
+.tvb-check{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--text);cursor:pointer;margin-top:4px}
+.tvb-check input{width:20px;height:20px;margin:1px 0 0;flex:none}
+.tvb-ctx{margin:0;padding:8px 12px 8px 26px;border-radius:12px;background:rgba(120,120,128,.1);font-size:12.5px;color:var(--text2);overflow-wrap:anywhere}
+.tvb-card :focus-visible{outline:3px solid var(--accent);outline-offset:2px}

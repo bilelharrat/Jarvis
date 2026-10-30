@@ -1,0 +1,287 @@
+/* Eden Code's artifacts (code-artifacts.js): a Claude-style card for each version in the
+   transcript, and the side-by-side resizable Artifact workbench pane. */
+
+@media (min-width: 761px) {
+  body.eden-code .deck.jc .jc-pane[data-kind="artifact"],
+  body.eden-code:not([data-skin]) .deck.jc .jc-pane[data-kind="artifact"] {
+    width: var(--ca-pane-w, 50%);
+    max-width: none;
+  }
+  body.eden-code:not([data-skin]) .deck.jc:has(#jc-pane[data-kind="artifact"]:not([hidden])) .jc-main {
+    right: calc(var(--ca-pane-w, 50%) + 16px);
+  }
+  body.eden-code .deck.jc .jc-pane[data-kind="artifact"].ca-wide,
+  body.eden-code:not([data-skin]) .deck.jc .jc-pane[data-kind="artifact"].ca-wide {
+    width: calc(100vw - var(--jc-main-l, 292px) - 16px);
+    z-index: 25;
+  }
+}
+
+.jc-pane[data-kind="artifact"] .jc-pane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  padding: 0 12px 12px;
+}
+
+/* Draggable left resize edge (like Claude's split divider) */
+.ca-resize { display: none; }
+@media (min-width: 761px) {
+  .jc-pane[data-kind="artifact"] > .ca-resize {
+    display: block;
+    position: absolute;
+    left: -5px;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    cursor: col-resize;
+    z-index: 10;
+    touch-action: none;
+  }
+  .jc-pane[data-kind="artifact"] > .ca-resize::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 36px;
+    border-radius: 2px;
+    background: rgb(var(--c-ink) / 0.14);
+    transition: background-color 140ms ease, height 140ms ease;
+  }
+  .jc-pane[data-kind="artifact"] > .ca-resize:hover::after,
+  .jc-pane[data-kind="artifact"].ca-resizing > .ca-resize::after {
+    background: rgb(var(--c-accent) / 0.8);
+    height: 56px;
+  }
+}
+.jc-pane.ca-resizing iframe.ca-frame { pointer-events: none; }
+
+/* Hide duplicate raw MCP tool rows when the Artifact card is shown */
+#deck-timeline > li.ca-mcp-row-hidden { display: none; }
+
+/* ── Transcript Artifact Card (Claude-style) ── */
+.ca-card { list-style: none; max-width: 440px; margin: 4px 0; }
+.ca-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: rgb(var(--c-surface));
+  border-radius: 14px;
+  box-shadow: var(--shadow-card), inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08);
+  padding: 11px 14px;
+  transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+.ca-open:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card), 0 0 0 1px rgb(var(--c-accent) / 0.42);
+}
+.ca-card.active .ca-open {
+  box-shadow: var(--shadow-card), 0 0 0 1.5px rgb(var(--c-accent) / 0.65);
+  background: rgb(var(--c-accent) / 0.06);
+}
+.ca-open:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }
+.ca-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 13px var(--mono);
+  color: rgb(var(--c-accent-ink));
+  background: rgb(var(--c-accent) / 0.13);
+}
+.ca-icon.react { color: #0284c7; background: rgb(14 165 233 / 0.14); }
+.ca-icon.svg, .ca-icon.mermaid { color: #7c3aed; background: rgb(139 92 246 / 0.14); }
+.ca-icon.markdown { color: #059669; background: rgb(16 185 129 / 0.14); }
+.ca-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+.ca-txt strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-txt small { color: rgb(var(--c-muted)); font-size: 11.5px; }
+.ca-cta {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: rgb(var(--c-accent-ink));
+  background: rgb(var(--c-accent) / 0.1);
+}
+.ca-card.active .ca-cta {
+  color: #fff;
+  background: rgb(var(--c-accent));
+}
+
+/* Header capsule Artifact button — only shown when session has an artifact */
+.ca-cap-btn { display: inline-flex; align-items: center; gap: 5px; }
+.ca-cap-btn[hidden],
+.jc-capsule .ca-cap-btn[hidden],
+.ca-cap-count[hidden],
+.ca-cap-count:empty {
+  display: none !important;
+}
+.ca-cap-btn[aria-pressed="true"] {
+  background: rgb(var(--c-accent) / 0.16);
+  color: rgb(var(--c-accent-ink));
+}
+.ca-cap-icon { font: 600 11px var(--mono); opacity: 0.85; }
+.ca-cap-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(var(--c-accent) / 0.18);
+  color: rgb(var(--c-accent-ink));
+}
+
+/* Inline code block "Open in Artifact" button */
+.ca-run-btn {
+  margin-left: auto;
+  margin-right: 6px;
+  color: rgb(var(--c-accent-ink));
+  font-weight: 600;
+}
+
+/* ── Artifact Pane Toolbar & Stage ── */
+.ca-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0 2px;
+}
+.ca-bar .ca-head {
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ca-bar .ca-head strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-bar .ca-head small, .ca-nav small { color: rgb(var(--c-muted)); font-size: 11.5px; }
+.ca-pick {
+  max-width: 220px;
+  font: inherit;
+  font-size: 11.5px;
+  color: rgb(var(--c-muted));
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ca-seg {
+  display: flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgb(var(--c-fill-3));
+}
+.ca-seg-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  color: rgb(var(--c-ink-2));
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ca-seg-btn.on {
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-ink));
+  box-shadow: var(--shadow-control);
+}
+.ca-nav { display: flex; align-items: center; gap: 5px; }
+.ca-nav .jc-mini:disabled { opacity: 0.38; cursor: default; }
+.ca-actions { display: flex; align-items: center; gap: 4px; }
+.ca-icon-btn { min-width: 26px; padding: 3px 7px; font-size: 13px; line-height: 1; }
+
+.ca-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ca-meta {
+  font: 500 11.5px var(--mono);
+  color: rgb(var(--c-muted));
+}
+.ca-tools-right { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+
+.ca-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgb(var(--c-ink) / 0.14), 0 8px 24px -12px rgb(0 0 0 / 0.22);
+}
+.ca-code {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  font: 12.5px/1.55 var(--mono);
+  white-space: pre;
+  background: rgb(var(--c-fill-3));
+  box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08);
+}
+.ca-doc {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: rgb(var(--c-surface) / 0.55);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08);
+}
+
+/* Empty state */
+.ca-empty-wrap {
+  margin: auto;
+  max-width: 340px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+}
+.ca-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 16px var(--mono);
+  color: rgb(var(--c-accent-ink));
+  background: rgb(var(--c-accent) / 0.12);
+  margin-bottom: 4px;
+}
+.ca-empty-wrap .jc-empty { margin: 0; font-weight: 500; color: rgb(var(--c-ink)); }
+.ca-empty-sub { margin: 0; font-size: 12px; line-height: 1.5; color: rgb(var(--c-muted)); }

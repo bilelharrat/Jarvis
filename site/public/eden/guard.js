@@ -59,6 +59,11 @@ function sourceRow(s) {
 /** Strips the owner opened (a reply re-renders while it streams and after). */
 const openStrips = new Set();
 
+/** Whether any external source read in this turn was flagged for possible hidden instructions. */
+export function isFlagged(node) {
+  return isTainted(node) && flagged(node.provenance.sources).length > 0;
+}
+
 /**
  * "Read content from outside" on a reply: the sources, and a badge when the rules flagged any.
  * A <details>, so it opens with the keyboard and keeps no state of its own.

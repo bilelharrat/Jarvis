@@ -109,7 +109,7 @@ export async function helpApi(request, env, ctx, path) {
     if (!env.ACCOUNTS) throw new ApiError(503, 'not_set_up', 'Help’s chat isn’t set up here yet. The Help pages above still work.');
     const { session } = await currentSession(request, env);
     if (!session) throw new ApiError(401, 'signed_out', 'Sign in to ask Help. The Help pages work without signing in.');
-    await limited(env, 'EDEN_RATE', `help:${session.account}`);
+    await limited(env, 'USER_RATE', `help:${session.account}`);
     return json(await ask(request, env, session));
   } catch (error) {
     if (error instanceof ApiError) return problem(error.status, error.message, error.code, error.headers);

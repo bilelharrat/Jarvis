@@ -30,7 +30,7 @@ import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.
 import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
 import { cleanCode, newCode } from '../accounts/link.js';
-import { ApiError, accountCode, accountIdFor, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, safeDecode, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
+import { ApiError, accountCode, accountIdFor, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, safeDecode, sameText, sha256, sha256Hex, webAllowed } from '../accounts/util.js';
 import { SIGN_IN_SCOPES, buildAuthUrl, exchangeCode, googleReady, pkcePair, verifyIdToken } from './google.js';
 import { qrRows } from './qr.js';
 import { androidOrigins } from './android.js';
@@ -41,7 +41,9 @@ import { actingSession, actingView, delegatesApi, endActing } from '../accounts/
 import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
 import { safeReturn } from '../../public/signin/return.js';
+import { TEST_ACCOUNT_ID, TEST_FAILED, TEST_RATE_OBJECT, TEST_SESSION_SECONDS, isTestAccount, testCredentialsOk, testIpKey, testLoginOn } from '../accounts/test-login.js';
 import { where } from '../stats/stats.js';
+import { handFinish, handStart } from './site-handoff.js';
 import {
   APPLE_COOKIE,
   LINK_COOKIE,
@@ -114,6 +116,7 @@ export async function currentSession(request, env, { fresh = false, acting = fal
   }
   const token = sessionToken(request);
   if (!token || !env.ACCOUNTS) return { session: null, stale: Boolean(cookies(request)[SESSION_COOKIE]) };
+  if (isTestAccount(token.account) && !testLoginOn(env)) return { session: null, stale: true }; // the test login switched off: its sessions end now
   const key = `${token.account}.${token.device}.${token.secret}`;
   const hit = recent.get(key);
   if (!fresh && hit && hit.until > Date.now()) return { session: { token, ...hit.who }, stale: false };
@@ -144,8 +147,10 @@ export async function web(request, env, ctx, path) {
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     if (path === '/api/web/config' && method === 'GET') {
       const last = signinChoiceOn(env) ? lastSignIn(request) : null; // `last`: this browser's last way in, for /signin to point it out
-      return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env), ...(last ? { last } : {}) });
+      return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env), ...(last ? { last } : {}), ...(testLoginOn(env) ? { test_login: true } : {}) });
     }
+    // The shared test account (accounts/test-login.js): only while TEST_LOGIN is on and its password is set; else the 404 below.
+    if (path === '/api/web/test-login' && method === 'POST' && testLoginOn(env)) return await testSignIn(request, env);
     if (path === NEW_ACCOUNT && method === 'POST') return await newAccountChosen(request, env);
     if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
     if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
@@ -155,6 +160,8 @@ export async function web(request, env, ctx, path) {
     if (path === '/api/web/link' && method === 'POST') return await linkStart(request, env);
     if (path === '/api/web/link/poll' && method === 'POST') return await linkPoll(request, env);
     if (path === '/api/web/session' && method === 'GET') return await session(request, env);
+    // Ask Eden Travel's iPhone app registers this browser for push (account.js webPush)
+    if (path === '/api/web/push' && method === 'POST') return await webPush(request, env);
     if (path === '/api/web/account' && method === 'GET') return await accountView(request, env);
     if (path === '/api/web/account/delete' && method === 'POST') return await deleteWebAccount(request, env);
     if (path === '/api/web/signout' && method === 'POST') return await signOut(request, env);
@@ -178,6 +185,9 @@ export async function web(request, env, ctx, path) {
     if (path === GOOGLE_CALLBACK && method === 'GET') return await googleCallback(request, env);
     if (path === '/api/web/native/apple' && method === 'POST') return await nativeApple(request, env);
     if (path === '/api/web/handoff' && method === 'GET') return await handoff(request, env);
+    // Eden Travel's own address signing in with askeden.com's sign-in (site-handoff.js)
+    if (path === '/api/web/site-handoff/start' && method === 'GET') return await handStart(request, env);
+    if (path === '/api/web/site-handoff/finish' && method === 'GET') return await handFinish(request, env);
     // Back from Stripe (another site, so no Strict cookie yet): a page that moves on (billing.js).
     if (path === '/api/web/billing/return' && method === 'GET') return billingReturn(request);
     // Eden sync (H1), delegates (H14), team spaces (G8): the browser's own session, never a delegate's.
@@ -287,7 +297,42 @@ async function session(request, env) {
     identities: account.identities || [],
     acting: as && grant ? actingView(as) : null,
     acting_ended: Boolean(found && found.ended),
+    // The shared test account's banner is off (owner, 2026-10-28): `account.test` stays server-side only.
   });
+}
+
+// ── the shared test account (accounts/test-login.js) ──
+//
+// test@askeden.com and the password (the secret TEST_LOGIN_PASSWORD) → a 24-hour session of the one test account.
+// Each try counts for this network (a hash of its address): 10 an hour, and 10 failures lock it for an hour. Every
+// failure says the same thing. No "last signed in here" cookie: the test account is nobody's.
+async function testSignIn(request, env) {
+  ownPage(request);
+  const ip = await testIpKey(clientIp(request));
+  await call(env, TEST_RATE_OBJECT, 'test-rate', { ip, action: 'try' });
+  let body = {};
+  try {
+    body = await readJson(request, 4096);
+  } catch {
+    body = {};
+  }
+  if (!(await testCredentialsOk(env, body.email, body.password)) || !webAllowed(env, TEST_ACCOUNT_ID)) {
+    await call(env, TEST_RATE_OBJECT, 'test-rate', { ip, action: 'fail' });
+    throw new ApiError(401, 'sign_in_failed', TEST_FAILED);
+  }
+  const made = await call(env, TEST_ACCOUNT_ID, 'test-signin', { account_id: TEST_ACCOUNT_ID });
+  forgetSessions(TEST_ACCOUNT_ID);
+  return withCookies(json({ signed_in: true, to: safeReturn(body.return) }), cookie(SESSION_COOKIE, made.token, { maxAge: TEST_SESSION_SECONDS }));
+}
+
+async function webPush(request, env) {
+  const who = await signedIn(request, env);
+  const body = await readJson(request);
+  // the iPhone's apps give an APNs token; Ask Eden Travel for Android its Firebase token ({ fcm_token, app, platform: 'android' })
+  const push = body.platform === 'android' || body.fcm_token !== undefined
+    ? { fcm_token: body.fcm_token, app: body.app, platform: 'android' }
+    : { apns_token: body.apns_token, apns_env: body.apns_env, app: body.app };
+  return json(await call(env, who.account, 'app-push', push, who.token));
 }
 
 async function accountView(request, env) {
@@ -552,8 +597,8 @@ async function providerAttempt(request, env, form = null) {
   if (human) await callLink(env, `human:${state}`, 'stash', { value: { ok: true }, seconds: HUMAN_SECONDS });
   // This browser's last way in, read here (a request from this site, so its cookie comes along; Apple's callback is a
   // cross-site POST, which never brings it) and kept for this attempt (`prior:<state>`): should the callback be about
-  // to make a new account, it asks first (finish). Not in link mode, nor for the apps' own flows (`?app=1`), nor while held.
-  const prior = signinChoiceOn(env) && !link && !(request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1') ? lastSignIn(request) : null;
+  // to make a new account, it asks first (finish). Not in link mode, nor for the apps' own flows (`?app=1`, `?app=travel`), nor while held.
+  const prior = signinChoiceOn(env) && !link && !appFlag(request) ? lastSignIn(request) : null;
   if (prior) await callLink(env, `prior:${state}`, 'stash', { value: prior, seconds: STATE_SECONDS });
   return { state, nonce, link, back: link ? '/' : form ? safeReturn(form.get('return')) : returnOf(request) };
 }
@@ -747,8 +792,8 @@ async function appleStart(request, env) {
   // The Eden Android app (`?app=1`, a GET from its Custom Tab): Android has no native Sign in with
   // Apple, so it opens Apple's web sign-in; the callback ends on the app's own scheme with a one-time
   // handoff code (as Google's `?app=1` does for both apps).
-  const app = !mode.link && request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1';
-  if (!appleReady(env)) return app ? toApp({ error: 'not_set_up' }) : ending({ ...mode, error: 'not_set_up' });
+  const app = mode.link ? null : appFlag(request); // 't': Ask Eden Travel for Android, which has its own scheme
+  if (!appleReady(env)) return app ? toApp({ error: 'not_set_up' }, app) : ending({ ...mode, error: 'not_set_up' });
   let attempt;
   try {
     attempt = await providerAttempt(request, env, form);
@@ -756,6 +801,7 @@ async function appleStart(request, env) {
     return failed(error, error.code === 'signed_out' ? { provider: 'apple' } : mode);
   }
   const { state, nonce, link, back } = attempt;
+  if (app && !(await keepChallenge(request, env, state, app))) return toApp({ error: 'state' }, app);
   const to = new URL(`${APPLE}/auth/authorize`);
   to.search = new URLSearchParams({
     client_id: env.WEB_APPLE_SERVICES_ID,
@@ -767,30 +813,30 @@ async function appleStart(request, env) {
   }).toString();
   // Apple posts back from its own site: this one cookie has to come along (SameSite=None),
   // and it holds nothing but this attempt's state, nonce, mode and where to go back to.
-  return withCookies(redirect(to.toString()), cookie(APPLE_COOKIE, withReturn(`${state}.${nonce}.${link ? 'l' : app ? 'a' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'None' }));
+  return withCookies(redirect(to.toString()), cookie(APPLE_COOKIE, withReturn(`${state}.${nonce}.${link ? 'l' : app || 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'None' }));
 }
 
 async function appleCallback(request, env) {
   const clear = clearCookie(APPLE_COOKIE, 'None');
   const [state = '', nonce = '', flag = 's', packed = ''] = String(cookies(request)[APPLE_COOKIE] || '').split('.');
   const mode = { provider: 'apple', link: flag === 'l', back: flag === 'l' ? '/' : unpackReturn(packed) };
-  const app = flag === 'a'; // the Android app's Custom Tab (appleStart ?app=1): ends on its scheme
-  if (!appleReady(env)) return withCookies(app ? toApp({ error: 'not_set_up' }) : ending({ ...mode, error: 'not_set_up' }), clear);
+  const app = isAppFlag(flag); // the Android apps' Custom Tab (appleStart ?app=1): ends on its scheme
+  if (!appleReady(env)) return withCookies(app ? toApp({ error: 'not_set_up' }, flag) : ending({ ...mode, error: 'not_set_up' }), clear);
   let form;
   try {
     form = new URLSearchParams(await request.text());
   } catch {
     form = new URLSearchParams();
   }
-  if (form.get('error')) return withCookies(app ? toApp({ error: 'cancelled' }) : ending({ ...mode, error: 'cancelled' }), clear); // user_cancelled_authorize
-  if (!state || !nonce || !sameText(form.get('state') || '', state)) return withCookies(app ? toApp({ error: 'state' }) : ending({ ...mode, error: 'state' }), clear);
+  if (form.get('error')) return withCookies(app ? toApp({ error: 'cancelled' }, flag) : ending({ ...mode, error: 'cancelled' }), clear); // user_cancelled_authorize
+  if (!state || !nonce || !sameText(form.get('state') || '', state)) return withCookies(app ? toApp({ error: 'state' }, flag) : ending({ ...mode, error: 'state' }), clear);
   try {
     await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
     const claims = await verifyIdentityToken(form.get('id_token'), nonce, { audience: env.WEB_APPLE_SERVICES_ID, now: Date.now() / 1000 });
-    if (app) return withCookies(await appHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null }), clear);
+    if (app) return withCookies(await appHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null }, flag, state), clear);
     return withCookies(await finish(request, env, { provider: 'apple', sub: claims.sub, email: null, state, link: mode.link, back: mode.back }), clear);
   } catch (error) {
-    if (app) return withCookies(toApp({ error: errorCode(error) }), clear);
+    if (app) return withCookies(toApp({ error: errorCode(error) }, flag), clear);
     return withCookies(failed(error, mode), clear);
   }
 }
@@ -810,7 +856,8 @@ async function googleStart(request, env) {
   // The Eden iOS app (`?app=1`, a GET from its ASWebAuthenticationSession): Google refuses
   // sign-in inside an app's web view, so the app opens this in Apple's web sign-in sheet; the
   // callback ends on the app's own URL scheme with a one-time handoff code (as native Apple's).
-  const app = !link && request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1';
+  const app = link ? null : appFlag(request); // 't': Ask Eden Travel for Android, which has its own scheme
+  if (app && !(await keepChallenge(request, env, state, app))) return toApp({ error: 'state' }, app);
   const { verifier, challenge } = await pkcePair();
   const to = buildAuthUrl(env, {
     redirectUri: `${new URL(request.url).origin}${GOOGLE_CALLBACK}`,
@@ -820,7 +867,7 @@ async function googleStart(request, env) {
     scopes: SIGN_IN_SCOPES,
     prompt: 'select_account',
   });
-  return withCookies(redirect(to), cookie(GOOGLE_COOKIE, withReturn(`${state}.${nonce}.${verifier}.${link ? 'l' : app ? 'a' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'Lax' }));
+  return withCookies(redirect(to), cookie(GOOGLE_COOKIE, withReturn(`${state}.${nonce}.${verifier}.${link ? 'l' : app || 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'Lax' }));
 }
 
 async function googleCallback(request, env) {
@@ -830,18 +877,18 @@ async function googleCallback(request, env) {
   const mode = { provider: 'google', link: flag === 'l', back: flag === 'l' ? '/' : unpackReturn(packed) };
   if (!googleReady(env) || !env.IDENTITIES) return withCookies(ending({ ...mode, error: 'not_set_up' }), clear);
   const refusal = url.searchParams.get('error');
-  if (refusal) return withCookies(flag === 'a' ? toApp({ error: 'cancelled' }) : ending({ ...mode, error: refusal === 'access_denied' ? 'access_denied' : 'cancelled' }), clear);
-  if (!state || !nonce || !verifier || !sameText(url.searchParams.get('state') || '', state)) return withCookies(flag === 'a' ? toApp({ error: 'state' }) : ending({ ...mode, error: 'state' }), clear);
+  if (refusal) return withCookies(isAppFlag(flag) ? toApp({ error: 'cancelled' }, flag) : ending({ ...mode, error: refusal === 'access_denied' ? 'access_denied' : 'cancelled' }), clear);
+  if (!state || !nonce || !verifier || !sameText(url.searchParams.get('state') || '', state)) return withCookies(isAppFlag(flag) ? toApp({ error: 'state' }, flag) : ending({ ...mode, error: 'state' }), clear);
   try {
     await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
     const redirectUri = `${url.origin}${GOOGLE_CALLBACK}`;
     const tokens = await exchangeCode(env, { code: url.searchParams.get('code'), verifier, redirectUri });
     const claims = await verifyIdToken(tokens.id_token, { audience: env.GOOGLE_CLIENT_ID, nonce, now: Date.now() / 1000 });
     const email = typeof claims.email === 'string' ? claims.email.toLowerCase().slice(0, 200) : null;
-    if (flag === 'a') return withCookies(await appHandoff(request, env, { provider: 'google', sub: claims.sub, email }), clear);
+    if (isAppFlag(flag)) return withCookies(await appHandoff(request, env, { provider: 'google', sub: claims.sub, email }, flag, state), clear);
     return withCookies(await finish(request, env, { provider: 'google', sub: claims.sub, email, state, link: mode.link, back: mode.back }), clear);
   } catch (error) {
-    if (flag === 'a') return withCookies(toApp({ error: errorCode(error) }), clear);
+    if (isAppFlag(flag)) return withCookies(toApp({ error: errorCode(error) }, flag), clear);
     return withCookies(failed(error, mode), clear);
   }
 }
@@ -879,7 +926,7 @@ async function passkeyOptions(request, env, { native = false } = {}) {
   if (!mode) throw new ApiError(400, 'bad_request', 'mode must be signin, signup or add');
   const url = new URL(request.url);
   const rpId = url.hostname;
-  const value = { mode, rpId, origin: url.origin, native };
+  const value = { mode, rpId, origin: url.origin, native, ...(native && CHALLENGE.test(String(body.code_challenge || '')) ? { challenge: body.code_challenge } : {}) };
   let who = null;
   if (mode === 'add') {
     who = await signedIn(request, env);
@@ -894,11 +941,15 @@ async function passkeyOptions(request, env, { native = false } = {}) {
     // The app has no Turnstile: its new accounts cost more of AUTH_RATE instead (stashHandoff).
     if (!native) await checkHuman(env, body.turnstile, clientIp(request), { host: new URL(request.url).hostname });
     else {
-      // No Turnstile in the app and no App Attest yet: a strict per-network bucket (the same cost
-      // as a native Apple account) and one global bucket for all native passkey sign-ups.
+      // No App Attest / Play Integrity yet (security review M5, 2026-10-28). An app that rendered Turnstile (in its
+      // web view, on this site) sends its answer and passes like the page; without one, a strict per-network bucket
+      // (the same cost as a native Apple account) and one global bucket, NATIVE_SIGNUP_WEIGHT times as costly, for
+      // every native passkey sign-up together: at AUTH_RATE 20 a minute, 2 a minute for the whole world.
       await nativeNewAccount(env, clientIp(request));
-      await limited(env, 'AUTH_RATE', 'native-pk-signup:global');
+      if (typeof body.turnstile === 'string' && body.turnstile) await checkHuman(env, body.turnstile, clientIp(request), { host: new URL(request.url).hostname });
+      else for (let i = 0; i < nativeSignupWeight(env); i++) await limited(env, 'AUTH_RATE', 'native-pk-signup:global');
     }
+    if (native && body.code_challenge !== undefined && !CHALLENGE.test(String(body.code_challenge))) throw new ApiError(400, 'bad_request', 'code_challenge must be a base64url SHA-256.');
   }
   const challenge = b64url(randomBytes(32));
   await callLink(env, `pk:${challenge}`, 'stash', { value, seconds: PASSKEY_SECONDS });
@@ -962,7 +1013,7 @@ async function passkeyVerify(request, env, { native = false } = {}) {
     const { count } = await verifyAssertion({ credential, ...where, stored: found.cred });
     await callIdentity(env, 'passkey', subHash, 'passkey-count', { count });
     if (!webAllowed(env, found.account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
-    if (native) return json({ handoff: await stashCode(env, { account_id: found.account_id, provider: 'passkey', sub_hash: subHash, email: null }), expires_in: HANDOFF_SECONDS });
+    if (native) return json({ handoff: await stashCode(env, { account_id: found.account_id, provider: 'passkey', sub_hash: subHash, email: null, ...(issued.challenge ? { challenge: issued.challenge } : {}) }), expires_in: HANDOFF_SECONDS });
     const made = await call(env, found.account_id, 'web-signin', {
       account_id: found.account_id,
       identity: { provider: 'passkey', sub_hash: subHash, email: null },
@@ -983,7 +1034,7 @@ async function passkeyVerify(request, env, { native = false } = {}) {
   // signup: Turnstile passed when this challenge was issued (passkeyOptions).
   const subHash = await subHashOf('passkey', made.id);
   if ((await callIdentity(env, 'passkey', subHash, 'get')).state !== 'none') throw new ApiError(409, 'identity_taken', 'This passkey is already used by an Eden account. Sign in with it instead.');
-  if (native) return json({ handoff: await stashHandoff(request, env, { provider: 'passkey', sub: made.id, email: null, cred }), created: true, expires_in: HANDOFF_SECONDS });
+  if (native) return json({ handoff: await stashHandoff(request, env, { provider: 'passkey', sub: made.id, email: null, cred, challenge: issued.challenge || null }), created: true, expires_in: HANDOFF_SECONDS });
   const opened = await signInBrowser(request, env, { provider: 'passkey', sub: made.id, email: null, cred });
   return withCookies(json({ signed_in: true, created: true, to: back }), cookie(SESSION_COOKIE, opened.token, { maxAge: SESSION_SECONDS }), await lastCookie('passkey', opened.account_id));
 }
@@ -1024,12 +1075,12 @@ function noSiwaKeyOnce() {
  * `appleGrant`: () → { token, client_id } | null, the Apple refresh token to keep, asked only once the account
  * may sign in here; it rides in the handoff (server-side, a minute, taken once) to the account's object.
  */
-async function stashHandoff(request, env, { provider, sub, email, cred = null, appleGrant = null }) {
+async function stashHandoff(request, env, { provider, sub, email, cred = null, appleGrant = null, challenge = null, app = null }) {
   const ip = clientIp(request);
   const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, cred, beforeCreate: () => nativeNewAccount(env, ip), geo: where(request) });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
   const grant = appleGrant ? await appleGrant() : null;
-  return stashCode(env, { account_id, provider, sub_hash: await subHashOf(provider, sub), email, ...(grant ? { apple_grant: grant } : {}) });
+  return stashCode(env, { account_id, provider, sub_hash: await subHashOf(provider, sub), email, ...(grant ? { apple_grant: grant } : {}), ...(challenge ? { challenge } : {}), ...(app ? { app } : {}) });
 }
 
 /** A one-time handoff code (32 random bytes, a minute, taken once) for this account and identity. */
@@ -1042,11 +1093,69 @@ async function stashCode(env, value) {
 // Where a sign-in started by the app in Apple's web sheet ends: the app's own scheme, which
 // only closes that sheet (ASWebAuthenticationSession), with a handoff code or an error code.
 export const APP_CALLBACK = 'com.askeden.eden://signin';
-const toApp = (fields) => redirect(`${APP_CALLBACK}?${new URLSearchParams(fields)}`);
+// Ask Eden Travel for Android's own (`?app=travel`, or its web view's user agent), so Eden and Eden Travel don't both
+// answer the same sign-in's end (askeden/android/travel AndroidManifest.xml).
+export const TRAVEL_APP_CALLBACK = 'com.askeden.travel://signin';
+const toApp = (fields, flag = 'a') => redirect(`${flag === 't' ? TRAVEL_APP_CALLBACK : APP_CALLBACK}?${new URLSearchParams(fields)}`);
+const isAppFlag = (flag) => flag === 'a' || flag === 't';
 
-async function appHandoff(request, env, identity) {
-  return toApp({ code: await stashHandoff(request, env, identity) });
+const travelAppAgent = (request) => { const ua = request.headers.get('user-agent') || ''; return ua.includes('EdenTravelApp/') && ua.includes('EdenAndroid/'); };
+
+/** A sign-in the apps start (`?app=1`, a GET): 't' for Ask Eden Travel for Android, 'a' for the others, else null. */
+function appFlag(request) {
+  if (request.method !== 'GET') return null;
+  const app = new URL(request.url).searchParams.get('app');
+  if (app === 'travel') return 't';
+  if (app !== '1') return null;
+  const ua = request.headers.get('user-agent') || '';
+  return ua.includes('EdenTravelApp/') && ua.includes('EdenAndroid/') ? 't' : 'a';
 }
+
+async function appHandoff(request, env, identity, flag = 'a', state = '') {
+  return toApp({ code: await stashHandoff(request, env, { ...identity, challenge: await takeChallenge(env, state), app: flag }) }, flag);
+}
+
+// ── PKCE for the apps' own schemes (security review M2/M3, 2026-10-28) ──
+//
+// On Android any app can claim com.askeden.eden:// or com.askeden.travel://, so the one-time code the sign-in ends with
+// can reach another app. The app that starts a sign-in sends code_challenge (base64url SHA-256 of a secret verifier it
+// keeps); the code is bound to it, and /api/web/handoff opens only with that code_verifier. The other way round too: a
+// code_verifier with a code that has no challenge (one an attacker minted for their own account and pushed into the
+// app) is refused, so the app can't be signed into someone else's account. iOS (ASWebAuthenticationSession catches its
+// callback itself) needn't send one; Ask Eden Travel for Android ('t') must.
+const CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
+const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+export const PKCE_REQUIRED = new Set(['t']);
+
+/** The app's code_challenge kept for this attempt (`pkce:<state>`). false: one was needed and is missing or malformed. */
+async function keepChallenge(request, env, state, flag) {
+  const challenge = new URL(request.url).searchParams.get('code_challenge');
+  if (challenge === null || challenge === '') return !PKCE_REQUIRED.has(flag);
+  if (!CHALLENGE.test(challenge)) return false;
+  await callLink(env, `pkce:${state}`, 'stash', { value: { challenge }, seconds: STATE_SECONDS });
+  return true;
+}
+
+async function takeChallenge(env, state) {
+  if (!state) return null;
+  try {
+    const kept = (await callLink(env, `pkce:${state}`, 'take')).body.value;
+    return kept && CHALLENGE.test(String(kept.challenge)) ? kept.challenge : null;
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return null;
+  }
+}
+
+/** Whether `verifier` opens a code kept with `challenge` (both absent: an app that doesn't use PKCE, as iOS). */
+export async function pkceMatches(challenge, verifier) {
+  if (!challenge) return !verifier;
+  if (typeof verifier !== 'string' || !VERIFIER.test(verifier)) return false;
+  return sameText(b64url(await sha256(verifier)), challenge);
+}
+
+/** Each native passkey sign-up without a Turnstile answer costs this many tries of the global bucket. */
+export const nativeSignupWeight = (env) => Math.min(20, Math.max(1, Math.floor(Number(env.NATIVE_SIGNUP_WEIGHT) || 10)));
 
 async function handoff(request, env) {
   // Only a load the web view itself starts: another site can't sign this browser in to
@@ -1058,6 +1167,9 @@ async function handoff(request, env) {
     await limited(env, 'AUTH_RATE', `handoff:${clientIp(request)}`);
     if (!/^[A-Za-z0-9_-]{43}$/.test(code)) throw new ApiError(404, 'expired', 'That sign-in is gone. Try again from the app.');
     const kept = (await callLink(env, `handoff:${code}`, 'take')).body.value;
+    // bound to the app instance that started it (PKCE), and a code made for Ask Eden Travel's sign-in only in it
+    if (!(await pkceMatches(kept.challenge || null, new URL(request.url).searchParams.get('code_verifier')))) throw new ApiError(400, 'state', 'That sign-in was started somewhere else. Try again from the app.');
+    if (kept.app && (kept.app === 't') !== travelAppAgent(request)) throw new ApiError(400, 'state', 'That sign-in was started in another app. Try again from the app.');
     const made = await call(env, kept.account_id, 'web-signin', {
       account_id: kept.account_id,
       create: true,

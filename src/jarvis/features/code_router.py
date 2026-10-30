@@ -416,7 +416,7 @@ class Router:
             return "busy"
         if not hub.providers.known(ref):
             return "unknown"
-        claude = ref in MODELS
+        claude = ref in MODELS or hub.providers.kind_of(ref) == "anthropic"
         if task.model_ref != ref:
             was = task.mode
             await hub._gemini_ready(ref)

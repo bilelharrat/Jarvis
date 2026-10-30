@@ -121,6 +121,7 @@ STATE_FILE = "model_router_state.json"
 PREF_AGENTIC = "code_router_agentic_calls"
 PREF_BUDGET = "code_router_budget"
 PREF_PROJECTS = "code_router_projects"
+PREF_COST_SAVER = "code_router_cost_saver"
 PREF_FALLBACK = FALLBACK_PREF
 AGENTIC_DEFAULT = 8
 BUDGET_MAX = 100_000.0
@@ -367,6 +368,9 @@ def clean_projects(value: Any) -> dict[str, dict[str, int]] | None:
 register_feature_pref(PREF_AGENTIC, AGENTIC_DEFAULT, _clean_agentic)
 register_feature_pref(PREF_BUDGET, 0.0, _clean_budget)
 register_feature_pref(PREF_PROJECTS, {}, clean_projects)
+register_feature_pref(
+    PREF_COST_SAVER, True, lambda v: v if isinstance(v, bool) else None
+)
 
 
 # ── what's remembered about a routed message ──
@@ -450,6 +454,9 @@ class Events:
     def budget(self) -> float:
         value = self.hub.prefs.feature(PREF_BUDGET)
         return float(value) if isinstance(value, int | float) and value > 0 else 0.0
+
+    def cost_saver_on(self) -> bool:
+        return self.hub.prefs.feature(PREF_COST_SAVER) is not False
 
     # ── ids ──
 
@@ -710,19 +717,20 @@ class Events:
         if turn is None:
             return
         usage = getattr(message, "usage", None) or {}
+        cache_read = int(usage.get("cache_read_input_tokens") or 0)
         tokens_in = sum(
             int(usage.get(k) or 0)
             for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
         )
         tokens_out = int(usage.get("output_tokens") or 0)
         notional = self._turn_cost(task)
-        usd, notional = self._real_cost(task, notional, tokens_in, tokens_out)
+        usd, notional, uncached_usd = self._real_cost(
+            task, notional, tokens_in, tokens_out, cache_read
+        )
         a = turn.actual
         a["inputTokens"] = a.get("inputTokens", 0) + tokens_in
         a["outputTokens"] = a.get("outputTokens", 0) + tokens_out
-        a["cacheReadTokens"] = a.get("cacheReadTokens", 0) + int(
-            usage.get("cache_read_input_tokens") or 0
-        )
+        a["cacheReadTokens"] = a.get("cacheReadTokens", 0) + cache_read
         a["latencyMs"] = a.get("latencyMs", 0) + int(getattr(message, "duration_ms", 0) or 0)
         a["apiMs"] = a.get("apiMs", 0) + int(getattr(message, "duration_api_ms", 0) or 0)
         a["calls"] = a.get("calls", 0) + int(getattr(message, "num_turns", 0) or 0)
@@ -733,6 +741,12 @@ class Events:
             a["costUSD"] = round((before or 0.0) + usd, 6)
         if notional is not None:
             a["notionalUSD"] = round(a.get("notionalUSD", 0.0) + notional, 6)
+        if uncached_usd is not None:
+            a["uncachedUSD"] = round(a.get("uncachedUSD", 0.0) + uncached_usd, 6)
+            if usd is not None and uncached_usd > usd:
+                a["cacheSavedUSD"] = round(
+                    a.get("cacheSavedUSD", 0.0) + (uncached_usd - usd), 6
+                )
         self._spent(a.get("costUSD", 0.0) - (before or 0.0))
         reason = str(getattr(message, "terminal_reason", "") or "")
         found: dict[str, Any] = {}
@@ -761,28 +775,36 @@ class Events:
         return None
 
     def _real_cost(
-        self, task: Any, notional: float | None, tokens_in: int, tokens_out: int
-    ) -> tuple[float | None, float | None]:
-        """(API dollars, the API price) of a turn: Claude on the owner's sign-in is the plan
-        (no dollars, with Claude counted as a subscription); Claude through an Anthropic key
-        is Claude Code's price; another provider's model is its tokens at the router's
-        prices (Claude Code can't price it), or unknown."""
+        self,
+        task: Any,
+        notional: float | None,
+        tokens_in: int,
+        tokens_out: int,
+        cache_read: int = 0,
+    ) -> tuple[float | None, float | None, float | None]:
+        """(API dollars, the API price, uncached baseline USD) of a turn: Claude on the owner's
+        sign-in is the plan (no dollars, with Claude counted as a subscription); Claude through
+        an Anthropic key is Claude Code's price; another provider's model is its tokens at the
+        router's prices (Claude Code can't price it), or unknown."""
         ref = str(task.model_ref or "")
         if not ref.startswith("custom:"):
             subscription = self.settings().get("subscriptionClaude", True) is not False
-            return (0.0 if subscription else notional), notional
+            return (0.0 if subscription else notional), notional, notional
         provider = None
         with contextlib.suppress(Exception):
             provider = self.hub.providers.provider_of(ref)
         if provider is not None and provider.kind == "anthropic":
-            return notional, notional
+            return notional, notional, notional
         self._load_state()  # (the prices the window sent before a restart)
         model = str(task.model or "")
         price = self.prices.get(model) or self.prices.get(model.rsplit("/", 1)[-1])
         if price:
-            usd = (tokens_in * price["in"] + tokens_out * price["out"]) / 1e6
-            return usd, usd
-        return None, None
+            uncached_in = max(0, tokens_in - cache_read)
+            cached_rate = price["in"] * 0.1  # Gemini & OpenAI cached input tokens bill at 10% of input rate
+            usd = (uncached_in * price["in"] + cache_read * cached_rate + tokens_out * price["out"]) / 1e6
+            uncached_usd = (tokens_in * price["in"] + tokens_out * price["out"]) / 1e6
+            return usd, usd, uncached_usd
+        return None, None, None
 
     # ── the owner's acts, heard on their way (each handler returns False) ──
 
@@ -1020,6 +1042,7 @@ class Events:
             "budget": self.budget_state(),
             "agenticCallsPerTurn": self.agentic(),
             "autoFallback": self.hub.prefs.feature(PREF_FALLBACK) is not False,
+            "costSaver": self.cost_saver_on(),
             "sessions": sessions,
             "learner": {
                 "installed": self.learner_installed(),
@@ -1174,6 +1197,15 @@ class Events:
             self.hub.set_feature_prefs({PREF_BUDGET: usd})
             self._push_now()
             return {"budgetUSD": usd}
+        if op == "cost_saver":
+            enabled = msg.get("enabled") is not False
+            self.hub.set_feature_prefs({PREF_COST_SAVER: enabled})
+            with contextlib.suppress(Exception):
+                from ..gemini_proxy import PROXY
+
+                PROXY.set_cost_saver(enabled)
+            self._push_now()
+            return {"costSaver": enabled}
         raise ValueError(f"unknown op {str(op)[:40]!r}")
 
     def _reset(self) -> None:
@@ -1282,17 +1314,26 @@ class Events:
                 actual[msg] = record["actual"]
         by_model: dict[str, dict[str, Any]] = {}
         saved = 0.0
+        cache_saved = 0.0
+        would_have_cost = 0.0
         for msg, used in actual.items():
             route = routes.get(msg) or {}
             model = str(used.get("model") or (route.get("applied") or {}).get("model") or "?")
             row = by_model.setdefault(model, {"model": model, "calls": 0, "usd": 0.0})
             row["calls"] += 1
+            cost_val = float(used["costUSD"]) if isinstance(used.get("costUSD"), int | float) else 0.0
             if isinstance(used.get("costUSD"), int | float):
-                row["usd"] = round(row["usd"] + float(used["costUSD"]), 6)
+                row["usd"] = round(row["usd"] + cost_val, 6)
             if isinstance(used.get("notionalUSD"), int | float):
                 row["notionalUSD"] = round(
                     row.get("notionalUSD", 0.0) + float(used["notionalUSD"]), 6
                 )
+            cs = float(used["cacheSavedUSD"]) if isinstance(used.get("cacheSavedUSD"), int | float) else 0.0
+            if cs > 0:
+                row["cacheSavedUSD"] = round(row.get("cacheSavedUSD", 0.0) + cs, 6)
+                cache_saved += cs
+            unc = float(used["uncachedUSD"]) if isinstance(used.get("uncachedUSD"), int | float) else cost_val + cs
+            would_have_cost += unc
         for route in routes.values():
             settings = route.get("settings") or {}
             best, pick = route.get("best") or {}, route.get("pick") or {}
@@ -1302,11 +1343,17 @@ class Events:
             if isinstance(b, int | float) and isinstance(p, int | float) and b > p:
                 saved += b - p
         rows = sorted(by_model.values(), key=lambda r: (-r["usd"], -r["calls"]))
+        total_usd = round(sum(r["usd"] for r in rows), 4)
+        total_saved = round(saved + cache_saved, 4)
         out: dict[str, Any] = {
             "periodStart": iso(start),
-            "totalUSD": round(sum(r["usd"] for r in rows), 4),
+            "totalUSD": total_usd,
             "byModel": rows,
             "savedVsBestUSD": round(saved, 4),
+            "cacheSavedUSD": round(cache_saved, 4),
+            "totalSavedUSD": total_saved,
+            "wouldHaveCostUSD": round(max(would_have_cost, total_usd + total_saved), 4),
+            "costSaver": self.cost_saver_on(),
             "notionalUSD": round(sum(r.get("notionalUSD", 0.0) for r in rows), 4),
             "messages": len(routes),
         }

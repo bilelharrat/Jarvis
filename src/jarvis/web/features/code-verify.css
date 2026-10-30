@@ -1,6 +1,7 @@
 /* Eden Code checks (features/code-verify.js): the Preview pane, in the workbench's own
    cards, chips and mono type. */
 
+.cv-card { display: none !important; }
 .cv-head { margin: 12px 4px 6px; }
 .cv-head:first-child { margin-top: 2px; }
 .cv-intro { margin: 0 4px 8px; line-height: 1.45; }

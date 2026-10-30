@@ -915,9 +915,8 @@ test('EVES latency benchmark (>= 50% improvement, 0% accuracy loss): medium-leng
     assert.equal(checkCallCount, 0, 'zero agreement/judge LLM calls needed for unambiguous numeric consensus');
     assert.ok(medMs < 150, `resolved in ${medMs}ms`);
 
-    // 2. Speculative Disputed Evidence: when fastConsensusCheck detects a numeric conflict at t=lane-finish,
-    //    checkEvidence starts immediately in parallel with judgeAnswers (0ms wait for judge completion),
-    //    cutting post-lane verification latency by >50% while fixing the wrong number accurately.
+    // 2. Disputed evidence: a numeric conflict goes to the judge, and the judge's disputed claim is checked on the web
+    //    (once, from the claim the judge names; no checks of raw answer sentences before it, 2026-10-24) and the wrong number fixed.
     const callStarts = {};
     globalThis.fetch = async (input, init = {}) => {
       const url = typeof input === 'string' ? input : input.url;
@@ -961,7 +960,8 @@ test('EVES latency benchmark (>= 50% improvement, 0% accuracy loss): medium-leng
           );
         }
         if (/You check one claim against the web/.test(sys)) {
-          callStarts.evidence = Date.now();
+          callStarts.evidence ??= Date.now();
+          callStarts.evidenceCount = (callStarts.evidenceCount || 0) + 1;
           await new Promise((r) => setTimeout(r, 180));
           return sse(
             geminiSse(
@@ -1022,13 +1022,13 @@ test('EVES latency benchmark (>= 50% improvement, 0% accuracy loss): medium-leng
     const tSpec0 = Date.now();
     const specEvents = await readEvents(await evesTurn(session, 'What date was the Treaty of Ghent signed?'));
     const specTotalMs = Date.now() - tSpec0;
-    // Sequential judge (220ms) + evidence (180ms) would take >= 400ms; parallel speculative execution finishes in ~230ms (>42% post-lane speedup, and zero agreement call wait!)
+    // 2026-10-24 (H1, askeden/docs/verify/latency-plan-2026-10-24.md): the answers' raw disputed sentences are no longer checked
+    // on the web before the judge (they were reused only when the judge copied a sentence word for word, and otherwise cost
+    // paid searches). The judge's claim is checked once, after the judge has named it: one web check, the same repair.
     assert.ok(callStarts.evidence && callStarts.judge, 'both judge and evidence ran');
-    assert.ok(
-      Math.abs(callStarts.evidence - callStarts.judge) < 80,
-      `speculative evidence started at t=${callStarts.evidence - tSpec0}ms alongside judge at t=${callStarts.judge - tSpec0}ms (delta=${Math.abs(callStarts.evidence - callStarts.judge)}ms)`,
-    );
-    assert.ok(specTotalMs < 350, `parallel judge + speculative evidence completed in ${specTotalMs}ms (< 350ms vs 600ms+ sequential)`);
+    assert.ok(callStarts.evidence >= callStarts.judge, `no web check before the judge (evidence at t=${callStarts.evidence - tSpec0}ms, judge at t=${callStarts.judge - tSpec0}ms)`);
+    assert.equal(callStarts.evidenceCount, 1, 'one web check for the one disputed claim, none wasted');
+    assert.ok(specTotalMs < 1500, `judge then web check completed in ${specTotalMs}ms`);
     const specFinal = specEvents
       .filter((e) => e.type === 'text' && e.data.lane === 'final')
       .map((e) => e.data.text)
@@ -1132,6 +1132,16 @@ test('POST /api/chat/eves/flag: restricted to Bilel & Malik; logs hallucination,
       body: { rating: 'down', question: 'What year did the Eiffel Tower open?', answer: 'It opened in 1887.' },
     });
     assert.equal(forbidden.status, 403);
+
+    // 1b. A sign-in that only looks like the owner's ("bilel" in it) is forbidden too (owner-emails.js: exact addresses)
+    await env.ACCOUNTS.objects.get(accountId).storage.put('identities', [{ provider: 'google', sub: 'g-0', email: 'bilel.stranger@gmail.com', added: Date.now() }]);
+    const lookalike = await hit('/api/chat/eves/flag', {
+      method: 'POST',
+      session: regularSession,
+      headers: { 'x-jarvis-chat': '1' },
+      body: { rating: 'down', question: 'What year did the Eiffel Tower open?', answer: 'It opened in 1887.' },
+    });
+    assert.equal(lookalike.status, 403);
 
     // 2. Authorized account (Malik/Bilel via identity email) is allowed
     await env.ACCOUNTS.objects.get(accountId).storage.put('identities', [{ provider: 'google', sub: 'g-1', email: 'harratmalik25@gmail.com', added: Date.now() }]);

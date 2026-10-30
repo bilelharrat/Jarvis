@@ -23,6 +23,19 @@ SiteI18n.add({
     'Privacy': 'Confidentialité',
     'Terms': 'Conditions',
     '© Harrat Global Holdings, Inc.': '© Harrat Global Holdings, Inc.',
+    'See it': 'En vidéo',
+    'Faculty pilot': 'Pilote enseignant',
+    'Guides': 'Guides',
+    'Request a free course pilot': 'Demander un cours pilote gratuit',
+    'Educator guides': 'Guides pour les enseignants',
+    'AI-assisted study workflows for university courses': 'Flux de travail d’étude assistés par l’IA pour les cours universitaires',
+    'All guides →': 'Tous les guides →',
+    'Free faculty pilot · Ready in 5 minutes': 'Pilote enseignant gratuit · Prêt en 5 minutes',
+    'Run Eden for Education in your course this semester': 'Utilisez Eden for Education dans votre cours ce semestre',
+    'Drop in your syllabus and lecture slides yourself right now, or leave your faculty email and we will send you our 5-minute syllabus setup guide, Canvas/Moodle LTI instructions, and offer to pre-build a pilot course from your syllabus.':
+      'Déposez dès maintenant votre programme et vos diapositives de cours, ou laissez votre adresse e-mail universitaire pour recevoir notre guide de mise en place en 5 minutes, les instructions LTI Canvas/Moodle et une proposition de création de cours pilote à partir de votre syllabus.',
+    'Create your course now →': 'Créer votre cours maintenant →',
+    'Send me the faculty pilot guide': 'M’envoyer le guide pilote enseignant',
   },
   blocks: {
     'Oxygen is the final electron acceptor. At complex IV it takes the electrons and combines with H⁺ to form water 1. Without it the chain backs up and ATP synthase stops 2.':

@@ -1,0 +1,811 @@
+/* Eden Travel (travel.js): the owner's design (the Travel mockup v9 and their travel-app page) in Eden Glass
+   (DESIGN.md): the photo header, mono kickers, glass cards with a top rim, the before/after grid, 58px pictures,
+   pill chips. Wide screens: the trip beside a resizable, glass Ask Eden panel; ≤900px the trip fills the window and
+   "Ask Eden" swaps to the chat. */
+
+#travelPane{display:none;flex:1 1 auto;min-width:0;flex-direction:column;border-radius:20px;overflow:hidden;order:1;position:relative;container-type:inline-size;
+  background:var(--bg);box-shadow:inset 0 0 0 .5px var(--hairline)}
+body.travel-open #travelPane{display:flex}
+body.travel-open #sidebar{order:0}
+body.travel-open #browserPane{order:3}
+
+/* the Ask Eden panel: the chat, glass like the other right-hand panels, resizable from its left edge, can be hidden */
+body.travel-open #center{order:2;flex:none;width:var(--tv-chat-w,420px);min-width:320px;position:relative;padding:8px;border-radius:20px;
+  background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);
+  box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2,0 2px 6px rgba(0,0,0,.06),0 24px 64px rgba(0,0,0,.16))}
+body.travel-open.travel-chat-hidden #center{display:none}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){body.travel-open #center{background:var(--content)}}
+.tv-resize{display:none;position:absolute;left:0;top:0;bottom:0;width:10px;cursor:col-resize;z-index:6;touch-action:none}
+body.travel-open .tv-resize{display:block}
+.tv-resize::after{content:"";position:absolute;left:3px;top:24px;bottom:24px;width:2px;border-radius:2px;background:transparent;transition:background .15s}
+.tv-resize:hover::after,.tv-resize.drag::after,.tv-resize:focus-visible::after{background:rgb(var(--c-accent,10 132 255) / .55)}
+body.tv-resizing{cursor:col-resize;user-select:none}
+
+/* the bar: brand, the four views, the trip, Undo, Ask Eden */
+.tv-bar{position:absolute;top:12px;left:12px;right:12px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px 6px 12px;border-radius:999px;
+  background:rgba(20,22,28,.55);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:inset 0 .5px 0 rgba(255,255,255,.18),inset 0 0 0 .5px rgba(255,255,255,.1);color:#fff}
+.tv-brand{display:flex;align-items:center;gap:7px;flex:none}
+.tv-mark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:#fff;color:#0E2747}
+.tv-brand b{font-size:15px;font-weight:650}
+.tv-brand-sub{font-size:13px;opacity:.75}
+.tv-tabs{display:flex;gap:2px;padding:3px;border-radius:999px;background:rgba(255,255,255,.08);min-width:0;overflow-x:auto;scrollbar-width:none}
+.tv-tabs::-webkit-scrollbar{display:none}
+.tv-tab{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border:0;border-radius:999px;font:inherit;font-size:13px;font-weight:550;color:rgba(255,255,255,.82);background:transparent;cursor:pointer;white-space:nowrap}
+.tv-tab:hover{background:rgba(255,255,255,.1);color:#fff}
+.tv-tab[aria-pressed="true"]{background:#fff;color:#111}
+.tv-bar-acts{display:flex;align-items:center;gap:6px;flex:none}
+.tv-trip{max-width:200px;height:32px;border-radius:999px;border:0;padding:0 10px;font:inherit;font-size:13px;color:#fff;background:rgba(255,255,255,.12)}
+.tv-trip option{color:#111}
+.tv-bar .tv-pill{color:#fff;background:rgba(255,255,255,.12)}
+.tv-askbtn[aria-pressed="true"]{background:#fff!important;color:#111!important}
+.tv-x{width:32px;height:32px;border:0;border-radius:999px;display:grid;place-items:center;background:transparent;color:rgba(255,255,255,.8);cursor:pointer}
+.tv-x:hover{background:rgba(255,255,255,.14);color:#fff}
+
+.tv-scroll{flex:1;min-height:0;overflow:auto;padding:0 16px 32px;display:flex;flex-direction:column;gap:14px}
+.tv-scroll>*{flex:none} /* cards keep their height (one that clips its overflow would shrink to nothing) */
+.glass-card{background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);border:1px solid var(--hairline);border-radius:20px;box-shadow:inset 0 1px 0 var(--rim),0 1px 2px rgba(0,0,0,.05),0 12px 32px rgba(0,0,0,.10);padding:18px 20px}
+.tv-kicker{display:inline-flex;align-items:center;gap:6px;font:600 11px/1.2 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+.tv-kicker.accent{color:var(--accent)}
+.tv-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tv-note{font-size:13px;color:var(--text2);margin:2px 0}
+.tv-fine{font-size:12px;color:var(--text3);margin:4px 2px 0}
+a.tv-btn{text-decoration:none}
+.tv-btn{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;border:0;border-radius:999px;font:inherit;font-size:14px;font-weight:600;color:var(--text);background:rgba(120,120,128,.14);cursor:pointer}
+.tv-btn.primary{color:#fff;background:var(--accent);box-shadow:0 6px 18px -6px color-mix(in srgb,var(--accent) 70%,transparent)}
+.tv-btn.quiet{background:transparent;color:var(--accent)}
+.tv-btn:disabled{opacity:.5}
+.tv-pill{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border:0;border-radius:999px;font:inherit;font-size:12.5px;font-weight:600;color:var(--text);background:rgba(120,120,128,.14);cursor:pointer;white-space:nowrap}
+.tv-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 11px;border-radius:999px;font-size:12.5px;color:var(--text2);background:rgba(120,120,128,.12)}
+.tv-chip.note{background:transparent;border:1px dashed rgba(120,120,128,.4);color:var(--text3)}
+
+/* the photo header */
+.tv-hero{position:relative;margin:0 -16px;min-height:300px;padding:84px 28px 26px;display:flex;align-items:flex-end;color:#fff;
+  background:linear-gradient(180deg,rgba(10,14,22,.55) 0%,rgba(10,14,22,.25) 40%,rgba(10,14,22,.85) 100%),url("travel-hero.jpg") center 40%/cover no-repeat;
+  border-radius:20px 20px 0 0}
+.tv-hero .tv-kicker{color:rgba(255,255,255,.75)}
+.tv-hero h1{margin:8px 0 4px;font-size:clamp(30px,4.2vw,46px);font-weight:700;letter-spacing:-.01em;line-height:1.04}
+.tv-hero p{margin:0 0 12px;color:rgba(255,255,255,.82)}
+.tv-hero-chips{display:flex;flex-wrap:wrap;gap:8px}
+.tv-hero .tv-chip{color:#fff;background:rgba(255,255,255,.14);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.18)}
+.tv-chip.pace-rushed,.tv-chip.warn{color:#ffd29a!important;background:rgba(255,159,10,.25)!important}
+.tv-chip.pace-unhurried,.tv-chip.live{color:#c9f7d6!important;background:rgba(48,209,88,.22)!important}
+.tv-chip.sample{color:#fff!important;background:rgba(255,255,255,.1)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)!important}
+
+/* what Eden noticed, with the before and after */
+.tv-noticed{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:22px;position:relative;overflow:hidden}
+/* the first card under the photo header rides up onto it */
+.tv-hero+.glass-card{margin-top:-34px;position:relative;z-index:2}
+.tv-noticed.one{grid-template-columns:1fr}
+.tv-noticed::before{content:"";position:absolute;inset:0;background:radial-gradient(520px 240px at 0% 0%,color-mix(in srgb,var(--accent) 14%,transparent),transparent 70%);pointer-events:none}
+.tv-noticed>*{position:relative}
+.tv-noticed h2{margin:8px 0 6px;font-size:22px;font-weight:650;letter-spacing:-.01em}
+.tv-noticed p{margin:0 0 14px;color:var(--text2);line-height:1.5}
+.tv-ba{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-self:center}
+.tv-ba-col{padding:12px;border-radius:14px;border:1px solid var(--hairline);display:flex;flex-direction:column;gap:8px;background:rgba(120,120,128,.06)}
+.tv-ba-col.after{background:color-mix(in srgb,var(--accent) 10%,transparent);border-color:transparent;box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 70%,transparent)}
+.tv-ba-col ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.tv-ba-col li{display:grid;grid-template-columns:30px auto minmax(0,1fr);gap:8px;align-items:center;font-size:13px}
+.tv-ba-col li b{font-variant-numeric:tabular-nums;font-weight:600}
+.tv-ba-art{width:30px;height:30px;border-radius:8px;display:block}
+
+/* the card optimizer */
+.tv-cards{display:flex;flex-direction:column;gap:8px}
+.tv-cardrow{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding-top:10px;border-top:.5px solid var(--hairline)}
+.tv-cardrow b{font-size:14px}
+.tv-cardval{text-align:right;display:flex;flex-direction:column;gap:2px;flex:none}
+.tv-cardval small{font-size:11px;color:var(--text3)}
+
+/* the day */
+.tv-day{display:flex;flex-direction:column;gap:14px}
+.tv-day-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+.tv-day-head h2{margin:4px 0 0;font-size:22px;font-weight:650;letter-spacing:-.01em}
+.tv-daytabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;border-radius:14px;background:rgba(120,120,128,.1);overflow-x:auto}
+.tv-daytab{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 10px;border:0;border-radius:10px;font:inherit;color:var(--text2);background:transparent;cursor:pointer;white-space:nowrap}
+.tv-daytab b{font-size:13px;color:var(--text)}
+.tv-daytab small{font-size:11.5px}
+.tv-daytab[aria-selected="true"]{background:var(--content);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px var(--hairline)}
+.tv-stats{display:flex;flex-wrap:wrap;gap:6px}
+.tv-daygrid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr);gap:16px;align-items:start}
+.tv-daymap{position:sticky;top:8px;display:grid;grid-template-columns:minmax(0,1fr);gap:6px;width:100%}
+.tv-mapimg{position:relative;display:block;width:100%;height:420px;min-height:360px;aspect-ratio:13/15;flex:none;border-radius:16px;overflow:hidden;background:#dde3ea;box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tv-mapimg.wide{border-radius:14px;height:360px;min-height:300px;aspect-ratio:16/10}
+.tv-mapimg img,.tv-mapimg svg{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover}
+.tv-map-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--text3);font-size:13px;padding:16px;text-align:center}
+.tv-mapcap{font-size:12px;color:var(--text3)}
+
+/* the timeline */
+.tv-stops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tv-stop{border-radius:16px;transition:background .2s}
+.tv-stop:hover{background:rgba(120,120,128,.07)}
+.tv-stop.alert .tv-num{background:#ff9f0a}
+.tv-stop.empty{padding:14px;color:var(--text2);font-size:13px}
+/* a stop: its picture with the time under it, then the name, the pill, the chevron */
+.tv-stop-head{width:100%;display:grid;grid-template-columns:58px minmax(0,1fr) auto 14px;column-gap:12px;row-gap:4px;align-items:center;padding:8px;border:0;border-radius:16px;font:inherit;color:inherit;text-align:left;background:transparent;cursor:pointer}
+.tv-time{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text2)}
+.tv-stop-head>.tv-thumbwrap{grid-column:1;grid-row:1}
+.tv-stop-head>.tv-time{grid-column:1;grid-row:2;justify-self:center;font-size:12.5px}
+.tv-stop-head>:not(.tv-time):not(.tv-thumbwrap){grid-row:1 / span 2}
+.tv-thumbwrap{position:relative;width:58px;height:58px}
+.tv-thumb{width:58px;height:58px;border-radius:13px;display:block;box-shadow:0 1px 2px rgba(0,0,0,.12),0 4px 10px rgba(0,0,0,.06)}
+.tv-num{position:absolute;left:-6px;top:-6px;width:20px;height:20px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:var(--accent);box-shadow:0 0 0 2px var(--bg)}
+.tv-stop-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.tv-stop-main b{font-size:15px;font-weight:600}
+.tv-meta{font-size:12.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv-best{font-size:12px;color:var(--accent);font-weight:550}
+.tv-chev{color:var(--text3);transition:transform .2s}
+.tv-stop-head[aria-expanded="true"] .tv-chev,.tv-stop-head:has(.tv-stop-toggle[aria-expanded="true"]) .tv-chev{transform:rotate(90deg)}
+.tv-eves{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:600;color:var(--text2);background:rgba(120,120,128,.12);cursor:help;white-space:nowrap}
+.tv-eves i{width:7px;height:7px;border-radius:50%;background:var(--text3)}
+.tv-eves.ok{color:#16803a;background:rgba(48,209,88,.14)}.tv-eves.ok i{background:#30d158}
+.tv-eves.look{color:#946200;background:rgba(230,184,0,.16)}.tv-eves.look i{background:#e6b800}
+.tv-eves.warn{color:#c4371f;background:rgba(255,69,58,.14)}.tv-eves.warn i{background:#ff453a}
+.tv-eves.sample i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--text3)}
+:root[data-theme=dark] .tv-eves.ok{color:#5be07f}:root[data-theme=dark] .tv-eves.look{color:#ffd860}:root[data-theme=dark] .tv-eves.warn{color:#ff8a80} /* Eden's own Light/Dark (app.js), not only the system's */
+.tv-lock{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:600;color:#16803a;background:rgba(48,209,88,.14)}
+:root[data-theme=dark] .tv-lock{color:#5be07f}
+.tv-detail{display:flex;flex-direction:column;gap:6px;padding:0 10px 12px 66px}
+.tv-check{display:grid;grid-template-columns:8px 1fr;gap:4px 8px;align-items:baseline;font-size:13px}
+.tv-check i{width:7px;height:7px;border-radius:50%;background:var(--text3);transform:translateY(-1px)}
+.tv-check.ok i{background:#30d158}.tv-check.look i{background:#e6b800}.tv-check.warn i{background:#ff453a}.tv-check.sample i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--text3)}
+.tv-check small{grid-column:2;font-size:11.5px;color:var(--text3)}
+.tv-form{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tv-form input{flex:1 1 160px;min-width:0;height:38px;border-radius:12px;border:0;padding:0 12px;font:inherit;font-size:13.5px;color:var(--text);background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tv-form input:focus{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 55%,transparent)}
+.tv-flight{display:flex;flex-direction:column;gap:8px}
+.tv-share{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tv-share code{font-size:12px;padding:3px 8px;border-radius:8px;background:rgba(120,120,128,.12);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv-pickup{padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--accent) 12%,transparent)}
+
+/* Journey board */
+.tv-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(260px,1fr);gap:12px;overflow-x:auto;padding:76px 0 4px}
+.tv-col{display:flex;flex-direction:column;gap:10px;padding:14px}
+.tv-col-head{border:0;padding:0;background:transparent;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.tv-col-head h3{margin:4px 0 0;font-size:17px;font-weight:650}
+.tv-col-stops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+/* a stop: picture, time, then its name with what Eden checked under it (never squeezed beside it, never out of the card) */
+.tv-col-stops li{display:grid;grid-template-columns:30px 42px minmax(0,1fr);column-gap:10px;row-gap:5px;align-items:center;min-height:44px;font-size:13px;padding:8px 10px;border-radius:14px;background:rgba(120,120,128,.06)}
+.tv-col-stops li>:first-child{grid-row:1 / span 2;align-self:center}
+.tv-col-stops li>b{grid-row:1 / span 2;align-self:center;color:var(--text2);font-weight:600}
+.tv-col-stops li>span:not(.tv-eves){font-size:14px;font-weight:500;color:var(--text);line-height:1.3;overflow-wrap:anywhere}
+.tv-col-stops li>.tv-eves,.tv-col-stops li>.ic{grid-column:3;justify-self:start;height:22px;padding:0 8px;font-size:11.5px;border-radius:9px}
+.tv-col-stops li.alert{box-shadow:inset 0 0 0 1px rgba(255,159,10,.55)}
+.tv-col-stops li b{font-variant-numeric:tabular-nums}
+
+/* Map explorer and the companion */
+.tv-explorer{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:14px;margin-top:76px}
+.tv-legend{display:flex;flex-direction:column;gap:6px}
+.tv-legend-row{display:grid;grid-template-columns:12px auto;grid-template-rows:auto auto;column-gap:8px;align-items:center;padding:8px 10px;border:0;border-radius:12px;text-align:left;font:inherit;color:inherit;background:rgba(120,120,128,.07);cursor:pointer}
+.tv-legend-row i{width:12px;height:12px;border-radius:6px;grid-row:span 2}
+.tv-legend-row span{font-size:12px;color:var(--text2)}
+.tv-companion{display:flex;flex-direction:column;gap:12px}
+.tv-companion:first-child{margin-top:76px}
+.tv-first{margin-top:76px}
+.tv-next{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:center}
+.tv-next-art{width:120px;height:80px;border-radius:14px;display:block}
+img.tv-thumb,img.tv-ba-art,img.tv-next-art{object-fit:cover;background:var(--fill,rgba(127,127,127,.12))}
+.tv-icon{display:grid!important;place-items:center;color:var(--k);background:color-mix(in srgb,var(--k) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--k) 22%,transparent)!important}
+.tv-icon svg{width:46%;height:46%}
+.tv-next h2{margin:2px 0;font-size:22px;font-weight:650}
+
+.tv-empty{max-width:520px;margin:24px auto;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
+.tv-empty h2{margin:0;font-size:22px}
+.tv-empty p{margin:0;color:var(--text2);line-height:1.5}
+
+/* a narrow Travel pane (the chat panel wide, or a small window): the views get their own row in the bar */
+/* the views get their own row in the bar below 1100px (six tabs and the trip's buttons don't share one row there) */
+@container (max-width:1100px){
+  .tv-bar{flex-wrap:wrap;border-radius:22px;row-gap:6px}
+  .tv-tabs{order:3;flex:1 1 100%}
+  .tv-tab{flex:1;justify-content:center}
+  .tv-hero{padding-top:128px}
+  .tv-board,.tv-explorer,.tv-companion:first-child{margin-top:0;padding-top:118px}
+  .tv-explorer{padding-top:0;margin-top:118px}
+  .tv-first{margin-top:118px}
+}
+
+/* narrow windows: the trip fills the window; Ask Eden swaps to the chat */
+@container (max-width:900px){.tv-daygrid{grid-template-columns:1fr}.tv-daymap{position:static}.tv-noticed{grid-template-columns:minmax(0,1fr)}.tv-explorer{grid-template-columns:1fr}}
+/* a phone: the views are a tab bar at the bottom (Eden Glass, icon over its short name, the current one in the accent);
+   the top bar's frost moves to ::before so the tab bar can leave it (a backdrop-filter would hold it inside the bar) */
+.tv-tab-short{display:none}
+/* six views: below a wide pane, each tab shows its short name (Day, Journey, Map, Today, Explore, Group) */
+@container (max-width:1600px){.tv-tab-long{display:none}.tv-tab-short{display:inline}.tv-tab{padding:0 8px;gap:5px}}
+@container (max-width:600px){
+  .tv-bar{flex-wrap:nowrap;border-radius:999px;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
+  .tv-bar::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:rgba(20,22,28,.55);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:inset 0 .5px 0 rgba(255,255,255,.18),inset 0 0 0 .5px rgba(255,255,255,.1)}
+  /* fixed to the screen: inside the pane, which on a phone sits at the safe-area insets (the max(8px, env()) of #travelPane) */
+  .tv-tabs{position:fixed;left:calc(max(8px,env(safe-area-inset-left)) + 10px);right:calc(max(8px,env(safe-area-inset-right)) + 10px);bottom:calc(max(8px,env(safe-area-inset-bottom)) + 10px);z-index:6;order:0;flex:none;display:grid;grid-template-columns:repeat(6,1fr);gap:2px;padding:5px;border-radius:20px;
+    background:var(--glass2);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);box-shadow:inset 0 0 0 .5px var(--hairline),inset 0 1px 0 var(--rim,rgba(255,255,255,.5)),0 12px 32px rgba(0,0,0,.12)}
+  .tv-tab{flex-direction:column;justify-content:center;gap:3px;height:50px;padding:0;border-radius:14px;font-size:11px;font-weight:500;color:var(--text2)}
+  .tv-tab .ic{width:21px!important;height:21px!important}
+  .tv-tab:hover{background:transparent;color:var(--text)}
+  .tv-tab[aria-pressed="true"]{background:rgb(var(--c-accent,10 132 255) / .12);color:rgb(var(--c-accent,10 132 255))}
+  .tv-tab-long{display:none}.tv-tab-short{display:inline}
+  .tv-scroll{padding-bottom:84px} /* the last card clear of the tab bar */
+  .tv-hero{padding-top:84px}
+  .tv-board,.tv-companion:first-child{padding-top:72px}
+  .tv-first{margin-top:72px}
+  .tv-explorer{margin-top:72px}
+  /* the days one under another, each its own card (no columns cut off at the edge) */
+  .tv-board{grid-auto-flow:row;grid-auto-columns:auto;overflow:visible;gap:12px}
+  .tv-col{padding:16px}
+}
+@media (max-width:900px){
+  body.travel-open #travelPane{position:fixed;inset:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));z-index:55;box-shadow:var(--sh2,0 24px 64px rgba(0,0,0,.16))}
+  body.travel-open.travel-chat #travelPane{display:none}
+  body.travel-open #center{width:auto;flex:1}
+  body.travel-open .tv-resize{display:none}
+  .tv-stop-head{grid-template-columns:48px minmax(0,1fr) auto;column-gap:10px}
+  .tv-stop-head .tv-chev{display:none}
+  .tv-thumbwrap,.tv-thumb{width:48px;height:48px}
+  .tv-detail{padding-left:10px}
+  .tv-brand-sub,.tv-trip{display:none}
+}
+@media (prefers-reduced-motion:reduce){.tv-resize::after,.tv-chev,.tv-stop{transition:none}}
+
+/* Eden Travel's own address (askedentravel.com: travel.js STANDALONE): the whole window is Travel, no Eden sidebar,
+   the chat's own controls trimmed to its title, conversation menu and the browser (for booking) */
+body.travel-standalone #sidebar,body.travel-standalone #inspector{display:none!important}
+body.travel-standalone #titlebar :is(#btnHamburger,#btnSidebarDesk,.orb,#tbBranch,#tbTags,#btnPrivacy,#tbCtx,#btnCanvasBack,#btnPalette,#btnInspector){display:none!important}
+/* clear of the status bar and home indicator in Ask Eden Travel's iPhone app and on a phone (viewport-fit=cover) */
+/* its chat is about the trip: no drawer of modes and models, no split view; Eden's mark is a + (composer.js travelMenu) */
+body.travel-standalone :is(#jc-composer-drawer,.jc-statusline,#btnSplit){display:none!important}
+body.travel-standalone .jc-orb::before{width:14px;height:14px;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2.5v11M2.5 8h11' stroke='%23000' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2.5v11M2.5 8h11' stroke='%23000' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}
+body.travel-standalone .jc-orb[aria-expanded="true"]{color:#fff;background:rgb(var(--c-accent))}
+body.travel-standalone #app{padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));gap:8px}
+.tv-brand[href]{text-decoration:none;color:inherit}
+.tv-logo{width:22px;height:22px;border-radius:6px;display:block}
+.tv-account{position:relative}
+.tv-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:20;min-width:230px;padding:6px;display:flex;flex-direction:column;gap:2px}
+.tv-menu.left{right:auto;left:0}
+.tv-menu[hidden]{display:none}
+.tv-menu-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:14px;text-align:left;text-decoration:none;cursor:pointer}
+.tv-menu-row:hover,.tv-menu-row:focus-visible{background:var(--fill,rgba(127,127,127,.12))}
+.tv-back{display:none}
+@media (max-width:900px){body.travel-open.travel-chat .tv-back{display:inline-flex;align-items:center;gap:6px;position:absolute;top:10px;left:10px;z-index:8}
+  body.travel-open.travel-chat #titlebar{padding-left:170px}}
+
+/* the trips in the traveller's calendar (travel.js calendarPanel) */
+.tv-cal h3{margin:14px 0 4px;font-size:15px;font-weight:600}
+.tv-cal .tv-cal-body>h3:first-of-type{margin-top:0;font-size:17px}
+.tv-cal p{margin:0 0 10px;color:var(--text2);line-height:1.45}
+.tv-cal-apps{flex-wrap:wrap}
+.tv-cal-error{color:#c0392b!important}
+.tv-cal-pending{color:var(--text)!important;font-weight:500}
+.tv-cal .tv-cal-pick{color:var(--text);background:rgba(120,120,128,.12);height:38px;max-width:100%}
+/* a phone: the trip picker and New trip move into the menus, so the bar fits (brand, Undo, Trip tools, Ask Eden, account) */
+.tv-menu-phone{display:none!important}
+@container (max-width:600px){.tv-menu-phone{display:flex!important}.tv-bar .tv-menubtn-label,.tv-bar .tv-menubtn-chev{display:none}}
+.tv-bar .tv-menu{color:var(--text)} /* the account menu: dark text on its light glass (the bar itself is white on the photo) */
+.tv-offline{display:flex;align-items:center;gap:8px;padding:10px 14px;margin:0 0 12px;font-size:13px;color:var(--text2,#6e6e73)}
+/* the sweep: 40px touch targets on narrow panes, the trip picker in the menu on a phone, a screen-reader-only label */
+@container (max-width:600px){.tv-pill,.tv-x{min-height:40px;min-width:40px}}
+.tv-menu-pick{flex:1;min-height:36px;border:0;border-radius:8px;background:var(--fill,rgba(127,127,127,.12));color:inherit;font:inherit}
+.tv-cal-pick{min-height:36px;border-radius:8px;font:inherit}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* ---------- planner v2 (research_notes/travel/planner-v2-design.md) ---------- */
+/* the row: the name is the button, stretched over the row; the proof pill and links sit above it */
+.tv-stop-head{position:relative;cursor:pointer}
+.tv-stop-toggle{all:unset;cursor:pointer;display:block;min-width:0}
+.tv-stop-toggle::after{content:"";position:absolute;inset:0;border-radius:16px}
+.tv-stop-toggle:focus-visible::after{outline:2px solid var(--accent,#0a84ff);outline-offset:2px}
+.tv-stop-head .tv-eves,.tv-stop-head .tv-lock,.tv-proof-wrap{position:relative;z-index:1}
+.tv-eves{border:0;font:inherit;font-size:12px;cursor:pointer}
+/* the proof drawer: what was checked, its source, when */
+.tv-proof-wrap{display:inline-flex;position:relative;z-index:40!important} /* above the later stops' pills */
+.tv-stop:has(.tv-proof){position:relative;z-index:5} /* the row with the open drawer above the rows after it (a hovered row is its own stacking context) */
+.tv-proof{position:absolute;right:0;top:calc(100% + 8px);z-index:30;width:min(320px,80vw);padding:12px 14px;display:flex;flex-direction:column;gap:10px;text-align:left;cursor:auto;
+  background:var(--content,#fff)!important;box-shadow:0 0 0 .5px var(--hairline,rgba(0,0,0,.1)),0 12px 32px rgba(0,0,0,.28)!important} /* solid: read over the stops */
+.tv-proof-row{display:flex;flex-direction:column;gap:2px;font-size:13px;padding-left:10px;border-left:3px solid var(--text3,#86868b)}
+.tv-proof-row.ok{border-color:#30d158}.tv-proof-row.look{border-color:#e6b800}.tv-proof-row.warn{border-color:#ff453a}.tv-proof-row.sample{border-color:#8e8e93}
+.tv-proof-row small{color:var(--text3,#86868b);font-size:11.5px}
+/* connectors between stops: how, how long, which line, checked when */
+.tv-leg{display:grid;grid-template-columns:58px minmax(0,1fr) auto;column-gap:12px;align-items:center;padding:0 8px;min-height:30px;font-size:12.5px;color:var(--text2,#6e6e73);list-style:none}
+.tv-leg-line{justify-self:center;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(120,120,128,.12)}
+.tv-leg.look .tv-leg-line,.tv-leg.warn .tv-leg-line{background:rgba(230,184,0,.18);color:#946200}
+.tv-leg-text{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tv-leg-text small{color:var(--text3,#86868b)}
+.tv-leg-lines{display:inline-flex;gap:4px;flex-wrap:wrap}
+.tv-line{padding:1px 7px;border-radius:6px;font-size:11.5px;font-weight:600;background:rgba(10,132,255,.12);color:#0060df}
+:root[data-theme=dark] .tv-line{color:#64b5ff}:root[data-theme=dark] .tv-leave.soon b{color:#ff8a80}:root[data-theme=dark] :is(.tv-leg.look,.tv-leg.warn) .tv-leg-line{color:#ffd860}:root[data-theme=dark] .tv-cal-error{color:#ff8a80!important}
+/* drag to reorder */
+.tv-stop[draggable="true"]{cursor:grab}
+.tv-stop.dragging{opacity:.55}
+.tv-stop.drop{box-shadow:inset 0 2px 0 var(--accent,#0a84ff)}
+/* decisions left */
+.tv-dec-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column}
+.tv-dec-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:.5px solid var(--hairline,rgba(0,0,0,.08));font-size:14px}
+.tv-dec-list li:first-child{border-top:0}
+/* when to leave */
+.tv-leave{margin:6px 0 0;font-size:15px}
+.tv-leave b{color:var(--text)}.tv-leave.soon b{color:#c4371f}
+.tv-leave small{display:block;color:var(--text3,#86868b);font-size:12px}
+/* the destination photo, licensed and credited */
+.tv-hero.has-photo{background:#10151e;overflow:hidden}
+.tv-hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;transform-origin:50% 40%}
+.tv-hero.has-photo::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(10,14,22,.55) 0%,rgba(10,14,22,.2) 40%,rgba(10,14,22,.86) 100%)}
+.tv-hero.has-photo .tv-hero-text{position:relative;z-index:2}
+.tv-hero-credit{position:absolute;right:12px;bottom:8px;z-index:2;max-width:min(60%,420px);font-size:10.5px;line-height:1.3;color:rgba(255,255,255,.72);text-decoration:none;text-align:right;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} /* the licence must show: two lines on a phone */
+@container (max-width:600px){.tv-hero.has-photo{flex-wrap:wrap;align-content:flex-end}.tv-hero-credit{position:relative;right:auto;bottom:auto;display:block;flex:1 0 100%;order:2;max-width:none;margin:10px 0 0;text-align:left;-webkit-line-clamp:unset}} /* a phone: under the chips, whole */
+.tv-hero-credit a{color:inherit;text-decoration:none}.tv-hero-credit a:hover{text-decoration:underline}
+
+/* ---------- motion (tokens from motion.css; fallbacks are the app's spring) ---------- */
+@media (prefers-reduced-motion:no-preference){
+  /* entrances only when the trip, view or day changes (travel.js paintPane sets .tv-enter) */
+  #travelPane.tv-enter .tv-stop,#travelPane.tv-enter .tv-leg,#travelPane.tv-enter .tv-dec-list li,#travelPane.tv-enter .tv-col{
+    animation:tv-rise var(--dur-3,360ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both;animation-delay:calc(var(--i,0) * var(--stagger,35ms))}
+  #travelPane.tv-enter .glass-card{animation:tv-fade var(--dur-3,360ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1)) both}
+  @keyframes tv-rise{from{opacity:0;transform:translateY(8px)}}
+  @keyframes tv-fade{from{opacity:0}}
+  /* the hand: press and lift */
+  .tv-btn,.tv-pill,.tv-eves,.tv-tab,.tv-daytab{transition:transform var(--dur-1,120ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)),background-color var(--dur-2,220ms) ease}
+  .tv-btn:active,.tv-pill:active,.tv-eves:active,.tv-tab:active,.tv-daytab:active{transform:scale(.97)}
+  /* a stop's press and lift: motion.css (one system, html.eden-motion) */
+  @media (hover:hover){.tv-col:hover{transform:translateY(-2px)}}
+  .tv-col{transition:transform var(--dur-2,220ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1))}
+  /* the proof drawer opens from its pill */
+  .tv-proof{transform-origin:100% 0;animation:tv-pop var(--dur-2,220ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both}
+  @keyframes tv-pop{from{opacity:0;transform:scale(.96) translateY(-4px)}}
+  /* a fact newly checked: its dot draws in, once */
+  .tv-eves.tv-checkin i{animation:tv-check var(--dur-3,360ms) var(--ease-bouncy,cubic-bezier(.34,1.32,.64,1)) both}
+  @keyframes tv-check{from{transform:scale(.2);opacity:0}}
+  /* the hero: one slow pass of a zoom (it rests; nothing loops), and a parallax that follows the scroll */
+  .tv-hero-img.tv-kb{animation:tv-kb 18s ease-out 1 forwards}
+  @keyframes tv-kb{from{transform:scale(1)}to{transform:scale(1.08) translateY(-1.5%)}}
+  @supports (animation-timeline: scroll()){
+    .tv-scroll{scroll-timeline:--tv y}
+    .tv-hero.has-photo .tv-hero-img:not(.tv-kb){animation:tv-par linear both;animation-timeline:--tv;animation-range:0 320px}
+    .tv-hero .tv-hero-text{animation:tv-par-text linear both;animation-timeline:--tv;animation-range:0 260px}
+    @keyframes tv-par{from{transform:scale(1.08) translateY(-1.5%)}to{transform:translateY(60px) scale(1.1)}} /* starts where the slow zoom rests: no jump */
+    @keyframes tv-par-text{to{opacity:.55;transform:translateY(-10px)}}
+  }
+  /* the Ask Eden panel slides in when shown */
+  body.travel-open #center{transition:opacity var(--dur-3,360ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1))}
+  /* view and day changes, and Eden's change applied (travel.js move(): View Transitions) */
+  ::view-transition-group(*){animation-duration:var(--dur-4,520ms);animation-timing-function:var(--ease-smooth,cubic-bezier(.32,.72,0,1))}
+  /* only the travel pane moves: the Ask Eden panel (and an answer streaming in it) stays live */
+  html[data-move]{view-transition-name:none}
+  html[data-move] #travelPane{view-transition-name:tv-pane}
+  ::view-transition-old(tv-pane){animation:var(--dur-2,220ms) var(--ease-exit,cubic-bezier(.4,0,.9,.4)) both tv-vt-out}
+  [data-move="next"]::view-transition-new(tv-pane){animation:var(--dur-3,360ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both tv-vt-in-r}
+  [data-move="prev"]::view-transition-new(tv-pane){animation:var(--dur-3,360ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both tv-vt-in-l}
+  [data-move="apply"]::view-transition-new(tv-pane){animation:var(--dur-2,220ms) ease both tv-vt-fade}
+  @keyframes tv-vt-out{to{opacity:0}}
+  @keyframes tv-vt-in-r{from{opacity:0;transform:translateX(16px)}}
+  @keyframes tv-vt-in-l{from{opacity:0;transform:translateX(-16px)}}
+  @keyframes tv-vt-fade{from{opacity:0}}
+}
+@media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}
+/* text over a real photo: a soft shadow keeps it readable; more room under the floating bar */
+.tv-hero.has-photo{min-height:340px;padding-top:128px;padding-bottom:78px}
+.tv-hero.has-photo .tv-hero-credit{bottom:42px} /* clear of the card that rides up onto the photo: the licence always shows */
+.tv-hero.has-photo h1,.tv-hero.has-photo p,.tv-hero.has-photo .tv-kicker{text-shadow:0 1px 2px rgba(0,0,0,.45),0 4px 18px rgba(0,0,0,.35)}
+
+/* ---------- v3: bookings in, documents, Discover, Near me, Group (travel-more.js) ---------- */
+.tv-day-acts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.tv-segs{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:rgba(120,120,128,.14);margin:8px 0;max-width:100%;overflow-x:auto}
+.tv-seg{height:30px;padding:0 14px;border:0;border-radius:999px;font:inherit;font-size:13px;font-weight:600;color:var(--text2);background:transparent;cursor:pointer;white-space:nowrap;transition:background var(--dur-2,240ms) var(--ease-snappy,ease),color var(--dur-2,240ms)}
+.tv-seg[aria-pressed="true"]{color:var(--text);background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.tv-input{width:100%;box-sizing:border-box;min-height:38px;border-radius:12px;border:0;padding:9px 12px;font:inherit;font-size:13.5px;color:var(--text);background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tv-input.small{width:auto;min-width:0;flex:0 1 auto;min-height:32px;padding:5px 10px;font-size:12.5px}
+.tv-input.tiny{width:64px;text-transform:uppercase}
+textarea.tv-input{resize:vertical;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px}
+.tv-input.drop{box-shadow:inset 0 0 0 2px var(--accent)}
+.tv-input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tv-bookin .tv-card-head,.tv-money .tv-card-head,.tv-groupchat .tv-card-head,.tv-disc .tv-card-head,.tv-near .tv-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.tv-bookin p{font-size:13.5px;margin:6px 0}
+.tv-cands,.tv-xlist,.tv-disc-list,.tv-doclist,.tv-people,.tv-settle ul,.tv-decided ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.tv-cand{display:grid;gap:8px;padding:12px;border-radius:14px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tv-cand b{display:block}.tv-cand small{display:block;color:var(--text3);font-size:11.5px}
+.tv-acts .tv-input.small{height:38px}
+.tv-docs{display:grid;gap:6px;margin-top:10px;padding-top:10px;border-top:.5px solid var(--hairline)}
+.tv-doclist li{display:flex;align-items:center;gap:8px}
+.tv-doclink{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-weight:600;text-decoration:none;font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv-doclist small{color:var(--text3);font-size:11.5px;margin-left:auto}
+label.tv-btn{cursor:pointer;justify-self:start}
+.tv-leg.tv-anchor .tv-leg-text{color:var(--text2);font-style:italic}
+.tv-chipbtn{border:0;font:inherit;font-size:12.5px;cursor:pointer}
+.tv-chipbtn svg{opacity:.35}
+.tv-chipbtn.on{color:var(--text);background:color-mix(in srgb,var(--accent) 22%,transparent)}.tv-chipbtn.on svg{opacity:1}
+.tv-disc-head h2{margin:6px 0 2px;font-size:22px;letter-spacing:-.01em}
+.tv-disc-list{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.tv-place{display:flex;gap:12px;padding:12px;border-radius:16px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline);transition:transform var(--dur-2,240ms) var(--ease-snappy,ease),box-shadow var(--dur-2,240ms)}
+@media (hover:hover){.tv-place:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 .5px var(--hairline),0 10px 24px -12px rgba(0,0,0,.35)}}
+.tv-place-art{width:72px;height:72px;flex:none;border-radius:12px;object-fit:cover;background:rgba(120,120,128,.14)}
+.tv-place-main{display:grid;gap:3px;min-width:0;flex:1}
+.tv-place-main p{margin:2px 0;font-size:13px;color:var(--text2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tv-place-main small{font-size:11.5px;color:var(--text3)}
+.tv-place .tv-acts{margin-top:6px}
+.tv-addday{display:inline-flex;gap:6px;align-items:center}
+.tv-money-top{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:flex-start;margin:10px 0}
+.tv-big{display:block;font-size:30px;letter-spacing:-.02em;margin-top:2px}.tv-big.warn{color:#ff9f0a}
+.tv-people{flex:1;min-width:220px;max-width:440px;margin:0}
+.tv-people li{display:grid;grid-template-columns:1fr auto;gap:0 10px;align-items:baseline}
+.tv-people small{grid-row:2;color:var(--text3);font-size:11.5px}
+.tv-bal{grid-row:1/3;grid-column:2;font-size:13px;color:var(--text2);align-self:center}
+.tv-bal.pos{color:#30d158}.tv-bal.neg{color:#ff9f0a}
+.tv-settle{margin:4px 0 10px;padding:12px;border-radius:14px;background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.tv-settle li{font-size:14px}
+.tv-xform{display:grid;gap:8px;margin:12px 0;padding-top:12px;border-top:.5px solid var(--hairline)}
+.tv-xform>button{justify-self:start}
+.tv-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tv-row .tv-input.small{flex:1 1 120px}
+.tv-split{display:flex;flex-wrap:wrap;gap:4px 14px;border:0;margin:0;padding:0;font-size:13px}
+.tv-split label{display:inline-flex;gap:5px;align-items:center}
+.tv-split input{accent-color:var(--accent)}
+.tv-xlist li{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 2px;border-top:.5px solid var(--hairline)}
+.tv-xlist small{display:block;font-size:11.5px;color:var(--text3)}
+.tv-xamt{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}.tv-xamt small{display:inline;font-weight:400}
+.tv-guests{margin:6px 0}.tv-guests summary{cursor:pointer}
+.tv-guests .tv-row{margin-top:6px}
+.tv-chat{list-style:none;margin:10px 0;padding:0;display:grid;gap:8px;max-height:420px;overflow:auto}
+.tv-chat li{max-width:80%;justify-self:start;padding:8px 12px;border-radius:16px 16px 16px 6px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline);display:grid;gap:2px;font-size:14px;transition:box-shadow var(--dur-3,360ms)}
+.tv-chat li.mine{justify-self:end;border-radius:16px 16px 6px 16px;color:#fff;background:var(--accent)}
+.tv-chat li b{font-size:11.5px;opacity:.75}.tv-chat li small{font-size:10.5px;opacity:.6}
+.tv-chat li.flash{box-shadow:0 0 0 3px #d8b45a}
+.tv-decided{display:grid;gap:10px;margin:10px 0;padding:12px;border-radius:14px;background:rgba(216,180,90,.10);box-shadow:inset 0 0 0 .5px rgba(216,180,90,.45)}
+.tv-decided li{display:grid;gap:2px;font-size:14px}
+.tv-quote{justify-self:start;border:0;padding:0;background:none;font:inherit;font-size:12px;font-style:italic;color:var(--text2);cursor:pointer;text-align:left}
+.tv-quote:hover{color:var(--accent)}
+@container (max-width:600px){.tv-disc-list{grid-template-columns:1fr}.tv-day-acts{justify-content:flex-start}.tv-xlist li{grid-template-columns:1fr auto}.tv-xlist li .tv-x{grid-column:2}}
+@media (prefers-reduced-motion:no-preference){#travelPane.tv-enter .tv-place{animation:tv-fade var(--dur-3,360ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1)) both;animation-delay:calc(var(--i,0) * var(--stagger,40ms))}}
+
+/* ---------- planning by hand (travel-plan.js): the plan bar, its panels, a stop's edits, the printable itinerary ---------- */
+.tv-plan{padding:16px 18px;display:grid;gap:10px}
+.tv-plan .tv-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tv-plan .tv-x{color:var(--text2)}.tv-plan .tv-x:hover{background:rgba(120,120,128,.14);color:var(--text)}
+.tv-note.warn{color:#b3261e}:root[data-theme=dark] .tv-note.warn{color:#ff8a80}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .tv-note.warn{color:#ff8a80}}
+.tv-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 12px;align-items:end}
+.tv-fields>.wide,.tv-field.wide{grid-column:1/-1}
+.tv-field{display:grid;gap:4px;min-width:0;font-size:12px;font-weight:600;color:var(--text2)}
+.tv-field .tv-input{font-weight:400}
+.tv-field select.tv-input{appearance:auto;padding:0 10px;height:38px}
+.tv-field [aria-invalid="true"]{box-shadow:inset 0 0 0 2px #ff453a}
+.tv-amount{display:flex;gap:6px}.tv-amount .tv-input:first-child{flex:1;min-width:0}.tv-amount .tv-input.tiny{flex:none}
+.tv-check-row{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--text2)}
+.tv-check-row input{width:18px;height:18px;margin:1px 0 0;accent-color:var(--accent);flex:none}
+.tv-stoptools{margin-top:4px}
+.tv-moveto{display:inline-flex;gap:4px;align-items:center}.tv-moveto select{height:38px;min-height:38px}
+.tv-btn.danger{color:#d70015}:root[data-theme=dark] .tv-btn.danger{color:#ff8a80}
+.tv-stopform{margin-top:6px;padding:12px;border-radius:14px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tv-stopform textarea.tv-input{font-family:inherit;font-size:13.5px}
+.tv-found-row{grid-template-columns:1fr auto!important}
+.tv-found-row div{display:grid;gap:2px;min-width:0}.tv-found-row small{font-size:11.5px;color:var(--text3)}
+.tv-picked{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0;font-size:14px}
+.tv-packlist{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.tv-packlist label{display:flex;gap:10px;align-items:flex-start;padding:8px 4px;border-top:.5px solid var(--hairline);cursor:pointer;min-height:40px;box-sizing:border-box}
+.tv-packlist input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--accent);flex:none}
+.tv-packlist span{display:grid;gap:2px}.tv-packlist b{font-weight:600;font-size:14px}.tv-packlist small{font-size:12px;color:var(--text3)}
+.tv-packlist li.done b{color:var(--text3);text-decoration:line-through}
+@container (max-width:600px){
+  .tv-fields{grid-template-columns:1fr 1fr}.tv-fields>.tv-field.money{grid-column:1/-1}
+  .tv-bar .tv-newtrip{display:none} /* the bar has no room on a phone: Trip tools has it */
+}
+
+/* the printable itinerary: a paper sheet over the page; printed, only the sheet (the browser's Save as PDF makes the PDF) */
+.tv-print{position:fixed;inset:0;z-index:1000;overflow:auto;background:rgba(0,0,0,.45);padding:16px;box-sizing:border-box}
+.tv-print-bar{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;max-width:760px;margin:0 auto 12px;padding:10px 12px;border-radius:16px;background:var(--content);color:var(--text);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.tv-print-bar span{flex:1 1 200px;color:var(--text2)}
+.tv-print-sheet{max-width:760px;margin:0 auto;padding:36px 40px;box-sizing:border-box;background:#fff;color:#1d1d1f;border-radius:6px;font:14px/1.45 -apple-system,system-ui,"Segoe UI",sans-serif}
+.tv-print-sheet header{border-bottom:1px solid #d2d2d7;padding-bottom:12px;margin-bottom:8px}
+.tv-print-sheet h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
+.tv-print-sheet header p{margin:0;color:#515154}
+.tv-pr-day{break-inside:avoid-page;padding:14px 0 6px;border-bottom:1px solid #e8e8ed}
+.tv-pr-day h2{font-size:16px;margin:0 0 4px}.tv-pr-day h2 span{font-weight:400;color:#515154}
+.tv-pr-wx{margin:0 0 6px;font-size:12.5px;color:#515154}
+.tv-pr-stops{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.tv-pr-stops>li{break-inside:avoid;padding-left:62px;position:relative}
+.tv-pr-head{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.tv-pr-time{position:absolute;left:0;font-variant-numeric:tabular-nums}
+.tv-pr-meta,.tv-pr-addr{color:#515154;font-size:12.5px}
+.tv-pr-addr,.tv-pr-booked,.tv-pr-note{margin:1px 0}
+.tv-pr-booked{font-weight:600;font-size:12.5px}
+.tv-pr-note{font-style:italic;font-size:12.5px}
+.tv-pr-checks{list-style:none;margin:2px 0 0;padding:0;font-size:11.5px;color:#3a3a3c}
+.tv-pr-src{color:#6e6e73}
+.tv-pr-check.warn{color:#b3261e}
+.tv-print-sheet footer{margin-top:14px;font-size:11px;color:#6e6e73}
+@container (max-width:600px){.tv-print-sheet{padding:20px 16px}}
+@media (max-width:600px){.tv-print{padding:8px}.tv-print-sheet{padding:20px 16px}.tv-pr-stops>li{padding-left:52px}}
+@media print{
+  body.tv-printing>:not(.tv-print){display:none!important}
+  body.tv-printing{background:#fff!important;overflow:visible!important;height:auto!important}
+  .tv-print{position:static;overflow:visible;background:none;padding:0}
+  .tv-print-bar{display:none}
+  .tv-print-sheet{max-width:none;padding:0;border-radius:0;font-size:11.5pt}
+  @page{margin:16mm}
+}
+.tv-proof-row > .tv-wrong{order:9} /* "This was wrong" last in a proof row (travel-accuracy.js) */
+.tv-profile .tv-prof-block{margin-top:12px}.tv-profile h3{font-size:14px;margin:0 0 6px}
+
+/* ---------- the IA pass (2026-10-28): menus, sheets, still to decide, a stop's sections ---------- */
+/* menus (Trip tools, Add, the account): a solid glass popover anchored to its button, items with a line of help */
+.tv-menuwrap{position:relative;display:inline-flex}
+.tv-menubtn-chev{opacity:.6}
+.tv-menu{width:max-content;max-width:min(330px,calc(100cqw - 24px));max-height:min(70vh,560px);overflow:auto;padding:6px;color:var(--text);
+  /* near-solid: it opens over the photo, the bar (whose own blur can't reach past it) and the day's text */
+  background:color-mix(in srgb,var(--content) 94%,transparent);box-shadow:inset 0 1px 0 var(--rim),0 0 0 .5px var(--hairline),0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.22)}
+.tv-menu-head{padding:10px 12px 4px;font:600 10.5px/1.2 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+.tv-menu-head:first-child{padding-top:6px}
+.tv-menu-row{width:100%;min-height:40px;padding:6px 12px;border-radius:10px;color:var(--text)}
+.tv-menu-row .ic{flex:none;color:var(--text2)}
+.tv-menu-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.tv-menu-text small{font-size:12px;color:var(--text3);line-height:1.3}
+.tv-menu-tick{width:16px;flex:none;color:var(--accent)}
+.tv-menu-row:hover,.tv-menu-row:focus-visible{background:color-mix(in srgb,var(--accent) 12%,transparent);outline:none}
+.tv-menu-row:focus-visible{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 55%,transparent)}
+.tv-menubtn[aria-expanded="true"]{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.tv-bar .tv-menubtn[aria-expanded="true"]{background:rgba(255,255,255,.26)}
+.tv-addbtn{color:var(--accent)}
+/* a trip-wide panel from Trip tools (and the account's): its name, a close button, the same spacing */
+.tv-sheet{display:grid;gap:10px}
+.tv-sheet>.tv-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tv-sheet .tv-x{color:var(--text2)}.tv-sheet .tv-x:hover{background:rgba(120,120,128,.14);color:var(--text)}
+.tv-sheet h3{margin:4px 0 2px;font-size:15px;font-weight:600}
+.tv-sheet p{margin:0 0 8px;color:var(--text2);line-height:1.45;font-size:14px}
+.tv-share-part+.tv-share-part{padding-top:12px;border-top:.5px solid var(--hairline)}
+.tv-share-part code{font-size:12px;padding:3px 8px;border-radius:8px;background:rgba(120,120,128,.12);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv-share-part .tv-acts{margin:4px 0}
+.glass-card[tabindex="-1"]:focus{outline:none}
+.glass-card[tabindex="-1"]:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 50%,transparent);outline-offset:2px}
+/* still to decide: one line under Eden noticed that opens to the list */
+.tv-todo{grid-column:1/-1;border-top:.5px solid var(--hairline);padding-top:6px;margin-top:-8px}
+.tv-todo-only .tv-todo{border-top:0;padding-top:0;margin-top:0}
+.tv-todo-toggle{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:4px 2px;border:0;background:transparent;font:inherit;font-size:14px;font-weight:600;color:var(--text);text-align:left;cursor:pointer;border-radius:10px}
+.tv-todo-toggle>span:nth-child(2){flex:1}
+.tv-todo-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tv-todo-toggle[aria-expanded="true"] .tv-chev{transform:rotate(90deg)}
+.tv-todo-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;font-size:12px;font-weight:700;color:#fff;background:var(--accent);font-variant-numeric:tabular-nums}
+.tv-todo .tv-dec-list{margin-top:2px}
+.tv-todo .tv-dec-list li{font-size:13.5px;color:var(--text2)}
+.tv-todo .tv-dec-list li .tv-pill{flex:none}
+.tv-todo>.tv-acts{margin-top:4px}
+/* a stop opened: its actions, then its sections as a segmented control */
+.tv-detail{gap:10px}
+.tv-stopnote{font-style:italic}
+.tv-stopbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.tv-stoptabs{margin:0}
+.tv-stopacts{margin-left:auto}
+.tv-seg[aria-selected="true"]{color:var(--text);background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.tv-seg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tv-seg-dot{display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:#e6b800;vertical-align:middle}
+.tv-stoppanel{display:flex;flex-direction:column;gap:8px;min-height:40px}
+.tv-stoppanel>.tv-docs{margin-top:2px}
+.tv-chip.on{color:var(--text);background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.tv-day-acts .tv-menu{min-width:270px}
+@container (max-width:600px){
+  .tv-day-head{flex-direction:column;align-items:stretch}
+  .tv-day-acts{justify-content:flex-start}
+  .tv-stoptabs{flex:1 1 100%}.tv-stoptabs .tv-seg{flex:1;padding:0 8px}
+  .tv-stopacts{margin-left:0}
+  .tv-hero+.glass-card{margin-top:-24px}
+  .tv-hero.has-photo{padding-bottom:40px}.tv-hero.has-photo .tv-hero-credit{bottom:auto}
+}
+@container (max-width:420px){.tv-bar .tv-brand b{display:none}
+}
+@media (prefers-reduced-motion:no-preference){
+  /* a menu scales in from its button, once when it opens (never on a repaint while open) */
+  .tv-menu.tv-menu-in{transform-origin:100% 0;animation:tv-pop var(--dur-2,220ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both}
+  .tv-menu.left.tv-menu-in{transform-origin:0 0}
+  .tv-todo-toggle .tv-chev{transition:transform var(--dur-2,220ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1))}
+}
+/* a module's own card inside a Trip tools sheet: the sheet is the card and carries the title */
+.tv-sheet > .glass-card, .tv-sheet > section { background: none; border: 0; box-shadow: none; padding: 0; -webkit-backdrop-filter: none; backdrop-filter: none; margin: 0; }
+.tv-sheet > .glass-card > .tv-card-head:first-child, .tv-sheet > section > .tv-card-head:first-child { display: none; }
+
+/* ---- first run: plan a trip from one sentence (travel.js quickStart; also New trip on a trip) ---- */
+.tv-quick{width:100%;max-width:640px;margin-left:auto;margin-right:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:24px 24px 16px}
+.tv-quick.first{text-align:center;padding-top:28px}
+.tv-quick .tv-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:-4px}
+.tv-quick h2{margin:0;font-size:28px;font-weight:650;letter-spacing:-.01em;line-height:1.15;color:var(--text)}
+.tv-quick:not(.first){max-width:none} /* on a trip: as wide as the cards around it */
+.tv-quick:not(.first) h2{font-size:22px}
+.tv-quick:not(.first) .tv-quick-form{max-width:640px}
+.tv-quick-lede{margin:0;font-size:15px;line-height:1.5;color:var(--text2);max-width:52ch}
+.tv-quick.first .tv-quick-lede{margin:0 auto}
+.tv-quick-form{display:flex;gap:8px;align-items:center;margin-top:4px;padding:6px;border-radius:18px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline),0 1px 2px rgba(0,0,0,.05)}
+.tv-quick-form:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 45%,transparent)}
+.tv-quick-input{flex:1 1 auto;min-width:0;height:44px;border:0;background:transparent;padding:0 10px;font:inherit;font-size:17px;color:var(--text);text-align:left}
+.tv-quick-input:focus{outline:none} /* the whole field shows the focus ring (focus-within above) */
+.tv-quick-input::placeholder{color:var(--text3)}
+.tv-quick-form .tv-btn{height:44px;padding:0 18px;flex:none}
+.tv-quick-exs{display:flex;flex-wrap:wrap;gap:8px}
+.tv-quick.first .tv-quick-exs{justify-content:center}
+.tv-quick-ex{min-height:36px;padding:0 14px;border:0;border-radius:999px;font:inherit;font-size:13.5px;font-weight:500;color:var(--text);background:rgba(120,120,128,.12);cursor:pointer}
+.tv-quick-ex:hover{background:rgba(120,120,128,.2)}
+.tv-quick-ex:focus-visible,.tv-quick .tv-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tv-quick-busy p{margin:8px 0 0;font-size:13px;line-height:1.5;color:var(--text2)}
+.tv-quick-bar{height:3px;border-radius:2px;background:rgba(120,120,128,.18);overflow:hidden}
+.tv-quick-bar span{display:block;height:100%;width:8%;border-radius:2px;background:var(--accent)}
+.tv-quick-more{display:flex;flex-wrap:wrap;gap:2px;margin-top:4px;padding-top:10px;border-top:.5px solid var(--hairline)}
+.tv-quick.first .tv-quick-more{justify-content:center}
+.tv-quick-more .tv-btn{height:40px;padding:0 12px;font-size:13.5px;font-weight:550}
+.tv-loading{margin:28px auto;font-size:14px;color:var(--text3);text-align:center}
+@media (prefers-reduced-motion:no-preference){
+  /* the planner's minute or two: the bar fills once towards the end and rests there (it never loops) */
+  .tv-quick-bar span{animation:tv-quick-fill 100s cubic-bezier(.1,.6,.2,1) forwards}
+}
+@keyframes tv-quick-fill{from{width:4%}to{width:92%}}
+@media (max-width:640px){
+  .tv-quick{padding:20px 16px 12px}
+  .tv-quick h2{font-size:24px}
+  .tv-quick-lede{font-size:14.5px}
+  .tv-quick-input{font-size:16px} /* 16px: iOS doesn't zoom into the field */
+  .tv-quick-form .tv-btn{padding:0 14px}
+}
+/* ---- end first run ---- */
+
+/* ---------- the home (travel-home.js): trips first, never a bare planning box ---------- */
+.tvh-scroll{padding-top:76px} /* under the floating bar (.tv-bar, absolute, 64px) */
+.tvh{display:flex;flex-direction:column;gap:16px;max-width:980px;width:100%;margin:0 auto}
+.tvh-hi{font:700 30px/1.15 -apple-system,"SF Pro Display",system-ui,sans-serif;letter-spacing:-.02em;margin:8px 0 0}
+.tvh-sub{color:var(--text2);font-size:16px;margin:-8px 0 4px;max-width:640px}
+.tvh-h2{font:700 19px/1.2 -apple-system,"SF Pro Display",system-ui,sans-serif;letter-spacing:-.01em;margin:6px 0 0}
+.tvh-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.tvh-bring h2{font:600 21px/1.25 -apple-system,"SF Pro Display",system-ui,sans-serif;margin:6px 0 4px}
+.tvh-bring p{color:var(--text2);margin:0 0 14px}
+.tvh-bring .tv-acts{display:flex;gap:8px;flex-wrap:wrap}
+.tvh-starts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.tvh-start{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;font:inherit;color:var(--text);cursor:pointer;padding:16px}
+.tvh-start b{font-size:15px;margin-top:8px}.tvh-start span:last-child{color:var(--text2);font-size:13px}
+.tvh-ic{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
+.tvh-hero{position:relative;height:300px;border-radius:22px;overflow:hidden;background:linear-gradient(135deg,#0E2747,#2b5c9a);color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.14)}
+.tvh-hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tvh-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 30%,rgba(0,0,0,.66))}
+.tvh-hero .tv-hero-credit{position:absolute;top:10px;right:12px;z-index:1}
+.tvh-hero-on{position:absolute;left:20px;right:20px;bottom:18px;z-index:1}
+.tvh-hero-on h2{font:700 28px/1.1 -apple-system,"SF Pro Display",system-ui,sans-serif;letter-spacing:-.01em;margin:8px 0 10px;color:#fff}
+.tvh-chips{display:flex;gap:6px;flex-wrap:wrap}
+.tvh-chip{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.tvh-hero-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;opacity:.95}
+.tvh-nextup ol.tvh-stops{list-style:none;padding:0;margin:10px 0 14px;display:grid;gap:6px}
+.tvh-stops li{display:flex;gap:12px}.tvh-stops b{min-width:48px;font-variant-numeric:tabular-nums}
+.tvh-noticed ul{list-style:none;padding:0;margin:10px 0 0}
+.tvh-noticed li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--hairline)}
+.tvh-noticed li:first-child{border-top:0}
+.tvh-noticed li div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tvh-noticed li b{font-weight:600}.tvh-noticed li span{color:var(--text2);font-size:13px}
+.tv-link{border:0;background:none;color:var(--accent);font:inherit;font-size:14px;cursor:pointer}
+.tvh-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.tvh-tile{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:0 0 14px;overflow:hidden;text-align:left;font:inherit;color:var(--text);cursor:pointer}
+.tvh-tile b,.tvh-tile>span:last-child{padding:0 14px}
+.tvh-tile>span:last-child{color:var(--text2);font-size:13px}
+.tvh-tile-ph{display:block;width:100%;height:120px;background:linear-gradient(135deg,#0E2747,#3c6fb0);margin-bottom:10px}
+.tvh-tile-img{width:100%;height:100%;object-fit:cover;display:block}
+.tvh-new{justify-content:center;align-items:center;text-align:center;min-height:200px;border:1.5px dashed var(--hairline);border-radius:20px;background:transparent;padding:14px}
+.tvh-new b,.tvh-new>span:last-child{padding:0}
+.tvh-plus{color:var(--accent)}
+.tvh-past summary{cursor:pointer;color:var(--text2);font-weight:600;padding:6px 0 10px}
+.tvh-tile:focus-visible,.tvh-start:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+html.eden-motion .tvh-tile,html.eden-motion .tvh-start{transition:translate var(--dur-2,220ms) var(--ease-snappy,ease),scale var(--dur-1,120ms) var(--ease-snappy,ease)}
+@media (prefers-reduced-motion:no-preference){html.eden-motion .tvh-tile:hover,html.eden-motion .tvh-start:hover{translate:0 -2px}}
+html.eden-motion .tvh-tile:active,html.eden-motion .tvh-start:active{scale:.98}
+@media (max-width:900px){.tvh-starts{grid-template-columns:1fr 1fr}.tvh-grid{grid-template-columns:1fr 1fr}.tvh-hero{height:240px}}
+@media (max-width:560px){.tvh-starts,.tvh-grid{grid-template-columns:1fr}.tvh-hi{font-size:26px}}
+.tvh-hero .tv-hero-credit{background:rgba(0,0,0,.42);color:#fff;padding:2px 7px;border-radius:6px;font-size:10.5px;max-width:70%;line-height:1.35}
+/* the home's entrance (once per visit: travel.js sets .tv-enter when the screen changes): the sections rise one after another */
+@media (prefers-reduced-motion:no-preference){
+  #travelPane.tv-enter .tvh>*{animation:tv-rise var(--dur-4,520ms) var(--ease-smooth,cubic-bezier(.32,.72,0,1)) both}
+  #travelPane.tv-enter .tvh>:nth-child(2){animation-delay:40ms}#travelPane.tv-enter .tvh>:nth-child(3){animation-delay:90ms}
+  #travelPane.tv-enter .tvh>:nth-child(4){animation-delay:140ms}#travelPane.tv-enter .tvh>:nth-child(5){animation-delay:190ms}
+  #travelPane.tv-enter .tvh>:nth-child(n+6){animation-delay:240ms}
+  #travelPane.tv-enter .tvh-grid>*,#travelPane.tv-enter .tvh-starts>*{animation:tv-rise var(--dur-3,360ms) var(--ease-snappy,cubic-bezier(.2,.9,.25,1)) both;animation-delay:280ms}
+  #travelPane.tv-enter .tvh-grid>:nth-child(2),#travelPane.tv-enter .tvh-starts>:nth-child(2){animation-delay:315ms}
+  #travelPane.tv-enter .tvh-grid>:nth-child(3),#travelPane.tv-enter .tvh-starts>:nth-child(3){animation-delay:350ms}
+  #travelPane.tv-enter .tvh-grid>:nth-child(n+4),#travelPane.tv-enter .tvh-starts>:nth-child(n+4){animation-delay:385ms}
+  .tvh-hero-img.tv-kb{animation:tv-kb 18s ease-out 1 forwards}
+  .tvh-hero-img:not(.tv-kb){transform:scale(1.08) translateY(-1.5%)} /* where the slow zoom rests: a later repaint doesn't jump */
+  .tvh-tile-img{transition:transform .9s var(--ease-smooth,cubic-bezier(.32,.72,0,1))}.tvh-tile:hover .tvh-tile-img{transform:scale(1.05)}
+}
+/* a Lisbon sample stop left in another trip: why it should be replaced, under its name (travel.js replaceButton) */
+.tv-replace-why{color:#b25f00;white-space:normal}
+@media (prefers-color-scheme:dark){.tv-replace-why{color:#ff9f0a}}
+.tv-pill.tv-replace{background:var(--accent,#0a84ff);color:#fff}
+
+/* ---------- the new design (owner, 2026-10-29; mock: research_notes/travel/day-view-mock) ----------
+   Four views (Today, Plan, Map, Discover) with their names always shown; Group in the bar; Ask Eden a floating button
+   while its panel is closed; the trip's own name in a shorter header; a calm timeline (a checked stop is a green tick,
+   only what needs the person keeps a coloured pill); the page in one centred column. */
+.tv-tab .tv-tab-long{display:inline}
+@container (max-width:600px){.tv-tab .tv-tab-long{display:inline}.tv-groupbtn .tv-tab-long{display:none}}
+.tv-groupbtn.on{background:rgba(255,255,255,.22)}
+.tv-scroll>*{width:100%;max-width:1240px;margin-left:auto;margin-right:auto}
+.tv-scroll>.tv-hero{max-width:none}
+.tv-hero{min-height:220px}
+.tv-hero h1{font-size:clamp(28px,3.4vw,40px)}
+.tv-hero-sub{font-size:15px}
+.tv-hero .tv-chip{height:24px;font-size:11.5px}
+/* Ask Eden: the bar's button while the panel is open (to close it), the floating one while it's closed */
+.tv-askfab{display:none}
+@container (min-width:601px){
+  body.travel-chat-hidden .tv-askfab{display:inline-flex;align-items:center;gap:8px;position:absolute;right:24px;bottom:24px;z-index:7;height:46px;padding:0 20px;border:0;border-radius:999px;
+    font:inherit;font-size:14px;font-weight:600;color:var(--bg,#fff);background:var(--text,#1d1d1f);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12),0 24px 64px rgba(0,0,0,.16)}
+  body.travel-chat-hidden .tv-askbtn{display:none}
+}
+/* Plan: Day or All days */
+.tv-seg2{display:inline-flex;gap:2px;padding:3px;border-radius:10px;background:rgba(120,120,128,.12);width:auto!important;margin-left:0!important;align-self:flex-start}
+.tv-scroll>.tv-seg2{max-width:none}
+.tv-seg2 button{height:30px;padding:0 14px;border:0;border-radius:8px;font:inherit;font-size:13px;font-weight:550;color:var(--text2);background:transparent;cursor:pointer}
+.tv-seg2 button[aria-pressed="true"]{background:var(--content,#fff);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+@supports (width:max(1px,2px)){.tv-scroll>.tv-seg2{margin-left:max(0px,calc((100% - 1240px) / 2))!important}}
+/* a calm timeline: a checked stop is a tick, the word only for screen readers; what needs looking at keeps its pill */
+.tv-stop .tv-eves.ok{width:26px;padding:0;justify-content:center;background:transparent;font-size:0;gap:0}
+.tv-stop .tv-eves.ok i{width:16px;height:16px;border-radius:50%;background:transparent;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;background-color:#30d158}
+.tv-day>.tv-fine{display:none} /* the pills' legend: the tick says it, and each pill opens its proof */
+/* Today: the next stop and the day's map; beside them the rest of the day, what needs you, the weather */
+.tv-today{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:stretch}
+.tv-today-main,.tv-today-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.tv-today-side>:last-child{flex:1}
+.tv-today-map .tv-mapimg{border-radius:20px;overflow:hidden}
+.tv-later h3,.tv-wx h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--text2)}
+.tv-wx h3 small{font-weight:400;color:var(--text3)}
+.tv-later ol,.tv-wx-hours{list-style:none;margin:0;padding:0}
+.tv-later li{display:grid;grid-template-columns:52px 1fr;gap:4px 0;padding:9px 0;border-top:1px solid var(--hairline);font-size:14px}
+.tv-later li:first-child{border-top:0}
+.tv-later li b{font-variant-numeric:tabular-nums}
+.tv-later li small{color:var(--text3)}
+.tv-later li .tv-replace-why{grid-column:2}
+.tv-wx-day{margin:0 0 10px;font-size:14px}.tv-wx-day b{font-size:22px;font-weight:600;margin-right:4px}
+.tv-wx-hours{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:4px;padding-top:10px;border-top:1px solid var(--hairline)}
+.tv-wx-hours li{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px}
+.tv-wx-hours span{color:var(--text3);font-variant-numeric:tabular-nums}.tv-wx-hours b{font-size:13.5px}.tv-wx-hours small{color:#1f7ae0;font-size:11px}
+@container (max-width:900px){.tv-today{grid-template-columns:1fr}}
+/* under the header, the views need no room for the floating bar (that was for views that started at the top) */
+.tv-hero~.tv-board,.tv-hero~.tv-explorer,.tv-hero~.tv-first,.tv-hero~.tv-today .tv-companion:first-child{margin-top:0!important;padding-top:4px!important}
+.tv-hero~.tv-board{padding-top:0!important}
+/* the days as compact tabs, not stretched across the card */
+.tv-daytabs{grid-auto-columns:max-content;justify-content:start}
+.tv-daytab{padding:7px 16px}
+/* a checked stop on All days: a tick, like the day */
+.tv-col .tv-eves.ok{width:20px;padding:0;justify-content:center;background:transparent;font-size:0;gap:0}
+.tv-col .tv-eves.ok i{width:14px;height:14px;border-radius:0;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;background-color:#30d158}
+/* Group: its name beside the icon on a wide pane (the account button has the same icon) */
+@container (min-width:601px){.tv-groupbtn .tv-tab-long{display:inline}}
+/* a phone: a shorter header, the next stop without its big picture, the cards tighter */
+@container (max-width:600px){
+  .tv-hero{min-height:0;padding-bottom:18px}
+  .tv-hero h1{font-size:26px}
+  .tv-hero-sub{font-size:13.5px}
+  .tv-today .tv-next-art{display:none!important}
+  .tv-today .tv-next{display:block!important}
+  .tv-hero-chips{display:none}
+  .tv-hero{padding-top:72px}
+  .tv-today .tv-companion h2{font-size:22px}
+  .tv-today-side>:last-child{flex:none}
+  .tv-today,.tv-today-main,.tv-today-side{gap:12px}
+  .tv-seg2{margin-left:0!important}
+}
+/* New trip in the bar on every screen; on a phone a "+" (owner, 2026-10-29: "why is it so hard to create a new trip") */
+@container (max-width:600px){
+  .tv-bar .tv-newtrip{display:inline-flex;width:36px;min-width:36px;padding:0;justify-content:center}
+  .tv-bar .tv-newtrip .tv-newtrip-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+}
+/* a map pin is a button; its stop's card opens at the pin (travel.js pinCard) */
+.tv-pin{cursor:pointer;outline:none}
+.tv-pin:focus-visible circle{stroke:#0a84ff;stroke-width:4}
+.tv-pin:hover circle{filter:brightness(1.08)}
+.tv-pincard{position:absolute;z-index:4;width:min(300px,calc(100% - 16px));padding:14px;border-radius:14px;background:var(--content,#fff);color:var(--text);
+  box-shadow:0 2px 6px rgba(0,0,0,.12),0 24px 64px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:8px;font-size:13px}
+.tv-pincard-x{position:absolute;top:8px;right:8px}
+.tv-pincard-head{display:flex;gap:10px;align-items:center;padding-right:28px}
+.tv-pincard-head b{display:block;font-size:15px;font-weight:600;line-height:1.25}
+.tv-pincard-head small{color:var(--text2)}
+.tv-pincard-art{width:52px;height:52px;border-radius:10px;flex:none;object-fit:cover;display:grid;place-items:center}
+.tv-pincard-line{margin:0;display:flex;gap:7px;align-items:flex-start;color:var(--text2);line-height:1.4}
+.tv-pincard-line i{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:none;background:var(--text3)}
+.tv-pincard-line.ok i{background:#30d158}.tv-pincard-line.look i{background:#e6b800}.tv-pincard-line.warn i{background:#ff453a}
+.tv-pincard .tv-acts{display:flex;gap:8px;margin-top:2px}
+@media (prefers-reduced-motion:no-preference){.tv-pincard{animation:tvPinIn .2s cubic-bezier(.32,.72,0,1)}}
+@keyframes tvPinIn{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+/* inside the map, but not the map's picture: its photo and icons keep their own size */
+.tv-mapimg .tv-pincard img,.tv-mapimg .tv-pincard svg{position:static;inset:auto;width:auto;height:auto;object-fit:cover}
+.tv-mapimg .tv-pincard img.tv-pincard-art,.tv-mapimg .tv-pincard .tv-pincard-art{width:52px;height:52px}
+.tv-mapimg .tv-pincard .tv-pincard-art svg{width:24px;height:24px}
+.tv-mapimg .tv-pincard .tv-pincard-x{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:rgba(120,120,128,.14);color:var(--text2)}
+.tv-mapimg .tv-pincard .tv-pincard-x svg{width:12px;height:12px}

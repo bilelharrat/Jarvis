@@ -22,7 +22,7 @@
 // meta has no `hosted`. ?mock=1 answers it from mock.js.
 
 import { $, el, svgEl, ico, toast, store, retryWait } from './util.js';
-import { state, ui, deleteConversation, claimChats, forgetOwner, ACCOUNT_HOST } from './state.js';
+import { state, ui, deleteConversation, claimChats, forgetOwner, setBilelAccount, ACCOUNT_HOST } from './state.js';
 import { rawFetch, isMock } from './api.js';
 import { setActing } from './acting.js';
 import * as Sync from './sync.js';
@@ -30,7 +30,7 @@ import * as Cloud from './cloud-sync.js';
 import { passphraseProblem, suggestPassphrase, verifyCode } from './eden-crypto.js';
 import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
-import { IN_APP, IN_ANDROID, appPlus, appSellsPlus, onAppPlus } from './native.js';
+import { IN_APP_SHELL as IN_APP, IN_ANDROID, appPlus, appSellsPlus, onAppPlus } from './native.js';
 import { setPlanOffer } from './plan.js';
 import { locale, t, tr, isFr } from './i18n.js';
 // Included AI is shown as a share left, never in dollars.
@@ -97,6 +97,7 @@ async function load() {
   if (res.status === 401) { location.replace(HOME()); return { error: 'Signed out.' }; }
   if (!res.ok) return { error: (await read(res)).error || `askeden.com said ${res.status}.`, status: res.status };
   const account = await read(res);
+  if (setBilelAccount(account)) ui.render();
   let config = {};
   try { const c = await call('/api/web/config'); if (c.ok) config = await read(c); } catch { /* no Add buttons then */ }
   return { account, config };
@@ -1194,7 +1195,9 @@ export async function initAccount(handlers = {}) {
   enableWorkflowSharing(); // Workflows › Share to a space… (spaces.js)
   const me = await read(res);
   // This browser's chats are this account's; another account's (signed in here before) are put away, never synced into this one (state.js).
+  const bilelChanged = setBilelAccount(me);
   if (!isMock && claimChats(me.account_id)) { ui.renderSidebar(); ui.render(); }
+  else if (bilelChanged) ui.render();
   // What the page assumed at load (acting.js keeps it between loads) against what's true now.
   if (setActing(me.acting || null)) acted();
   // Acting for someone: say so everywhere, and start a space's chats at its router level.

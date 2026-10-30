@@ -433,7 +433,7 @@ export async function startOver() {
 
 /** Signing out: nothing of this account's keys is left in this browser (nor whose chats the next page shows first). */
 export async function forgetAllKeys() {
-  forgetOwner();
+  await forgetOwner(); // (with Eden Travel's caches, before the page leaves)
   stop();
   if (!account) return;
   const d = await db().catch(() => null);

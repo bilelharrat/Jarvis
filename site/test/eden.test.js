@@ -10,6 +10,7 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { bytesToB64, parseToken } from '../src/accounts/util.js';
+import { EDEN_TURNS } from '../src/accounts/account.js';
 import { DECK_REPLY_TOKENS, DEFAULTS, effortsFor, hostedConfig, searchTool } from '../src/eden/chat.js';
 import { EDEN_FILES } from '../src/eden/manifest.js';
 import { forgetSessions } from '../src/eden/session.js';
@@ -637,7 +638,7 @@ test('no allowance left: refused before anything is sent; little left: the reply
   assert.ok(!calls.some((c) => c.url.includes('anthropic')), 'nothing went to Anthropic');
 });
 
-test('turns at once hold their worst case on the allowance: at most two, and never past what is left', async () => {
+test('turns at once hold their worst case on the allowance: at most EDEN_TURNS (10, the owner\u2019s call on 2026-10-24), and never past what is left', async () => {
   const owner = await phone();
   const value = await signedInBrowser(owner);
   const streams = [];
@@ -647,21 +648,22 @@ test('turns at once hold their worst case on the allowance: at most two, and nev
     return new Response(held, { headers: { 'content-type': 'text/event-stream' } });
   };
   const pinned = { override: { model: 'claude-sonnet-5-5', effort: 'low' } };
-  const one = await turn(value, pinned, { raw: true });
-  const two = await turn(value, pinned, { raw: true });
-  assert.equal(one.status, 200);
-  assert.equal(two.status, 200);
+  const open = [];
   const account = env.ACCOUNTS.objects.get(owner.account.id);
   try {
-    assert.equal(account.holds.size, 2);
+    for (let i = 0; i < EDEN_TURNS; i++) open.push(await turn(value, pinned, { raw: true }));
+    assert.deepEqual(open.map((r) => r.status), open.map(() => 200));
+    assert.equal(account.holds.size, EDEN_TURNS);
     const worst = [...account.holds.values()].map((h) => h.usd);
     assert.ok(worst.every((usd) => usd > 0));
-    assert.equal((await account.allowAi()).left, Math.round((1 - worst[0] - worst[1]) * 1e6) / 1e6, 'what the two may still cost is set aside');
-    const three = await turn(value, pinned, { raw: true });
-    assert.equal(three.status, 429);
+    const held = worst.reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs((await account.allowAi()).left - (1 - held)) < 1e-5, 'what the turns may still cost is set aside');
+    const extra = await turn(value, pinned, { raw: true });
+    if (extra.status === 200) await extra.body.cancel();
+    assert.equal(extra.status, 429);
   } finally {
     // Done (here: stopped), they let go.
-    for (const r of [one, two]) await r.body.cancel();
+    for (const r of open) if (r.status === 200) await r.body.cancel();
     await settle();
   }
   assert.equal(account.holds.size, 0);

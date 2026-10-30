@@ -33,6 +33,7 @@ function makeEnv(extra = {}) {
     AUTH_RATE: rateLimiter(),
     LINK_RATE: rateLimiter(),
     EDEN_RATE: rateLimiter(),
+    USER_RATE: rateLimiter(),
     ...extra,
   };
   e.ACCOUNTS = namespace(Account, e);
@@ -629,13 +630,13 @@ test('AUTH_RATE: sign-in starts and callbacks per network, and new accounts per 
   assert.equal(native.headers.get('retry-after'), '60');
 });
 
-test('EDEN_RATE caps chat turns per account; LINK_RATE covers code starts, polls and lookups', async () => {
+test('USER_RATE caps chat turns per account (a ceiling against scripts); LINK_RATE covers code starts, polls and lookups', async () => {
   const owner = await phone('apple-rate');
   const web = await appleFlow({ sub: 'apple-rate' });
-  env.EDEN_RATE.max = 0;
+  env.USER_RATE.max = 0;
   const send = await hit('/api/chat/send', { method: 'POST', session: web.session, headers: { 'x-jarvis-chat': '1' }, body: { messages: [{ role: 'user', content: 'hi' }] } });
   assert.equal(send.status, 429);
-  assert.deepEqual(env.EDEN_RATE.keys, [`turn:${owner.account.id}`]);
+  assert.deepEqual(env.USER_RATE.keys, [`turn:${owner.account.id}`]);
   const start = await hit('/api/web/link', { method: 'POST', body: {}, ip: '192.0.2.5' });
   const { code } = await start.json();
   await hit('/api/web/link/poll', { method: 'POST', body: {}, headers: { cookie: `__Host-eden-link=${cookieValue(start, '__Host-eden-link')}` } });

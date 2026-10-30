@@ -162,7 +162,7 @@ const claimOf = (token) => subHashOf('googleplay', token);
 // ── POST /api/web/billing/google (eden/billing.js sends it here) ──
 
 export async function playPurchase(request, env, who) {
-  await limited(env, 'EDEN_RATE', `play:${who.account}`);
+  await limited(env, 'USER_RATE', `play:${who.account}`);
   const body = await readJson(request, 8 * 1024);
   const token = String(body.purchase_token || '');
   if (!PLAY_TOKEN.test(token)) throw new ApiError(400, 'bad_purchase', 'No purchase token.');

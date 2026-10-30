@@ -44,6 +44,16 @@
     </button>
   </div>
 
+  <!-- The shared test account (TEST_LOGIN, src/accounts/test-login.js): only when /api/web/config says test_login, never in the Eden app -->
+  <form class="testlogin" id="testLogin" hidden novalidate>
+    <p class="testlogin-title">Testing Eden? Sign in to the shared test account.</p>
+    <label for="testEmail">Email</label>
+    <input type="email" id="testEmail" name="email" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="email">
+    <label for="testPassword">Password</label>
+    <input type="password" id="testPassword" name="password" autocomplete="off">
+    <button type="submit" class="button" id="testSubmit">Sign in to the test account</button>
+  </form>
+
   <!-- Cloudflare Turnstile (only when /api/web/config gives a site key): a new account needs it passed -->
   <div class="human" id="human" hidden></div>
   <p class="newpk" id="newPasskey" hidden>New here? <button type="button" class="textlink" id="passkeyNew">Create an account with a passkey</button></p>

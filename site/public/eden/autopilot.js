@@ -80,6 +80,7 @@ function openTagMenu(anchor, st) {
   const items = [{ heading: st.stage >= 3 ? 'Budget reached' : 'Saving for the month' }, { foot: autopilotWhy(st, { when: renewWords(st) }) }, '-'];
   if (skip) items.push({ icon: 'router', label: 'Let the autopilot route', note: `${st.what} again`, run: () => { skip = false; afterChange(); } });
   else items.push({ icon: 'up', label: 'Use my level this time', note: `Level ${state.settings.level} for the next message only`, run: () => { skip = true; afterChange(); } });
+  items.push({ label: 'API Keys & Spend Dashboard…', note: 'Manage default & backup keys, monthly spend & routing', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })) });
   items.push({ label: 'Budget and spend…', note: hosted() ? 'Your included AI this month' : 'Settings › Routing', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 3 } })) });
   items.push({ foot: 'Claude through your subscription is quota, not dollars: it never counts toward the budget.' });
   if (menuH) menuH.openMenu(anchor, items);
@@ -132,8 +133,14 @@ export function monthView({ compact = false } = {}) {
     kids.push(el('div', 'ap-sub', hosted() ? 'Your included AI isn’t known yet.' : 'No monthly budget: the autopilot is off. Set one in Settings › Routing.'));
   }
   const sv = monthSavings();
+  const cacheSaved = typeof s.cacheSavedUSD === 'number' && s.cacheSavedUSD > 0 ? s.cacheSavedUSD : 0;
+  const totalSaved = Math.max(0, (sv && sv.usd ? sv.usd : 0)) + cacheSaved;
+  const wouldHaveCost = typeof s.wouldHaveCostUSD === 'number' && s.wouldHaveCostUSD > spent ? s.wouldHaveCostUSD : spent + totalSaved;
   if (sv && sv.turns) kids.push(el('div', 'ap-row ap-saved', el('span', '', `Saved vs always-${String(sv.modelName || 'Opus').replace(/^Claude /, '').replace(/ [\d.]+$/, '')} this month`), el('b', '', hosted() ? pctOf(sv.usd / Math.max(1e-9, spent + Math.max(0, sv.usd))) : sv.usd >= 0 ? usd(sv.usd) : `−${usd(-sv.usd)}`)));
-  if (sv && sv.turns && !compact && !hosted()) kids.push(el('div', 'ap-sub', `${sv.turns} repl${sv.turns === 1 ? 'y' : 'ies'} billed in dollars, against ${sv.modelName || 'Claude Opus'}’s price for the same tokens.`));
+  if (!hosted() && (totalSaved > 0 || cacheSaved > 0)) {
+    kids.push(el('div', 'ap-row ap-saved', el('span', '', 'Actual vs Would-Have-Cost (routing + caching)'), el('b', '', `${usd(spent)} vs ${usd(wouldHaveCost)} (−${usd(totalSaved)})`)));
+  }
+  if (sv && sv.turns && !compact && !hosted()) kids.push(el('div', 'ap-sub', `${sv.turns} repl${sv.turns === 1 ? 'y' : 'ies'} billed in dollars, against ${sv.modelName || 'Claude Opus'}’s price for the same tokens${cacheSaved > 0 ? ` · ${usd(cacheSaved)} saved via explicit context caching` : ''}.`));
   if (s.notionalCalls) kids.push(el('div', 'ap-sub', `Claude on your subscription: ${s.notionalCalls} repl${s.notionalCalls === 1 ? 'y' : 'ies'} ${hosted() ? '' : `(${usd(s.notionalUSD)} at API prices) `}counted as quota, not dollars.`));
   if (!compact && Array.isArray(s.byModel) && s.byModel.length) {
     const rows = s.byModel.filter((r) => r.usd > 0).slice(0, 4);
@@ -159,6 +166,7 @@ function fillPop(p) {
     el('div', 'cp-t', 'This chat'), el('div', 'ap-row', el('span', '', `Context window ${ctx}`), el('b', '', cost)),
     el('div', 'cp-t ap-t2', 'This month'), ...monthView({ compact: true }),
     ...planRows(() => closePop()),
+    el('button', { type: 'button', class: 'cp-link', onclick: () => { closePop(); dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })); } }, 'API Keys & Spend Dashboard →'),
     el('button', { type: 'button', class: 'cp-link', onclick: () => { closePop(); dispatchEvent(new CustomEvent('eden:open-inspector', { detail: { tab: 'Route' } })); } }, 'Open Route console →'));
 }
 function openPop() {
@@ -219,9 +227,20 @@ export function autopilotSettings() {
     } catch (e) { toast(`Couldn’t save the budget: ${e.message}`); }
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+  const costSaverSw = el('input', { type: 'checkbox', checked: !status || status.costSaver !== false });
+  costSaverSw.addEventListener('change', async () => {
+    try {
+      status = await postJSON('/api/chat/spend', { costSaver: costSaverSw.checked });
+      toast(status.costSaver !== false ? 'Cost-Saver Engine enabled (default: 0% quality loss)' : 'Switched to Legacy Uncached Engine');
+      paint();
+      body.replaceChildren(...monthView());
+    } catch (e) { toast(`Couldn’t update engine mode: ${e.message}`); }
+  });
   const body = el('div', 'ap-set-body', ...monthView());
   sec.append(
     el('div', 'icard',
+      el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Cost-Saver Engine (default)'), el('div', 'p-c', 'Explicit context + rolling history caching on Gemini 4 Argon (90% off cached input tokens, 0% quality loss). Turn off to revert to the legacy uncached engine.')),
+        el('label', 'switch', costSaverSw, el('span', 'tr'))),
       el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Monthly budget ($)'), el('div', 'p-c', 'Across your API-key providers. Claude through your subscription counts as quota, not dollars.')),
         el('div', 'ap-budget', input, el('button', { type: 'button', class: 'cap primary', onclick: save }, 'Save'))),
       body),

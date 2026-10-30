@@ -2349,11 +2349,13 @@
     "Too many requests",
     "Too many connections",
     "wait a minute",
+    "Eden is already writing 10 replies",
     "Eden is already writing 2 replies",
     "Trop de tentatives",
     "Trop de requêtes",
     "Trop de connexions",
     "patientez une minute",
+    "Eden rédige déjà 10 réponses",
     "Eden rédige déjà 2 réponses"
    ]
   },

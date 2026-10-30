@@ -110,7 +110,7 @@ function renderChat() {
   win.replaceChildren(html(`<div class="dk-wh"><b>Chat</b><span class="dk-sp"></span><button type="button" class="dk-x" aria-label="Close">${ic('x', 18)}</button></div>`));
   on_(win.querySelector('.dk-x'), () => show('files'));
   const body = el('div', 'dk-cb'); win.append(body);
-  park($('split'), body); park($('drawer'), body);
+  park($('sv-stage') || $('split'), body); park($('drawer'), body);
 }
 
 function show(v) {
@@ -120,7 +120,7 @@ function show(v) {
   $('dkTitle').textContent = 'Files';
   if (v === 'files') { unparkWindow(); renderFiles(); } else renderChat();
 }
-function unparkWindow() { for (const n of [$('drawer'), $('split')]) { const k = parked.findIndex((p) => p[0] === n); if (k >= 0) { const [nd, p, nx] = parked.splice(k, 1)[0]; p.insertBefore(nd, nx && nx.parentNode === p ? nx : null); } } }
+function unparkWindow() { for (const n of [$('drawer'), $('sv-stage'), $('split')]) { const k = parked.findIndex((p) => p[0] === n); if (k >= 0) { const [nd, p, nx] = parked.splice(k, 1)[0]; p.insertBefore(nd, nx && nx.parentNode === p ? nx : null); } } }
 
 function fill() { // the sidebar, top bar and composer: real parts in the mock-up's frame
   const sc = $('dkScroll');
@@ -147,20 +147,24 @@ function fit() {
   stage.style.cssText = `zoom:${z};width:${innerWidth / z}px;height:${innerHeight / z}px`;
 }
 
-export function layout() { return on ? 'desk' : 'classic'; }
+export function layout() { return 'classic'; }
 export function setLayout(l, { save = true } = {}) {
-  if (!wired()) return;
-  const want = l === 'desk' && innerWidth >= MIN_W;
-  if (want === on) return;
-  on = want; root.hidden = !on; document.documentElement.dataset.layout = on ? 'desk' : 'classic';
-  if (save) { state.settings.layout = l; saveSettings(); }
-  if (on) { fit(); tick(); fill(); show(state.current && Object.keys(state.current.nodes || {}).length ? 'chat' : 'files'); }
-  else { stage.classList.remove('dk-live'); unpark(); }
+  // Desktop layout disabled permanently
+  if (save && state.settings.layout) { delete state.settings.layout; saveSettings(); }
+  if (on) {
+    on = false;
+    if (root) root.hidden = true;
+    document.documentElement.dataset.layout = 'classic';
+    if (stage) stage.classList.remove('dk-live');
+    unpark();
+  }
 }
 
 export function initDesk(hooks) {
-  H = hooks; build();
-  addEventListener('resize', fit); addEventListener('eden:desk-ask', (e) => showAsk(e.detail));
-  setInterval(() => { if (on) { tick(); const s = $('jarvisStateText'), d = $('dkState'); if (s && d && s.textContent) d.textContent = s.textContent; } }, 5000);
-  setLayout(state.settings.layout === 'desk' ? 'desk' : 'classic', { save: false });
+  // Desktop layout retired: ensure state is reset to classic
+  if (state.settings.layout === 'desk') {
+    delete state.settings.layout;
+    saveSettings();
+  }
+  document.documentElement.dataset.layout = 'classic';
 }

@@ -6,7 +6,7 @@
 // nothing here goes to Stripe by itself. account.js calls setPlanOffer once it knows the account.
 
 import { $, el, ico } from './util.js';
-import { IN_APP, appSellsPlus } from './native.js';
+import { IN_APP_SHELL as IN_APP, appSellsPlus } from './native.js';
 import { planOffer, isLimitError } from './plan-model.js';
 import { isFr } from './i18n.js'; // 'Plan' and 'Upgrade' are also a Code mode and a model menu item: said here in French directly
 

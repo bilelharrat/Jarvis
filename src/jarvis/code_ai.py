@@ -22,6 +22,25 @@ is told, and nothing is called):
                                tool-less turn on at most 24,000 characters of the branch's
                                diff, its commit subjects and the session's last reply
                                                                            30 a day
+  spec_check       Haiku 4.5   after a Spec mode task's turn, for the acceptance criteria
+                               no test named after them answered: one tool-less turn on at
+                               most 24,000 characters of the task's diff, its criteria and
+                               the tests' outcome (features/code_spec.py)  40 a day
+  assume_risk      Haiku 4.5   only with code_assume_model on (off by default): a guess a
+                               session made instead of asking, that the word rules rate
+                               low or medium; one tool-less turn on at most 2,000
+                               characters of its question, answer and evidence
+                               (features/code_assumptions.py)             100 a day
+  guardrail        Haiku 4.5   when the owner presses Suggest on one of their rules that
+                               the guardrails compiler couldn't turn into a check: one
+                               tool-less turn on that rule's words (features/
+                               code_guardrails.py); it holds only once they confirm it
+                                                                           30 a day
+  delegate_easy    Haiku 4.5   only with code_delegate_model on (off by default): a to-do
+                               card the word rules rate easy, before Eden starts it
+                               without the owner; one tool-less turn on at most 2,000
+                               characters of its title and prompt; it can only say no
+                               (features/code_delegate.py)                 20 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -42,13 +61,24 @@ from .prefs import MODELS
 
 log = logging.getLogger("jarvis")
 
-# kind -> (model key in prefs.MODELS, calls a day)
+# kind -> (model key in GEMINI_MODELS / prefs.MODELS, calls a day)
+GEMINI_MODELS: dict[str, str] = {
+    "haiku": "gemini-3.8-flash",
+    "flash": "gemini-3.8-flash",
+    "sonnet": "gemini-4-argon",
+    "argon": "gemini-4-argon",
+}
 POLICY: dict[str, tuple[str, int]] = {
     "commit_message": ("haiku", 60),
     "review": ("sonnet", 20),
     "deep_review": ("sonnet", 5),
     "judge": ("haiku", 20),
+    "merge": ("haiku", 10),  # best of N's "Merge best parts" (features/code_bestof.py)
     "pr_draft": ("haiku", 30),
+    "spec_check": ("haiku", 40),
+    "assume_risk": ("haiku", 100),  # features/code_assumptions.py, only when the owner turns it on
+    "guardrail": ("haiku", 30),  # Suggest on a rule (features/code_guardrails.py)
+    "delegate_easy": ("haiku", 20),  # features/code_delegate.py, only when the owner turns it on
 }
 CALL_SECONDS = 90.0
 
@@ -118,7 +148,8 @@ def budget_for(hub: Any) -> Budget:
 
 
 def model_for(kind: str) -> str:
-    return MODELS[POLICY[kind][0]]
+    key = POLICY[kind][0]
+    return GEMINI_MODELS.get(key, MODELS.get(key, "gemini-3.8-flash"))
 
 
 async def call(prompt: str, **kw: Any) -> str:

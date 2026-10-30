@@ -25,9 +25,17 @@ import { state, ui } from './state.js';
 // i18n.js's t (no import: the tests load this file alone)
 const tx = (s) => (globalThis.edenI18n ? globalThis.edenI18n.t(s) : s);
 
-export const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '');
+/** Inside the native app at all (the App Store copy and TestFlight betas): the bridge, sign-in, purchases, consent. */
+export const IN_APP_SHELL = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '');
+/** A TestFlight beta (WebController.swift adds "EdenBeta/"): gets the whole website, as the App Store app will after review. */
+export const APP_BETA = IN_APP_SHELL && /\bEdenBeta\//.test(navigator.userAgent || '');
+/** The App Store app: features held back from it stay off. A beta is not this. */
+export const IN_APP = IN_APP_SHELL && !APP_BETA;
+/** Ask Eden Travel's iPhone app (askeden ios/ EdenTravel: "EdenTravelApp/" in its user agent, never "EdenApp/"): a web view of
+ *  askedentravel.com, so IN_APP stays false there and Travel stays on (travel.js, app.js keep it off in the Eden app only). */
+export const IN_TRAVEL_APP = typeof navigator !== 'undefined' && /\bEdenTravelApp\//.test(navigator.userAgent || '');
 /** The Android app (its user agent adds "EdenAndroid/"): says "phone" where the iPhone app says "iPhone". */
-export const IN_ANDROID = IN_APP && /\bEdenAndroid\//.test(navigator.userAgent || '');
+export const IN_ANDROID = IN_APP_SHELL && /\bEdenAndroid\//.test(navigator.userAgent || '');
 const PHONE = IN_ANDROID ? 'phone' : 'iPhone';
 /** The model id of Apple's on-device model, as the page knows it. */
 export const ON_DEVICE = 'apple-on-device';
@@ -44,7 +52,7 @@ function toApp(msg) {
  * true when the app took it (in the app, once it said it has one), false on the website.
  */
 export function openAppBrowser(url = '') {
-  if (!IN_APP || !caps.browser) return false;
+  if (!IN_APP_SHELL || !caps.browser) return false;
   toApp({ kind: 'browser', op: 'open', url: typeof url === 'string' ? url : '' });
   return true;
 }
@@ -63,7 +71,7 @@ let printSeq = 0;
  * way while still taking a late `printed` (a sheet can stay open a long time).
  */
 export function appPrint(title = '', { wait = 4000, giveUp = 180_000, onSlow = null } = {}) {
-  if (!IN_APP) return Promise.resolve('unsupported');
+  if (!IN_APP_SHELL) return Promise.resolve('unsupported');
   const id = `print-${++printSeq}`;
   return new Promise((resolve) => {
     const slow = !caps.print && onSlow ? setTimeout(() => { try { onSlow(); } catch { /* the page's */ } }, wait) : null;
@@ -76,7 +84,7 @@ export function appPrint(title = '', { wait = 4000, giveUp = 180_000, onSlow = n
 }
 /** The app's own Settings sheet (server, Delete Account…, the welcome): R2-11. False outside the app. */
 export function openAppSettings() {
-  if (!IN_APP) return false;
+  if (!IN_APP_SHELL) return false;
   toApp({ kind: 'openSettings' });
   return true;
 }
@@ -85,9 +93,9 @@ export function openAppSettings() {
 
 const plusListeners = new Set();
 /** The app sells Eden Plus with the App Store (Eden for iPhone; not Eden for Education). */
-export const appSellsPlus = () => IN_APP && caps.plus === true;
+export const appSellsPlus = () => IN_APP_SHELL && caps.plus === true;
 /** True once the app said it has a print sheet (R2-8): the page then waits for it with no fallback. */
-export const appCanPrint = () => IN_APP && caps.print === true;
+export const appCanPrint = () => IN_APP_SHELL && caps.print === true;
 /** plus.products | plus.buy {product} | plus.restore | plus.manage | plus.redeem, to the app. */
 export function appPlus(op, extra = {}) {
   if (!appSellsPlus()) return false;
@@ -102,7 +110,7 @@ export function onAppPlus(fn) { plusListeners.add(fn); return () => plusListener
 /** What the page says before a cloud-model send when the person hasn't allowed it (or took it back). */
 export const AI_CONSENT_WORDS = 'Eden sends your messages to AI providers (OpenAI, Google, Moonshot, Anthropic) to answer. Allow?';
 /** The app said `aiConsent: false`: no message goes to a cloud model until it's allowed. (Unknown or true: as usual.) */
-export const aiConsentMissing = () => IN_APP && caps.aiConsent === false;
+export const aiConsentMissing = () => IN_APP_SHELL && caps.aiConsent === false;
 /**
  * Whether this send would reach a cloud model without consent. Answering on this iPhone (picked, or a
  * private chat that this iPhone answers) stays allowed, and a private chat goes to the Mac, never a provider.
@@ -113,7 +121,7 @@ export function aiConsentBlocks({ privacy = false, model = '' } = {}) {
 }
 /** `aiConsent.ask`: the app shows its consent sheet again. */
 export function reviewAiConsent() {
-  if (!IN_APP) return false;
+  if (!IN_APP_SHELL) return false;
   toApp({ kind: 'aiConsent.ask' });
   return true;
 }
@@ -209,7 +217,7 @@ function onDeviceTurn(body, signal, why) {
  * changes), else null for the network as usual. `next(path, init)` is that usual way.
  */
 export function nativeTransport(path, init, next) {
-  if (!IN_APP) return null;
+  if (!IN_APP_SHELL) return null;
   if (path === '/api/chat/meta') {
     return next(path, init).then(async (res) => {
       if (!res.ok || !listed()) return res;
@@ -380,7 +388,7 @@ function hello() {
   toApp({ kind: 'activity', op: 'sync', ids: [...tracked.keys()] });
 }
 
-if (IN_APP) {
+if (IN_APP_SHELL) {
   addEventListener('eden:from-app', fromApp);
   addEventListener('eden:task', ownTask);
   // the bridge may arrive after this page's first hello (it's added when the document ends)

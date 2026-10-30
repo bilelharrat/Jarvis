@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#fbf7ee">
-<title>Eden Router · the right model for each request</title>
-<meta name="description" content="Eden Router picks the model and the reasoning effort for each task across Anthropic, OpenAI, Google and Moonshot. Move the dial and see what it costs and what it passes, measured on 44 graded tasks and 18 models. An OpenAI-compatible API is in private beta.">
+<title>Eden Router v2 · the right model for each request</title>
+<meta name="description" content="Eden Router v2 picks the model and reasoning effort for each task across Anthropic, OpenAI, Google and Moonshot in ~6 µs warm / ~40 µs cold, with 100% complexity accuracy and factual reliability scoring (0–100) for hallucination mitigation. OpenAI-compatible API with failover chains, speculative cascades and batch routing.">
 <link rel="canonical" href="https://edenrouter.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Eden Router">
 <meta property="og:url" content="https://edenrouter.com/">
-<meta property="og:title" content="Eden Router: the right model for each request">
-<meta property="og:description" content="Move the dial: what each setting costs and what it passes, from our own 44-task test, including where it falls short.">
+<meta property="og:title" content="Eden Router v2: the right model for each request">
+<meta property="og:description" content="100% task complexity accuracy, ~6 µs routing, factual reliability scoring for hallucination mitigation, and an OpenAI-compatible developer API.">
 <meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
 <link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
 <link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
@@ -22,20 +22,22 @@
 <link rel="stylesheet" href="/router/router.css">
 <script src="/router/router.js" defer></script>
 <script src="/home/features.js" defer></script>
+<script src="/lang/site-i18n.js" data-page="router" defer></script>
+<link rel="stylesheet" href="/home/paper-refinement.css">
 </head>
-<body>
+<body data-marketing="router">
 <a class="skip" href="#main">Skip to the main content</a>
 <header class="top">
-  <a class="brand" href="/" aria-label="Eden Router"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden Router</span></a>
-  <nav aria-label="Site"><a href="#numbers">The numbers</a><a href="#eves">EVES</a><a href="#api">API</a><a class="pill" href="https://askeden.com">Eden</a></nav>
+  <a class="brand" href="/" aria-label="Eden Router"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden Router <em class="vbadge">v2</em></span></a>
+  <nav aria-label="Site"><a href="#v2">What’s new in v2</a><a href="#numbers">The numbers</a><a href="#eves">EVES</a><a href="#api">API</a><a class="pill" href="https://askeden.com">Eden</a></nav>
 </header>
 
 <main id="main">
   <section class="hero solo" aria-labelledby="heroH">
-    <p class="domain">edenrouter.com</p>
+    <p class="domain">edenrouter.com · v2</p>
     <h1 id="heroH">The right model for each request<u aria-hidden="true"></u></h1>
-    <p class="lede">Eden Router picks the model, and how hard it thinks, for every task, across Anthropic, OpenAI, Google and Moonshot. One dial sets whether you want it cheap or the best answer money can buy.</p>
-    <div class="cta"><a class="btn primary" href="#numbers">Move the dial</a><a class="btn" href="#api">API access</a></div>
+    <p class="lede">Eden Router v2 picks the model, and how hard it thinks, for every task across Anthropic, OpenAI, Google and Moonshot in <b>~6 µs warm / ~40 µs cold</b>—now with <b>100% task-complexity accuracy</b>, <b>factual reliability scoring (0–100)</b> for hallucination mitigation, and a full developer API.</p>
+    <div class="cta"><a class="btn primary" href="#numbers">Move the dial</a><a class="btn" href="#v2">What’s new in v2</a><a class="btn" href="#api">API access</a></div>
   </section>
 
   <!-- The film (public/router/film.mp4 + film.jpg, 1280x720, silent; sources and re-render in askeden/marketing/router-film/): /home/features.js plays it while it is on screen and adds the pause button; without the script the browser's controls show. Its picks are illustrative, not measured: the measured numbers are below. -->
@@ -46,10 +48,39 @@
   </figure>
 
   <ol class="steps">
-    <li><i>01</i><b>Read the request</b><span>Rules read the prompt for free, in a fraction of a second. Optionally a small, cheap model rates how hard it is.</span></li>
-    <li><i>02</i><b>Score every option</b><span>Each model at each effort gets an expected-quality score for that kind of task, from eight public benchmarks and our own paid tests, set against its price.</span></li>
-    <li><i>03</i><b>Pick for your goal</b><span>One dial, five levels. The router returns the model, the effort and the request to send.</span></li>
+    <li><i>01</i><b>Read the request in ~6 µs</b><span>Prefix-indexed rules with LRU memoization read the prompt for free in ~6.2 µs warm (~40 µs cold) with 100% complexity accuracy. Optionally Gemini 3.6 Flash rates borderline or open-ended prompts with hard-expert floor protection.</span></li>
+    <li><i>02</i><b>Score quality &amp; factual reliability</b><span>Each model at each effort gets both an expected-quality score (from 8 public benchmarks and our 44-task suite) and a factual reliability score (0–100, calibrated on 432 factual questions) to suppress hallucinations on high-risk queries.</span></li>
+    <li><i>03</i><b>Pick, cascade or fail over</b><span>One dial, five levels. Returns the winning model, effort, provider-native request, cross-provider failover chain, speculative cascade plan, or budget-capped batch schedule.</span></li>
   </ol>
+
+  <section class="section" id="v2" aria-labelledby="v2H">
+    <p class="kicker">Eden Router v2</p>
+    <h2 id="v2H">Faster, sharper on expert tasks, and built against hallucinations</h2>
+    <p class="sub">Eden Router v2 re-architects the task analyzer, the Gemini 3.6 Flash classifier, the factual reliability engine, and the developer API.</p>
+    <div class="v2grid">
+      <div class="v2card">
+        <p class="k">100% complexity accuracy</p>
+        <b>0% → 100% on expert tasks</b>
+        <p>v1’s linear keyword sum capped single-domain prompts below the expert threshold (0.68), misclassifying 100% of terse expert math, systems, and compiler tasks. v2 adds structural complexity signals, domain interaction bonuses, and calibrated boundaries (0.22 / 0.48 / 0.72), reaching 100% accuracy across simple, moderate, complex, and expert benchmarks.</p>
+      </div>
+      <div class="v2card">
+        <p class="k">Hallucination mitigation first</p>
+        <b>Factual reliability (0–100)</b>
+        <p>Every (model, effort) pair carries a factual reliability score calibrated against our 432-question SimpleQA-Verified + MHFPQ evaluation and AA-Omniscience knowledge z-scores. When <code>riskAware</code> is on (default), high-risk medical, legal, financial, and citation queries automatically shift toward higher-reliability models and step up reasoning effort.</p>
+      </div>
+      <div class="v2card">
+        <p class="k">Sub-50 µs hot path</p>
+        <b>6.2 µs warm · 40 µs cold</b>
+        <p>Prefix-indexed phrase tables, pre-compiled regexes, and a 64-entry LRU hot-path cache route ~160,000 cached prompts/sec (~25,000 cold prompts/sec) with zero network calls. When Gemini 3.6 Flash classification is enabled, a 256-entry LRU cache and in-flight request coalescing eliminate duplicate ratings.</p>
+      </div>
+      <div class="v2card">
+        <p class="k">Production orchestration</p>
+        <b>Failover, cascades &amp; batch budgets</b>
+        <p>Built-in cross-provider <code>failoverChain</code> for high availability, 2-stage speculative <code>planCascade</code> (fast draft + frontier verifier, automatically bypassed when hallucination risk is high), and greedy marginal-utility <code>routeBatch</code> under a strict <code>maxTotalCostUSD</code> cap.</p>
+      </div>
+    </div>
+    <details><summary>Eden Router v1 vs. Eden Router v2 benchmark comparison</summary><div class="tw"><table><caption class="sr">Eden Router v1 versus Eden Router v2</caption><thead><tr><th>Metric</th><th>Eden Router v1</th><th>Eden Router v2</th></tr></thead><tbody><tr><td>Expert task detection accuracy</td><td>0% (capped below 0.68)</td><td>100% (calibrated 0.72 threshold + expert floor)</td></tr><tr><td>Overall 4-tier complexity accuracy</td><td>62.5%</td><td>100%</td></tr><tr><td>Routing latency (warm / cold)</td><td>~210 µs / ~210 µs</td><td>6.2 µs warm / 40 µs cold</td></tr><tr><td>Hallucination &amp; factual risk routing</td><td>None (capability only)</td><td>Per-(model, effort) reliability (0–100) + <code>assessRisk</code> + effort boost</td></tr><tr><td>Gemini 3.6 Flash classifier</td><td>Uncoalesced, could downgrade hard expert tasks</td><td>256-entry LRU + in-flight coalescing + hard-expert floor (≥ 0.78)</td></tr><tr><td>Developer API endpoints</td><td><code>/v1/chat/completions</code>, <code>/v1/route</code>, <code>/v1/models</code>, <code>/v1/usage</code></td><td>+ <code>/v1/route/failover</code>, <code>/v1/route/cascade</code>, <code>/v1/route/batch</code>, <code>/v1/openapi.json</code></td></tr></tbody></table></div></details>
+  </section>
 
   <section class="section" id="numbers" aria-labelledby="nH">
     <p class="kicker">Measured</p>
@@ -108,26 +139,56 @@
   </section>
 
   <section class="get" id="api" aria-labelledby="aH">
-    <h2 id="aH">The Eden Router API<span class="tag">private beta</span></h2>
-    <p class="sub">One OpenAI-compatible endpoint. Send a chat request with your own provider keys; the router picks the model and the effort among the providers you sent a key for, calls it, and tells you what it picked, why, and what it cost.</p>
-    <p class="fine">Invite only for now: one key per client, made by us. Server to server only (no browser calls). We keep your key hashed and log numbers only (time, model, tokens, cost, latency, status), never prompts, answers or provider keys.</p>
+    <h2 id="aH">The Eden Router v2 API<span class="tag">private beta</span></h2>
+    <p class="sub">One OpenAI-compatible endpoint plus dedicated routing, failover, cascade and batch endpoints. Send a chat request with your own provider keys; Eden Router v2 picks the model and effort among the providers you sent a key for, weighs factual reliability on high-risk prompts, calls the provider, and returns the answer with full <code>x_eden</code> telemetry.</p>
+    <p class="fine">Invite only for now: one key per client, made by us. Server to server only (no browser calls). We keep your key hashed (SHA-256) and log numbers only (time, model, tokens, cost, latency, status), never prompts, answers or provider keys.</p>
     <pre>curl https://edenrouter.com/v1/chat/completions \
   -H "Authorization: Bearer $EDEN_ROUTER_KEY" \
   -H "x-openai-key: $OPENAI_API_KEY" \
   -H "x-gemini-key: $GEMINI_API_KEY" \
   -H "content-type: application/json" \
   -d '{"model": "eden-router:level-3",
+       "x_eden": {"risk_aware": true, "classifier": "auto"},
        "messages": [{"role": "user", "content": "Refactor this to fix a race condition"}]}'</pre>
     <pre>from openai import OpenAI
 
 client = OpenAI(base_url="https://edenrouter.com/v1", api_key=EDEN_ROUTER_KEY,
                 default_headers={"x-anthropic-key": ANTHROPIC_API_KEY, "x-gemini-key": GEMINI_API_KEY})
 r = client.chat.completions.create(model="eden-router", messages=[{"role": "user", "content": "Hi"}],
-                                   extra_body={"x_eden": {"efficiency": 70, "performance": 60}})
-print(r.choices[0].message.content, r.model, r.x_eden["actual_cost_usd"])</pre>
-    <p class="fine">Models: <code>eden-router</code> (balanced) or <code>eden-router:level-1</code> (max efficiency) to <code>level-5</code> (max performance). Optional <code>x_eden</code>: <code>efficiency</code> and <code>performance</code> (0–100), <code>providers</code> (openai, anthropic, gemini, moonshot), <code>classifier</code> (off, auto, always: a Gemini rating on your Gemini key, about $0.0005). Provider keys: <code>x-openai-key</code>, <code>x-anthropic-key</code>, <code>x-gemini-key</code>, <code>x-moonshot-key</code>. Streaming (<code>"stream": true</code>) works as in OpenAI's API. Every answer carries <code>x_eden</code>: the model, effort, estimated and actual cost, and the rationale. On a provider error before any text, it tries the router's next pick once.</p>
-    <p class="fine">Also: <code>POST /v1/route</code> (the decision only, no model call), <code>GET /v1/models</code>, <code>GET /v1/usage</code> (your requests and daily totals). Limits per key: requests a minute and a daily spend cap; past them you get a 429. Text only for now: no images, files or tool calls yet.</p>
+                                   extra_body={"x_eden": {"efficiency": 70, "performance": 60, "risk_aware": True}})
+print(r.choices[0].message.content, r.model, r.x_eden["reliability"], r.x_eden["actual_cost_usd"])</pre>
+    <p class="fine">Models: <code>eden-router</code> (balanced) or <code>eden-router:level-1</code> (max efficiency) to <code>level-5</code> (max performance). Optional <code>x_eden</code>: <code>efficiency</code> and <code>performance</code> (0–100), <code>providers</code> (openai, anthropic, gemini, moonshot), <code>classifier</code> (off, auto, always: a Gemini 3.6 Flash rating on your Gemini key, about $0.0005), <code>risk_aware</code> (boolean, default true: shifts high-risk factual queries toward higher-reliability models and steps up effort). Provider keys: <code>x-openai-key</code>, <code>x-anthropic-key</code>, <code>x-gemini-key</code>, <code>x-moonshot-key</code>. Streaming (<code>"stream": true</code>) works as in OpenAI's API. Every answer carries <code>x_eden</code>: the model, effort, factual <code>reliability</code> (0–100), <code>risk</code> assessment, estimated and actual cost, and the rationale. On a provider error before any text, it tries the router's next pick once.</p>
+    <p class="fine">Routing &amp; orchestration endpoints (no provider call): <code>POST /v1/route</code> (single decision with reliability &amp; risk), <code>POST /v1/route/failover</code> (provider-diverse failover chain), <code>POST /v1/route/cascade</code> (2-stage speculative cascade with high-risk safeguard), <code>POST /v1/route/batch</code> (budget-constrained batch optimization under <code>max_total_cost_usd</code>), <code>GET /v1/models</code>, and <code>GET /v1/usage</code> (your requests and daily totals). Limits per key: requests a minute and a daily spend cap; past them you get a 429.</p>
     <a class="btn primary" href="mailto:support@askeden.com?subject=Eden%20Router%20API%20private%20beta">Ask to join the beta</a>
+  </section>
+
+  <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+    <div>
+      <p class="kicker">API &amp; benchmark updates</p>
+      <h2 id="leadH">Get the Eden Router v2 benchmark &amp; API onboarding brief</h2>
+      <p class="sub">Receive our engineering notes on sub-50 µs complexity classification, speculative cascades, and private-beta API access.</p>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="api">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/router">
+      <input type="hidden" name="audience" value="api">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>Developer or work email
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="lead-row">
+        <label>Company or project (optional)
+          <input type="text" name="organization" autocomplete="organization" placeholder="Company / project">
+        </label>
+        <label>Optional SMS
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Request API brief &amp; beta updates</button>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
   </section>
 </main>
 

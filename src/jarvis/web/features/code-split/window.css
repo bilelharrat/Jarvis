@@ -1,0 +1,154 @@
+/* Eden Code's split view, the window's panes (code-split/window.js, loaded with it the first
+   time a split opens): the window's own pane and the frames laid out in a grid in the room
+   right of the sidebar, the dividers between them, a slim head on each with its session, its
+   mark and the pane's buttons, the switcher when one pane shows at a time, and the drop zones
+   while a session is dragged over from the sidebar. The Summit Glass tokens of .deck.jc. */
+
+/* The room right of the sidebar: --sv-l (the sidebar), --sv-t, --sv-r, --sv-b (each look's
+   margins round it). Each pane's box in it (from window.js): --sv-x, --sv-y, --sv-w, --sv-h. */
+.deck.jc { --sv-l: var(--jc-main-l, 284px); --sv-t: 0px; --sv-r: 0px; --sv-b: 0px; --sv-gap: 8px; }
+.deck.jc.side-hidden { --sv-l: 0px; }
+@media (max-width: 900px) { .deck.jc { --sv-l: 0px; } }
+/* Ask Eden's look: the panes keep its 12px margin. */
+body:not([data-skin]) .deck.jc { --sv-t: 12px; --sv-r: 12px; }
+body:not([data-skin]) .deck.jc.side-hidden { --sv-l: 12px; }
+body.in-app:not([data-skin]) .deck.jc.side-hidden { --sv-t: 28px; }
+@media (max-width: 900px) { body:not([data-skin]) .deck.jc { --sv-l: 12px; } }
+body.eden-code:not([data-skin]) .deck.jc { --sv-t: 8px; --sv-r: 8px; --sv-b: 8px; }
+body.eden-code:not([data-skin]) .deck.jc.side-hidden { --sv-l: 8px; }
+@media (max-width: 900px) { body.eden-code:not([data-skin]) .deck.jc { --sv-l: 8px; } }
+
+/* (#cc: over each look's own place for its pane) */
+#cc.sv-on .jc-main, .sv-pane, .sv-divider, .sv-drop-zone {
+  position: absolute; right: auto; bottom: auto;
+  left: calc(var(--sv-l) + var(--sv-x, 0px)); top: calc(var(--sv-t) + var(--sv-y, 0px));
+  width: var(--sv-w, 50%); height: var(--sv-h, 100%);
+}
+#cc.sv-on .jc-main { container-type: inline-size; }
+.sv-pane { z-index: 1; display: flex; flex-direction: column; min-width: 0; container-type: inline-size; }
+.sv-pane[hidden], .sv-head[hidden], .sv-tabs[hidden], .sv-title[hidden], .sv-btn[hidden] { display: none; }
+.sv-frame-wrap { position: relative; flex: 1; min-height: 0; }
+.sv-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; color-scheme: normal; }
+.sv-frame:not(.sv-ready) { visibility: hidden; }  /* till its Eden Code is up */
+
+/* ── the dividers ── */
+.sv-divider { z-index: 3; touch-action: none; outline: none; cursor: col-resize; }
+.sv-divider-row { cursor: row-resize; }
+.sv-divider::after {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 4px; height: 36px; margin: -18px 0 0 -2px;
+  border-radius: 2px; background: rgb(var(--c-ink) / 0.14); transition: background-color 120ms ease, height 160ms ease, width 160ms ease;
+}
+.sv-divider-row::after { width: 36px; height: 4px; margin: -2px 0 0 -18px; }
+.sv-divider::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 50%; width: 1px; margin-left: -0.5px; background: rgb(var(--c-ink) / 0.07); }
+.sv-divider-row::before { top: 50%; bottom: auto; left: 12px; right: 12px; width: auto; height: 1px; margin: -0.5px 0 0; }
+.sv-divider:hover::after, .sv-divider:focus-visible::after, .deck.jc.sv-dragging-col .sv-divider-col::after { background: rgb(var(--c-accent) / 0.75); height: 56px; margin-top: -28px; }
+.sv-divider-row:hover::after, .sv-divider-row:focus-visible::after, .deck.jc.sv-dragging-row .sv-divider-row::after { background: rgb(var(--c-accent) / 0.75); width: 56px; height: 4px; margin: -2px 0 0 -28px; }
+.sv-divider:focus-visible::before { background: rgb(var(--c-accent) / 0.5); }
+/* While a divider moves: no lag, no frame swallowing the pointer, no text selected. */
+.deck.jc.sv-dragging-col, .deck.jc.sv-dragging-col * { cursor: col-resize; user-select: none; }
+.deck.jc.sv-dragging-row, .deck.jc.sv-dragging-row * { cursor: row-resize; user-select: none; }
+.deck.jc.sv-dragging .sv-frame { pointer-events: none; }
+#cc.sv-dragging .jc-main, .deck.jc.sv-dragging .sv-divider, .deck.jc.sv-dragging .sv-pane { transition: none; }
+
+/* One pane at a time in a window too small for the grid: the focused one, over the whole room. */
+.deck.jc.sv-on.sv-one .sv-pane:not(.sv-front), #cc.sv-on.sv-one .jc-main:not(.sv-front) { visibility: hidden; pointer-events: none; }
+.deck.jc.sv-on.sv-one .sv-pane.sv-front { z-index: 4; }
+
+/* A narrow pane keeps its workbench pane over the transcript, as a narrow window does. */
+@container (max-width: 760px) {
+  .deck.jc.sv-on .jc-pane { position: absolute; inset: 6px 12px 12px 12px; width: auto; z-index: 4; }
+}
+/* A narrow pane keeps its composer's row on one line: the mode, the effort and the switches
+   show as their icons (each button keeps its name for the pointer and VoiceOver). */
+@container (max-width: 600px) {
+  .deck.jc.sv-on #jc-mode-label, .deck.jc.sv-on #jc-effort-label, .deck.jc.sv-on #jcx-cloud-switch > span, .deck.jc.sv-on #jcx-iso-switch > span { display: none; }
+}
+#cc.sv-on .jc-main .jc-toolbar { padding: 0 8px !important; min-height: 28px !important; height: 28px !important; }
+#cc.sv-on .jc-main .jc-toolbar .jc-titles { display: none !important; }
+#cc.sv-on .jc-main .jc-scroll { padding: 6px 10px !important; }
+#cc.sv-on .jc-main .jc-welcome { padding: 2px 0 !important; gap: 6px !important; }
+#cc.sv-on .jc-main .jc-welcome-mark,
+#cc.sv-on .jc-main .jc-hero-mark,
+#cc.sv-on .jc-main .jc-hero-title,
+#cc.sv-on .jc-main .jc-welcome > p { display: none !important; }
+#cc.sv-on .jc-main .jc-welcome:has(#cc-past-wrap:not([hidden])) > h3,
+#cc.sv-on .jc-main .jc-welcome:has(#cc-past-wrap:not([hidden])) > .jc-hero-actions,
+#cc.sv-on .jc-main .jc-welcome:has(#cc-past-wrap:not([hidden])) > .jc-starters { display: none !important; }
+#cc.sv-on .jc-main .jc-dock { padding: 0 8px 6px !important; }
+#cc.sv-on .jc-main .jc-composer { padding: 5px 8px !important; border-radius: 16px !important; gap: 4px !important; }
+#cc.sv-on .jc-main .jc-composer:not(:focus-within) .jc-composer-drawer { display: none !important; }
+#cc.sv-on .jc-main .jc-statusline { display: none !important; }
+#cc.sv-on .jc-main #deck-input { min-height: 20px !important; font-size: 13px !important; }
+
+/* ── the heads ── */
+.sv-head {
+  flex: none; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 6px 0 14px; margin: 6px 4px 0;
+  border-radius: 11px; font-size: 12.5px; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.035);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.07); transition: background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+/* (the pane in the top left corner, in the app with the sidebar hidden: clear of the window's buttons) */
+body.in-app .deck.jc.side-hidden .sv-corner > .sv-head { margin-left: 84px; }
+@media (max-width: 900px) { body.in-app .deck.jc .sv-corner > .sv-head { margin-left: 84px; } }
+body.in-app .deck.jc .sv-top > .sv-head { margin-top: 8px; }
+body:not([data-skin]) .deck.jc .sv-head { margin: 0 0 6px; }
+.sv-head.sv-focused { color: rgb(var(--c-ink)); background: rgb(var(--c-accent) / 0.09); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.38), 0 0 0 3px rgb(var(--c-glow) / 0.1); }
+.sv-head .jc-dot { flex: none; }
+.sv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.sv-head.sv-focused .sv-title { font-weight: 600; }
+.sv-mark { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.sv-mark[hidden] { display: none; }
+.sv-mark.needs { background: rgb(var(--c-warning)); color: #fff; box-shadow: 0 0 0 3px rgb(var(--c-warning) / 0.2); }
+.sv-mark.new { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent-ink)); }
+.sv-head .sv-btn { width: 26px; height: 26px; flex: none; color: rgb(var(--c-muted)); }
+.sv-head .sv-btn:hover:not(:disabled) { color: rgb(var(--c-ink)); }
+.sv-head .sv-btn:disabled { opacity: 0.35; cursor: default; }
+/* The sidebar's toggle (⌘\) rides on the head of the pane nearest the sidebar (window.js
+   placeSideToggle: the top left one, or the one on show one at a time), and moves with it when
+   the panes swap; the window's own toolbar's is away meanwhile, wherever that pane sits. */
+#cc.sv-on .jc-main .jc-toolbar > #jc-side-toggle { display: none !important; }
+.sv-head .sv-side { margin: 0 2px 0 -8px; }
+.sv-head .sv-side[aria-expanded="false"], .sv-head .sv-layout[aria-pressed="true"] { color: rgb(var(--c-accent-ink)); }
+@media (max-width: 900px) { .sv-head .sv-side { display: none; } }
+.sv-head .sv-word { display: none; }  /* (the Logbook look's: code-logbook.css) */
+.sv-head .sv-btn:disabled:hover { background: transparent; }
+@container (max-width: 320px) {
+  .sv-head { gap: 3px; padding: 0 4px 0 8px; }
+  .sv-head .sv-btn { width: 22px; height: 22px; }
+}
+@container (max-width: 240px) {
+  .sv-head:not(:hover):not(:focus-within) .sv-layout,
+  .sv-head:not(:hover):not(:focus-within) .sv-swap,
+  .sv-head:not(:hover):not(:focus-within) .sv-alone { display: none; }
+}
+
+/* The switcher (one pane at a time): each pane's session, its dot and its mark. */
+.sv-tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.sv-tabs::-webkit-scrollbar { display: none; }
+.sv-tab {
+  flex: 0 1 auto; min-width: 72px; max-width: 220px; overflow: hidden; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 0; border-radius: 999px; font: inherit; font-size: 12px; color: rgb(var(--c-ink-2)); background: transparent; cursor: pointer;
+}
+.sv-tab:hover { color: rgb(var(--c-ink)); background: rgb(var(--c-ink) / 0.05); }
+.sv-tab[aria-selected="true"] { color: rgb(var(--c-ink)); font-weight: 600; background: var(--glass-pill); box-shadow: var(--shadow-control); }
+.sv-tab:focus-visible { outline: 2px solid rgb(var(--c-accent) / 0.7); outline-offset: 1px; }
+.sv-tab .jc-dot { flex: none; }
+.sv-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A tab keeps room for its name (min-width; the row scrolls), and its mark is a dot there:
+   the words ("New reply", "Needs you", still read out) left the names "Ec…" or nothing,
+   and spilled over the next tab when narrow (CF2-6). */
+.sv-tab .sv-mark { width: 8px; height: 8px; padding: 0; border-radius: 50%; font-size: 0; overflow: hidden; }
+
+/* ── dragging a session over from the sidebar ── */
+.sv-drop { position: absolute; top: var(--sv-t); bottom: var(--sv-b); right: var(--sv-r); left: var(--sv-l); z-index: 50; }
+.deck.jc.sv-drop-active .sv-frame, .deck.jc.sv-drop-active .sv-pane, .deck.jc.sv-drop-active .jc-main { pointer-events: none; }
+.sv-drop[hidden], .sv-drop-zone[hidden] { display: none; }
+.sv-drop-zone {
+  display: flex; align-items: center; justify-content: center; border-radius: 18px; pointer-events: none;
+  left: var(--sv-x, 0px); top: var(--sv-y, 0px);
+  border: 1.5px solid rgb(var(--c-accent) / 0.8); background: rgb(var(--c-accent) / 0.1);
+}
+.sv-drop-zone.add { border-style: dashed; background: rgb(var(--c-accent) / 0.16); }
+.sv-drop-label { padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; color: rgb(var(--c-accent-ink)); background: var(--glass-pill); box-shadow: var(--shadow-control); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  #cc.sv-on .jc-main, .sv-divider, .sv-pane, .sv-head, .sv-drop-zone { transition: none; }
+}

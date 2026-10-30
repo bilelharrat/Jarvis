@@ -1,0 +1,550 @@
+/* Shared Paper refinement & Google-grade choreographed animations across all 9 Eden websites.
+   No film, poster or playback selectors are touched—existing <video> elements stay intact. */
+body[data-marketing]{--paper-label:#a94336;--g-ease:cubic-bezier(0.22,1,0.36,1)}
+body[data-marketing] .hero>*{min-width:0}
+body[data-marketing] h1{letter-spacing:-.01em;text-wrap:balance}
+body[data-marketing] h2{text-wrap:balance}
+body[data-marketing]:not([data-marketing="business-home"]) .hero :is(.domain,.eyebrow){color:var(--paper-label);line-height:1.65;display:inline-flex;align-items:center;gap:10px;position:relative}
+body[data-marketing]:not([data-marketing="business-home"]) .hero :is(.domain,.eyebrow)::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--coral,#d9604f);flex-shrink:0}
+body[data-marketing]:not([data-marketing="business-home"]) .hero :is(.domain,.eyebrow)::after{content:"";display:inline-block;width:64px;height:3.5px;border-radius:3px;background:linear-gradient(90deg,var(--coral,#d9604f),#ef7b6c,rgba(217,96,79,.15));transform-origin:left center;pointer-events:none}
+body[data-marketing] :is(.strip,.steps,.plan,.card,.guide-card){box-shadow:0 2px 0 rgba(14,39,71,.025)}
+body[data-marketing] :is(a,button,input,select,summary):focus-visible{outline:2px solid var(--ink);outline-offset:4px}
+/* Two-color ring remains visible on both paper and navy panels. */
+body[data-marketing] :is(.get,.chapters,.list,.score,.chartcard) :focus-visible{outline-color:#fbf7ee;box-shadow:0 0 0 6px #0e2747}
+body[data-marketing] :is(header,footer) nav a{display:inline-flex;align-items:center;min-height:40px}
+body[data-marketing] .exit-close{min-width:40px;min-height:40px}
+/* Form field styling must not expand the existing screen-reader-only honeypot. */
+body[data-marketing] .lead-form input.sr{width:1px;height:1px;padding:0;border:0}
+
+/* Eden for Business card on askeden.com */
+body[data-marketing="home"] .apps.business-card{border-color:rgba(217,96,79,.45);background:linear-gradient(135deg,#fffdf8 0%,#f7efe0 100%)}
+
+/* Daredevil retains its intentional high-contrast yellow-on-black theme. */
+body[data-marketing="daredevil"]{--paper-label:#ffd60a}
+body[data-marketing="daredevil"] .hero .eyebrow{display:inline-flex;justify-content:center}
+body[data-marketing="daredevil"] .hero .eyebrow::before{background:#ffd60a}
+body[data-marketing="daredevil"] .hero .eyebrow::after{background:linear-gradient(90deg,#ffd60a,rgba(255,214,10,.2))}
+body[data-marketing="daredevil"] :focus-visible{outline-color:#ffd60a}
+
+@media(max-width:600px){
+  body[data-marketing] header{gap:12px;flex-wrap:wrap}
+  body[data-marketing] .brand{min-width:0;font-size:18px}
+  body[data-marketing] .hero{padding-top:40px}
+  body[data-marketing] .hero :is(.btn,.pill){max-width:100%;white-space:normal}
+  body[data-marketing] .nw{white-space:normal}
+}
+
+@media(prefers-reduced-motion:no-preference){
+  /* ── Shared Google-grade ambient & interactive motion across all 9 sites ── */
+  body[data-marketing] .hero{position:relative;isolation:isolate}
+  body[data-marketing]:not([data-marketing="daredevil"]):not([data-marketing="business-home"]) .hero::before{
+    content:"";position:absolute;inset:-24px -32px;z-index:-1;pointer-events:none;
+    background:radial-gradient(460px circle at 78% 42%,rgba(217,96,79,.16),rgba(14,39,71,.06) 48%,transparent 72%);
+    animation:eden-google-aura 7s ease-in-out infinite alternate;
+  }
+  body[data-marketing]:not([data-marketing="business-home"]) .hero :is(.domain,.eyebrow)::before{
+    animation:eden-beacon-dot 1.8s var(--g-ease) infinite;
+  }
+  body[data-marketing]:not([data-marketing="business-home"]) .hero :is(.domain,.eyebrow)::after{
+    animation:eden-signal-bar 2.2s var(--g-ease) infinite;
+  }
+  body[data-marketing] h1 u{
+    animation:eden-cursor-morph 2.2s var(--g-ease) infinite!important;
+    transform-origin:left center;
+  }
+  body[data-marketing] .hero :is(.btn.primary,.btn.navy,.button){
+    position:relative;overflow:hidden;
+    animation:eden-cta-pulse 3.2s ease-in-out infinite;
+  }
+  body[data-marketing] .hero :is(.btn.primary,.btn.navy,.button)::after{
+    content:"";position:absolute;top:0;left:-120%;width:65%;height:100%;
+    background:linear-gradient(105deg,transparent,rgba(255,255,255,.28),transparent);
+    animation:eden-cta-sheen 3.6s var(--g-ease) infinite;pointer-events:none;
+  }
+
+  /* ── 1. askeden.com (home): Google-style live AI router + EVES verification showcase on hero card ── */
+  body[data-marketing="home"] .chapters{
+    position:relative;overflow:hidden;
+    border:1.5px solid rgba(239,123,108,.45);
+    animation:eden-hero-levitate 4.8s ease-in-out infinite;
+  }
+  body[data-marketing="home"] .chapters::before{
+    content:"LIVE ROUTER · GPT · GEMINI · CLAUDE · EVES VERIFIED";
+    display:block;margin:-6px 0 12px;padding:6px 12px;border-radius:999px;
+    background:rgba(239,123,108,.18);border:1px solid rgba(239,123,108,.45);
+    color:#ffb4a8;font:600 10.5px var(--mono);letter-spacing:.08em;
+    animation:eden-pill-breathe 2.4s ease-in-out infinite;
+  }
+  body[data-marketing="home"] .chapters::after{
+    content:"";position:absolute;top:0;left:-100%;width:85%;height:4px;
+    background:linear-gradient(90deg,transparent,#ef7b6c,#ffd2c9,#ef7b6c,transparent);
+    animation:eden-scan-sweep 2.4s linear infinite;
+  }
+  body[data-marketing="home"] .chapters a{
+    position:relative;padding-left:10px;border-radius:10px;
+    animation:eden-google-row-spotlight 7s var(--g-ease) infinite;
+  }
+  body[data-marketing="home"] .chapters a::after{
+    content:"● LIVE";margin-left:auto;padding:2px 8px;border-radius:999px;
+    font:600 10px var(--mono);letter-spacing:.06em;color:#0e2747;background:#ef7b6c;
+    opacity:0;transform:scale(.85);
+    animation:eden-google-row-badge 7s var(--g-ease) infinite;
+  }
+  body[data-marketing="home"] .chapters a:nth-of-type(1),body[data-marketing="home"] .chapters a:nth-of-type(1)::after{animation-delay:0s}
+  body[data-marketing="home"] .chapters a:nth-of-type(2),body[data-marketing="home"] .chapters a:nth-of-type(2)::after{animation-delay:1s}
+  body[data-marketing="home"] .chapters a:nth-of-type(3),body[data-marketing="home"] .chapters a:nth-of-type(3)::after{animation-delay:2s}
+  body[data-marketing="home"] .chapters a:nth-of-type(4),body[data-marketing="home"] .chapters a:nth-of-type(4)::after{animation-delay:3s}
+  body[data-marketing="home"] .chapters a:nth-of-type(5),body[data-marketing="home"] .chapters a:nth-of-type(5)::after{animation-delay:4s}
+  body[data-marketing="home"] .chapters a:nth-of-type(6),body[data-marketing="home"] .chapters a:nth-of-type(6)::after{animation-delay:5s}
+  body[data-marketing="home"] .chapters a:nth-of-type(7),body[data-marketing="home"] .chapters a:nth-of-type(7)::after{animation-delay:6s}
+  body[data-marketing="home"] .apps.business-card{animation:eden-border-pulse 3s ease-in-out infinite}
+  body[data-marketing="home"] .apps.business-card .icons img{animation:eden-icon-orbit-bob 2.8s ease-in-out infinite}
+  body[data-marketing="home"] .apps.business-card .icons img:nth-child(2){animation-delay:.35s}
+  body[data-marketing="home"] .apps.business-card .icons img:nth-child(3){animation-delay:.7s}
+  body[data-marketing="home"] .apps.business-card .icons img:nth-child(4){animation-delay:1.05s}
+  body[data-marketing="home"] .points li{animation:eden-step-border-wave 4.2s ease-in-out infinite}
+  body[data-marketing="home"] .points li:nth-child(2){animation-delay:1.4s}
+  body[data-marketing="home"] .points li:nth-child(3){animation-delay:2.8s}
+  body[data-marketing="home"] .case-metric b{animation:eden-metric-pulse 2.8s ease-in-out infinite}
+
+  /* ── 2. askedencode.com (eden-code-home): Google-style live agent pipeline + terminal sweep + chapter choreography ── */
+  body[data-marketing="eden-code-home"] .player{
+    position:relative;
+    border:1.5px solid rgba(239,123,108,.45);
+    animation:eden-hero-levitate 5s ease-in-out infinite;
+  }
+  body[data-marketing="eden-code-home"] .chap label{
+    position:relative;overflow:hidden;
+    animation:eden-code-tab-wave 5s ease-in-out infinite;
+  }
+  body[data-marketing="eden-code-home"] .chap label:nth-child(1){animation-delay:0s}
+  body[data-marketing="eden-code-home"] .chap label:nth-child(2){animation-delay:1s}
+  body[data-marketing="eden-code-home"] .chap label:nth-child(3){animation-delay:2s}
+  body[data-marketing="eden-code-home"] .chap label:nth-child(4){animation-delay:3s}
+  body[data-marketing="eden-code-home"] .chap label:nth-child(5){animation-delay:4s}
+  body[data-marketing="eden-code-home"] #c1:checked~.chap label[for=c1],
+  body[data-marketing="eden-code-home"] #c2:checked~.chap label[for=c2],
+  body[data-marketing="eden-code-home"] #c3:checked~.chap label[for=c3],
+  body[data-marketing="eden-code-home"] #c4:checked~.chap label[for=c4],
+  body[data-marketing="eden-code-home"] #c5:checked~.chap label[for=c5]{
+    animation:eden-tab-glow 2s ease-in-out infinite;
+  }
+  body[data-marketing="eden-code-home"] .strip{
+    position:relative;overflow:hidden;
+    border-color:rgba(217,96,79,.5);
+    animation:eden-border-pulse 3s ease-in-out infinite;
+  }
+  body[data-marketing="eden-code-home"] .strip::after{
+    content:"";position:absolute;top:0;left:-100%;width:70%;height:3px;
+    background:linear-gradient(90deg,transparent,#d9604f,#ef7b6c,transparent);
+    animation:eden-scan-sweep 2.5s linear infinite;
+  }
+  body[data-marketing="eden-code-home"] .strip>span{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:26px;height:26px;border-radius:7px;background:#0e2747;color:#ef7b6c;
+    animation:eden-prompt-pulse 1.4s ease-in-out infinite;
+  }
+  body[data-marketing="eden-code-home"] .steps .step{
+    position:relative;overflow:hidden;
+    animation:eden-step-card-spotlight 4.5s var(--g-ease) infinite;
+  }
+  body[data-marketing="eden-code-home"] .steps .step:nth-child(2){animation-delay:1.5s}
+  body[data-marketing="eden-code-home"] .steps .step:nth-child(3){animation-delay:3s}
+
+  /* ── 3. askedenedu.com (edu-home): Google-style live course citation scanner + verified shield + source spotlight ── */
+  body[data-marketing="edu-home"] .demo{
+    position:relative;overflow:hidden;
+    border:1.5px solid rgba(143,224,168,.45);
+    animation:eden-hero-levitate 4.8s ease-in-out infinite;
+  }
+  body[data-marketing="edu-home"] .demo::before{
+    content:"LIVE CITATION CHECK · WORD-FOR-WORD MATCH";
+    display:inline-block;margin-bottom:12px;padding:5px 11px;border-radius:999px;
+    background:rgba(143,224,168,.16);border:1px solid rgba(143,224,168,.45);
+    color:#8fe0a8;font:600 10.5px var(--mono);letter-spacing:.08em;
+    animation:eden-pill-breathe 2.2s ease-in-out infinite;
+  }
+  body[data-marketing="edu-home"] .demo::after{
+    content:"";position:absolute;top:0;left:-100%;width:80%;height:4px;
+    background:linear-gradient(90deg,transparent,#8fe0a8,#ef7b6c,transparent);
+    animation:eden-scan-sweep 2.6s linear infinite;
+  }
+  body[data-marketing="edu-home"] .demo .a b{
+    padding:2px 6px;border-radius:6px;
+    animation:eden-edu-quote-highlight 3.2s ease-in-out infinite;
+  }
+  body[data-marketing="edu-home"] .demo .verified{
+    animation:eden-verified-pulse 2s ease-in-out infinite;
+  }
+  body[data-marketing="edu-home"] .demo .shield{
+    animation:eden-shield-pop 2s var(--g-ease) infinite;
+  }
+  body[data-marketing="edu-home"] .demo .ref{
+    animation:eden-ref-ping 2s var(--g-ease) infinite;
+  }
+  body[data-marketing="edu-home"] .demo .src{
+    padding:7px 10px;border-radius:8px;
+    animation:eden-edu-src-wave 4s ease-in-out infinite;
+  }
+  body[data-marketing="edu-home"] .demo .src:nth-of-type(2){animation-delay:2s}
+  body[data-marketing="edu-home"] .demo .src:nth-of-type(2) .ref{animation-delay:1s}
+  body[data-marketing="edu-home"] .col{animation:eden-border-pulse 4s ease-in-out infinite}
+  body[data-marketing="edu-home"] .col:nth-child(2){animation-delay:2s}
+
+  /* ── 4. edenrouter.com (router): Google-style live 6µs packet stream along SVG route + step telemetry + v2 cards ── */
+  body[data-marketing="router"] .vbadge{
+    display:inline-block;
+    animation:eden-v2-pulse 1.8s ease-in-out infinite;
+  }
+  body[data-marketing="router"] .steps li{
+    position:relative;overflow:hidden;border-radius:14px;
+    animation:eden-router-step-wave 3.6s var(--g-ease) infinite;
+  }
+  body[data-marketing="router"] .steps li::after{
+    content:"";position:absolute;top:0;left:-100%;width:75%;height:3px;
+    background:linear-gradient(90deg,transparent,#d9604f,#ef7b6c,transparent);
+    animation:eden-scan-sweep 2.4s linear infinite;
+  }
+  body[data-marketing="router"] .steps li:nth-child(2),body[data-marketing="router"] .steps li:nth-child(2)::after{animation-delay:1.2s}
+  body[data-marketing="router"] .steps li:nth-child(3),body[data-marketing="router"] .steps li:nth-child(3)::after{animation-delay:2.4s}
+  body[data-marketing="router"] .v2card{
+    animation:eden-step-card-spotlight 4.8s var(--g-ease) infinite;
+  }
+  body[data-marketing="router"] .v2card:nth-child(2){animation-delay:1.2s}
+  body[data-marketing="router"] .v2card:nth-child(3){animation-delay:2.4s}
+  body[data-marketing="router"] .v2card:nth-child(4){animation-delay:3.6s}
+  body[data-marketing="router"] .chartcard{
+    position:relative;overflow:hidden;
+    border:1.5px solid rgba(239,123,108,.45);
+    animation:eden-border-pulse 4s ease-in-out infinite;
+  }
+  body[data-marketing="router"] .ring.pulse{animation:pulse 1.5s ease-out infinite!important}
+  body[data-marketing="router"] .route{
+    stroke-dasharray:14 8!important;
+    stroke-dashoffset:0!important;
+    animation:eden-router-packet-stream 1.4s linear infinite,eden-route-glow 2.4s ease-in-out infinite!important;
+  }
+  body[data-marketing="router"] .sweep{animation:eden-sweep-invite 2.2s ease-in-out infinite}
+
+  /* ── 5. evesverification.com (eves-home): Google-style live benchmark bars filling + 9.7% counter pulse + 4-check wave ── */
+  body[data-marketing="eves-home"] .score{
+    position:relative;overflow:hidden;
+    border:1.5px solid rgba(217,96,79,.5);
+    animation:eden-hero-levitate 4.8s ease-in-out infinite;
+  }
+  body[data-marketing="eves-home"] .score::before{
+    content:"LIVE BENCHMARK · 432 FACTUAL QUESTIONS · LOWER IS BETTER";
+    display:inline-block;margin-bottom:10px;padding:5px 11px;border-radius:999px;
+    background:rgba(217,96,79,.14);border:1px solid rgba(217,96,79,.4);
+    color:var(--coral);font:600 10px var(--mono);letter-spacing:.08em;
+    animation:eden-pill-breathe 2.2s ease-in-out infinite;
+  }
+  body[data-marketing="eves-home"] .score::after{
+    content:"";position:absolute;top:0;left:-100%;width:80%;height:4px;
+    background:linear-gradient(90deg,transparent,#d9604f,#34c759,#d9604f,transparent);
+    animation:eden-scan-sweep 2.4s linear infinite;
+  }
+  body[data-marketing="eves-home"] .score .big{
+    display:inline-block;transform-origin:left center;
+    animation:eden-metric-pulse 2.6s var(--g-ease) infinite;
+  }
+  body[data-marketing="eves-home"] .score .bar b{
+    transform-origin:left center;
+    animation:eden-bar-grow-cycle 4.6s var(--g-ease) infinite;
+  }
+  body[data-marketing="eves-home"] .score .bar.e b{
+    background:linear-gradient(90deg,#d9604f,#ef7b6c,#34c759);
+    background-size:200% 100%;
+    animation:eden-bar-grow-cycle 4.6s var(--g-ease) infinite,eden-eves-bar-pulse 2.2s ease-in-out infinite;
+  }
+  body[data-marketing="eves-home"] .score .bar:nth-of-type(2) b{animation-delay:.25s}
+  body[data-marketing="eves-home"] .score .bar:nth-of-type(3) b{animation-delay:.5s}
+  body[data-marketing="eves-home"] .score .bar:nth-of-type(4) b{animation-delay:.75s}
+  body[data-marketing="eves-home"] .steps .step{
+    position:relative;overflow:hidden;
+    animation:eden-step-card-spotlight 4.8s var(--g-ease) infinite;
+  }
+  body[data-marketing="eves-home"] .steps .step:nth-child(2){animation-delay:1.2s}
+  body[data-marketing="eves-home"] .steps .step:nth-child(3){animation-delay:2.4s}
+  body[data-marketing="eves-home"] .steps .step:nth-child(4){animation-delay:3.6s}
+
+  /* ── 6. edensecretary.com (eden-secretary-home): Google Assistant-style live voice equalizer + active task execution ── */
+  body[data-marketing="eden-secretary-home"] .list{
+    position:relative;overflow:hidden;
+    border:1.5px solid rgba(239,123,108,.45);
+    animation:eden-hero-levitate 4.8s ease-in-out infinite;
+  }
+  body[data-marketing="eden-secretary-home"] .list::before{
+    content:"🎙 LISTENING · “EDEN, HANDLE MY MORNING”";
+    display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:6px 12px;border-radius:999px;
+    background:rgba(239,123,108,.18);border:1px solid rgba(239,123,108,.45);
+    color:#ffb4a8;font:600 10.5px var(--mono);letter-spacing:.08em;
+    animation:eden-pill-breathe 2s ease-in-out infinite;
+  }
+  body[data-marketing="eden-secretary-home"] .list::after{
+    content:"";position:absolute;top:0;left:-100%;width:85%;height:4px;
+    background:linear-gradient(90deg,transparent,#ef7b6c,#ffd2c9,#ef7b6c,transparent);
+    animation:eden-scan-sweep 2.4s linear infinite;
+  }
+  body[data-marketing="eden-secretary-home"] .list-title{
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  body[data-marketing="eden-secretary-home"] .list-title::after{
+    content:"";width:68px;height:18px;border-radius:6px;
+    background:repeating-linear-gradient(90deg,#ef7b6c 0 4px,transparent 4px 8px,#8fe0a8 8px 12px,transparent 12px 16px);
+    animation:eden-voice-wave .75s ease-in-out infinite alternate;
+  }
+  body[data-marketing="eden-secretary-home"] .list li{
+    position:relative;padding-left:10px;border-radius:10px;
+    animation:eden-google-row-spotlight 6s var(--g-ease) infinite;
+  }
+  body[data-marketing="eden-secretary-home"] .list li::after{
+    content:"✓ DONE";margin-left:auto;padding:2px 8px;border-radius:999px;
+    font:600 10px var(--mono);letter-spacing:.06em;color:#0e2747;background:#8fe0a8;
+    opacity:0;transform:scale(.85);
+    animation:eden-google-row-badge 6s var(--g-ease) infinite;
+  }
+  body[data-marketing="eden-secretary-home"] .list li:nth-child(1),body[data-marketing="eden-secretary-home"] .list li:nth-child(1)::after{animation-delay:0s}
+  body[data-marketing="eden-secretary-home"] .list li:nth-child(2),body[data-marketing="eden-secretary-home"] .list li:nth-child(2)::after{animation-delay:1s}
+  body[data-marketing="eden-secretary-home"] .list li:nth-child(3),body[data-marketing="eden-secretary-home"] .list li:nth-child(3)::after{animation-delay:2s}
+  body[data-marketing="eden-secretary-home"] .list li:nth-child(4),body[data-marketing="eden-secretary-home"] .list li:nth-child(4)::after{animation-delay:3s}
+  body[data-marketing="eden-secretary-home"] .list li:nth-child(5),body[data-marketing="eden-secretary-home"] .list li:nth-child(5)::after{animation-delay:4s}
+  body[data-marketing="eden-secretary-home"] .list li:nth-child(6),body[data-marketing="eden-secretary-home"] .list li:nth-child(6)::after{animation-delay:5s}
+  body[data-marketing="eden-secretary-home"] .steps .step{
+    animation:eden-step-card-spotlight 4.5s var(--g-ease) infinite;
+  }
+  body[data-marketing="eden-secretary-home"] .steps .step:nth-child(2){animation-delay:1.5s}
+  body[data-marketing="eden-secretary-home"] .steps .step:nth-child(3){animation-delay:3s}
+
+  /* ── 7. askedenmail.com (mail-home): Google Inbox-style live priority triage + auto-drafting badges + 9-card wave (plays once) ── */
+  body[data-marketing="mail-home"] .hero::before{
+    animation:eden-google-aura 7s ease-in-out 1 forwards!important;
+  }
+  body[data-marketing="mail-home"] .hero :is(.domain,.eyebrow)::before{
+    animation:eden-beacon-dot 1.8s var(--g-ease) 1 forwards!important;
+  }
+  body[data-marketing="mail-home"] .hero :is(.domain,.eyebrow)::after{
+    animation:eden-signal-bar 2.2s var(--g-ease) 1 forwards!important;
+  }
+  body[data-marketing="mail-home"] h1 u{
+    animation:eden-cursor-morph 2.2s var(--g-ease) 1 forwards!important;
+  }
+  body[data-marketing="mail-home"] .hero :is(.btn.primary,.btn.navy,.button){
+    animation:eden-cta-pulse 3.2s ease-in-out 1 forwards!important;
+  }
+  body[data-marketing="mail-home"] .hero :is(.btn.primary,.btn.navy,.button)::after{
+    animation:eden-cta-sheen 3.6s var(--g-ease) 1 forwards!important;
+  }
+  body[data-marketing="mail-home"] .list{
+    position:relative;overflow:hidden;
+    border:1.5px solid rgba(239,123,108,.45);
+    animation:eden-hero-levitate 4.8s ease-in-out 1 forwards;
+  }
+  body[data-marketing="mail-home"] .list::before{
+    content:"✉ INBOX TRIAGE · DRAFTING IN YOUR VOICE";
+    display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:6px 12px;border-radius:999px;
+    background:rgba(239,123,108,.18);border:1px solid rgba(239,123,108,.45);
+    color:#ffb4a8;font:600 10.5px var(--mono);letter-spacing:.08em;
+    animation:eden-pill-breathe 2.2s ease-in-out 1 forwards;
+  }
+  body[data-marketing="mail-home"] .list::after{
+    content:"";position:absolute;top:0;left:-100%;width:85%;height:4px;
+    background:linear-gradient(90deg,transparent,#ef7b6c,#ffd2c9,#ef7b6c,transparent);
+    animation:eden-scan-sweep 2.4s linear 1 forwards;
+  }
+  body[data-marketing="mail-home"] .list li{
+    position:relative;padding-left:10px;border-radius:10px;
+    animation:eden-google-row-spotlight 6s var(--g-ease) 1 forwards;
+  }
+  body[data-marketing="mail-home"] .list li::after{
+    content:"DRAFT READY";margin-left:auto;padding:2px 8px;border-radius:999px;
+    font:600 10px var(--mono);letter-spacing:.06em;color:#0e2747;background:#ef7b6c;
+    opacity:0;transform:scale(.85);
+    animation:eden-google-row-badge 6s var(--g-ease) 1 forwards;
+  }
+  body[data-marketing="mail-home"] .list li:nth-child(1),body[data-marketing="mail-home"] .list li:nth-child(1)::after{animation-delay:0s}
+  body[data-marketing="mail-home"] .list li:nth-child(2),body[data-marketing="mail-home"] .list li:nth-child(2)::after{animation-delay:1s}
+  body[data-marketing="mail-home"] .list li:nth-child(3),body[data-marketing="mail-home"] .list li:nth-child(3)::after{animation-delay:2s}
+  body[data-marketing="mail-home"] .list li:nth-child(4),body[data-marketing="mail-home"] .list li:nth-child(4)::after{animation-delay:3s}
+  body[data-marketing="mail-home"] .list li:nth-child(5),body[data-marketing="mail-home"] .list li:nth-child(5)::after{animation-delay:4s}
+  body[data-marketing="mail-home"] .list li:nth-child(6),body[data-marketing="mail-home"] .list li:nth-child(6)::after{animation-delay:5s}
+  body[data-marketing="mail-home"] .grid .card:nth-child(3n+1){animation:eden-step-card-spotlight 5.4s var(--g-ease) 1 forwards}
+  body[data-marketing="mail-home"] .grid .card:nth-child(3n+2){animation:eden-step-card-spotlight 5.4s var(--g-ease) 1.8s 1 forwards}
+  body[data-marketing="mail-home"] .grid .card:nth-child(3n+3){animation:eden-step-card-spotlight 5.4s var(--g-ease) 3.6s 1 forwards}
+
+  /* ── 8. edendaredevil.com (daredevil): High-contrast yellow acoustic sonar rings + keyboard command choreography ── */
+  body[data-marketing="daredevil"] .hero .icon{
+    animation:eden-daredevil-sonar 2s ease-in-out infinite;
+  }
+  body[data-marketing="daredevil"] .btn.yellow{
+    animation:eden-daredevil-btn 2.2s ease-in-out infinite;
+  }
+  body[data-marketing="daredevil"] .card{
+    animation:eden-daredevil-card-glow 3.4s ease-in-out infinite;
+  }
+  body[data-marketing="daredevil"] kbd{
+    display:inline-block;
+    animation:eden-kbd-glow 2.4s ease-in-out infinite;
+  }
+  body[data-marketing="daredevil"] tbody tr:nth-child(odd) kbd{animation-delay:.6s}
+  body[data-marketing="daredevil"] tbody tr:nth-child(even) kbd{animation-delay:1.2s}
+  body[data-marketing="daredevil"] .say{
+    display:inline-block;padding:0 4px;border-radius:4px;
+    animation:eden-daredevil-speech 3.2s ease-in-out infinite;
+  }
+}
+
+@keyframes eden-google-aura{
+  0%{transform:translate3d(-12px,-8px,0) scale(.95);opacity:.75}
+  100%{transform:translate3d(14px,10px,0) scale(1.08);opacity:1}
+}
+@keyframes eden-beacon-dot{
+  0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(217,96,79,.75)}
+  50%{transform:scale(1.38);box-shadow:0 0 0 9px rgba(217,96,79,0)}
+}
+@keyframes eden-signal-bar{
+  0%,100%{transform:scaleX(.45);opacity:.65}
+  50%{transform:scaleX(1.25);opacity:1}
+}
+@keyframes eden-cursor-morph{
+  0%,100%{transform:scaleX(1);background:#ef7b6c;box-shadow:0 0 0 rgba(239,123,108,0)}
+  50%{transform:scaleX(1.45);background:#d9604f;box-shadow:0 0 16px rgba(239,123,108,.65)}
+}
+@keyframes eden-cta-pulse{
+  0%,100%{box-shadow:0 12px 28px -12px rgba(14,39,71,.6),0 0 0 0 rgba(217,96,79,.4)}
+  50%{box-shadow:0 18px 36px -10px rgba(217,96,79,.4),0 0 0 6px rgba(217,96,79,0)}
+}
+@keyframes eden-cta-sheen{
+  0%,35%{left:-120%}
+  75%,100%{left:140%}
+}
+@keyframes eden-hero-levitate{
+  0%,100%{transform:translateY(0);box-shadow:0 36px 72px -28px rgba(14,39,71,.65)}
+  50%{transform:translateY(-9px);box-shadow:0 48px 90px -24px rgba(14,39,71,.78),0 0 0 2px rgba(239,123,108,.38)}
+}
+@keyframes eden-pill-breathe{
+  0%,100%{transform:scale(1);opacity:.88}
+  50%{transform:scale(1.03);opacity:1;box-shadow:0 0 18px rgba(239,123,108,.35)}
+}
+@keyframes eden-scan-sweep{
+  0%{left:-85%}
+  100%{left:115%}
+}
+@keyframes eden-google-row-spotlight{
+  0%,22%,100%{transform:translateX(0);background:transparent;color:#fff}
+  10%{transform:translateX(10px);background:rgba(239,123,108,.18);color:#ffb4a8}
+}
+@keyframes eden-google-row-badge{
+  0%,20%,100%{opacity:0;transform:scale(.82)}
+  10%{opacity:1;transform:scale(1)}
+}
+@keyframes eden-icon-orbit-bob{
+  0%,100%{transform:translateY(0) scale(1)}
+  50%{transform:translateY(-6px) scale(1.08)}
+}
+@keyframes eden-border-pulse{
+  0%,100%{box-shadow:0 6px 20px rgba(14,39,71,.07)}
+  50%{box-shadow:0 16px 38px rgba(217,96,79,.22),0 0 0 2px rgba(217,96,79,.36)}
+}
+@keyframes eden-metric-pulse{
+  0%,100%{transform:scale(1)}
+  50%{transform:scale(1.06);text-shadow:0 6px 22px rgba(217,96,79,.32)}
+}
+@keyframes eden-code-tab-wave{
+  0%,28%,100%{background:transparent}
+  14%{background:rgba(239,123,108,.16);box-shadow:inset 0 -3px 0 #ef7b6c}
+}
+@keyframes eden-tab-glow{
+  0%,100%{background:rgba(255,255,255,.1);box-shadow:inset 0 -3px 0 #ef7b6c}
+  50%{background:rgba(239,123,108,.26);box-shadow:inset 0 -4px 0 #ff9486}
+}
+@keyframes eden-prompt-pulse{
+  0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(239,123,108,.6)}
+  50%{transform:scale(1.15);box-shadow:0 0 0 6px rgba(239,123,108,0)}
+}
+@keyframes eden-step-card-spotlight{
+  0%,30%,100%{background:var(--card,#fffdf8);transform:translateY(0);box-shadow:none}
+  15%{background:var(--paper2,#f3ecdc);transform:translateY(-5px);box-shadow:0 14px 30px rgba(14,39,71,.1),inset 0 3px 0 var(--coral,#d9604f)}
+}
+@keyframes eden-edu-quote-highlight{
+  0%,100%{background:transparent}
+  50%{background:rgba(143,224,168,.24);box-shadow:0 0 0 4px rgba(143,224,168,.12)}
+}
+@keyframes eden-edu-src-wave{
+  0%,40%,100%{background:transparent;transform:translateX(0);color:#9db0cf}
+  20%{background:rgba(143,224,168,.15);transform:translateX(8px);color:#fff}
+}
+@keyframes eden-verified-pulse{
+  0%,100%{color:#8fe0a8;text-shadow:0 0 0 rgba(143,224,168,0)}
+  50%{color:#c5ffda;text-shadow:0 0 18px rgba(143,224,168,.65)}
+}
+@keyframes eden-shield-pop{
+  0%,100%{transform:scale(1) rotate(0deg)}
+  50%{transform:scale(1.35) rotate(-8deg)}
+}
+@keyframes eden-ref-ping{
+  0%,100%{transform:scale(1);background:rgba(239,123,108,.22)}
+  50%{transform:scale(1.25);background:rgba(239,123,108,.55);color:#fff}
+}
+@keyframes eden-v2-pulse{
+  0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(217,96,79,.7)}
+  50%{transform:scale(1.12);box-shadow:0 0 0 8px rgba(217,96,79,0)}
+}
+@keyframes eden-router-packet-stream{
+  from{stroke-dashoffset:44}
+  to{stroke-dashoffset:0}
+}
+@keyframes eden-route-glow{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(239,123,108,.45));opacity:.9}
+  50%{filter:drop-shadow(0 0 12px rgba(239,123,108,.95));opacity:1}
+}
+@keyframes eden-router-step-wave{
+  0%,35%,100%{border-top-color:var(--ink,#0e2747);background:transparent;transform:translateY(0)}
+  18%{border-top-color:var(--coral,#d9604f);background:rgba(243,236,220,.75);transform:translateY(-6px);box-shadow:0 14px 28px rgba(14,39,71,.08)}
+}
+@keyframes eden-step-border-wave{
+  0%,35%,100%{border-top-color:var(--ink,#0e2747);transform:translateY(0)}
+  18%{border-top-color:var(--coral,#d9604f);transform:translateY(-5px)}
+}
+@keyframes eden-sweep-invite{
+  0%,100%{box-shadow:0 0 0 0 rgba(239,123,108,.65);transform:scale(1)}
+  50%{box-shadow:0 0 0 10px rgba(239,123,108,0);transform:scale(1.04)}
+}
+@keyframes eden-bar-grow-cycle{
+  0%{transform:scaleX(.18);opacity:.75}
+  22%,100%{transform:scaleX(1);opacity:1}
+}
+@keyframes eden-eves-bar-pulse{
+  0%,100%{background-position:0% 50%;box-shadow:0 0 0 rgba(52,199,89,0)}
+  50%{background-position:100% 50%;box-shadow:0 0 18px rgba(52,199,89,.55)}
+}
+@keyframes eden-voice-wave{
+  0%{transform:scaleY(.35);opacity:.7}
+  50%{transform:scaleY(1.35);opacity:1}
+  100%{transform:scaleY(.65);opacity:.9}
+}
+@keyframes eden-daredevil-sonar{
+  0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,214,10,.8),0 20px 50px -18px rgba(255,214,10,.5)}
+  50%{transform:scale(1.08);box-shadow:0 0 0 22px rgba(255,214,10,0),0 26px 64px -10px rgba(255,214,10,.85)}
+}
+@keyframes eden-daredevil-btn{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,214,10,.65);transform:scale(1)}
+  50%{box-shadow:0 0 0 14px rgba(255,214,10,0);transform:scale(1.03)}
+}
+@keyframes eden-daredevil-card-glow{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,214,10,.35)}
+  50%{box-shadow:0 0 28px 2px rgba(255,214,10,.35)}
+}
+@keyframes eden-kbd-glow{
+  0%,100%{border-color:rgba(255,255,255,.35);color:#fff;transform:translateY(0)}
+  50%{border-color:#ffd60a;color:#ffd60a;background:rgba(255,214,10,.14);transform:translateY(-2px)}
+}
+@keyframes eden-daredevil-speech{
+  0%,100%{background:transparent;color:#fff}
+  50%{background:rgba(255,214,10,.2);color:#ffd60a}
+}
+
+@media(prefers-reduced-motion:reduce){
+  html:has(body[data-marketing]){scroll-behavior:auto}
+  body[data-marketing] *,body[data-marketing] *::before,body[data-marketing] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}

@@ -24,7 +24,9 @@ from ..prefs import register_feature_pref
 from ._asked import Asked
 
 register_feature_pref(
-    "background_model", "sonnet", lambda v: v if v in ("haiku", "sonnet", "opus") else None
+    "background_model",
+    "gemini-3.8-flash",
+    lambda v: v if v in ("haiku", "sonnet", "opus", "gemini-3.8-flash", "gemini-4-argon") else None,
 )
 
 # A clause of the owner's that asks for background work: "find me flights in the background",

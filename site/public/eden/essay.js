@@ -15,7 +15,7 @@
 import { $, el, ico, toast, download, isMobile, relDay } from './util.js';
 import { STYLES, STYLE_IDS, FONTS, SPACINGS, FIELD_LABELS, PAGE, styleOf, setupOf, frontMatter, titleLine, headerText, bodyText, countWords, outlineOf, progress, newEssay, essayFileName, feedbackRequest, formatDate, today, textToBlocks, inlineNodes, blocksOf, essayFromReply, TITLE_SYSTEM, cleanTitle, rubricRequest } from './essay-model.js';
 import { formatReference, inText, sortReferences, plainText } from './essay-cite.js';
-import { closeArtifact, setWide, artifactSend } from './artifact.js';
+import { closeArtifact, setWide, artifactSend, placeCanvas } from './artifact.js';
 import { startEssaySync, syncSoon, noteDeleted, syncOn, dirty } from './essay-cloud.js';
 
 // Its stylesheet comes with it (askeden.com in a browser only; the iPhone app never loads the essay writer): the module
@@ -117,14 +117,13 @@ function pane() {
 /**
  * Beside the chat, as on the Desk layout (owner, 2026-10-16: "it doesn't look the same"): on a computer the open
  * essay is its own full-height column right of the chat (#app > #artifact, essay.css html.es-col), and the chat with
- * its title bar and composer narrows beside it. Back inside #split for every other canvas, on a phone, and closed.
+ * its title bar and composer narrows beside it. Placement is shared with other browser canvases.
  */
 function placePane() {
   const a = $('artifact'), split = $('split'), center = $('center');
   if (!a || !split || !center) return;
   const out = a.classList.contains('essay-on') && split.classList.contains('art-open') && !isMobile();
-  if (out && a.parentElement === split) center.after(a);
-  else if (!out && a.parentElement !== split) split.append(a);
+  placeCanvas();
   document.documentElement.classList.toggle('es-col', out);
 }
 

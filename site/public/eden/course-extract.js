@@ -20,6 +20,49 @@ import { opStats, pageReason, commonImages, slideRels, slideFigures, chartText, 
 
 const PART = 2000;
 
+async function streamTextParts(file, maxSections = 10000) {
+  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB streaming window: safe for gigabyte-scale files without OOM
+  const parts = [];
+  let offset = 0;
+  let cur = '';
+  let leftover = '';
+  let sec = 0;
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  while (offset < file.size && parts.length < maxSections) {
+    const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+    const buf = await slice.arrayBuffer();
+    const str = leftover + decoder.decode(buf, { stream: offset + CHUNK_SIZE < file.size });
+    const paras = str.split(/\n\s*\n/);
+    leftover = paras.pop() || '';
+    for (const p of paras) {
+      const trimmed = p.trim();
+      if (!trimmed) continue;
+      if (cur && cur.length + trimmed.length > PART) {
+        sec++;
+        parts.push({ loc: `section ${sec}`, text: cur });
+        cur = '';
+        if (parts.length >= maxSections) break;
+      }
+      cur = cur ? `${cur}\n${trimmed}` : trimmed;
+    }
+    offset += CHUNK_SIZE;
+  }
+  if (leftover.trim() && parts.length < maxSections) {
+    if (cur && cur.length + leftover.trim().length > PART) {
+      sec++;
+      parts.push({ loc: `section ${sec}`, text: cur });
+      cur = leftover.trim();
+    } else {
+      cur = cur ? `${cur}\n${leftover.trim()}` : leftover.trim();
+    }
+  }
+  if (cur && parts.length < maxSections) {
+    sec++;
+    parts.push({ loc: `section ${sec}`, text: cur });
+  }
+  return parts.length ? parts : [{ loc: 'section 1', text: '' }];
+}
+
 export function kindOf(name) {
   const ext = String(name).toLowerCase().split('.').pop();
   return { pdf: 'pdf', pptx: 'slides', docx: 'doc', txt: 'text', md: 'text', markdown: 'text', epub: 'epub' }[ext] || null;
@@ -29,9 +72,9 @@ export function kindOf(name) {
 export async function extractFile(file) {
   const kind = kindOf(file.name);
   if (!kind) throw new Error('Eden reads PDF, EPUB, PowerPoint (.pptx), Word (.docx), and text or Markdown files.');
+  if (kind === 'text') return { kind, parts: await streamTextParts(file) };
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (kind === 'pdf') return { kind, ...(await pdfParts(bytes)) };
-  if (kind === 'text') return { kind, parts: chunk(new TextDecoder().decode(bytes).split(/\n\s*\n/)) };
   if (kind === 'epub') return { kind, parts: await epubParts(bytes) };
   const zip = await unzip(bytes, kind === 'slides' ? (n) => /^ppt\/(slides\/(_rels\/)?slide\d+\.xml(\.rels)?|charts\/chart\d+\.xml|diagrams\/data\d+\.xml)$/.test(n) : undefined);
   if (kind === 'slides') return { kind, ...slideParts(zip) };
@@ -42,7 +85,28 @@ export async function extractFile(file) {
 
 /** A zip without its central directory (a file cut off at the end, which Apple Books still opens):
  * each local entry read in turn from its own header; one that's itself cut off ends the list. */
-async function scanLocal(bytes, want, rawName = () => false) {
+/** Thrown when a zip unpacks to more than the caller allowed (a zip bomb): never swallowed as a damaged entry. */
+export const TOO_BIG = 'That file unpacks to too much data to read here.';
+/** Inflates one entry, counting what it unpacks against `budget.left` and stopping as soon as it runs out. */
+async function inflate(data, budget) {
+  const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > budget.left) { reader.cancel().catch(() => {}); throw new Error(TOO_BIG); }
+    parts.push(value);
+  }
+  budget.left -= n;
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+
+async function scanLocal(bytes, want, rawName = () => false, budget = { left: Infinity }) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const names = new TextDecoder();
   const out = new Map();
@@ -65,9 +129,9 @@ async function scanLocal(bytes, want, rawName = () => false) {
     if (want(name)) {
       const data = bytes.subarray(start, end);
       try {
-        const raw = method === 0 ? data : method === 8 ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : null;
+        const raw = method === 0 ? data : method === 8 ? await inflate(data, budget) : null;
         if (raw) out.set(name, rawName(name) ? raw : new TextDecoder().decode(raw));
-      } catch { /* a damaged entry: skip it */ }
+      } catch (e) { if (e && e.message === TOO_BIG) throw e; /* a damaged entry: skip it */ }
     }
     if (flags & 8 && !size) { const n = nextSig(end); if (n < 0) break; at = n; } else at = end + (flags & 8 ? (view.getUint32(end, true) === 0x08074b50 ? 16 : 12) : 0);
   }
@@ -247,11 +311,13 @@ async function toJpeg(raw, type) {
 }
 
 /** The XML entries of a zip (.pptx, .docx): Map name → text (or bytes, for the names `raw` picks). Stored and deflated entries only. */
-export async function unzip(bytes, want = (name) => /^(ppt\/slides\/slide\d+|word\/document)\.xml$/.test(name), raw = () => false) {
+/** `limit`: the most bytes all wanted entries may unpack to together (TOO_BIG past it); no limit by default. */
+export async function unzip(bytes, want = (name) => /^(ppt\/slides\/slide\d+|word\/document)\.xml$/.test(name), raw = () => false, limit = Infinity) {
+  const budget = { left: limit };
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let eocd = -1;
   for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65_557); i--) if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
-  if (eocd < 0) return scanLocal(bytes, want, raw); // no index at the end (a download cut short): read it piece by piece
+  if (eocd < 0) return scanLocal(bytes, want, raw, budget); // no index at the end (a download cut short): read it piece by piece
   const count = view.getUint16(eocd + 10, true);
   let at = view.getUint32(eocd + 16, true);
   const out = new Map();
@@ -267,7 +333,7 @@ export async function unzip(bytes, want = (name) => /^(ppt\/slides\/slide\d+|wor
     if (!want(name)) continue;
     const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
     const data = bytes.subarray(start, start + size);
-    const got = method === 0 ? data : method === 8 ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : null;
+    const got = method === 0 ? data : method === 8 ? await inflate(data, budget) : null;
     if (got) out.set(name, raw(name) ? got : new TextDecoder().decode(got));
   }
   return out;

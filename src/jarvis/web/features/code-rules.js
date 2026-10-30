@@ -77,7 +77,7 @@
   let asked = { id: null, at: 0 };
   let paneBody = null;
   let armed = null;  // { target, timer }: an export pressed once, waiting for the second press
-  const paneShown = () => paneBody && paneBody.isConnected && typeof currentPane !== 'undefined' && currentPane === 'rules';
+  const paneShown = () => paneBody && paneBody.isConnected && ((typeof currentPane !== 'undefined' && currentPane === 'rules') || (root.document && !root.document.getElementById('settings')?.hidden && root.document.getElementById('settings')?.contains(paneBody)));
 
   function ask(task) {
     const now = Date.now();

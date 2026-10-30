@@ -98,6 +98,9 @@ ALLOWED = frozenset(
         # turn, the routing preview and the model list, for the account's owner only (OWNER_ONLY).
         ("POST", "/api/route"),
         ("GET", "/api/chat/meta"),
+        # Eden Calendar (askeden/src/chat/edencal-routes.ts): read status/events and owner-reviewed writes.
+        ("GET", "/api/chat/edencal/status"),
+        ("POST", "/api/chat/edencal"),
     }
 )
 # What only the account's owner may ask (the relay marks such a request `owner`; a delegate's or a

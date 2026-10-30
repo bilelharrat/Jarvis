@@ -147,7 +147,7 @@ test('a grounded answer: Haiku, a small max_tokens, the FAQ pages, checked citat
   assert.equal(a.left.messages, 29);
   const [call] = anthropicCalls();
   const payload = JSON.parse(call.init.body);
-  assert.equal(payload.model, 'claude-haiku-4-5');
+  assert.equal(payload.model, 'gemini-3.8-flash');
   assert.equal(payload.max_tokens, 700);
   assert.match(payload.system, /\[#err-mac-offline\] "Your Mac is offline"/);
   assert.match(payload.system, /Use ONLY the Help pages/);
@@ -212,11 +212,11 @@ test('daily caps: questions, screenshots, Eden’s own budget; and the per-minut
   assert.equal((await broke.json()).code, 'help_busy');
 
   env = makeEnv();
-  env.EDEN_RATE = rateLimiter(1);
+  env.USER_RATE = rateLimiter(1); // a signed-in person's asks: USER_RATE, a ceiling against scripts
   const s3 = await signedIn('apple-user-3');
   assert.equal((await ask(s3, { question: 'Your Mac is offline' })).status, 200);
   assert.equal((await ask(s3, { question: 'Your Mac is offline' })).status, 429);
-  assert.ok(env.EDEN_RATE.keys.every((k) => k.startsWith('help:')));
+  assert.ok(env.USER_RATE.keys.every((k) => k.startsWith('help:')));
 });
 
 test('Help is free: the account’s allowance and usage don’t move, and nothing of the question is stored', async () => {
@@ -231,7 +231,7 @@ test('Help is free: the account’s allowance and usage don’t move, and nothin
 });
 
 test('config defaults and the fake model only on a local host', () => {
-  assert.deepEqual(helpConfig({}), { messages: 30, screenshots: 5, budgetUSD: 5, maxTokens: 700, model: 'claude-haiku-4-5' });
+  assert.deepEqual(helpConfig({}), { messages: 30, screenshots: 5, budgetUSD: 5, maxTokens: 700, model: 'gemini-3.8-flash' });
   assert.equal(helpConfig({ HELP_MAX_TOKENS: '99999' }).maxTokens, 2000);
   const local = new Request('http://help.localhost:8810/api/help/ask');
   assert.equal(modelUrl({ HELP_MODEL_BASE: 'http://127.0.0.1:8811' }, local), 'http://127.0.0.1:8811/v1/messages');

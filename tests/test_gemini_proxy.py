@@ -144,13 +144,25 @@ def test_schemas_lose_what_gemini_rejects_and_keep_the_rest():
     }
 
 
-def fake_google(stream_chunks=None, reply=None, status=200, reject_gemini=False):
+def fake_google(
+    stream_chunks=None,
+    reply=None,
+    status=200,
+    reject_gemini=False,
+    cache_name: str | None = None,
+):
     seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(
             (str(request.url), request.headers.get("x-goog-api-key"), json.loads(request.content))
         )
+        if "cachedContents" in str(request.url):
+            if cache_name:
+                return httpx.Response(200, json={"name": cache_name})
+            return httpx.Response(
+                400, json={"error": {"message": "CachedContent is too small"}}
+            )
         if reject_gemini and "generativelanguage" in str(request.url):
             return httpx.Response(
                 400,
@@ -494,3 +506,90 @@ async def test_a_retired_model_is_answered_by_the_newest_of_its_family():
     )
     assert status == 200 and body["content"][0]["text"] == "OK."
     assert "/models/gemini-flash-latest:" in seen[-1]
+
+
+async def test_explicit_context_caching_and_cached_token_accounting():
+    """A large system prompt and tool list are cached once via cachedContents, reused across
+    turns with cachedContent=..., and cachedContentTokenCount is reported as
+    cache_read_input_tokens."""
+    relay, seen = fake_google(
+        reply={
+            "candidates": [{"content": {"parts": [{"text": "Done."}]}, "finishReason": "STOP"}],
+            "usageMetadata": {
+                "promptTokenCount": 5000,
+                "cachedContentTokenCount": 4200,
+                "candidatesTokenCount": 30,
+            },
+        },
+        cache_name="cachedContents/abc123",
+    )
+    big_system = "You are Eden Code.\n" + ("Rule: keep quality high.\n" * 800)
+    req = {
+        "model": "gemini-4-argon",
+        "system": big_system,
+        "tools": TOOLS,
+        "messages": [{"role": "user", "content": "Fix bug"}],
+    }
+    status, body, _ = await relay.messages(KEY, req)
+    assert status == 200
+    assert body["usage"] == {
+        "input_tokens": 800,
+        "cache_read_input_tokens": 4200,
+        "output_tokens": 30,
+    }
+    assert "cachedContents" in seen[0][0]
+    assert seen[1][2]["cachedContent"] == "cachedContents/abc123"
+    assert "systemInstruction" not in seen[1][2] and "tools" not in seen[1][2]
+    # Second turn reuses the cachedContent without creating a new cache.
+    await relay.messages(KEY, {**req, "messages": [{"role": "user", "content": "Next step"}]})
+    assert len(seen) == 3 and seen[2][2]["cachedContent"] == "cachedContents/abc123"
+
+
+async def test_rolling_history_checkpoint_and_legacy_mode_toggle():
+    """When conversation history crosses the checkpoint threshold, contents[:cutoff] are
+    pinned in cachedContents and only contents[cutoff:] are sent live; toggling cost_saver=False
+    reverts to full inline requests."""
+    relay, seen = fake_google(
+        reply={
+            "candidates": [{"content": {"parts": [{"text": "Patched."}]}, "finishReason": "STOP"}],
+            "usageMetadata": {
+                "promptTokenCount": 12000,
+                "cachedContentTokenCount": 10800,
+                "candidatesTokenCount": 40,
+            },
+        },
+        cache_name="cachedContents/roll999",
+    )
+    big_system = "You are Eden Code.\n" + ("Rule: keep quality high.\n" * 800)
+    long_chunk = "file line content\n" * 400
+    messages = [
+        {"role": "user", "content": f"Read file 1\n{long_chunk}"},
+        {"role": "assistant", "content": f"Read result 1\n{long_chunk}"},
+        {"role": "user", "content": f"Read file 2\n{long_chunk}"},
+        {"role": "assistant", "content": f"Read result 2\n{long_chunk}"},
+        {"role": "user", "content": "Now apply the fix"},
+    ]
+    req = {
+        "model": "gemini-4-argon",
+        "system": big_system,
+        "tools": TOOLS,
+        "messages": messages,
+    }
+    status, body, _ = await relay.messages(KEY, req)
+    assert status == 200
+    # First call created a rolling history cache with 4 checkpointed messages
+    assert "cachedContents" in seen[0][0]
+    assert len(seen[0][2]["contents"]) == 4
+    # Second call (generateContent) sent only the 1 remaining live message + cachedContent
+    assert seen[1][2]["cachedContent"] == "cachedContents/roll999"
+    assert len(seen[1][2]["contents"]) == 1
+    assert seen[1][2]["contents"][0]["parts"][0]["text"] == "Now apply the fix"
+
+    # Switch back to legacy inline mode (cost_saver = False)
+    relay.cost_saver = False
+    await relay.messages(KEY, req)
+    assert "cachedContent" not in seen[-1][2]
+    assert "systemInstruction" in seen[-1][2]
+    assert len(seen[-1][2]["contents"]) == 5
+
+

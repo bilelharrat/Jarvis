@@ -80,7 +80,7 @@ async def test_its_options_give_it_reading_tools_and_nothing_that_acts(
     task = type("T", (), {"cwd": hub.feature_path("background")})()
     options = desk.options(task, Job(1, words=""))
     assert (
-        options.model == "claude-sonnet-5-5" and options.max_budget_usd == background.MAX_BUDGET_USD
+        options.model == "gemini-3.8-flash" and options.max_budget_usd == background.MAX_BUDGET_USD
     )
     assert options.tools == ["WebSearch", "WebFetch"] and options.allowed_tools == [
         "WebSearch",

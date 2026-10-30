@@ -147,8 +147,11 @@
 
   // ── the Secrets pane ──
 
+  let paneBody = null;
+
   function paneOpen() {
-    return typeof currentPane !== 'undefined' && currentPane === 'sec-pane' && F.$('jc-pane') && !F.$('jc-pane').hidden;
+    return (paneBody && paneBody.isConnected && F.$('settings') && !F.$('settings').hidden && F.$('settings').contains(paneBody))
+      || (typeof currentPane !== 'undefined' && currentPane === 'sec-pane' && F.$('jc-pane') && !F.$('jc-pane').hidden);
   }
 
   function list(ev, scope, names, empty) {
@@ -163,7 +166,7 @@
   }
 
   function renderPane(ev) {
-    const body = F.$('jc-pane-body');
+    const body = (paneBody && paneBody.isConnected) ? paneBody : F.$('jc-pane-body');
     if (!body || !paneOpen()) return;
     body.replaceChildren(
       el('p', 'sec-note', 'The secrets this session can use, by name. Their values stay in the Keychain and are never shown.'),
@@ -177,6 +180,7 @@
   F.registerPane('sec-pane', {
     title: 'Secrets',
     render(body) {
+      paneBody = body;
       body.replaceChildren(el('p', 'cv-note', 'Looking…'));
       const task = F.currentTask();
       if (task) F.send({ type: 'sec_list', id: task.id });

@@ -45,7 +45,7 @@ from .config import MAX_BUFFER
 from .prefs import MODELS
 from .tasks import _inside, _read_paths
 
-MODEL = MODELS["haiku"]
+MODEL = "gemini-3.8-flash"
 BTW_PER_HOUR, BTW_PER_DAY = 30, 150
 BTW_STEPS = 8
 BTW_SECONDS = 120.0

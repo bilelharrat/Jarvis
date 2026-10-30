@@ -41,6 +41,8 @@ import { publishedApi } from '../accounts/published.js';
 import { sharedChatsApi, sharedRoute } from '../accounts/shared-chats.js';
 import { ENDED as GRANT_ENDED, grantAllows, grantRefusal, ownRoute } from '../accounts/delegates.js';
 import { tasksApi } from '../accounts/tasks.js';
+import { travelApi } from '../travel/api.js';
+import { flightsApi } from '../travel/flights.js';
 import { keysApi } from '../accounts/user-keys.js';
 import { EXTRACT_MODEL, extractMemory, memoryApi, memoryForTurn } from './memory.js';
 import { transcribeApi } from './transcribe.js';
@@ -48,13 +50,16 @@ import { videoApi } from './video.js';
 import { SUMMARY_STYLE, summaryIntent, checkGrounding, checkQuiz, checkSet, courseForTurn, coursesApi, filesForTurn, recordTurn, riskBlock, riskOf } from '../edu/course.js';
 import { HINT_LABEL, hintStream } from '../edu/hints.js'; // Q10: graded work gets hints, never a final answer
 import { browserTurn, pickBrowserModel, wantsBrowser } from './browser-turn.js';
-import { editsLast, imageTurn, imagesOn, wantsImage } from './image.js';
+import { animatesLast, editsLast, imageTurn, imagesOn, videoTurn, videosOn, wantsImage, wantsVideo } from './image.js';
 import { picturesFor, webImageApi } from './web-images.js'; // pictures with a search answer, ChatGPT-style (askeden U1)
+import { stockMediaApi } from './stock-media.js'; // Eden Slides' stock media library (askeden web/chat/deck-media.js)
+import { audienceCreate } from './audience-room.js'; // Eden Slides live polls and Q&A: the presenter opens a room
+import { deckRoomApi } from './deck-room.js'; // Eden Slides, editing together across devices (askeden web/chat/deck-room.js)
 import { call as accountCall } from '../accounts/index.js';
 import { coursePayer, shapeFreeTurn } from '../edu/budget.js'; // who pays for a student's course turn (askeden L9)
 import { requestMaxOutputTokens, withMaxOutputTokens } from './vendor/providers.js';
 import { NO_GEMINI, VIDEO, deleteFile, fileSeconds, getFile, videoAttachment, videoCapSeconds, videoModels, videoProblem, videoTokens, videosOf } from './video.js';
-import { LIMITS } from '../accounts/account.js';
+import { EDEN_TURNS, LIMITS } from '../accounts/account.js';
 // Every provider (Anthropic, OpenAI, Gemini, Kimi) with the Mac's own stream code and the registry's prices (providers.js).
 import { viaBase } from './providers.js';
 import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, autoModels, capRequest, defaultModel, computedWhere, fitCall, maxTokensOf, hasVision, hostedFor, metered, modelOf, narrowFor, providerStates, ratesOf, ratingRouter, searchProvider, searchTool, streamCall, usageUSD } from './providers.js';
@@ -65,9 +70,10 @@ import { refusalPlan } from './refusal.js';
 import { ESSAY_MIN_REPLY_TOKENS, cheapestWriter, essayHints, essayOf, essayPool, essayRoom, withoutToolBlocks } from './essay-route.js';
 // Eden's two fact checks (askeden ROADMAP N19: the assumption check before an answer, the web check after one; checks.js) and EVES (eves.js).
 import { CHECKS_SKIPPED, answerCheck, checkModels, checksFor, checksWorst, hasSycophancyChallenge, hostedAsk, premiseAudit, premiseRoute, premiseRouteNote, riskOfTurn, sycophancyGuardNote, trustworthy, verificationFor } from './checks.js';
-import { hostedEves, hostedEvesEstimate, stopHostedEves } from './eves.js';
+import { evesStrongOn, hostedEves, hostedEvesEstimate, hostedEvesFlag, hasHostedExactVaultHit, lookupHostedVaultMatch, stopHostedEves } from './eves.js';
 import { capabilityOverrides, cleanAdjustments, taskClass } from '../../public/eden/learned-model.js';
 import { STAGES, TOP_MODEL, autopilotStage, autopilotState, monthBounds, stageExclusions, steppedLevel } from '../../public/eden/autopilot-model.js';
+import { betaApi } from '../travel/beta.js';
 import {
   DEFAULT_CLASSIFIER_MODEL,
   MODELS,
@@ -80,6 +86,25 @@ import {
 
 const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const rank = (level) => EFFORTS.indexOf(level);
+
+let chatBoundarySalt;
+function stableChatBoundary(seed) {
+  if (!chatBoundarySalt) {
+    chatBoundarySalt = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const input = `${chatBoundarySalt}:${seed}`;
+  const mix = (init, mul) => {
+    let h = init >>> 0;
+    for (let i = 0; i < input.length; i++) {
+      h ^= input.charCodeAt(i);
+      h = Math.imul(h, mul) >>> 0;
+      h ^= (h >>> 16);
+      h >>>= 0;
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+  };
+  return `${mix(0x811c9dc5, 0x01000193)}${mix(0x9e3779b9, 0x85ebca6b)}${mix(0xc2b2ae35, 0x27d4eb2f)}`;
+}
 
 // The models askeden.com may route among (EDEN_MODELS replaces this list; "all": every registry model
 // not deprecated or retired). Only those whose provider has a key for the asker are candidates.
@@ -290,6 +315,10 @@ export function parseSend(body, cfg) {
     if (!['off', 'on', 'auto'].includes(s.eves)) bad('settings.eves must be "off", "on" or "auto"');
     settings.eves = s.eves;
   }
+  if (s.evesModel !== undefined && s.evesModel !== null && s.evesModel !== '') {
+    if (typeof s.evesModel !== 'string' || s.evesModel.length > 80) bad('settings.evesModel must be a model id string');
+    settings.evesModel = s.evesModel.trim();
+  }
   const mode = body.mode ?? 'chat';
   if (!['chat', 'search', 'research'].includes(mode)) bad('mode must be "chat", "search" or "research"');
   if (body.system !== undefined && body.system !== null && typeof body.system !== 'string') bad('system must be a string');
@@ -297,7 +326,11 @@ export function parseSend(body, cfg) {
   // Provenance (ROADMAP H8, askeden src/chat/provenance.ts, bundled in vendor/google.js): the owner's
   // words are trusted; attachments, context blocks, earlier replies that read untrusted content and
   // web search are not, and reach Claude only inside this turn's randomly-bounded blocks.
-  const ledger = createLedger();
+  const firstMsg = messages[0];
+  const boundarySeed = firstMsg
+    ? `${firstMsg.content}|${(firstMsg.attachments || []).map((a) => `${a.kind}:${a.name ?? ''}:${(a.text ?? a.data ?? '').length}`).join(',')}`
+    : '';
+  const ledger = createLedger(boundarySeed ? { boundary: stableChatBoundary(boundarySeed) } : undefined);
   let replyMarked = false;
   messages.forEach((m, i) => {
     if (m.role === 'user') {
@@ -405,7 +438,7 @@ export { searchTool }; // Claude's web search tool (providers.js)
 
 const needsMac = (words = NEEDS_MAC) => problem(503, words, 'needs_mac');
 
-function meta(cfg, env = {}) {
+function meta(cfg, env = {}, request = null) {
   const keys = cfg.keys || {};
   const models = cfg.models.map((m) => {
     const efforts = effortsFor(m, cfg.maxEffort);
@@ -449,7 +482,20 @@ function meta(cfg, env = {}) {
       : { mode: 'off', available: false, reason: 'No Gemini API key on askeden.com; the router’s rules pick', model: DEFAULT_CLASSIFIER_MODEL },
     search: sp ? { available: true, via: sp } : { available: false, via: null, reason: 'Web search on askeden.com needs Gemini, GPT or Claude' },
     newsInApp: String(env.EDEN_NEWS_IN_APP || '').trim().toLowerCase() === 'on' && String(env.EDEN_NEWS || '').trim().toLowerCase() === 'on', // the chat app's News button (web/chat/news-panel.js): off until the owner says
-    images: imagesOn(env) ? (keys.openai ? { available: true, via: 'openai' } : { available: false, reason: 'Making pictures needs an OpenAI key' }) : { available: false, reason: 'Not switched on yet' }, // image.js
+    images: imagesOn(env, request)
+      ? keys.gemini
+        ? { available: true, via: 'gemini' }
+        : keys.openai
+          ? { available: true, via: 'openai' }
+          : env.AI
+            ? { available: true, via: 'cloudflare' }
+            : { available: false, reason: 'Making pictures needs a Gemini or OpenAI key' }
+      : { available: false, reason: 'Not switched on yet' }, // image.js
+    videos: videosOn(env, request)
+      ? keys.gemini
+        ? { available: true, via: 'gemini' }
+        : { available: false, reason: 'Making videos needs a Gemini key' }
+      : { available: false, reason: 'Not switched on yet' }, // image.js (Veo)
     jarvis: { available: false, reason: NEEDS_MAC },
     code: { available: false, reason: NEEDS_MAC },
     scope: models.length
@@ -457,9 +503,10 @@ function meta(cfg, env = {}) {
       : 'No models are set up on askeden.com',
     hosted: { site: 'askeden.com', maxEffort: cfg.maxEffort, maxTokens: cfg.maxTokens },
     // What this server runs of Eden's checks (docs/chat-api.md): the assumption check, the web check of unsearched
-    // answers (checks.js), and EVES (eves.js) when at least two models are available.
+    // answers (checks.js), and EVES (eves.js) on the website when at least two models are available (kept false for the
+    // iPhone app during App Review so its UI matches the exact Apple-submitted build).
     ...checksMeta(cfg),
-    eves: models.length >= 2,
+    eves: models.length >= 2 && !(request && /\b(?:EdenApp|EdenEdu)\//.test(request.headers.get('user-agent') || '') && !/\bEdenBeta\//.test(request.headers.get('user-agent') || '')),
   };
 }
 
@@ -611,22 +658,31 @@ export async function chatApi(request, env, ctx, path) {
     if (path === '/api/chat/transcribe') return await transcribeApi(request, env, await gate(request, env, { audio: true }), { call, limited });
     // A search answer's pictures load as <img> (no X-Jarvis-Chat): one Wikimedia picture, signed in (web-images.js).
     if (path === '/api/chat/webimage') return await webImageApi(request, await gate(request, env, { header: false }));
+    // Slides' stock photos, video and audio: search and files, signed in, no X-Jarvis-Chat (stock-media.js).
+    if (path === '/api/chat/media/search' || path === '/api/chat/media/file') { const mw = await gate(request, env, { header: false }); return await stockMediaApi(request, path, { limit: () => limited(env, 'API_RATE', mw.account) }); }
     // A video for the next turn: streamed on to Gemini's Files API (video.js).
     if (path === '/api/chat/video') {
       const vw = await gate(request, env, { video: true });
       return await videoApi(request, env, vw, { cfg: await hostedFor(env, vw, cfg, request), call, limited });
     }
+    // Eden Slides, editing together: a WebSocket to a shared deck's room; the owner (session) or a seat's token (deck-room.js)
+    if (path.startsWith('/api/chat/deck-room/')) return await deckRoomApi(request, env, path, { currentSession, limited });
+    if (path === '/api/chat/travel/map' || path === '/api/chat/travel/photo' || path === '/api/chat/travel/hero' || path === '/api/chat/travel/hero-image' || path === '/api/chat/travel/calendar' || path === '/api/chat/travel/doc' || path === '/api/chat/travel/memory-photo') return await travelApi(request, env, await gate(request, env, { header: false }), path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) });
     const who = await gate(request, env);
     cfg = await hostedFor(env, who, cfg, request); // the models this asker has keys for (providers.js)
     if (path === '/api/chat/publish' || path.startsWith('/api/chat/published')) return await publishedApi(request, env, who, path); // G10 (accounts/published.js)
     if (sharedRoute(path)) return await sharedChatsApi(request, env, who, path); // shared chats, askeden Q3 (accounts/shared-chats.js)
+    if (path === '/api/chat/audience') return await audienceCreate(request, env, who, { limited }); // Eden Slides' audience room (audience-room.js)
     if (path === '/api/chat/courses' || path.startsWith('/api/chat/courses/')) return json(await coursesApi(request, env, who, path, { call, limited, readBody })); // Eden for Education (edu/course.js)
     if (path === '/api/chat/tasks') return await tasksApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // G3 (accounts/tasks.js)
+    if (path === '/api/chat/flights' || path === '/api/chat/flights/status') return await flightsApi(request, env, who, path, { call, limited, readBody }); // flights through Duffel, off unless EDEN_FLIGHTS=1 (travel/flights.js)
+    if (path === '/api/chat/travel/beta') return await betaApi(request, env, who, { call, limited, readBody }); // the private beta (travel/beta.js)
+    if (path === '/api/chat/travel') return await travelApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // Eden Travel, off unless EDEN_TRAVEL=1 (travel/api.js)
     const route = `${request.method} ${path}`;
     switch (route) {
       case 'GET /api/chat/meta':
-        if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return json(await viaMacMeta(meta(cfg, env), request, env, ctx, who)); // the Mac's models (via-mac.js)
-        return json(await withMac(meta(cfg, env), request, env, ctx, who));
+        if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return json(await viaMacMeta(meta(cfg, env, request), request, env, ctx, who)); // the Mac's models (via-mac.js)
+        return json(await withMac(meta(cfg, env, request), request, env, ctx, who));
       // Eden Mail's read receipts (accounts/receipts.js): a pixel link for an email about to go, the opens since
       // Auto Drafts in the background (accounts/autodrafts.js): on/off with the owner's style, what it drafted, Check now
       case 'GET /api/chat/autodrafts':
@@ -666,8 +722,10 @@ export async function chatApi(request, env, ctx, path) {
           allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
           if (!allow.ok || allow.left < 0.001) throw new ApiError(402, 'no_allowance', 'Your included AI is used up for this month.');
         }
-        const vectors = await embedTexts(provider, key.key, texts);
-        if (allow) await memoryCharge(env, who, embedUSD(provider, texts), allow.bucket);
+        const scope = `${who.account}:${who.device && who.device.id ? who.device.id : ''}`;
+        const cost = embedUSD(provider, texts, { scope });
+        const vectors = await embedTexts(provider, key.key, texts, fetch, { scope });
+        if (allow && cost > 0) await memoryCharge(env, who, cost, allow.bucket);
         return json({ vectors, provider, model: EMBED_MODELS[provider] });
       }
       case 'GET /api/chat/spend': // H3: the month on the included AI, as the autopilot sees it
@@ -675,12 +733,12 @@ export async function chatApi(request, env, ctx, path) {
         return json(await hostedSpend(env, who));
       case 'POST /api/chat/send':
         await limited(env, 'API_RATE', who.account);
-        await limited(env, 'EDEN_RATE', `turn:${who.account}`); // chat turns a minute per account (docs/web-auth.md)
+        await limited(env, 'USER_RATE', `turn:${who.account}`); // chat turns a minute per account (docs/web-auth.md)
         return await send(request, env, ctx, who, cfg);
       // Compare (G6): several Claude models at once, one hold for all of them (below)
       case 'POST /api/chat/compare':
         await limited(env, 'API_RATE', who.account);
-        await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+        await limited(env, 'USER_RATE', `turn:${who.account}`);
         return await compare(request, env, ctx, who, cfg);
       case 'POST /api/chat/compare/estimate':
         await limited(env, 'API_RATE', who.account);
@@ -693,19 +751,22 @@ export async function chatApi(request, env, ctx, path) {
       // EVES (N7/N13): up to three models answer in parallel, deterministic + INSPECTOR checks, judge and web evidence (eves.js)
       case 'POST /api/chat/eves':
         await limited(env, 'API_RATE', who.account);
-        await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+        await limited(env, 'USER_RATE', `turn:${who.account}`);
         if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
         return await hostedEves(request, env, ctx, who, cfg, { readBody, MAX_BODY, compareModels, parseSend, narrowFor, systemPrompt, inputEstimate, messageText, routeSettings, compareLanes, creditFactor, routed });
       case 'POST /api/chat/eves/estimate':
         await limited(env, 'API_RATE', who.account);
         if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
-        return json(hostedEvesEstimate(await readBody(request, 1 << 20), cfg, { narrowFor, compareLanes, routeSettings, compareModels }));
+        return json(hostedEvesEstimate(await readBody(request, 1 << 20), cfg, { narrowFor, compareLanes, routeSettings, compareModels, strong: await evesStrongOn(request, env, who) }));
       case 'POST /api/chat/eves/stop':
         if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
         return json(stopHostedEves(await readBody(request, 4096), who));
+      case 'POST /api/chat/eves/flag':
+        await limited(env, 'API_RATE', who.account);
+        return json(await hostedEvesFlag(request, env, ctx, who, cfg, { readBody, routed }));
       case 'POST /api/chat/artifact': {
         await limited(env, 'API_RATE', who.account);
-        const body = await readBody(request, 3 * 1024 * 1024);
+        const body = await readBody(request, 12 * 1024 * 1024);
         if (typeof body.html !== 'string' || !body.html) throw new ApiError(400, 'bad_request', 'html must be a non-empty string');
         const { id } = await call(env, who.account, 'artifact-put', { html: body.html }, who.token);
         return json({ url: `/artifact/${id}` });
@@ -988,9 +1049,39 @@ export function essayShort(source = null) {
   return new ApiError(402, 'no_allowance', `Not enough of your included AI is left for essay writing: ${words}. Ask for a shorter part, or wait for the allowance to renew.`);
 }
 
+const SERVER_SLIDE_ASK_RE =
+  /\b(?:make|create|build|generate|design|write|draft|prepare|put together|give me|can you make|could you make|i need|we need|show me)\b[\s\S]{0,80}?\b(?:slide\s*deck|slides|slide\s*show|slideshow|slide\s*set|slideset|presentation|power\s*point|pptx|pitch\s*deck|keynote)\b|\b(?:in|as a|into a)\s+(?:power\s*point|pptx|slide\s*deck|slide\s*show|slideshow|presentation|slideset)\b|\b(?:power\s*point|slide\s*deck|slide\s*show|slideshow|slideset)\s+(?:format|on|about|for)\b|\b(\d{1,2})[\s-]*(?:slides?|pages?)\s+(?:deck|presentation|slide\s*show|slideshow|on|about|for)\b/i;
+const SERVER_SLIDE_CODE_RE = /\b(?:python|python-pptx|matplotlib|javascript|typescript|react|script|code|function)\b/i;
+
+export function serverWantsSlides(prompt) {
+  const s = String(prompt || '').trim();
+  if (!s || s.length > 4000) return false;
+  if (SERVER_SLIDE_CODE_RE.test(s) && !/\b(?:power\s*point\s+format|build\s+the\s+slide\s+deck)\b/i.test(s)) return false;
+  return SERVER_SLIDE_ASK_RE.test(s);
+}
+
+export const SERVER_DECK_PROMPT = [
+  'You are building an industry-leading, state-of-the-art presentation deck in Eden (Canva Pro + Gamma + Apple Keynote executive quality). Eden renders your JSON into an interactive 16:9 canvas with native charts, vector diagrams, football X\'s and O\'s playbook diagrams, Bento card grids, real photography, AI illustrations, and 1-click PowerPoint (.pptx) export.',
+  'NEVER say you cannot generate or download images or slide files, and NEVER write Python code (`python-pptx`, `matplotlib`) or a plain Markdown outline.',
+  'Reply with one short introductory sentence, then the complete deck in one fenced block whose language is deck:\n```deck\n{ …JSON… }\n```',
+  'JSON schema:\n{\n  "title": "Deck title",\n  "theme": { "base": "executive|glass|pitch-studio|paper|ocean|sunset|canva-aurora|editorial-luxe|glass-dark|midnight|forest" },\n  "sources": [{ "n": 1, "title": "Source title", "url": "https://…" }],\n  "slides": [\n    { "layout": "title", "kicker": "EXECUTIVE BRIEFING", "title": "…", "subtitle": "…", "imageQuery": "1-3 word Wikipedia/Wikimedia photo query", "notes": "…" },\n    { "layout": "grid", "kicker": "CORE ARCHITECTURE", "title": "…", "cards": [{ "badge": "01 · SYSTEM", "heading": "…", "bullets": ["…"] }, { "badge": "02 · EXECUTION", "heading": "…", "bullets": ["…"] }], "takeaway": "1-sentence executive takeaway", "notes": "…" },\n    { "layout": "playbook", "kicker": "SIGNATURE PLAY & ROUTE TREE", "title": "…", "playbook": { "formation": "11 Personnel · Shotgun Trips", "coverage": "MOFC Cover 1 / Cover 2 Read", "concept": "Hoss Y-Juke", "routes": [{ "pos": "X", "side": "left", "route": "curl", "label": "6-yd Hitch", "read": 3 }, { "pos": "H", "side": "slot-l", "route": "seam", "label": "Vertical Seam", "read": 2 }, { "pos": "Y", "side": "te-r", "route": "juke", "label": "Y-Juke Option", "read": 1, "primary": true }, { "pos": "Z", "side": "right", "route": "out", "label": "Speed Out", "read": 3 }, { "pos": "RB", "side": "back", "route": "flat", "label": "Checkdown", "read": 4 }] }, "bullets": ["…"], "takeaway": "…", "notes": "…" },\n    { "layout": "diagram", "kicker": "TACTICAL PROGRESSION", "title": "…", "diagram": { "type": "flow|cycle|timeline|pyramid|funnel|matrix|hierarchy", "items": [{ "label": "…", "detail": "…" }] }, "takeaway": "…", "notes": "…" },\n    { "layout": "image", "kicker": "VISUAL ANALYSIS", "title": "…", "imageQuery": "1-3 word Wikipedia/Wikimedia photo query for real people/teams/places", "imageGen": "vivid AI illustration prompt when a custom tactical diagram or concept art is needed", "alt": "what the picture shows", "bullets": ["…"], "takeaway": "…", "notes": "…" },\n    { "layout": "stats", "kicker": "BY THE NUMBERS", "title": "…", "stats": [{ "value": "…", "label": "…", "delta": "…" }], "bullets": ["…"], "notes": "…" },\n    { "layout": "two-column", "kicker": "COMPARISON", "title": "…", "left": { "heading": "…", "bullets": ["…"] }, "right": { "heading": "…", "bullets": ["…"] }, "takeaway": "…", "notes": "…" }\n  ]\n}',
+  'Rules: Build 8–11 rich slides with varied layouts (title, grid, playbook, diagram, image, stats, two-column, chart/table, quote) using a clean professional light theme (`executive`, `glass`, `pitch-studio`, or `paper`) unless a dark theme was explicitly requested. When showing football plays or X\'s and O\'s route concepts, use `"layout": "playbook"` with `"playbook"` routes (`seam|post|corner|slant|out|in|juke|wheel|flat|cross|go|curl`). Include `imageQuery` (1–3 English words for real people, teams, stadiums, companies, or places) on the title slide and at least 3–5 content slides so the presentation has authentic photography!',
+].join('\n');
+
 async function send(request, env, ctx, who, cfg) {
   const raw = await readBody(request, MAX_BODY);
   if (raw.privacy !== undefined && raw.privacy !== null && raw.privacy !== false) return await privateTurn(request, env, ctx, who, raw);
+  // Auto-detect slide deck creation or follow-up edit requests on the server even if the client tab didn't send `deck: true`.
+  const lastMsgInRaw = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
+  const hasDeckInHistory =
+    (Array.isArray(raw.messages) && raw.messages.some((m) => m && m.role === 'assistant' && /```(?:deck|deck-patch|slides)\b/i.test(String(m.content || '')))) ||
+    (Array.isArray(raw.context) && raw.context.some((c) => c && /current slide deck/i.test(String(c.title || ''))));
+  if (!raw.deck && !raw.course && lastMsgInRaw && typeof lastMsgInRaw.content === 'string' && (serverWantsSlides(lastMsgInRaw.content) || hasDeckInHistory)) {
+    raw.deck = true;
+    if (typeof raw.system !== 'string' || !raw.system.includes('```deck')) {
+      raw.system = [raw.system, SERVER_DECK_PROMPT].filter(Boolean).join('\n\n');
+    }
+  }
   // A course turn (edu/course.js) is answered here, from the course's materials, never on the Mac.
   const inCourse = typeof raw.course === 'string' && raw.course;
   // T18: a turn the page made beside the open essay (`essay: { kind, words }`, essay-route.js); null otherwise
@@ -999,8 +1090,20 @@ async function send(request, env, ctx, who, cfg) {
   // allowance unless they chose it (`eduOwn`); the payer stands in for `call` in the money ops below (edu/budget.js)
   const payer = inCourse ? await coursePayer(env, who, raw.course, { request, own: raw.eduOwn === true }) : null;
   const call = payer ? payer.call : accountCall;
-  // A picture (image.js): the composer's Image mode, or a message that plainly asks for one; never in a course.
-  if (!inCourse && imagesOn(env) && raw.image !== false) {
+  // A video clip (image.js Veo): the composer's Video mode, a message that plainly asks for a video, or "now animate it" after a picture.
+  if (!inCourse && videosOn(env, request) && raw.video !== false) {
+    const lastAsk = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
+    const asked = lastAsk && lastAsk.role === 'user' && typeof lastAsk.content === 'string' ? lastAsk.content : '';
+    if (raw.video === true || wantsVideo(asked) || (typeof raw.imageBase === 'string' && raw.imageBase && animatesLast(asked))) {
+      const messageOf = () => {
+        const m = parseSend(raw, cfg).messages.slice(-1)[0];
+        return { text: typeof m.content === 'string' ? m.content : messageText(m), images: (m.attachments || []).filter((a) => a.kind === 'image' && a.mime !== 'image/gif') };
+      };
+      return await videoTurn(request, env, ctx, who, raw, { cfg, call, messageOf });
+    }
+  }
+  // A picture (image.js): the composer's Image mode, or a message that plainly asks for one; never in a course or a slide deck turn.
+  if (!inCourse && raw.deck !== true && imagesOn(env, request) && raw.image !== false) {
     const lastAsk = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
     const asked = lastAsk && lastAsk.role === 'user' && typeof lastAsk.content === 'string' ? lastAsk.content : '';
     // "draw me…", or "now make it blue" right after a picture (the page sends that picture along as imageBase)
@@ -1014,7 +1117,7 @@ async function send(request, env, ctx, who, cfg) {
   }
   // Pictures switched off (EDEN_IMAGES, held until the iPhone app passes App Review): "draw me…" gets a plain answer, free,
   // instead of a chat model describing a picture it never made (owner: "image generation doesn't work").
-  if (!inCourse && !imagesOn(env) && raw.image !== false) {
+  if (!inCourse && !imagesOn(env, request) && raw.image !== false) {
     const lastAsk = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
     const asked = lastAsk && lastAsk.role === 'user' && typeof lastAsk.content === 'string' ? lastAsk.content : '';
     if (raw.image === true || wantsImage(asked)) return picturesSoon();
@@ -1079,7 +1182,8 @@ async function send(request, env, ctx, who, cfg) {
   let textTokens = inputEstimate(body.messages, system);
   let trimmedNote = '';
   // Too long for every model: the oldest turns go first (the latest message and its files always stay), said on the route.
-  const roomTokens = Math.min(cfg.maxInputTokens, biggestContext(cfg));
+  const searchReserve = body.mode === 'chat' ? 0 : (body.mode === 'research' ? cfg.searchUses * 2 : cfg.searchUses) * SEARCH_RESULT_TOKENS;
+  const roomTokens = Math.max(32_000, Math.min(cfg.maxInputTokens, biggestContext(cfg)) - searchReserve);
   if (textTokens > roomTokens && body.messages.length > 1) {
     let dropped = 0;
     while (textTokens > roomTokens && body.messages.length > 1) {
@@ -1089,6 +1193,22 @@ async function send(request, env, ctx, who, cfg) {
       textTokens = inputEstimate(body.messages, system);
     }
     if (dropped) trimmedNote = 'the oldest messages in this chat were left out to make room for the newest';
+  }
+  // If a single message or its attachments are still larger than roomTokens, compact the attachments/content automatically instead of throwing a 413 error!
+  if (textTokens > roomTokens) {
+    const lastM = body.messages[body.messages.length - 1];
+    if (lastM && Array.isArray(lastM.attachments)) {
+      for (const a of lastM.attachments) {
+        if (a.kind === 'text' && typeof a.text === 'string' && a.text.length > 40_000) {
+          a.text = `${a.text.slice(0, 30_000)}\n\n[…middle of large file compacted by Eden to fit context window…]\n\n${a.text.slice(-15_000)}`;
+        }
+      }
+    }
+    if (lastM && typeof lastM.content === 'string' && lastM.content.length > 80_000) {
+      lastM.content = `${lastM.content.slice(0, 50_000)}\n\n[…middle compacted…]\n\n${lastM.content.slice(-20_000)}`;
+    }
+    textTokens = inputEstimate(body.messages, system);
+    trimmedNote = trimmedNote || 'large input was automatically compacted to fit the context window';
   }
   if (textTokens > roomTokens) {
     throw new ApiError(413, 'too_long', `This is more than any model on askeden.com can read at once (about ${textTokens.toLocaleString('en-US')} tokens; at most ${Math.min(cfg.maxInputTokens, biggestContext(cfg)).toLocaleString('en-US')}). Split the file, or start a new chat.`);
@@ -1159,7 +1279,23 @@ async function send(request, env, ctx, who, cfg) {
   // The Gemini rating, as on the Mac, where askeden.com has a Gemini key (else the rules); its cost counts like a turn's.
   let rated = null;
   let ratingUSD = 0;
-  const mode = body.override ? 'off' : body.settings.classifier || 'always';
+  const hasAttsEarly = Array.isArray(lastMsg?.attachments) && lastMsg.attachments.length > 0;
+  const skipRaterForVault =
+    !inCourse &&
+    !grounding &&
+    !videos.length &&
+    !essay &&
+    !summary &&
+    !body.override &&
+    raw.vault !== false &&
+    hasHostedExactVaultHit(env, question, {
+      messageCount: body.messages.length,
+      hasAttachments: hasAttsEarly,
+      hasSources: Boolean(body.sources && body.sources.length),
+      privacy: false,
+      vault: raw.vault,
+    });
+  const mode = body.override || skipRaterForVault ? 'off' : body.settings.classifier || 'always';
   // not on an essay turn: the rating sees only the message ("continue"); the floor and the hints decide (T18)
   const rater = mode !== 'off' && !essay && !(autopilot && autopilot.stage > 0) ? ratingRouter(cfg, cfg.keys, (m) => effortsFor(m, cfg.maxEffort), cfg.base) : null;
   if (rater) {
@@ -1260,10 +1396,10 @@ async function send(request, env, ctx, who, cfg) {
   }
   const firstMetered = metered(cfg.keys, first.provider);
   // On the included allowance a turn holds its worst case until it's done. With no output limit of Eden's own that worst
-  // case could be the whole allowance, refusing a second message sent while the first still answers: a turn holds at
-  // most half of what's left, or all of it when half can't pay a short reply.
+  // case could be the whole allowance, refusing concurrent messages sent while earlier ones still answer: a turn holds at
+  // most its share (1/EDEN_TURNS) of what's left, or all of what's left when that share can't pay a short reply.
   let firstPlan;
-  try { firstPlan = fit(first, allow.ok ? (allow.left - ratingUSD) / 2 : 0); } catch (e) { if (!allow.ok) throw e; firstPlan = fit(first, allow.left - ratingUSD); }
+  try { firstPlan = fit(first, allow.ok ? (allow.left - ratingUSD) / EDEN_TURNS : 0); } catch (e) { if (!allow.ok) throw e; firstPlan = fit(first, allow.left - ratingUSD); }
   const firstHeld = firstMetered ? firstPlan.worstUSD : 0;
   const noChecks = () => {
     if (checks.premise || checks.answer) checksSkipped = true;
@@ -1346,7 +1482,7 @@ async function send(request, env, ctx, who, cfg) {
       BaseEmit(type, data);
     };
     const r = await streamCall(
-      { model, request: req, messages: body.messages, system, search: body.mode !== 'chat', uses, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens, videos },
+      { model, request: req, messages: body.messages, system, search: body.mode !== 'chat', uses, key: cfg.keys[model.provider].key, fallbackKeys: cfg.keys[model.provider].fallbackKeys, base: cfg.base, inputTokens, videos },
       { signal: abort.signal, emit },
     );
     if (pics) { pics.end(); r.text = pics.strip(r.text); }
@@ -1399,6 +1535,57 @@ async function send(request, env, ctx, who, cfg) {
       const sycophancy = hasSycophancyChallenge(question, priorHistory);
       if (sycophancy && sycophancy.challenged) {
         system = `${system}\n\n${sycophancyGuardNote(sycophancy)}`;
+      }
+      const startedTurn = Date.now();
+      const hasAtts = Array.isArray(lastMsg?.attachments) && lastMsg.attachments.length > 0;
+      const canFastVault =
+        !inCourse &&
+        !grounding &&
+        !videos.length &&
+        !essay &&
+        !summary &&
+        !body.override &&
+        raw.vault !== false;
+      if (canFastVault) {
+        const vaultMatch = await lookupHostedVaultMatch(env, question, {
+          messageCount: body.messages.length,
+          hasAttachments: hasAtts,
+          hasSources: Boolean(body.sources && body.sources.length),
+          privacy: false,
+          vault: raw.vault,
+          ask,
+          signal: abort.signal,
+        }).catch(() => null);
+        if (vaultMatch && vaultMatch.hit && vaultMatch.entry && !abort.signal.aborted) {
+          const hit = vaultMatch.entry;
+          const vNotes = [...notes, 'Verified answer served from the EVES Immutable Vault'];
+          write('route', routeEvent(result, first, { notes: vNotes, override: false, info, cfg }));
+          if (memoryEvent) write('memory', memoryEvent);
+          if (body.ledger.tainted) write('provenance', body.ledger.summary());
+          if (Array.isArray(hit.citations) && hit.citations.length) {
+            write('citations', { sources: hit.citations });
+          }
+          write('text', { text: hit.answerText });
+          write('usage', {
+            inputTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            costUSD: round6(checkSpent),
+            notional: false,
+            ...(top ? { topUSD: 0 } : {}),
+          });
+          write('done', { finish: 'stop' });
+          write('verification', {
+            label: hit.verification.label,
+            findings: hit.verification.findings,
+            added: {
+              costUSD: round6(checkSpent),
+              latencyMs: Math.max(0, Date.now() - startedTurn),
+              calls: 0,
+            },
+          });
+          return;
+        }
       }
       // N19: the assumption check, before the first word (at most PREMISE_CHECK_MS); a premise a cited search found
       // false becomes Eden's own note at the end of the system prompt, and the route says what it did.
@@ -1804,7 +1991,7 @@ async function compare(request, env, ctx, who, cfg) {
       return { text: '', finish: 'aborted' };
     }
     const model = modelOf(choice.model);
-    const r = await streamCall({ model, request, messages, system: sys, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens: inTokens }, { signal, emit: (type, data) => write(type, { lane: tag, ...data }) });
+    const r = await streamCall({ model, request, messages, system: sys, key: cfg.keys[model.provider].key, fallbackKeys: cfg.keys[model.provider].fallbackKeys, base: cfg.base, inputTokens: inTokens }, { signal, emit: (type, data) => write(type, { lane: tag, ...data }) });
     if (r.usage) charge(model.provider, r.costUSD, { feature: 'compare', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens });
     if (r.failure && !r.stopped) {
       write('error', { lane: tag, message: r.failure });

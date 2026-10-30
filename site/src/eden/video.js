@@ -8,8 +8,8 @@
 //
 // Limits: 100 MB a video (Workers Paid takes request bodies up to 100 MB); 20 minutes on Free,
 // 60 on Plus, checked here by Gemini's own videoMetadata (or, without it, by the size). A video
-// counts ~300 input tokens a second (frames + audio at the default resolution); past 45 minutes
-// it's sent at low resolution (~100 a second) to fit the context window. What the turn costs is
+// counts ~300 input tokens a second (frames + audio at the default resolution); past 10 minutes
+// it's sent at low resolution (~100 a second) to save 66% of video tokens and fit the context window. What the turn costs is
 // Gemini's usageMetadata, charged as any turn.
 
 import { ApiError, json } from '../accounts/util.js';
@@ -22,7 +22,7 @@ export const VIDEO = {
   confirmSeconds: 3 * 60,
   tokensPerSecond: 300,
   lowTokensPerSecond: 100,
-  lowAfterSeconds: 45 * 60,
+  lowAfterSeconds: 10 * 60,
   waitMs: 120_000,
 };
 export const VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/webm'];

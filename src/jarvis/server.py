@@ -124,7 +124,9 @@ def feature_assets(web_dir: Path = WEB_DIR, skip: set[str] | None = None) -> dic
             if skip and path.stem in skip:
                 continue
             try:
-                stamp = int(path.stat().st_mtime)
+                own = path.parent / path.stem
+                parts = [p for p in own.iterdir() if p.is_file()] if own.is_dir() else []
+                stamp = max(p.stat().st_mtime_ns for p in [path, *parts]) // 1_000_000
             except OSError:
                 continue
             found[kind].append(f"/static/features/{path.name}?v={stamp}")

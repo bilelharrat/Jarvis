@@ -12,7 +12,7 @@ export const HELP_DEFAULTS = Object.freeze({
   screenshotsPerDay: 5, // HELP_DAILY_SCREENSHOTS
   budgetUSDPerDay: 5, // HELP_DAILY_BUDGET_USD: Eden's own spend on Help, everyone together
   maxTokens: 700, // HELP_MAX_TOKENS: a Help answer is short
-  model: 'claude-haiku-4-5', // HELP_MODEL
+  model: 'gemini-3.8-flash', // HELP_MODEL
 });
 
 /** What one Ask Help request may carry. */
@@ -35,8 +35,8 @@ export const SCREENSHOT_NOTE_FR = 'Une capture d’écran peut montrer des infor
 export const faqLang = (faq) => (faq && faq.lang === 'fr' ? 'fr' : 'en');
 const notSureText = (lang) => (lang === 'fr' ? NOT_SURE_FR : NOT_SURE);
 
-// Haiku 4.5 list prices (src/models.ts), for the worst case Help reserves from Eden's budget.
-const PRICE = { 'claude-haiku-4-5': [1, 5] };
+// List prices (src/models.ts), for the worst case Help reserves from Eden's budget.
+const PRICE = { 'gemini-3.8-flash': [0.75, 3.75], 'claude-haiku-4-5': [1, 5] };
 const IMAGE_TOKENS = 1600;
 
 // ─── Words ───────────────────────────────────────────────────────────────────

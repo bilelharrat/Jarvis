@@ -5,11 +5,18 @@
 // The numbers: stats.js's events (D1, from the day it was deployed), Stripe's balance
 // transactions and subscriptions (all of history), GitHub's release download counts (all of
 // history, the installers only), and Eden Messenger's own counts when MESSENGER_STATS_URL is set.
+//
+// Travel refunds: Eden Travel's card payments the owner must sort out by hand (travel/pay.js flags: a refund that keeps
+// failing, a refund in another currency, a payment stuck mid-booking), from the global index tpayflags:global;
+// GET /api/admin/travel-refunds lists them, POST { account, pay_id, note? } marks one resolved (nothing is charged or refunded).
 
 import { call } from '../accounts/index.js';
 import { currentSession } from '../eden/session.js';
-import { json } from '../accounts/util.js';
+import { ApiError, json } from '../accounts/util.js';
+import { leadSummary } from '../leads/leads.js';
+import { executeRouterAdminAction } from '../router-api/api.js';
 import { schema } from './stats.js';
+import { FLAGS } from '../travel/pay.js';
 
 const emails = (v) => String(v || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
 const adminCache = new Map(); // account → { until, ok }
@@ -35,7 +42,7 @@ export async function adminSession(request, env) {
 
 const notFound = () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
-const ADMIN_FILES = new Set(['admin.js', 'admin.css']);
+const ADMIN_FILES = new Set(['admin.js', 'admin.css', 'travel-beta.js']);
 export const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /** /admin and its two files. null: not an admin path. */
@@ -95,9 +102,9 @@ async function eventNumbers(env, b) {
   const monthAgo = Date.now() - 30 * 86400_000;
   const periodSums = (col) => PERIODS.map((p) => `SUM(CASE WHEN ts >= ${Number(b[p])} THEN ${col} ELSE 0 END) AS ${p}`).join(', ');
   const distinctBy = (col, kind) => PERIODS.map((p) => `(SELECT COUNT(DISTINCT ${col}) FROM events WHERE kind ${kind} AND ts >= ${Number(b[p])}) AS ${p}`).join(', ');
-  const [counts, byProduct, ai, aiByModel, aiByProduct, aiByFeature, uniques, actives, actions, countries, cities, devices, refs, errors, hours, days, first, returning] = await db.batch([
+  const [counts, byProduct, ai, aiByModel, aiByProduct, aiByFeature, uniques, actives, actions, funnel, countries, cities, devices, refs, errors, hours, days, first, returning] = await db.batch([
     q(`SELECT kind, ${sumsByPeriod(b)}, COUNT(*) AS total FROM events GROUP BY kind`),
-    q(`SELECT kind, COALESCE(product, 'eden') AS product, ${sumsByPeriod(b)}, COUNT(*) AS total FROM events WHERE kind IN ('visit','download','signup','action','error','client') GROUP BY kind, COALESCE(product, 'eden')`),
+    q(`SELECT kind, COALESCE(product, 'eden') AS product, ${sumsByPeriod(b)}, COUNT(*) AS total FROM events WHERE kind IN ('visit','download','signup','action','error','client','lead','funnel') GROUP BY kind, COALESCE(product, 'eden')`),
     q(`SELECT ${periodSums('usd')}, SUM(usd) AS total,
          ${PERIODS.map((p) => `SUM(CASE WHEN ts >= ${Number(b[p])} THEN COALESCE(tin,0) + COALESCE(tout,0) ELSE 0 END) AS tok_${p}`).join(', ')},
          SUM(COALESCE(tin,0) + COALESCE(tout,0)) AS tok_total, SUM(COALESCE(tin,0)) AS tin, SUM(COALESCE(tout,0)) AS tout, COUNT(*) AS calls
@@ -108,6 +115,7 @@ async function eventNumbers(env, b) {
     q(`SELECT ${distinctBy('visitor', "= 'visit'")}`),
     q(`SELECT ${distinctBy('user', "= 'ai'")}`),
     q(`SELECT name, COALESCE(product, 'eden') AS product, COUNT(*) AS n FROM events WHERE kind = 'action' AND ts >= ? GROUP BY name, COALESCE(product, 'eden') ORDER BY n DESC LIMIT 30`, monthAgo),
+    q(`SELECT name, COALESCE(product, 'eden') AS product, COUNT(*) AS n FROM events WHERE kind = 'funnel' AND ts >= ? GROUP BY name, COALESCE(product, 'eden') ORDER BY n DESC LIMIT 30`, monthAgo),
     q(`SELECT COALESCE(country, '??') AS name, SUM(kind = 'visit') AS visits, SUM(kind = 'download') AS downloads, SUM(kind = 'signup') AS signups, SUM(kind = 'ai') AS ai FROM events WHERE ts >= ? GROUP BY COALESCE(country, '??') ORDER BY visits + downloads * 5 + signups * 10 DESC LIMIT 40`, monthAgo),
     q(`SELECT COALESCE(city, '?') AS city, COALESCE(region, '') AS region, COALESCE(country, '??') AS country, COUNT(*) AS n, SUM(kind = 'download') AS downloads, SUM(kind = 'signup') AS signups FROM events WHERE ts >= ? AND kind IN ('visit','download','signup') GROUP BY city, region, country ORDER BY n DESC LIMIT 25`, monthAgo),
     q(`SELECT COALESCE(device, 'other') AS name, SUM(kind = 'visit') AS visits, SUM(kind = 'download') AS downloads, SUM(kind = 'signup') AS signups FROM events WHERE ts >= ? GROUP BY COALESCE(device, 'other') ORDER BY visits DESC`, monthAgo),
@@ -128,6 +136,7 @@ async function eventNumbers(env, b) {
     unique_visitors: rows(uniques)[0] || {},
     active_users: rows(actives)[0] || {},
     actions: rows(actions),
+    funnel: rows(funnel),
     countries: rows(countries),
     cities: rows(cities),
     devices: rows(devices),
@@ -252,6 +261,58 @@ async function messengerNumbers(env, b) {
   return r.json();
 }
 
+/** GET/POST /api/admin/keys: owner-authenticated API key management, spend limits, and failover policies. */
+export async function adminKeys(request, env) {
+  const session = await adminSession(request, env);
+  if (!session) return notFound();
+  const url = new URL(request.url);
+  try {
+    if (request.method === 'GET') {
+      const dash = await executeRouterAdminAction(env, { action: 'dashboard' }, 'owner');
+      if (url.searchParams.get('format') === 'csv') {
+        const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const header = 'id,name,key_hint,tag,status,rpm,daily_usd,spent_today_usd,monthly_usd,spent_month_usd,allowed_models,ip_whitelist,on_cap_breach,created';
+        const rows = (dash.clients || []).map((c) => [
+          c.id,
+          c.name,
+          c.key_hint,
+          c.tag || '',
+          c.revoked ? 'revoked' : c.paused ? 'paused' : 'active',
+          c.rpm,
+          c.daily_usd,
+          c.spent_today_usd || 0,
+          c.monthly_usd ?? '',
+          c.spent_month_usd || 0,
+          (c.models || ['*']).join(';'),
+          (c.ip_whitelist || []).join(';'),
+          c.on_cap_breach || 'failover',
+          c.created,
+        ].map(esc).join(','));
+        return new Response([header, ...rows].join('\n'), {
+          status: 200,
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': 'attachment; filename="eden-api-keys.csv"',
+            'cache-control': 'no-store',
+          },
+        });
+      }
+      const res = json(dash);
+      res.headers.set('cache-control', 'no-store');
+      return res;
+    }
+    if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+    const body = await request.json().catch(() => ({}));
+    const out = await executeRouterAdminAction(env, body, 'owner');
+    const res = json(out);
+    res.headers.set('cache-control', 'no-store');
+    return res;
+  } catch (error) {
+    if (error instanceof ApiError) return error.response();
+    return json({ error: String((error && error.message) || 'Admin action failed') }, 500);
+  }
+}
+
 /** GET /api/admin/stats: everything the dashboard shows. 404 for anyone but the owner. */
 export async function adminStats(request, env) {
   if (request.method !== 'GET') return notFound();
@@ -261,16 +322,59 @@ export async function adminStats(request, env) {
   return res;
 }
 
+/** One op on an account's object by its name, without a device (the account's Worker-only ops; as track.js's ask). */
+async function askObject(env, name, op, body = {}) {
+  const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(name));
+  const response = await stub.fetch(`https://account/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const out = await response.json().catch(() => ({}));
+  if (response.status >= 400) throw new Error(out.error || `account ${response.status}`);
+  return out;
+}
+
+/** The open travel payment flags, newest last; the account id shortened for the page (the full one is kept for resolving). */
+async function travelRefunds(env) {
+  if (!env.ACCOUNTS) return { ready: false, flags: [] };
+  const { flags } = await askObject(env, FLAGS, 'tpayflag-list');
+  return { ready: true, flags: (flags || []).map((f) => ({ ...f, account_short: String(f.account || '').slice(0, 8) })) };
+}
+
+/** GET /api/admin/travel-refunds: the open flags. POST { account, pay_id, note? }: one marked resolved. 404 for anyone but the owner. */
+export async function adminTravelRefunds(request, env) {
+  const session = await adminSession(request, env);
+  if (!session) return notFound();
+  let out;
+  try {
+    if (request.method === 'GET') out = await travelRefunds(env);
+    else if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const account = String(body.account || ''), payId = String(body.pay_id || '');
+      if (!/^[0-9a-f-]{8,64}$/i.test(account) || !/^[0-9a-f]{24}$/.test(payId)) return json({ error: 'account and pay_id' }, 400);
+      out = await askObject(env, account, 'tpayadmin-resolve', { pay_id: payId, by: `owner (${String(session.account).slice(0, 8)})`, note: String(body.note || '').slice(0, 300) });
+    } else return new Response('Method not allowed', { status: 405 });
+  } catch (error) {
+    out = { error: String((error && error.message) || 'Failed').slice(0, 200) };
+    const res = json(out, 502);
+    res.headers.set('cache-control', 'no-store');
+    return res;
+  }
+  const res = json(out);
+  res.headers.set('cache-control', 'no-store');
+  return res;
+}
+
 /** Everything the dashboard shows, for the periods `url` names. */
 export async function collect(env, url) {
   const b = bounds(url);
   const fresh = url.searchParams.get('fresh') === '1';
   if (fresh) outside.clear();
-  const [events, stripe, github, messenger] = await Promise.all([
+  const [events, leads, stripe, github, messenger, router, travel] = await Promise.all([
     eventNumbers(env, b).catch((error) => ({ ready: false, error: String(error && error.message).slice(0, 200) })),
+    leadSummary(env).catch((error) => ({ ready: false, error: String(error && error.message).slice(0, 200), total: 0, by_audience: [], recent: [] })),
     cached(`stripe:${PERIODS.map((p) => b[p]).join(':')}`, () => stripeNumbers(env, b)),
     cached('github', () => githubNumbers(env)),
     cached(`messenger:${b.today}`, () => messengerNumbers(env, b)),
+    executeRouterAdminAction(env, { action: 'dashboard' }, 'owner').catch((error) => ({ ready: false, error: String(error && error.message).slice(0, 200), clients: [], totals: {} })),
+    travelRefunds(env).catch((error) => ({ ready: false, flags: [], error: String(error && error.message).slice(0, 200) })),
   ]);
-  return { at: Date.now(), bounds: b, users_before: Number(env.USERS_BEFORE_STATS) || null, unlimited: emails(env.UNLIMITED_EMAILS).length, events, stripe, github, messenger };
+  return { at: Date.now(), bounds: b, users_before: Number(env.USERS_BEFORE_STATS) || null, unlimited: emails(env.UNLIMITED_EMAILS).length, events, leads, stripe, github, messenger, router, travel };
 }

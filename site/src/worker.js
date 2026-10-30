@@ -41,7 +41,8 @@
 
 import { api, call } from './accounts/index.js';
 import { PIXEL, openVia, readReceiptToken } from './accounts/receipts.js';
-import { tokenFrom } from './accounts/util.js';
+import { ApiError, parseToken, tokenFrom } from './accounts/util.js';
+import { TEST_BLOCKED, isTestAccount, testLoginOn, testRouteAllowed } from './accounts/test-login.js';
 import { chatApi } from './eden/chat.js';
 import { connectPage, edenApi } from './eden/ask.js';
 import { stripeApi } from './eden/billing.js';
@@ -49,17 +50,23 @@ import { promoAdmin } from './accounts/promo.js';
 import { ltiAdmin, ltiRoute } from './edu/lti.js';
 import { routerAdmin, routerApi } from './router-api/api.js';
 import { edenPage } from './eden/pages.js';
+import { audiencePage } from './eden/audience-room.js'; // Eden Slides' audience: /a/<id>
+import { limited as limitedBy } from './accounts/index.js';
 import { helpApi } from './eden/help.js';
 import { newsApi, newsOn, newsPage } from './news/api.js';
 import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
 import { assetLinks } from './eden/android.js';
+import { robotsTxt, sitemapXml } from './eden/seo.js';
 import { LANDING_CSP, SESSION_COOKIE, baseline, cookies, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
-import { clientError, observe } from './stats/stats.js';
-import { adminPage, adminStats } from './stats/admin.js';
+import { adminLeads, submitLead } from './leads/leads.js';
+import { clientError, clientEvent, observe } from './stats/stats.js';
+import { adminKeys, adminPage, adminStats, adminTravelRefunds } from './stats/admin.js';
 
 export { Account, Identity, Link, Space } from './accounts/index.js';
 export { Promo } from './accounts/promo.js';
 export { BrowserSession } from './browser/session.js';
+export { DeckRoom } from './eden/deck-room.js'; // Eden Slides, editing together (wrangler.toml DECK_ROOMS)
+export { AudienceRoom } from './eden/audience-room.js'; // Eden Slides live polls, Q&A, follow-along (wrangler.toml AUDIENCE_ROOMS)
 export { Course } from './edu/course.js';
 export { NewsDesk } from './news/store.js';
 export { RouterApi } from './router-api/store.js';
@@ -67,6 +74,9 @@ import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
 import { courseVoice } from './edu/budget.js';
+import { travelEmail } from './travel/inbox.js';
+import { travelOn } from './travel/api.js';
+import { adminTravelBeta, betaPage } from './travel/beta.js';
 
 const LATEST = 'latest.json';
 // Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
@@ -79,6 +89,27 @@ const FALLBACK = {
   file: 'J.A.R.V.I.S.-0.1.0.dmg',
   url: 'https://github.com/bilelharrat/Jarvis/releases/latest/download/J.A.R.V.I.S.-0.1.0.dmg',
 };
+
+// A request carrying a session of the shared test account (cookie or token): only the allow-list of routes, at most
+// API_RATE a minute from one network; with the test login switched off, signed out. Everyone else: nothing changes.
+const SIGNIN_PUBLIC_API = /^\/api\/web\/(config|apple|apple\/callback|google|google\/callback|passkey\/options|passkey\/verify|link|link\/poll|new-account)$/;
+
+async function testSessionGuard(request, env, path) {
+  const raw = cookies(request)[SESSION_COOKIE];
+  const tokens = [raw ? parseToken(raw) : null, tokenFrom(request), parseToken(request.headers.get('x-api-key'))];
+  if (!tokens.some((t) => t && isTestAccount(t.account))) return null;
+  const reqUrl = new URL(request.url);
+  if (SIGNIN_PUBLIC_API.test(path) && !reqUrl.searchParams.get('link') && (!testLoginOn(env) || path !== '/api/web/passkey/options')) return null;
+  if (!testLoginOn(env)) return problem(401, 'This browser is signed out of Eden.', 'signed_out', { 'set-cookie': `${SESSION_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0` });
+  if (!testRouteAllowed(request.method, path)) return problem(403, TEST_BLOCKED, 'test_account');
+  try {
+    await limitedBy(env, 'API_RATE', `test-ip:${request.headers.get('cf-connecting-ip') || 'unknown'}`);
+  } catch (error) {
+    if (error instanceof ApiError) return error.response();
+    throw error;
+  }
+  return null;
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -101,6 +132,11 @@ export default {
       console.error('stats: observe failed', error && error.message);
     }
     return baseline(response);
+  },
+  // booking emails forwarded to an Eden Travel address (Cloudflare Email Routing → this Worker; travel/inbox.js)
+  async email(message, env) {
+    if (!travelOn(env)) return message.setReject('Eden Travel isn’t taking email yet.');
+    return travelEmail(message, env);
   },
 };
 
@@ -206,9 +242,18 @@ async function route(request, env, ctx) {
     if (url.hostname === mailHost) {
       if (getLike && bare === '/') return route(new Request(new URL(`/mail${url.search}`, url), request), env, ctx);
       // its page (also at /mail, which the front is served as), the page's files and its film; the rest is askeden.com's
-      if (!(getLike && (bare === '/mail' || bare.startsWith('/mail-home/') || /^\/jarvis\/walk-4\.(mp4|jpg)$/.test(bare)))) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
+      if (!(getLike && (bare === '/mail' || bare === '/home/paper-refinement.css' || bare.startsWith('/mail-home/') || /^\/jarvis\/walk-4\.(mp4|jpg)$/.test(bare)))) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
     }
   } else if (/^(www\.)?askedenmail\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/mail', 301);
+  // Eden for Business's own address (edenforbusiness.com): with BUSINESS_HOST set its site (public/business-home/) lives there at the
+  // front, and www and askeden.com/business forward to it. Unset (held while the deploy freeze lasts), the names are doorways to askeden.com.
+  const bizHost = String(env.BUSINESS_HOST || '').toLowerCase();
+  if (bizHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    if (url.hostname === `www.${bizHost}`) return Response.redirect(`https://${bizHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== bizHost && bare === '/business' && getLike) return Response.redirect(`https://${bizHost}/${url.search}`, 301);
+    if (url.hostname === bizHost && getLike && bare === '/') return route(new Request(new URL(`/business${url.search}`, url), request), env, ctx);
+  } else if (/^(www\.)?edenforbusiness\.com$/.test(url.hostname)) return Response.redirect('https://askeden.com/', 301);
   // The other names bought to protect the brand are doorways: askeden.net/.org to askeden.com (path and query
   // kept), the Eden Code names to Eden Code's page, evesverification.com to the accuracy page.
   if (/^(www\.)?(askeden\.(net|org))$/.test(url.hostname)) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
@@ -223,6 +268,23 @@ async function route(request, env, ctx) {
     if (url.hostname !== evesHost && bare === '/eves' && getLike) return Response.redirect(`https://${evesHost}/${url.search}`, 301);
     if (url.hostname === evesHost && getLike && bare === '/') return route(new Request(new URL(`/eves${url.search}`, url), request), env, ctx);
   } else if (evesDoor.test(url.hostname)) return Response.redirect(`https://askeden.com/accuracy${url.search}`, 301);
+  // Ask Eden Travel's own address (askedentravel.com): with TRAVEL_HOST set the Eden Travel app lives there (signed out, its
+  // site, public/travel-home/, at the front), and www and askeden.com/travel forward to it. Unset (held for the owner's word),
+  // the names are doorways to askeden.com.
+  const travelHost = String(env.TRAVEL_HOST || '').toLowerCase();
+  const travelDoor = /^(www\.)?askedentravel\.com$/;
+  if (travelHost) {
+    const bare = url.pathname.replace(/\/+$/, '') || '/';
+    // www is the bare address, except Android's app-link file, which Android reads without following a redirect
+    if (url.hostname === `www.${travelHost}` && url.pathname === '/.well-known/assetlinks.json') return assetLinks(env, travelHost);
+    if (url.hostname === `www.${travelHost}`) return Response.redirect(`https://${travelHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
+    if (url.hostname !== travelHost && bare === '/travel' && getLike) return Response.redirect(`https://${travelHost}/${url.search}`, 301);
+    if (url.hostname === travelHost) {
+      if (getLike && bare === '/') return route(new Request(new URL(`/travel${url.search}`, url), request), env, ctx);
+      // the rest is served here too, as Edu's is on its own address: the app, its files and its API, with this
+      // address's own cookie (signed in with askeden.com's sign-in: eden/site-handoff.js)
+    }
+  } else if (travelDoor.test(url.hostname)) return Response.redirect('https://askeden.com/', 301);
   // askeden.ai: the same site under its other name, path and query kept
   if (/^(www\.)?askeden\.ai$/.test(url.hostname)) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
   const path = url.pathname.replace(/\/+$/, '') || '/';
@@ -230,6 +292,8 @@ async function route(request, env, ctx) {
   // LTI 1.3 (Canvas, Moodle, Blackboard): the platform posts here cross-site, so before the Origin and GET-only rules (edu/lti.js)
   if (path.startsWith('/lti/')) return ltiRoute(request, env, ctx, path);
   if (path === '/api' || path.startsWith('/api/')) {
+    const testRefused = await testSessionGuard(request, env, path); // the shared test account's limits (accounts/test-login.js)
+    if (testRefused) return testRefused;
     // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
     if (path.startsWith('/api/eden/')) return edenApi(request, env, ctx, path);
     // Stripe's webhook: a server, so no Origin and no session; its signature is the guard (eden/billing.js).
@@ -249,16 +313,44 @@ async function route(request, env, ctx) {
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
     if (path === '/api/admin/stats') return adminStats(request, env); // the owner's dashboard (stats/admin.js)
+    if (path === '/api/admin/keys') return adminKeys(request, env); // owner-only API keys, limits & failover (stats/admin.js)
+    if (path === '/api/admin/leads') return adminLeads(request, env); // owner-only lead export (leads/leads.js)
+    if (path === '/api/leads') return submitLead(request, env, ctx); // email + SMS capture + Klaviyo welcome flow (leads/leads.js)
+    if (path === '/api/admin/travel-refunds') return adminTravelRefunds(request, env);
+    if (path === '/api/admin/travel-beta' || path === '/api/admin/travel-beta/image') return adminTravelBeta(request, env, path); // the beta's invites and reports (travel/beta.js) // the owner's dashboard: Travel refunds (stats/admin.js)
     if (path === '/api/stats/error' && request.method === 'POST') return clientError(request, env, ctx); // a browser's error report (stats/stats.js)
+    if (path === '/api/stats/event' && request.method === 'POST') return clientEvent(request, env, ctx); // funnel telemetry (stats/stats.js)
     if (path === '/api/news' || path.startsWith('/api/news/')) { // Eden News (news/api.js); null while EDEN_NEWS is off
       const news = await newsApi(request, env, ctx, path);
       if (news) return news;
     }
     return api(request, env, ctx);
   }
+  if (path.startsWith('/a/')) { // a presentation's audience page and room (eden/audience-room.js): no sign-in
+    const refused = fromElsewhere(request, path);
+    if (refused) return refused;
+    const aud = await audiencePage(request, env, path, { limited: limitedBy });
+    if (aud) return aud;
+  }
+  if (path.startsWith('/s/')) {
+    const refused = fromElsewhere(request, path);
+    if (refused) return refused;
+    const shared = await edenPage(request, env, path);
+    if (shared) return shared;
+  }
+  if (path.startsWith('/f/')) { // a shared flight tracker and its pickup planner (travel/track.js): no sign-in
+    const refused = fromElsewhere(request, path);
+    if (refused) return refused;
+    const tracked = await edenPage(request, env, path);
+    if (tracked) return tracked;
+  }
+  // the private beta's page and its forms (travel/beta.js checks the Origin itself)
+  if (path === '/travel/beta' || path.startsWith('/travel/beta/')) { const b = await betaPage(request, env, path); if (b) return b; }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
   }
+  if (path === '/robots.txt') return robotsTxt(request, env);
+  if (path === '/sitemap.xml') return sitemapXml(request, env);
   if (path === '/.well-known/apple-app-site-association') return appSiteAssociation(env, url.hostname);
   if (path === '/.well-known/assetlinks.json') return assetLinks(env, url.hostname); // Eden for Android (eden/android.js)
   if (path === '/jarvis/download') return download(request, env);
@@ -500,6 +592,10 @@ export function appSiteAssociation(env, host = '') {
   if (env.EDU_HOST && host === String(env.EDU_HOST).toLowerCase()) {
     return json({ applinks: { details: [{ appIDs: [`${team}.com.askeden.edu`], components: [{ '/': '/api/*', exclude: true }, { '/': '/signin*', exclude: true }, { '/': '/lti/*', exclude: true }, { '/': '/*' }] }] }, webcredentials: { apps: [`${team}.com.askeden.edu`] } }, 200, { 'cache-control': 'public, max-age=3600' });
   }
+  // Eden Travel's own address (TRAVEL_HOST) belongs wholly to Ask Eden Travel's app (askeden ios/ EdenTravel)
+  if (env.TRAVEL_HOST && host === String(env.TRAVEL_HOST).toLowerCase()) {
+    return json({ applinks: { details: [{ appIDs: [`${team}.com.askeden.travel`], components: [{ '/': '/api/*', exclude: true }, { '/': '/signin*', exclude: true }, { '/': '/f/*', exclude: true }, { '/': '/*' }] }] } }, 200, { 'cache-control': 'public, max-age=3600' });
+  }
   const body = {
     applinks: {
       details: [{
@@ -521,7 +617,7 @@ export function appSiteAssociation(env, host = '') {
         ],
       }],
     },
-    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`] },
+    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`, `${team}.com.askeden.travel`] }, // Ask Eden Travel's app signs in here too (its passkeys are askeden.com's)
   };
   return json(body, 200, { 'cache-control': 'public, max-age=3600' });
 }

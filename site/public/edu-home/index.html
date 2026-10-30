@@ -5,8 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#fbf7ee">
-<title>Eden for Education</title>
-<meta name="description" content="A study assistant built from your professor's own slides and readings. Every answer cites the page it came from.">
+<title>Eden for Education · AI-Assisted Study Workflows &amp; Course Tutor Based on Your Materials</title>
+<meta name="description" content="AI-assisted workflows for educators and students based on your own syllabus, slides and readings. Every answer cites the exact lecture slide or textbook page word for word, free for students.">
+<link rel="canonical" href="https://askedenedu.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Eden for Education">
+<meta property="og:url" content="https://askedenedu.com/">
+<meta property="og:title" content="Eden for Education · AI Tutor Grounded in Your Course Materials">
+<meta property="og:description" content="Professors upload their syllabus, slides and readings. Students get verified answers that cite the exact page or slide, practice quizzes, flashcards and voice tutoring.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/edu-home/edu-logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,14 +22,18 @@
 <link rel="stylesheet" href="/edu-home/edu-home.css">
 <script src="/home/features.js" defer></script>
 <script src="/lang/site-i18n.js" data-page="edu-home"></script>
+<link rel="stylesheet" href="/home/paper-refinement.css">
 </head>
-<body>
+<body data-marketing="edu-home">
 <a class="skip" href="#main">Skip to the main content</a>
 <header class="top">
   <a class="brand" href="/edu" aria-label="Eden for Education"><img src="/edu-home/edu-logo.svg" alt="" width="36" height="36"><span>Eden for Education</span></a>
-  <nav aria-label="Site"><a href="#films">Films</a><a href="#students">For students</a><a href="/">Eden</a><a class="pill" href="/signin?return=%2Fedu">Sign in</a></nav>
+  <nav aria-label="Site"><a href="#films">Films</a><a href="#students">For students</a><a href="#pilot">Free pilot</a><a href="/guides">Guides</a><a href="/">Eden</a><a class="pill" href="/signin?return=%2Fedu">Sign in</a></nav>
 </header>
-<main id="main">
+<main id="main" itemscope itemtype="https://schema.org/SoftwareApplication">
+  <meta itemprop="name" content="Eden for Education">
+  <meta itemprop="applicationCategory" content="EducationalApplication">
+  <meta itemprop="operatingSystem" content="Web, iOS, Android, macOS, Windows">
   <section class="hero" aria-labelledby="heroH">
     <div class="hero-text">  
     <p class="eyebrow">For students and professors</p>
@@ -122,10 +134,68 @@
     <h2>Private by design</h2>
     <p>Course files are read on your device and only their text is uploaded. Materials are never used to train AI models, and they’re deleted when the course is. Professors see topics, never who asked.</p>
   </section>
+
+  <section class="guides-preview" aria-labelledby="eduGuidesH">
+    <p class="kicker">Educator guides</p>
+    <h2 id="eduGuidesH">AI-assisted workflows for university &amp; college courses</h2>
+    <div class="guides-grid">
+      <a class="guide-card" href="/guides/ai-tutor-for-university-courses-syllabus-slides">
+        <div>
+          <small>Curriculum grounding · 7 min</small>
+          <h3>Building a course tutor grounded only in your syllabus &amp; lecture slides</h3>
+          <p>How word-for-word slide citations and strict course boundaries let students use AI safely without hallucinated answers.</p>
+        </div>
+        <span class="more">Read educator guide →</span>
+      </a>
+      <a class="guide-card" href="/guides/canvas-lti-ai-study-assistant-for-professors">
+        <div>
+          <small>Faculty pilots · 6 min</small>
+          <h3>How professors run a free AI tutor pilot without IT procurement delays</h3>
+          <p>Set up a course in five minutes with a join code or Canvas/Moodle LTI 1.3—zero cost to students and no institutional requisition required.</p>
+        </div>
+        <span class="more">Read pilot guide →</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="lead-band" id="pilot" aria-labelledby="pilotH">
+    <div>
+      <p class="kicker">For professors, instructors &amp; instructional designers</p>
+      <h2 id="pilotH">Request a free pilot course built from your syllabus</h2>
+      <p class="sub">Want to see how Eden for Education handles your own slides and readings? Leave your school email and course name—we will send you the faculty setup guide or build a ready-to-try pilot course for your class.</p>
+      <ul class="lead-perks">
+        <li>Free for students; no department procurement needed</li>
+        <li>Works via simple class join code or Canvas / Moodle / Blackboard LTI 1.3</li>
+        <li>Every student answer verified word-for-word against your uploaded slides</li>
+      </ul>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="educator">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/edu">
+      <input type="hidden" name="audience" value="educator">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>School or faculty email
+        <input type="email" name="email" required autocomplete="email" placeholder="professor@university.edu">
+      </label>
+      <div class="lead-row">
+        <label>Course or institution (optional)
+          <input type="text" name="organization" autocomplete="organization" placeholder="e.g. BIO 101 · State University">
+        </label>
+        <label>Optional SMS updates
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Get the faculty pilot guide</button>
+      <p class="fine">No spam. Unsubscribe any time.</p>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
 </main>
 <footer>
   <span>© 2026 Harrat Global Holdings, Inc.</span>
-  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/guides">Guides</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
 </footer>
 </body>
 </html>

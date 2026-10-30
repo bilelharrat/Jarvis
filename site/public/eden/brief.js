@@ -477,6 +477,7 @@ function rememberEvents(events, day) {
 async function refreshEvents() {
   if (P.day === localDay() && Date.now() - P.fetchedAt < EVENTS_EVERY_MS) return;
   P.fetchedAt = Date.now(); // a failure waits as long as a success
+  if (state.meta && state.meta.hosted && !state.jarvis.available) return;
   const r = await postJSON('/api/chat/brief', { kind: 'events', day: localDay(), tzOffset: new Date().getTimezoneOffset() });
   rememberEvents(r.events, r.day);
 }

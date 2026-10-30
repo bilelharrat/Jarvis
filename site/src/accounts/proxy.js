@@ -6,7 +6,7 @@
 // finishes; the next one is refused when it's spent.
 
 import { MODELS } from '../eden/vendor/model-router.js';
-import { serviceFallback, serviceFetch, sseOf as sseText } from './service-ai.js';
+import { anthropicHeadersFor, parseAnthropicKeys, serviceFallback, serviceFetch, sseOf as sseText } from './service-ai.js';
 
 const ANTHROPIC = 'https://api.anthropic.com';
 const PASS_HEADERS = ['anthropic-version', 'content-type'];
@@ -229,17 +229,38 @@ export async function forward(request, env, ctx, path, record) {
   if (typeof body.model !== 'string' || !/^claude-[\w.-]+$/.test(body.model)) {
     return anthropicError(400, 'invalid_request_error', 'Only Claude models are included.');
   }
-  if (!env.ANTHROPIC_API_KEY) return standIn(body, env, ctx, path, record);
-  const headers = new Headers({ 'x-api-key': env.ANTHROPIC_API_KEY });
-  for (const name of PASS_HEADERS) {
-    const value = request.headers.get(name);
-    if (value) headers.set(name, value);
+  const antKeys = parseAnthropicKeys(env);
+  if (!antKeys.length) return standIn(body, env, ctx, path, record);
+  const makeHeaders = (rawKey) => {
+    const h = new Headers(anthropicHeadersFor(rawKey));
+    for (const name of PASS_HEADERS) {
+      const value = request.headers.get(name);
+      if (value) h.set(name, value);
+    }
+    const betas = allowedBetas(request.headers.get('anthropic-beta'));
+    if (betas) h.set('anthropic-beta', betas);
+    if (!h.has('anthropic-version')) h.set('anthropic-version', '2023-06-01');
+    if (!h.has('content-type')) h.set('content-type', 'application/json');
+    return h;
+  };
+  let upstream = await fetch(`${ANTHROPIC}${path}`, { method: 'POST', headers: makeHeaders(antKeys[0]), body: bodyText });
+  if (!upstream.ok && antKeys.length > 1) {
+    const isQuotaStatus = upstream.status === 402 || upstream.status === 429 || upstream.status === 529;
+    let tryNext = isQuotaStatus;
+    if (!tryNext && (upstream.status === 400 || upstream.status === 401 || upstream.status === 403)) {
+      const errTxt = await upstream.clone().text().catch(() => '');
+      tryNext = /usage limit|rate_limit|rate limit|credit balance|out of credit|quota|exceeded|billing|regain access/i.test(errTxt);
+    }
+    if (tryNext) {
+      for (let i = 1; i < antKeys.length; i++) {
+        const nextRes = await fetch(`${ANTHROPIC}${path}`, { method: 'POST', headers: makeHeaders(antKeys[i]), body: bodyText });
+        if (nextRes.ok) {
+          upstream = nextRes;
+          break;
+        }
+      }
+    }
   }
-  const betas = allowedBetas(request.headers.get('anthropic-beta'));
-  if (betas) headers.set('anthropic-beta', betas);
-  if (!headers.has('anthropic-version')) headers.set('anthropic-version', '2023-06-01');
-  if (!headers.has('content-type')) headers.set('content-type', 'application/json');
-  const upstream = await fetch(`${ANTHROPIC}${path}`, { method: 'POST', headers, body: bodyText });
   const out = new Headers();
   for (const name of ['content-type', 'request-id', 'retry-after', 'anthropic-ratelimit-requests-remaining']) {
     const value = upstream.headers.get(name);

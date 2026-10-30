@@ -27,11 +27,32 @@ const CHECK_MS = 6000;
 // ── shapes ──
 
 const SHAPES = {
-  anthropic: /^sk-ant-api\d\d-[A-Za-z0-9_-]{20,200}$/,
+  anthropic: /^sk-ant-(?:api\d\d|usr)-[A-Za-z0-9_-]{20,200}(?:#wrkspc_[A-Za-z0-9]{10,40})?$/,
   openai: /^sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,300}$/,
   gemini: /^AIza[0-9A-Za-z_-]{35}$/,
   kimi: /^sk-[A-Za-z0-9]{20,200}$/,
 };
+
+export function splitAnthropicKey(raw) {
+  const s = String(raw || '').trim();
+  const idx = s.indexOf('#');
+  if (idx > 0 && s.startsWith('sk-ant-')) {
+    const apiKey = s.slice(0, idx).trim();
+    const workspaceId = s.slice(idx + 1).trim();
+    return { apiKey, ...(workspaceId ? { workspaceId } : {}) };
+  }
+  return { apiKey: s };
+}
+
+export function anthropicKeyHeaders(raw, extra = {}) {
+  const { apiKey, workspaceId } = splitAnthropicKey(raw);
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    ...(workspaceId ? { 'anthropic-workspace-id': workspaceId } : {}),
+    ...extra,
+  };
+}
 
 /** Throws a 400 in plain words when `key` can't be a `provider` key; returns it trimmed. */
 export function checkShape(provider, raw) {
@@ -69,7 +90,7 @@ const CHECKS = {
   openai: (key) => ['https://api.openai.com/v1/models', { authorization: `Bearer ${key}` }],
   kimi: (key) => ['https://api.moonshot.ai/v1/models', { authorization: `Bearer ${key}` }],
   gemini: (key) => ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { 'x-goog-api-key': key }], // a header: never the key in a URL
-  anthropic: (key) => ['https://api.anthropic.com/v1/models?limit=1', { 'x-api-key': key, 'anthropic-version': '2023-06-01' }],
+  anthropic: (key) => ['https://api.anthropic.com/v1/models?limit=1', anthropicKeyHeaders(key)],
 };
 
 const local = (h) => h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
@@ -123,7 +144,13 @@ export async function userKeysOp(account, op, request) {
   switch (op) {
     case 'ukeys-list': {
       const keys = {};
-      for (const [k, r] of await account.storage.list({ prefix: 'ukey:' })) keys[k.slice(5)] = { last4: r.last4, added: r.added };
+      for (const [k, r] of await account.storage.list({ prefix: 'ukey:' })) {
+        keys[k.slice(5)] = {
+          last4: r.last4,
+          added: r.added,
+          ...(Array.isArray(r.fallbacks) && r.fallbacks.length ? { fallbacks: r.fallbacks, fallbackCount: r.fallbacks.length } : {}),
+        };
+      }
       return json({ keys });
     }
     case 'ukeys-get': {
@@ -136,9 +163,10 @@ export async function userKeysOp(account, op, request) {
       const saves = ((await account.storage.get('ukeys_saves')) || []).filter((t) => t > now - 3600_000);
       if (saves.length >= SAVES_AN_HOUR) throw new ApiError(429, 'slow_down', 'Too many key changes; wait a while.', { 'retry-after': '600' });
       const r = body.record || {};
-      if (typeof r.iv !== 'string' || typeof r.ct !== 'string' || r.ct.length > 4096 || !/^[A-Za-z0-9_-]{4}$/.test(String(body.last4 || ''))) throw new ApiError(400, 'bad_request', 'A sealed record is needed.');
+      if (typeof r.iv !== 'string' || typeof r.ct !== 'string' || r.ct.length > 8192 || !/^[A-Za-z0-9_-]{4}$/.test(String(body.last4 || ''))) throw new ApiError(400, 'bad_request', 'A sealed record is needed.');
+      const fallbacks = Array.isArray(body.fallbacks) ? body.fallbacks.filter((f) => typeof f === 'string' && f.length <= 24).slice(0, 10) : [];
       await account.storage.put('ukeys_saves', [...saves, now]);
-      await account.storage.put(recordKey(provider), { v: 1, iv: r.iv, ct: r.ct, last4: body.last4, added: now });
+      await account.storage.put(recordKey(provider), { v: 1, iv: r.iv, ct: r.ct, last4: body.last4, ...(fallbacks.length ? { fallbacks } : {}), added: now });
       return json({ saved: true });
     }
     case 'ukeys-delete':
@@ -154,16 +182,24 @@ export async function userKeysOp(account, op, request) {
 const aad = (account, provider) => `ukey:${account}:${provider}`;
 const own = (who) => who && who.account && who.token && !who.grant;
 
+function maskHint(raw) {
+  const { apiKey } = splitAnthropicKey(raw);
+  const p = apiKey.startsWith('sk-') ? 'sk-' : apiKey.startsWith('AIza') ? 'AIza' : '';
+  return apiKey.length >= 12 ? `${p}…${apiKey.slice(-4)}` : `${p}••••`;
+}
+
 /**
  * The owner's own key for `provider`, for the multi-provider code's providerKey hook:
- * { key, source: 'user' } or null (none, not the owner's own session, or no secret here).
+ * { key, fallbackKeys?, source: 'user' } or null (none, not the owner's own session, or no secret here).
  */
 export async function userKeyFor(env, who, provider) {
   if (!own(who) || !KEY_PROVIDERS.includes(provider) || !tokenSecret(env)) return null;
   try {
     const { record } = await call(env, who.account, 'ukeys-get', { provider }, who.token);
     const opened = record ? await openWith(env, `account:${who.account}`, aad(who.account, provider), record) : null;
-    return opened && typeof opened.key === 'string' ? { key: opened.key, source: 'user' } : null;
+    if (!opened || typeof opened.key !== 'string') return null;
+    const fallbackKeys = Array.isArray(opened.fallbackKeys) ? opened.fallbackKeys.filter((k) => typeof k === 'string' && k && k !== opened.key) : [];
+    return { key: opened.key, ...(fallbackKeys.length ? { fallbackKeys } : {}), source: 'user' };
   } catch {
     return null; // falls back to the service key; never logs (the error could be anything)
   }
@@ -172,13 +208,22 @@ export async function userKeyFor(env, who, provider) {
 /** Whether a turn on a key from providerKey() holds and spends the included allowance (only the service's). */
 export const billsAllowance = (source) => source !== 'user';
 
-/** GET /api/chat/keys's shape: per provider { set, source: 'account' | null, last4, added }. */
+/** GET /api/chat/keys's shape: per provider { set, source: 'account' | null, last4, added, fallbacks?, fallbackCount? }. */
 async function status(env, who) {
   const { keys } = await call(env, who.account, 'ukeys-list', {}, who.token);
   const out = {};
   for (const p of KEY_PROVIDERS) {
     const k = keys[p];
-    out[p] = k ? { set: true, source: 'account', last4: k.last4, added: k.added } : { set: false, source: null };
+    out[p] = k
+      ? {
+          set: true,
+          source: 'account',
+          last4: k.last4,
+          hint: `····${k.last4}`,
+          added: k.added,
+          ...(Array.isArray(k.fallbacks) && k.fallbacks.length ? { fallbacks: k.fallbacks, fallbackCount: k.fallbacks.length } : {}),
+        }
+      : { set: false, source: null };
   }
   return out;
 }
@@ -193,16 +238,50 @@ export async function keysApi(request, env, who, { readBody }) {
   const body = await readBody(request, 4096);
   const provider = body.provider;
   if (!KEY_PROVIDERS.includes(provider)) throw new ApiError(400, 'bad_request', `provider must be one of ${KEY_PROVIDERS.join(', ')}`);
+  const mode = typeof body.mode === 'string' && ['replace', 'fallback', 'remove_fallback', 'promote_fallback'].includes(body.mode) ? body.mode : 'replace';
+  const index = typeof body.index === 'number' && Number.isInteger(body.index) ? body.index : -1;
+
+  if (mode === 'remove_fallback' || mode === 'promote_fallback') {
+    const cur = await userKeyFor(env, who, provider);
+    if (!cur) return status(env, who);
+    const list = [...(cur.fallbackKeys || [])];
+    if (index >= 0 && index < list.length) {
+      if (mode === 'remove_fallback') {
+        list.splice(index, 1);
+        const record = await sealWith(env, `account:${who.account}`, aad(who.account, provider), { key: cur.key, ...(list.length ? { fallbackKeys: list } : {}) });
+        const { apiKey } = splitAnthropicKey(cur.key);
+        await call(env, who.account, 'ukeys-save', { provider, record, last4: apiKey.slice(-4), fallbacks: list.map(maskHint) }, who.token);
+      } else {
+        const [promoted] = list.splice(index, 1);
+        const nextFbs = [cur.key, ...list].filter((x) => x && x !== promoted);
+        const record = await sealWith(env, `account:${who.account}`, aad(who.account, provider), { key: promoted, ...(nextFbs.length ? { fallbackKeys: nextFbs } : {}) });
+        const { apiKey } = splitAnthropicKey(promoted);
+        await call(env, who.account, 'ukeys-save', { provider, record, last4: apiKey.slice(-4), fallbacks: nextFbs.map(maskHint) }, who.token);
+      }
+    }
+    return status(env, who);
+  }
+
   if (typeof body.key !== 'string') throw new ApiError(400, 'bad_request', 'key must be a string ("" removes it)');
   if (!body.key.trim()) {
     await call(env, who.account, 'ukeys-delete', { provider }, who.token);
     return status(env, who);
   }
   const key = checkShape(provider, body.key);
-  await limited(env, 'EDEN_RATE', `ukeys:${who.account}`);
+  await limited(env, 'USER_RATE', `ukeys:${who.account}`);
   const check = await checkKey(provider, key, { base: fakeProviderBase(env, request) });
   if (!check.ok) throw new ApiError(400, 'key_refused', check.message);
-  const record = await sealWith(env, `account:${who.account}`, aad(who.account, provider), { key });
-  await call(env, who.account, 'ukeys-save', { provider, record, last4: key.slice(-4) }, who.token);
+  const existing = await userKeyFor(env, who, provider);
+  let primary = key;
+  let fallbackKeys = [];
+  if (mode === 'fallback' && existing && existing.key && existing.key !== key) {
+    primary = existing.key;
+    fallbackKeys = [...(existing.fallbackKeys || []).filter((k) => k !== key), key].slice(0, 10);
+  } else if (existing && existing.key) {
+    fallbackKeys = [existing.key, ...(existing.fallbackKeys || [])].filter((k, i, a) => k && k !== primary && a.indexOf(k) === i).slice(0, 10);
+  }
+  const record = await sealWith(env, `account:${who.account}`, aad(who.account, provider), { key: primary, ...(fallbackKeys.length ? { fallbackKeys } : {}) });
+  const { apiKey } = splitAnthropicKey(primary);
+  await call(env, who.account, 'ukeys-save', { provider, record, last4: apiKey.slice(-4), fallbacks: fallbackKeys.map(maskHint) }, who.token);
   return { ...(await status(env, who)), check };
 }

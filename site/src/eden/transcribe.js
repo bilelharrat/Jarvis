@@ -61,7 +61,7 @@ export async function transcribeApi(request, env, who, { call, limited }) {
   if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'POST a recording.');
   if (!env.AI) throw new ApiError(503, 'not_set_up', 'Dictation by recording isn’t set up on askeden.com yet. Dictate in Chrome, Edge or Safari, which hear it themselves.');
   await limited(env, 'API_RATE', who.account);
-  await limited(env, 'EDEN_RATE', `turn:${who.account}`); // as a chat turn
+  await limited(env, 'USER_RATE', `turn:${who.account}`); // as a chat turn
   const limit = TRANSCRIBE.maxSeconds + TRANSCRIBE.slackSeconds;
   const said = Number(request.headers.get('x-eden-seconds'));
   if (Number.isFinite(said) && said > limit) throw new ApiError(413, 'too_long', TOO_LONG);

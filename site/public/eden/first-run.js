@@ -39,7 +39,7 @@ function card(c, node) {
 
 /** Puts the card under the reply it belongs to (app.js calls this for every message it draws). */
 export function decorateFirstRun(m, c, node) {
-  if (practice() || !showsFor(store.get(FIRST_KEY, null), c, node)) return m;
+  if (practice() || document.body.classList.contains('travel-standalone') || !showsFor(store.get(FIRST_KEY, null), c, node)) return m; // not on Eden Travel's own address
   const after = m.querySelector(':scope > .vf') || m.querySelector(':scope > .bubble');
   const box = card(c, node);
   if (after) after.after(box); else m.append(box);

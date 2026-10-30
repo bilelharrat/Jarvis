@@ -47,9 +47,15 @@ from .prefs import MODELS, register_feature_pref
 log = logging.getLogger("jarvis")
 
 PREF = "utility_model"
-DEFAULT = "haiku"
+DEFAULT = "gemini-3.8-flash"
 CALL_SECONDS = 90.0
 _REF = re.compile(r"custom:[a-z0-9]{6,32}")
+BUILTIN_MODELS: dict[str, str] = {
+    **MODELS,
+    "gemini-3.8-flash": "gemini-3.8-flash",
+    "gemini-4-argon": "gemini-4-argon",
+    "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+}
 
 
 def _clean(value: Any) -> str | None:
@@ -58,7 +64,7 @@ def _clean(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     value = value.strip()
-    return value if value in MODELS or _REF.fullmatch(value) else None
+    return value if value in BUILTIN_MODELS or _REF.fullmatch(value) else None
 
 
 register_feature_pref(PREF, DEFAULT, _clean)
@@ -138,9 +144,33 @@ def ref(prefs: Any) -> str:
 
 def _usable(hub: Any, wanted: str) -> str:
     store = getattr(hub, "providers", None)
-    if wanted in MODELS or store is None:
-        return wanted if wanted in MODELS else DEFAULT
+    if wanted in BUILTIN_MODELS or store is None:
+        return wanted if wanted in BUILTIN_MODELS else DEFAULT
     return wanted if store.known(wanted) else DEFAULT
+
+
+# One pass per model for the utility calls (a ref -> its session_config), reused while it's
+# still good: a new one each call piled up (passes are kept till revoked or idle a week)
+# and pushed live sessions' passes out of key_proxy's MAX_GRANTS.
+_PASSES: dict[str, dict[str, Any]] = {}
+
+
+def _with_pass(store: Any, chosen: str) -> dict[str, Any]:
+    """store.session_config(chosen), its pass the one made for an earlier call while that
+    is still good. The model and its key are checked each time all the same (grant=False:
+    no pass made), so a model or key gone fails here as before."""
+    from .key_proxy import GRANTS, pass_in
+
+    named = store.session_config(chosen, grant=False)
+    kept = _PASSES.get(chosen)
+    if kept is not None and kept.get("model") == named.get("model"):
+        if GRANTS.alive(pass_in(kept.get("settings"))):
+            return dict(kept)
+    fresh = store.session_config(chosen)
+    if kept is not None:
+        GRANTS.revoke(pass_in(kept.get("settings")))
+    _PASSES[chosen] = dict(fresh)
+    return fresh
 
 
 async def config(hub: Any, wanted: str | None = None) -> dict[str, Any]:
@@ -149,8 +179,8 @@ async def config(hub: Any, wanted: str | None = None) -> dict[str, Any]:
     back to the default, with the reason logged."""
     chosen = _usable(hub, wanted or ref(hub.prefs))
     store = getattr(hub, "providers", None)
-    if store is None or chosen in MODELS:
-        return {"model": MODELS[chosen], "env": {}, "settings": None, "label": chosen}
+    if store is None or chosen in BUILTIN_MODELS:
+        return {"model": BUILTIN_MODELS[chosen], "env": {}, "settings": None, "label": chosen}
     kind = store.kind_of(chosen)
     try:
         if kind == "gemini":
@@ -161,10 +191,10 @@ async def config(hub: Any, wanted: str | None = None) -> dict[str, Any]:
             from . import openai_relay
 
             await openai_relay.ready(store, chosen)
-        return store.session_config(chosen)
+        return _with_pass(store, chosen)
     except Exception as exc:  # gone, or its key: the default then
         log.warning("utility model %s isn't usable (%s); using %s", chosen, exc, DEFAULT)
-        return {"model": MODELS[DEFAULT], "env": {}, "settings": None, "label": DEFAULT}
+        return {"model": BUILTIN_MODELS[DEFAULT], "env": {}, "settings": None, "label": DEFAULT}
 
 
 async def run_turn(prompt: str, options: Any, timeout: float = CALL_SECONDS) -> str:

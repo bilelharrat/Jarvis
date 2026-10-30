@@ -7,12 +7,33 @@
 // this testable; whatever it can't place is left out, never guessed.
 
 import { normalizeDeck, normalizeTheme, fontName } from './deck-model.js';
+import { pptxSlideFmt, linkRels } from './deck-rich.js'; // bold, colours, sizes, links and numbered lists back from the runs
 
 const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
-export const unxml = (s) => String(s || '').replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => (e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENT[e.toLowerCase()]));
+const codePoint = (n) => (Number.isInteger(n) && n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : ''); // &#99999999; is dropped, not a crash
+export const unxml = (s) => String(s || '').replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => (e[0] === '#' ? codePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENT[e.toLowerCase()]));
 const all = (re, s) => [...String(s || '').matchAll(re)];
 const attr = (tag, name) => { const m = new RegExp(`\\s${name}="([^"]*)"`).exec(tag); return m ? unxml(m[1]) : ''; };
 const EMU_PX = 9525;
+/**
+ * The insides of each <tag>…</tag> (or <tag …>…</tag>), in one pass. A lazy regex rescans to the end of the file
+ * for every unclosed tag, which a hostile file with thousands of them turns into minutes.
+ */
+export function inner(xml, tag) {
+  const s = String(xml || ''), open = `<${tag}`, close = `</${tag}>`, out = [];
+  for (let i = s.indexOf(open); i >= 0; i = s.indexOf(open, i)) {
+    const c = s[i + open.length];
+    if (c !== '>' && c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') { i += open.length; continue; } // <a:pPr, <p:spTree…
+    const gt = s.indexOf('>', i);
+    if (gt < 0) break;
+    if (s[gt - 1] === '/') { i = gt + 1; continue; } // <a:p/>
+    const end = s.indexOf(close, gt + 1);
+    if (end < 0) break;
+    out.push(s.slice(gt + 1, end));
+    i = end + close.length;
+  }
+  return out;
+}
 
 /** Relationships file → Map id → target path (resolved against `base`, e.g. 'ppt/slides/'). */
 export function rels(xml, base) {
@@ -30,22 +51,24 @@ export function rels(xml, base) {
 
 /** The paragraphs of a text body: [{ text, lvl, size, bold, color }]. */
 export function paragraphs(xml) {
-  return all(/<a:p>([\s\S]*?)<\/a:p>|<a:p\s[^>]*>([\s\S]*?)<\/a:p>/g, xml).map((m) => {
-    const p = m[1] ?? m[2] ?? '';
+  return inner(xml, 'a:p').map((p) => {
     const ppr = /<a:pPr\b[^>]*>/.exec(p);
     const rpr = /<a:rPr\b[^>]*>/.exec(p);
     const color = /<a:rPr\b[^>]*>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(p);
-    const text = all(/<a:t>([\s\S]*?)<\/a:t>|<a:t\s[^>]*>([\s\S]*?)<\/a:t>/g, p).map((t) => unxml(t[1] ?? t[2] ?? '')).join('');
-    return { text: text.replace(/\s+/g, ' ').trim(), lvl: ppr ? Number(attr(ppr[0], 'lvl')) || 0 : 0, size: rpr ? Number(attr(rpr[0], 'sz')) || 0 : 0, bold: rpr ? attr(rpr[0], 'b') === '1' : false, color: color ? `#${color[1]}` : '' };
+    const text = inner(p, 'a:t').map(unxml).join('');
+    return { text: text.replace(/\s+/g, ' ').trim(), lvl: ppr ? Number(attr(ppr[0], 'lvl')) || 0 : 0, size: rpr ? Number(attr(rpr[0], 'sz')) || 0 : 0, bold: rpr ? attr(rpr[0], 'b') === '1' : false, color: color ? `#${color[1]}` : '', raw: p };
   }).filter((p) => p.text);
 }
 
 function chartData(xml) {
   if (!xml) return null;
   const type = /<c:pieChart>/.test(xml) ? 'pie' : /<c:doughnutChart>/.test(xml) ? 'doughnut' : /<c:lineChart>/.test(xml) ? 'line' : /<c:areaChart>/.test(xml) ? 'area' : /<c:barDir val="bar"/.test(xml) ? 'hbar' : 'bar';
-  const pts = (s) => all(/<c:pt idx="(\d+)">\s*<c:v>([\s\S]*?)<\/c:v>/g, s).sort((a, b) => a[1] - b[1]).map((m) => unxml(m[2]));
-  const series = all(/<c:ser>([\s\S]*?)<\/c:ser>/g, xml).map((m) => {
-    const s = m[1];
+  const pts = (s) => String(s).split('<c:pt ').slice(1).map((chunk) => { // each point read within its own piece: linear
+    const m = /^idx="(\d+)">\s*<c:v>/.exec(chunk);
+    const end = m ? chunk.indexOf('</c:v>', m[0].length) : -1;
+    return end < 0 ? null : [Number(m[1]), unxml(chunk.slice(m[0].length, end))];
+  }).filter(Boolean).sort((a, b) => a[0] - b[0]).map((m) => m[1]);
+  const series = inner(xml, 'c:ser').map((s) => {
     const name = /<c:tx>[\s\S]*?<c:v>([\s\S]*?)<\/c:v>/.exec(s);
     const cat = /<c:cat>([\s\S]*?)<\/c:cat>/.exec(s);
     const val = /<c:val>([\s\S]*?)<\/c:val>/.exec(s);
@@ -57,7 +80,7 @@ function chartData(xml) {
 }
 
 function tableData(xml) {
-  const rows = all(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g, xml).map((r) => all(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>/g, r[1]).map((c) => paragraphs(c[1]).map((p) => p.text).join(' ')));
+  const rows = inner(xml, 'a:tr').map((r) => inner(r, 'a:tc').map((c) => paragraphs(c).map((p) => p.text).join(' ')));
   if (!rows.length) return null;
   return { header: rows[0], rows: rows.slice(1) };
 }
@@ -70,11 +93,12 @@ const b64 = (bytes) => {
 };
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' };
 const MAX_IMAGE = 1_500_000;
+const sniff = (b) => (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 ? 'image/png' : b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? 'image/jpeg' : b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 ? 'image/gif' : '');
+const MAX_UNPACKED = 150 * 1024 * 1024; // everything an import unpacks (slides, notes, charts, pictures): a zip bomb stops here
 
 /** One slide's content from its XML (and what it points at). */
-function readSlide(xml, rel, get, images, n) {
-  const shapes = all(/<p:sp>([\s\S]*?)<\/p:sp>|<p:sp\s[^>]*>([\s\S]*?)<\/p:sp>/g, xml).map((m) => {
-    const s = m[1] ?? m[2] ?? '';
+function readSlide(xml, rel, get, images, n, links = new Map()) {
+  const shapes = inner(xml, 'p:sp').map((s) => {
     const ph = /<p:ph\b[^>]*>/.exec(s);
     return { type: ph ? attr(ph[0], 'type') || 'body' : '', paras: paragraphs((/<p:txBody>([\s\S]*?)<\/p:txBody>/.exec(s) || [])[1] || '') };
   }).filter((s) => s.paras.length);
@@ -88,14 +112,19 @@ function readSlide(xml, rel, get, images, n) {
   const sub = shapes.find((s) => s.type === 'subTitle');
   if (sub) slide.subtitle = sub.paras.map((p) => p.text).join(' ');
   const bullets = [];
+  // the runs' formatting (deck-rich.js): which paragraphs each text came from, and the rest of its box
+  const rich = [titleShape && { path: 'title', paras: titleShape.paras.map((p) => p.raw) }, sub && { path: 'subtitle', paras: sub.paras.map((p) => p.raw) }].filter(Boolean), listParas = [];
   for (const s of shapes) {
     if (s === titleShape || s === sub || ['dt', 'ftr', 'sldNum'].includes(s.type)) continue;
     if (s.paras.length === 1 && /^\d{1,3}$/.test(s.paras[0].text)) continue; // a slide number
+    const box = [false, true].map((deep) => s.paras.filter((x) => x.lvl > 0 === deep).slice(0, 60).map((x) => x.raw)); // (a slide keeps 14 bullets: enough to see the box's usual style)
     for (const p of s.paras) {
-      if (p.lvl > 0 && bullets.length) { const last = bullets.at(-1); bullets[bullets.length - 1] = typeof last === 'string' ? { text: last, sub: [p.text] } : { ...last, sub: [...last.sub, p.text] }; }
-      else bullets.push(p.text);
+      if (p.lvl > 0 && bullets.length) { const last = bullets.at(-1); bullets[bullets.length - 1] = typeof last === 'string' ? { text: last, sub: [p.text] } : { ...last, sub: [...last.sub, p.text] }; if (bullets.length <= 14 && bullets.at(-1).sub.length <= 6) rich.push({ path: `bullets.${bullets.length - 1}.sub.${bullets.at(-1).sub.length - 1}`, paras: [p.raw], box: box[1] }); }
+      else { bullets.push(p.text); if (bullets.length <= 14) { rich.push({ path: `bullets.${bullets.length - 1}`, paras: [p.raw], box: box[0] }); listParas.push(p.raw); } }
     }
   }
+  const fmt = pptxSlideFmt(rich, { bullets: listParas }, links);
+  if (fmt) slide.fmt = fmt; // normalizeDeck fits it to the cleaned words (and follows a bullet that became the subtitle)
   // tables, charts
   const tbl = /<a:tbl>([\s\S]*?)<\/a:tbl>/.exec(xml);
   if (tbl) slide.table = tableData(tbl[1]);
@@ -108,10 +137,11 @@ function readSlide(xml, rel, get, images, n) {
     const target = embed && rel.get(embed[1]);
     const ext = target ? target.split('.').pop().toLowerCase() : '';
     const bytes = target && MIME[ext] ? get(target, true) : null;
-    if (bytes && bytes.length <= MAX_IMAGE) {
+    const mime = bytes && sniff(bytes); // by what the file is, not what it's called (a PNG saved as .jpg)
+    if (bytes && mime && bytes.length <= MAX_IMAGE) {
       const id = `pptx${n}`;
       const size = /<a:ext cx="(\d+)" cy="(\d+)"/.exec(pic[1]);
-      images[id] = { data: `data:${MIME[ext]};base64,${b64(bytes)}`, w: size ? Math.round(Number(size[1]) / EMU_PX) : 0, h: size ? Math.round(Number(size[2]) / EMU_PX) : 0 };
+      images[id] = { data: `data:${mime};base64,${b64(bytes)}`, w: size ? Math.round(Number(size[1]) / EMU_PX) : 0, h: size ? Math.round(Number(size[2]) / EMU_PX) : 0 };
       slide.image = id;
       const nv = /<p:cNvPr\b[^>]*>/.exec(pic[1]);
       slide.alt = nv ? attr(nv[0], 'descr') : '';
@@ -130,8 +160,8 @@ function readSlide(xml, rel, get, images, n) {
   const notesPath = [...rel.values()].find((p) => /notesSlides\/notesSlide\d+\.xml$/.test(p));
   if (notesPath) {
     const nx = get(notesPath);
-    const body = all(/<p:sp>([\s\S]*?)<\/p:sp>/g, nx || '').filter((m) => /<p:ph\b[^>]*type="body"/.test(m[1]));
-    const notes = body.map((m) => paragraphs(m[1]).map((p) => p.text).join('\n')).join('\n').trim();
+    const body = inner(nx, 'p:sp').filter((sp) => /<p:ph\b[^>]*type="body"/.test(sp));
+    const notes = body.map((sp) => paragraphs(sp).map((p) => p.text).join('\n')).join('\n').trim();
     if (notes) slide.notes = notes;
   }
   return slide;
@@ -176,8 +206,10 @@ export function parsePptx(get, { title = '' } = {}) {
   const slides = order.slice(0, 60).map((p, i) => {
     const xml = get(p) || '';
     const name = p.split('/').pop();
-    const rel = rels(get(p.replace(name, `_rels/${name}.rels`)) || '', p.slice(0, p.length - name.length));
-    return readSlide(xml, rel, get, images, i + 1);
+    const relsXml = get(p.replace(name, `_rels/${name}.rels`)) || '';
+    const rel = rels(relsXml, p.slice(0, p.length - name.length));
+    const links = linkRels(relsXml, (target) => order.indexOf(rels(`<Relationship Id="x" Target="${target.replace(/"/g, '')}"/>`, p.slice(0, p.length - name.length)).get('x')) + 1); // web and slide links in the text
+    return readSlide(xml, rel, get, images, i + 1, links);
   });
   const themePath = [...prel.values()].find((p) => /theme\/theme\d+\.xml$/.test(p)) || 'ppt/theme/theme1.xml';
   const theme = pptxTheme(get(themePath) || '', order[0] ? get(order[0]) || '' : '');
@@ -192,9 +224,12 @@ export function parsePptx(get, { title = '' } = {}) {
 export async function importPptx(file) {
   if (!/\.pptx$/i.test(file.name)) return { error: 'Choose a PowerPoint (.pptx) file.' };
   if (file.size > 80 * 1024 * 1024) return { error: 'That file is over 80 MB.' };
-  const { unzip } = await import('./course-extract.js');
+  const { unzip, TOO_BIG } = await import('./course-extract.js');
   const bytes = new Uint8Array(await file.arrayBuffer());
   const want = (n) => /^(ppt\/(presentation\.xml|_rels\/presentation\.xml\.rels|slides\/(_rels\/)?slide\d+\.xml(\.rels)?|notesSlides\/notesSlide\d+\.xml|charts\/chart\d+\.xml|theme\/theme\d+\.xml|media\/[^/]+\.(png|jpe?g|gif))|docProps\/core\.xml)$/i.test(n);
-  const zip = await unzip(bytes, want, (n) => /^ppt\/media\//.test(n));
-  return parsePptx((name) => zip.get(name), { title: file.name.replace(/\.pptx$/i, '') });
+  let zip;
+  try { zip = await unzip(bytes, want, (n) => /^ppt\/media\//.test(n), MAX_UNPACKED); }
+  catch (e) { return { error: e && e.message === TOO_BIG ? 'That PowerPoint unpacks to more than Eden can read (150 MB). Try a smaller copy.' : 'That PowerPoint is damaged or isn’t really a .pptx file.' }; }
+  try { return parsePptx((name) => zip.get(name), { title: file.name.replace(/\.pptx$/i, '') }); }
+  catch { return { error: 'Eden couldn’t read the slides in that PowerPoint.' }; }
 }

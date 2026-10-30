@@ -1,0 +1,13 @@
+/* Help inside Eden (help.js): the sheet around the Help Center (web/help/help.css). */
+.help-sheet{z-index:106}
+.help-card{width:min(640px,100%);height:min(760px,88vh);height:min(760px,88dvh)}
+.help-card .sheet-head{padding-bottom:12px}
+.help-card .help-tab{font-size:12.5px;text-decoration:none}
+.help-body{flex:1;min-height:0;display:flex;flex-direction:column;padding-bottom:14px;--hc-fade:transparent}
+.help-body .hc{flex:1}
+#btnHelp.help-q{font-size:14px;font-weight:650;color:var(--text2)}
+#btnHelp.help-q:hover{color:var(--text)}
+@media (max-width:640px){
+  .help-card{height:92dvh}
+  .help-card .help-tab{display:none}
+}

@@ -15,7 +15,7 @@
 
   // State a newly attached frame needs, newest of each, in this order (the snapshot first).
   const STATE = ['hello', 'prefs', 'tasks', 'code_meta', 'claude_projects', 'claude_history', 'code_copies'];
-  const KEEP_ENTRIES = 400;  // per transcript, as the hub keeps them
+  const KEEP_ENTRIES = 5000;  // per transcript, as the hub keeps them
 
   function createStore() {
     const s = {

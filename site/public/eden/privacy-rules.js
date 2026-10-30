@@ -84,7 +84,7 @@ export function sensitiveSummary(hits) {
   return `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
 }
 
-const CLOUDS = { anthropic: 'Anthropic cloud', openai: 'OpenAI cloud', gemini: 'Google cloud', kimi: 'Moonshot cloud' };
+const CLOUDS = { anthropic: 'Anthropic cloud', openai: 'OpenAI cloud', gemini: 'Google cloud', kimi: 'Moonshot cloud', deepinfra: 'DeepInfra (Zero-Retention)' };
 
 /**
  * Where a reply was computed, from its route: the server's `where` when it sent one (Eden on
@@ -95,6 +95,7 @@ export function whereOf(route) {
   const w = route.where;
   // 'phone': the Eden iPhone app's on-device model (native.js), private like the Mac
   if (w && typeof w.label === 'string' && w.label) return { place: w.place === 'mac' || w.place === 'phone' ? w.place : 'cloud', label: w.label, detail: w.detail || null };
+  if (route.via === 'deepinfra') return { place: 'cloud', label: CLOUDS.deepinfra, detail: null };
   if (route.provider === 'local') return { place: 'mac', label: 'On your Mac', detail: null };
   return { place: 'cloud', label: CLOUDS[route.provider] || 'Cloud', detail: null };
 }

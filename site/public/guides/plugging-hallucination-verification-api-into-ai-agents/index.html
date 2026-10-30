@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
+<title>Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents · Eden</title>
+<meta name="description" content="Architecture patterns for engineering teams: how to keep your existing agent framework and drop in risk-aware model routing, cross-provider failover chains, and post-generation claim verification.">
+<link rel="canonical" href="https://askeden.com/guides/plugging-hallucination-verification-api-into-ai-agents">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Eden">
+<meta property="og:url" content="https://askeden.com/guides/plugging-hallucination-verification-api-into-ai-agents">
+<meta property="og:title" content="Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents">
+<meta property="og:description" content="Architecture patterns for engineering teams: how to keep your existing agent framework and drop in risk-aware model routing, cross-provider failover chains, and post-generation claim verification.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://askeden.com/jarvis/eden-share.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/guides/guides.css">
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
+  <nav aria-label="Site"><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a class="pill" href="/signin">Sign in</a></nav>
+</header>
+
+<main id="main" itemscope itemtype="https://schema.org/TechArticle">
+  <meta itemprop="headline" content="Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents">
+  <meta itemprop="datePublished" content="2026-10-21">
+  <meta itemprop="author" content="Harrat Global Holdings, Inc.">
+  <header class="article-header">
+    <p class="breadcrumb"><a href="/">Eden</a> · <a href="/guides">Guides</a> · Guide · Agent Architecture &amp; API</p>
+    <p class="kicker">GUIDE · AGENT ARCHITECTURE &amp; API</p>
+    <h1>Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents<u aria-hidden="true"></u></h1>
+    <p class="lede" itemprop="description">Architecture patterns for engineering teams: how to keep your existing agent framework and drop in risk-aware model routing, cross-provider failover chains, and post-generation claim verification.</p>
+    <div class="meta-line">
+      <span>Published 2026-10-21</span>
+      <span>·</span>
+      <span>8 min read</span>
+      <span>·</span>
+      <span>By Eden (Harrat Global Holdings, Inc.)</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="/eves">Explore EVES</a>
+      <a class="btn" href="/accuracy">See the 432-question benchmark</a>
+    </div>
+  </header>
+
+  <div class="article-wrap">
+    <article class="prose" itemprop="articleBody">
+      <p>As engineering teams move AI agents from demos into production—generating financial reports, legal summaries, clinical notes, or customer-facing workflows—they hit an architectural wall: <b>chaining unverified LLM calls compounds hallucination probability at every step.</b></p>
+      <p>If a 4-step agent pipeline has a 15% fabrication risk at each step, the chance that the final report contains at least one fabricated claim approaches 48%.</p>
+
+      <h2>Three drop-in API patterns for production agents</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <small>PATTERN 1 · POST /v1/route</small>
+          <h3>Sub-50 µs risk &amp; complexity routing</h3>
+          <p>Call the routing decision endpoint to classify prompt complexity, factual risk (0–100), and recommended model + reasoning effort before invoking your provider.</p>
+        </div>
+        <div class="step-card">
+          <small>PATTERN 2 · POST /v1/route/failover</small>
+          <h3>Cross-provider failover chains</h3>
+          <p>Eliminate single-provider outages. Receive a ranked failover chain across Anthropic, OpenAI, Google, and Moonshot that preserves your factual reliability floor.</p>
+        </div>
+        <div class="step-card">
+          <small>PATTERN 3 · POST /v1/route/cascade</small>
+          <h3>Speculative cascades with risk bypass</h3>
+          <p>Run a fast draft model with a frontier verifier on routine tasks—while automatically bypassing cheap drafts when factual hallucination risk is high.</p>
+        </div>
+        <div class="step-card">
+          <small>PATTERN 4 · POST /v1/route/batch</small>
+          <h3>Budget-capped batch optimization</h3>
+          <p>Route hundreds of sub-queries under a strict <code>max_total_cost_usd</code> ceiling using greedy marginal-utility allocation.</p>
+        </div>
+      </div>
+
+      <h2>Example: Risk-aware routing with telemetry</h2>
+      <pre><code>curl https://edenrouter.com/v1/chat/completions \
+  -H "Authorization: Bearer $EDEN_ROUTER_KEY" \
+  -H "x-anthropic-key: $ANTHROPIC_API_KEY" \
+  -H "x-openai-key: $OPENAI_API_KEY" \
+  -H "x-gemini-key: $GEMINI_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "eden-router:level-3",
+    "x_eden": {"risk_aware": true, "classifier": "auto"},
+    "messages": [{"role": "user", "content": "Verify the 2025 revenue multiples cited in this draft report."}]
+  }'</code></pre>
+      <p>Explore <a href="/eves">EVES</a> and the <a href="/accuracy">432-question benchmark</a> to see how verification performs in practice.</p>
+
+      <section itemscope itemtype="https://schema.org/FAQPage" aria-labelledby="faqH">
+        <h2 id="faqH">Frequently asked questions</h2>
+        <div class="faq-list">
+        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <h3 itemprop="name">Do I use my own OpenAI, Anthropic, and Gemini API keys?</h3>
+          <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <p itemprop="text">Yes. You pass your provider keys in request headers (x-openai-key, x-anthropic-key, x-gemini-key, x-moonshot-key). Eden never stores your provider keys or your prompt/response text.</p>
+          </div>
+        </div>
+        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <h3 itemprop="name">What happens when a high-risk prompt is sent to /v1/route/cascade?</h3>
+          <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <p itemprop="text">When risk_aware detects a high-risk factual domain (finance, medicine, law, citations), the cascade automatically bypasses the cheap draft stage and routes directly to a high-reliability verifier model.</p>
+          </div>
+        </div></div>
+      </section>
+    </article>
+
+    <aside class="rail" aria-label="Related resources">
+      <div class="rail-card navy">
+        <h3>Try Eden in your browser</h3>
+        <p>One chat that routes each question to the best model for the lowest cost, with EVES hallucination verification built in.</p>
+        <a class="btn" href="/signin">Start free at askeden.com</a>
+      </div>
+      <div class="rail-card">
+        <h3>More guides</h3>
+        <ul class="rail-links">
+          <li><a href="/guides/stop-ai-hallucinations-investment-memos">How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis</a></li>
+          <li><a href="/guides/ai-model-router-cut-llm-costs">AI Model Router vs. Single-Model Subscriptions: Cutting LLM Costs in Half Without Losing Quality</a></li>
+          <li><a href="/guides/ai-tutor-for-university-courses-syllabus-slides">AI-Assisted Workflows for Educators: Building a Course Tutor Grounded Only in Your Syllabus &amp; Slides</a></li>
+          <li><a href="/guides/how-we-tested-432-factual-questions-eves-benchmark">Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5</a></li>
+          <li><a href="/accuracy">The 432-question EVES hallucination benchmark</a></li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+    <div>
+      <p class="kicker">Technical brief &amp; updates</p>
+      <h2 id="leadH">Request Private-Beta Access to the Eden Router &amp; EVES API</h2>
+      <p class="sub">Tell us about your agent pipeline and we will send API documentation, latency benchmarks, and onboarding credentials.</p>
+      <ul class="lead-perks">
+        <li>Full 432-question EVES benchmark breakdown &amp; methodology</li>
+        <li>Architecture notes on model routing and claim verification</li>
+        <li>Zero spam; unsubscribe in one click</li>
+      </ul>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="api">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/guides/plugging-hallucination-verification-api-into-ai-agents">
+      <input type="hidden" name="audience" value="api">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>Email address
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="lead-row">
+        <label>Organization or course (optional)
+          <input type="text" name="organization" autocomplete="organization" placeholder="Company or university">
+        </label>
+        <label>Optional SMS updates
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Send me the technical brief</button>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+</footer>
+</body>
+</html>

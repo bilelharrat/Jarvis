@@ -157,7 +157,7 @@ test('writes: only this site’s page (origin, the X-Eden-News header, JSON), ra
   assert.equal((await hit('/api/news/profile', { method: 'POST', session: s, body: { done: true }, headers: { 'x-eden-news': '1', 'sec-fetch-site': 'cross-site' } })).status, 403);
   const text = await hit('/api/news/profile', { method: 'POST', session: s, headers: { 'x-eden-news': '1', 'content-type': 'text/plain' }, body: {} });
   assert.equal(text.status, 415);
-  const limitedEnv = makeEnv({ EDEN_RATE: rateLimiter(1) });
+  const limitedEnv = makeEnv({ USER_RATE: rateLimiter(1) }); // a signed-in person's writes: USER_RATE, a ceiling against scripts
   env = limitedEnv;
   const s2 = await signedIn('apple-user-2');
   assert.equal((await answer(s2, { done: true })).status, 200);

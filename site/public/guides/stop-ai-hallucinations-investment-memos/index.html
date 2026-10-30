@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
+<title>How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis · Eden</title>
+<meta name="description" content="Why frontier LLMs fabricate citations and market figures during complex synthesis, and how a four-stage verification pipeline (EVES) reduces fabricated claims to 9.7% on 432 factual questions.">
+<link rel="canonical" href="https://askeden.com/guides/stop-ai-hallucinations-investment-memos">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Eden">
+<meta property="og:url" content="https://askeden.com/guides/stop-ai-hallucinations-investment-memos">
+<meta property="og:title" content="How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis">
+<meta property="og:description" content="Why frontier LLMs fabricate citations and market figures during complex synthesis, and how a four-stage verification pipeline (EVES) reduces fabricated claims to 9.7% on 432 factual questions.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://askeden.com/jarvis/eden-share.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/guides/guides.css">
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
+  <nav aria-label="Site"><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a class="pill" href="/signin">Sign in</a></nav>
+</header>
+
+<main id="main" itemscope itemtype="https://schema.org/TechArticle">
+  <meta itemprop="headline" content="How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis">
+  <meta itemprop="datePublished" content="2026-10-21">
+  <meta itemprop="author" content="Harrat Global Holdings, Inc.">
+  <header class="article-header">
+    <p class="breadcrumb"><a href="/">Eden</a> · <a href="/guides">Guides</a> · Guide · Hallucination Mitigation</p>
+    <p class="kicker">GUIDE · HALLUCINATION MITIGATION</p>
+    <h1>How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis<u aria-hidden="true"></u></h1>
+    <p class="lede" itemprop="description">Why frontier LLMs fabricate citations and market figures during complex synthesis, and how a four-stage verification pipeline (EVES) reduces fabricated claims to 9.7% on 432 factual questions.</p>
+    <div class="meta-line">
+      <span>Published 2026-10-21</span>
+      <span>·</span>
+      <span>7 min read</span>
+      <span>·</span>
+      <span>By Eden (Harrat Global Holdings, Inc.)</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="/eves">Explore EVES</a>
+      <a class="btn" href="/accuracy">See the 432-question benchmark</a>
+    </div>
+  </header>
+
+  <div class="article-wrap">
+    <article class="prose" itemprop="articleBody">
+      <p>When teams use large language models to draft financial analyses, competitive teardowns, or due-diligence briefs, they run into a predictable failure mode: <b>models optimize for plausible continuation, not epistemic certainty.</b> Ask a single model from memory for a private company’s net dollar retention or a sub-sector’s 5-year CAGR, and it will often state an unverified number with total confidence.</p>
+
+      <h2>The three root causes of hallucinations in enterprise synthesis</h2>
+      <ol>
+        <li><b>Parametric compression loss:</b> Even frontier models compress trillions of training tokens into weights. Exact figures, dates, citations, and minority edge cases blur together unless grounded at inference time.</li>
+        <li><b>Sycophantic premise acceptance:</b> If a prompt contains a mistaken assumption (“Given that Company Y’s gross margin fell in 2025, explain why…”), standard instruction-tuned models try to satisfy the user’s premise rather than challenge it.</li>
+        <li><b>Single-model blind spots:</b> No single provider dominates every domain. A model chosen for low cost on routine summarization may have a >25% fabrication rate on dense factual recall.</li>
+      </ol>
+
+      <h2>A four-stage architecture for zero-trust synthesis</h2>
+      <p>In <a href="/eves">EVES</a> (Eden’s verification and evaluation system), we found that stopping hallucinations requires intervening both <b>before</b> and <b>after</b> generation:</p>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <small>STAGE 1 · RISK-AWARE ROUTING</small>
+          <h3>Route by factual risk, not just token length</h3>
+          <p>Eden Router scores every prompt for factual risk (medical, legal, financial, citations, named entities) and shifts risky prompts toward higher-reliability models and higher reasoning effort.</p>
+        </div>
+        <div class="step-card">
+          <small>STAGE 2 · PRE-GENERATION SEARCH</small>
+          <h3>Ground volatile facts before drafting</h3>
+          <p>When a prompt asks for specific figures, filings, or events, EVES runs targeted web retrieval first so the generator synthesizes from retrieved evidence rather than memory.</p>
+        </div>
+        <div class="step-card">
+          <small>STAGE 3 · PREMISE VERIFICATION</small>
+          <h3>Audit the prompt’s assumptions</h3>
+          <p>Before answering a “why” or “how much” question, verify that the underlying entity, event, or directional trend in the question actually occurred.</p>
+        </div>
+        <div class="step-card">
+          <small>STAGE 4 · POST-ANSWER CLAIM AUDIT</small>
+          <h3>Verify atomic claims &amp; allow abstention</h3>
+          <p>Check factual claims in the draft against independent sources afterwards. When sources conflict or don’t exist, explicitly say so instead of guessing.</p>
+        </div>
+      </div>
+
+      <h2>Benchmark evidence: 432 factual &amp; false-premise questions</h2>
+      <p>Across 300 SimpleQA Verified questions and 132 false-premise questions, EVES stated something false <b>9.7%</b> of the time (95% CI: 7.3%–12.9%), cutting hallucinations by more than half compared to Claude Sonnet 5.5 (24.5%) and Gemini 3.8 Flash (21.8%) answering from memory. Explore <a href="/eves">EVES</a> and the <a href="/accuracy">full 432-question benchmark</a> to see how this architecture works.</p>
+
+      <section itemscope itemtype="https://schema.org/FAQPage" aria-labelledby="faqH">
+        <h2 id="faqH">Frequently asked questions</h2>
+        <div class="faq-list">
+        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <h3 itemprop="name">Why does RAG alone still hallucinate in financial analysis?</h3>
+          <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <p itemprop="text">Standard RAG retrieves top-k chunks by embedding similarity, even when none of the chunks actually answer the question or when the user’s prompt contains a false premise. Without premise auditing and post-generation claim verification, models still extrapolate beyond the retrieved text.</p>
+          </div>
+        </div>
+        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <h3 itemprop="name">How much does verification reduce false-premise hallucinations?</h3>
+          <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <p itemprop="text">On 132 false-premise questions, EVES made up an answer only 3.0% of the time (vs. 10.6% for Gemini 3.8 Flash).</p>
+          </div>
+        </div></div>
+      </section>
+    </article>
+
+    <aside class="rail" aria-label="Related resources">
+      <div class="rail-card navy">
+        <h3>Try Eden in your browser</h3>
+        <p>One chat that routes each question to the best model for the lowest cost, with EVES hallucination verification built in.</p>
+        <a class="btn" href="/signin">Start free at askeden.com</a>
+      </div>
+      <div class="rail-card">
+        <h3>More guides</h3>
+        <ul class="rail-links">
+          <li><a href="/guides/ai-model-router-cut-llm-costs">AI Model Router vs. Single-Model Subscriptions: Cutting LLM Costs in Half Without Losing Quality</a></li>
+          <li><a href="/guides/ai-tutor-for-university-courses-syllabus-slides">AI-Assisted Workflows for Educators: Building a Course Tutor Grounded Only in Your Syllabus &amp; Slides</a></li>
+          <li><a href="/guides/how-we-tested-432-factual-questions-eves-benchmark">Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5</a></li>
+          <li><a href="/guides/plugging-hallucination-verification-api-into-ai-agents">Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents</a></li>
+          <li><a href="/accuracy">The 432-question EVES hallucination benchmark</a></li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+    <div>
+      <p class="kicker">Technical brief &amp; updates</p>
+      <h2 id="leadH">Get the Hallucination Mitigation Checklist &amp; EVES Benchmark PDF</h2>
+      <p class="sub">Learn how engineering, legal, and analysis teams structure multi-stage verification to catch fabricated claims before they ship.</p>
+      <ul class="lead-perks">
+        <li>Full 432-question EVES benchmark breakdown &amp; methodology</li>
+        <li>Architecture notes on model routing and claim verification</li>
+        <li>Zero spam; unsubscribe in one click</li>
+      </ul>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="api">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/guides/stop-ai-hallucinations-investment-memos">
+      <input type="hidden" name="audience" value="api">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>Email address
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="lead-row">
+        <label>Organization or course (optional)
+          <input type="text" name="organization" autocomplete="organization" placeholder="Company or university">
+        </label>
+        <label>Optional SMS updates
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Send me the technical brief</button>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+</footer>
+</body>
+</html>

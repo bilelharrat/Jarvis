@@ -1,0 +1,142 @@
+/* The EVES glass pill: every EVES / verification badge on the page (docs/verify/ui.md "The glass pill").
+   The approved look is marketing/eves-logo/pill-glass/ (build-glass.py is the spec, the PNGs what it looks like):
+   a frosted capsule that blurs what is behind it, a white tint, a faint light at the bottom, a soft highlight across
+   the top (::before), a rim brightest top-left and bottom-right (::after, a gradient border), a hairline outline, a
+   soft coloured shadow, and on the left a glossy orb with a white glyph. The design is 104 SVG units tall; on the
+   page it is drawn at FIXED, READABLE pixel sizes, not scaled (scaled down to a chip's height the words were 6px):
+     under a reply / EVES badge   22px tall, orb 16px (3px from the left edge), "EVES" 11px/600 with .08em
+                                  tracking, a 1px x 12px divider, the verdict 11px/400 (190px at most, then an
+                                  ellipsis), gaps 6px, 10px on the right, blur 10px, shadow 0 1px 4px at 12%
+     composer chip (compact)      20px tall, orb 14px, "EVES" 10px, no verdict (eves.css sets --eg-h/-d/-fs)
+   Three custom properties are the only sizes: --eg-h (height, the radius is half), --eg-d (the orb's diameter) and
+   --eg-fs (the text); everything else is the numbers above.
+
+   Markup (glass.js glassPill builds it; the composer's chip in index.html has the same shape):
+     <span class="eves-glass" data-tone="ok|warn|bad|info">
+       <span class="eves-glass-orb" aria-hidden="true"></span>
+       <span class="eves-glass-name">EVES</span>
+       <i class="eves-glass-div" aria-hidden="true"></i><span class="eves-glass-sub">Checked by 3 models</span>   (not in .eves-glass-compact)
+     </span>
+   The tone only picks the orb (--eg-orb): its colours and glyph (check, !, dash) are one small SVG each, drawn from the
+   generator's own ORB table, so they stay sharp at any size. To change a tone's colours or add one, edit --eg-orb-*
+   below (and toneOfLabel in glass.js). The pill says only a short phrase (glass.js phraseOfLabel: issues_found "Issues
+   found in this answer", eves_disputed "Not fully verified", eves_verified "Checked by N models" or "Verified",
+   from_sources "From your sources", checked_on_web "Checked on the web", model_memory "Unverified"), never more than
+   28 characters; the long words are in the panel it opens. Light and dark follow the page's own mechanism
+   ([data-theme="dark"|"light"] on an ancestor, else prefers-color-scheme), as app.css does. */
+
+:root {
+  --eg-orb-ok: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Cdefs%3E%3CradialGradient id='o' cx='.36' cy='.26' r='.95'%3E%3Cstop offset='0' stop-color='%23b6f7c6'/%3E%3Cstop offset='.42' stop-color='%2334c759'/%3E%3Cstop offset='1' stop-color='%231c9a42'/%3E%3C/radialGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.85'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.95'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='.12'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='.6'/%3E%3C/linearGradient%3E%3Cfilter id='s' x='-30%25' y='-30%25' width='160%25' height='170%25'%3E%3CfeDropShadow dx='0' dy='1.5' stdDeviation='1.6' flood-color='%2304361a' flood-opacity='.38'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='36' cy='36' r='36' fill='url(%23o)'/%3E%3Cellipse cx='33' cy='17' rx='23' ry='13' fill='url(%23h)'/%3E%3Ccircle cx='36' cy='36' r='35' fill='none' stroke='url(%23r)' stroke-width='2'/%3E%3Cpolyline filter='url(%23s)' points='22,37 32,47 51,26' fill='none' stroke='%23fff' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --eg-orb-warn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Cdefs%3E%3CradialGradient id='o' cx='.36' cy='.26' r='.95'%3E%3Cstop offset='0' stop-color='%23ffe2a8'/%3E%3Cstop offset='.42' stop-color='%23ff9f0a'/%3E%3Cstop offset='1' stop-color='%23d97800'/%3E%3C/radialGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.85'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.95'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='.12'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='.6'/%3E%3C/linearGradient%3E%3Cfilter id='s' x='-30%25' y='-30%25' width='160%25' height='170%25'%3E%3CfeDropShadow dx='0' dy='1.5' stdDeviation='1.6' flood-color='%2304361a' flood-opacity='.38'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='36' cy='36' r='36' fill='url(%23o)'/%3E%3Cellipse cx='33' cy='17' rx='23' ry='13' fill='url(%23h)'/%3E%3Ccircle cx='36' cy='36' r='35' fill='none' stroke='url(%23r)' stroke-width='2'/%3E%3Cg filter='url(%23s)'%3E%3Cline x1='36' y1='21' x2='36' y2='39' stroke='%23fff' stroke-width='8' stroke-linecap='round'/%3E%3Ccircle cx='36' cy='51' r='4.6' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E");
+  --eg-orb-bad: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Cdefs%3E%3CradialGradient id='o' cx='.36' cy='.26' r='.95'%3E%3Cstop offset='0' stop-color='%23ffc2b8'/%3E%3Cstop offset='.42' stop-color='%23ff5a47'/%3E%3Cstop offset='1' stop-color='%23d12f1c'/%3E%3C/radialGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.85'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.95'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='.12'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='.6'/%3E%3C/linearGradient%3E%3Cfilter id='s' x='-30%25' y='-30%25' width='160%25' height='170%25'%3E%3CfeDropShadow dx='0' dy='1.5' stdDeviation='1.6' flood-color='%2304361a' flood-opacity='.38'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='36' cy='36' r='36' fill='url(%23o)'/%3E%3Cellipse cx='33' cy='17' rx='23' ry='13' fill='url(%23h)'/%3E%3Ccircle cx='36' cy='36' r='35' fill='none' stroke='url(%23r)' stroke-width='2'/%3E%3Cg filter='url(%23s)'%3E%3Cline x1='36' y1='21' x2='36' y2='39' stroke='%23fff' stroke-width='8' stroke-linecap='round'/%3E%3Ccircle cx='36' cy='51' r='4.6' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E");
+  --eg-orb-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Cdefs%3E%3CradialGradient id='o' cx='.36' cy='.26' r='.95'%3E%3Cstop offset='0' stop-color='%23e6e8ee'/%3E%3Cstop offset='.42' stop-color='%239a9fab'/%3E%3Cstop offset='1' stop-color='%236b707c'/%3E%3C/radialGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.85'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.95'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='.12'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='.6'/%3E%3C/linearGradient%3E%3Cfilter id='s' x='-30%25' y='-30%25' width='160%25' height='170%25'%3E%3CfeDropShadow dx='0' dy='1.5' stdDeviation='1.6' flood-color='%2304361a' flood-opacity='.38'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='36' cy='36' r='36' fill='url(%23o)'/%3E%3Cellipse cx='33' cy='17' rx='23' ry='13' fill='url(%23h)'/%3E%3Ccircle cx='36' cy='36' r='35' fill='none' stroke='url(%23r)' stroke-width='2'/%3E%3Crect filter='url(%23s)' x='19' y='32' width='34' height='8' rx='4' fill='%23fff'/%3E%3C/svg%3E");
+}
+
+.eves-glass {
+  --eg-h: 22px; --eg-d: 16px; --eg-fs: 11px;
+  /* light (THEME.light in the generator) */
+  --eg-fill: rgb(255 255 255 / .34);
+  --eg-solid: rgb(246 248 253);                 /* the opaque pill for no blur / reduced transparency */
+  --eg-text: #14161a; --eg-sub: rgb(40 44 52 / .78); --eg-div: rgb(40 44 52 / .22);
+  --eg-rim-lo: rgb(255 255 255 / .18);
+  --eg-spec: .70; --eg-bot: .22; --eg-hair: rgb(0 0 0 / .07);
+  --eg-sh: .12;                                 /* the soft shadow's strength */
+  --eg-orb: var(--eg-orb-info);
+  --eg-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  position: relative; isolation: isolate; box-sizing: border-box;
+  display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; max-width: 100%;
+  height: var(--eg-h); margin: 0; padding: 0 10px 0 3px;
+  border: 0; border-radius: calc(var(--eg-h) / 2); overflow: hidden; vertical-align: middle;
+  color: var(--eg-text); font: 600 var(--eg-fs) / 1 var(--eg-font);
+  text-align: left; text-decoration: none; white-space: nowrap; -webkit-tap-highlight-color: transparent;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0) 0, rgb(255 255 255 / var(--eg-bot)) 100%),
+    linear-gradient(var(--eg-fill), var(--eg-fill));
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 .5px var(--eg-hair), 0 1px 4px rgb(20 34 106 / var(--eg-sh));
+}
+.eves-glass.eves-glass-compact { padding-right: 9px; }
+
+/* dark (THEME.dark) */
+/* (:where keeps these as quiet as the light values above, so the fallbacks at the end of the file still win) */
+:where([data-theme="dark"]) .eves-glass {
+  --eg-fill: rgb(16 19 28 / .42); --eg-solid: rgb(28 31 42);
+  --eg-text: #f7f8fb; --eg-sub: rgb(235 238 246 / .8); --eg-div: rgb(235 238 246 / .22);
+  --eg-rim-lo: rgb(159 180 255 / .18);
+  --eg-spec: .40; --eg-bot: .10; --eg-hair: rgb(0 0 0 / .35); --eg-sh: .3;
+}
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme])) .eves-glass {
+    --eg-fill: rgb(16 19 28 / .42); --eg-solid: rgb(28 31 42);
+    --eg-text: #f7f8fb; --eg-sub: rgb(235 238 246 / .8); --eg-div: rgb(235 238 246 / .22);
+    --eg-rim-lo: rgb(159 180 255 / .18);
+    --eg-spec: .40; --eg-bot: .10; --eg-hair: rgb(0 0 0 / .35); --eg-sh: .3;
+  }
+}
+
+/* the soft white highlight across the top 40% */
+.eves-glass::before {
+  content: ""; position: absolute; z-index: -1; pointer-events: none;
+  left: 3px; right: 3px; top: 1px; height: 40%; border-radius: 999px;
+  background: linear-gradient(180deg, rgb(255 255 255 / var(--eg-spec)), rgb(255 255 255 / 0));
+}
+/* the rim: 1px, brightest top-left and bottom-right (a gradient border: the gradient shows only in the ring) */
+.eves-glass::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; padding: 1px;
+  background: linear-gradient(to bottom right, rgb(255 255 255 / .95) 0%, rgb(255 255 255 / .22) 38%, var(--eg-rim-lo) 70%, rgb(255 255 255 / .75) 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+/* the orb: its own gloss, rim and glyph are in the picture */
+.eves-glass-orb {
+  flex: none; width: var(--eg-d); height: var(--eg-d); margin-right: 6px;
+  background: var(--eg-orb) center / 100% 100% no-repeat;
+}
+.eves-glass[data-tone="ok"] { --eg-orb: var(--eg-orb-ok); }
+.eves-glass[data-tone="warn"] { --eg-orb: var(--eg-orb-warn); }
+.eves-glass[data-tone="bad"] { --eg-orb: var(--eg-orb-bad); }
+.eves-glass[data-tone="info"] { --eg-orb: var(--eg-orb-info); }
+
+/* EVES (the composer's chip keeps its own id and class on this span) */
+.eves-glass > .eves-glass-name, .eves-glass > .jc-eves-lbl {
+  flex: none; font: 600 var(--eg-fs) / 1.3 var(--eg-font); letter-spacing: .08em; color: var(--eg-text); overflow: visible;
+}
+/* the verdict: a 1px x 12px divider between 6px gaps, then the words */
+.eves-glass-div { flex: none; width: 1px; height: 12px; margin: 0 6px; background: var(--eg-div); }
+.eves-glass-sub {
+  flex: 0 1 auto; min-width: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 400 var(--eg-fs) / 1.35 var(--eg-font); color: var(--eg-sub);
+}
+
+/* a pill that can be clicked */
+button.eves-glass { cursor: pointer; appearance: none; -webkit-appearance: none; transition: transform .15s cubic-bezier(.32, .72, 0, 1); }
+button.eves-glass:hover { transform: translateY(-1px); }
+button.eves-glass:active { transform: none; }
+button.eves-glass:focus-visible { outline: 2px solid var(--accent, #0a84ff); outline-offset: 2px; border-radius: calc(var(--eg-h) / 2); }
+div.eves-glass, span.eves-glass { cursor: default; }
+
+/* no backdrop blur in this browser: an opaque pill (the tint would let whatever is behind show through, unblurred) */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .eves-glass { --eg-fill: var(--eg-solid); }
+}
+/* the person asked for less transparency */
+@media (prefers-reduced-transparency: reduce) {
+  .eves-glass { --eg-fill: var(--eg-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+/* the person asked for more contrast: the opaque pill and the full-strength words */
+@media (prefers-contrast: more) {
+  .eves-glass { --eg-fill: var(--eg-solid); --eg-sub: var(--eg-text); }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.eves-glass { transition: none; }
+  button.eves-glass:hover { transform: none; }
+}
+/* Windows high contrast and friends: system colours and a plain outline (the orb's picture still shows) */
+@media (forced-colors: active) {
+  .eves-glass { forced-color-adjust: none; color: CanvasText; background: Canvas; border: 1px solid CanvasText; box-shadow: none; }
+  .eves-glass::before, .eves-glass::after { display: none; }
+  .eves-glass > .eves-glass-name, .eves-glass > .jc-eves-lbl, .eves-glass-sub { color: CanvasText; }
+  .eves-glass-div { background: CanvasText; }
+}

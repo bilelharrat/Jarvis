@@ -20,7 +20,7 @@ export const LOCAL_SERVER = isLocalServer(location.hostname);
  * index.html re-points it (another path or origin). Eden Mail on its own (askeden.com/mail) is the site's root.
  */
 const metaRoot = document.querySelector('meta[name="jarvis-api-root"]');
-export const API_ROOT = (metaRoot && metaRoot.content.trim() ? metaRoot.content.trim() : location.pathname.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '').replace(/^\/mail$/, '')).replace(/\/$/, '');
+export const API_ROOT = (metaRoot && metaRoot.content.trim() ? metaRoot.content.trim() : location.pathname.replace(/\/chat(?:\/.*)?$/, '').replace(/\/[^/]*\.html?$/, '').replace(/^\/(?:mail|travel)$/, '')).replace(/\/$/, '');
 export const API_BASE = `${API_ROOT}/api/chat`;
 /** A server path ("/api/chat/meta", "/artifact/x") as a URL under API_ROOT. */
 export function apiUrl(path) {
@@ -322,7 +322,9 @@ export const api = {
   },
   route: (body, signal) => postJSON('/api/route', body, { signal }),
   keys: () => getJSON('/api/chat/keys'),
-  setKey: (provider, key) => postJSON('/api/chat/keys', { provider, key }),
+  setKey: (provider, key, opts = {}) => postJSON('/api/chat/keys', { provider, key, ...opts }),
+  spend: () => getJSON('/api/chat/spend'),
+  setSpend: (body) => postJSON('/api/chat/spend', body),
   // Eden's memory across chats on askeden.com (Settings › Memory): { on, notice, items }
   memory: () => getJSON('/api/chat/memory'),
   memoryDo: (body) => postJSON('/api/chat/memory', body),

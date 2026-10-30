@@ -66,6 +66,65 @@ export class NewsDesk {
         for (let i = 0; i < stale.length; i += 128) await this.storage.delete(stale.slice(i, i + 128));
         return Response.json({ ok: true });
       }
+      case 'vault-lookup': {
+        const hash = String(body.canonicalHash || '');
+        if (hash) {
+          const exact = await this.storage.get(`v:${hash}`);
+          if (exact) return Response.json({ entries: [exact] });
+        }
+        const map = await this.storage.list({ prefix: 'v:', limit: 25000 });
+        return Response.json({ entries: [...map.values()] });
+      }
+      case 'vault-put': {
+        const entry = body.entry;
+        if (!entry || typeof entry.canonicalHash !== 'string' || !entry.canonicalHash) {
+          return Response.json({ error: 'Invalid vault entry.' }, { status: 400 });
+        }
+        await this.storage.put(`v:${entry.canonicalHash}`, entry);
+        const map = await this.storage.list({ prefix: 'v:' });
+        if (map.size > 25000) {
+          const sorted = [...map.entries()].sort((a, b) => (a[1]?.createdAt || 0) - (b[1]?.createdAt || 0));
+          const toDelete = sorted.slice(0, map.size - 25000).map(([k]) => k);
+          for (let i = 0; i < toDelete.length; i += 128) await this.storage.delete(toDelete.slice(i, i + 128));
+        }
+        return Response.json({ ok: true });
+      }
+      case 'vault-seed': {
+        const seeded = await this.storage.get('vault:seeded_v3');
+        if (seeded && !body.force) return Response.json({ ok: true, alreadySeeded: true });
+        const entries = Array.isArray(body.entries) ? body.entries : [];
+        for (let i = 0; i < entries.length; i += 120) {
+          const batch = {};
+          for (const e of entries.slice(i, i + 120)) {
+            if (e && typeof e.canonicalHash === 'string' && e.canonicalHash) {
+              batch[`v:${e.canonicalHash}`] = e;
+            }
+          }
+          if (Object.keys(batch).length > 0) await this.storage.put(batch);
+        }
+        await this.storage.put('vault:seeded_v3', { at: Date.now(), count: entries.length });
+        return Response.json({ ok: true, count: entries.length });
+      }
+      case 'flag-put': {
+        const flag = body.flag;
+        if (!flag || typeof flag.id !== 'string' || !flag.id) {
+          return Response.json({ error: 'Invalid flag entry.' }, { status: 400 });
+        }
+        await this.storage.put(`f:${flag.id}`, flag);
+        const map = await this.storage.list({ prefix: 'f:' });
+        if (map.size > 2000) {
+          const sorted = [...map.entries()].sort((a, b) => (a[1]?.at || 0) - (b[1]?.at || 0));
+          const toDelete = sorted.slice(0, map.size - 2000).map(([k]) => k);
+          for (let i = 0; i < toDelete.length; i += 128) await this.storage.delete(toDelete.slice(i, i + 128));
+        }
+        return Response.json({ ok: true });
+      }
+      case 'flag-list': {
+        const limit = Math.min(200, Math.max(1, Number(body.limit) || 50));
+        const map = await this.storage.list({ prefix: 'f:' });
+        const flags = [...map.values()].sort((a, b) => (b?.at || 0) - (a?.at || 0)).slice(0, limit);
+        return Response.json({ flags });
+      }
       case 'erase':
         await this.storage.deleteAll();
         return Response.json({ ok: true });
@@ -91,3 +150,136 @@ export const getStories = (env, now) => call(env, 'stories', 'stories-get', { no
 export const putStories = (env, value) => call(env, 'stories', 'stories-put', value);
 export const getSearch = (env, query, now) => call(env, 'stories', 'search-get', { query, now });
 export const putSearch = (env, query, articles) => call(env, 'stories', 'search-put', { query, articles, at: Date.now() });
+export const lookupEvesVault = async (env, canonicalHash, fingerprint = null) => {
+  const results = [];
+  const seen = new Set();
+  const push = (e) => {
+    if (e && typeof e.canonicalHash === 'string' && e.canonicalHash && !seen.has(e.canonicalHash)) {
+      seen.add(e.canonicalHash);
+      results.push(e);
+    }
+  };
+
+  // Tier B.1 — Cloudflare D1 Edge SQLite Index (`env.EVES_VAULT_DB`, 51,000+ verified rows, ~1–2 ms)
+  if (env?.EVES_VAULT_DB) {
+    try {
+      if (canonicalHash) {
+        const exactRow = await env.EVES_VAULT_DB.prepare('SELECT entry_json FROM eves_vault WHERE canonical_hash = ? LIMIT 1')
+          .bind(String(canonicalHash))
+          .first();
+        if (exactRow?.entry_json) {
+          const parsed = JSON.parse(exactRow.entry_json);
+          if (parsed && parsed.canonicalHash) return [parsed];
+        }
+      }
+      if (fingerprint && typeof fingerprint === 'object') {
+        const interrogative = String(fingerprint.interrogative || 'what');
+        const entities = Array.isArray(fingerprint.entities) ? fingerprint.entities.filter(Boolean).slice(0, 4) : [];
+        const primaryEntity = String(entities[0] || '');
+        const primaryNumber = String((fingerprint.numbers && fingerprint.numbers[0]) || '');
+        const stmts = [];
+        if (primaryEntity && primaryNumber) {
+          if (entities.length >= 2) {
+            const placeholders = entities.map(() => '?').join(', ');
+            stmts.push(
+              env.EVES_VAULT_DB.prepare(
+                `SELECT entry_json FROM eves_vault WHERE interrogative = ? AND primary_entity IN (${placeholders}) AND primary_number = ? LIMIT 80`,
+              ).bind(interrogative, ...entities, primaryNumber),
+            );
+          } else {
+            stmts.push(
+              env.EVES_VAULT_DB.prepare(
+                'SELECT entry_json FROM eves_vault WHERE interrogative = ? AND primary_entity = ? AND primary_number = ? LIMIT 60',
+              ).bind(interrogative, primaryEntity, primaryNumber),
+            );
+          }
+        }
+        if (entities.length >= 2) {
+          const placeholders = entities.map(() => '?').join(', ');
+          stmts.push(
+            env.EVES_VAULT_DB.prepare(
+              `SELECT entry_json FROM eves_vault WHERE primary_entity IN (${placeholders}) AND interrogative = ? LIMIT 80`,
+            ).bind(...entities, interrogative),
+          );
+        } else if (primaryEntity) {
+          stmts.push(
+            env.EVES_VAULT_DB.prepare('SELECT entry_json FROM eves_vault WHERE primary_entity = ? AND interrogative = ? LIMIT 60').bind(
+              primaryEntity,
+              interrogative,
+            ),
+          );
+        } else if (primaryNumber) {
+          stmts.push(
+            env.EVES_VAULT_DB.prepare('SELECT entry_json FROM eves_vault WHERE interrogative = ? AND primary_number = ? LIMIT 60').bind(
+              interrogative,
+              primaryNumber,
+            ),
+          );
+        }
+        for (const stmt of stmts) {
+          const { results: rows } = await stmt.all();
+          for (const r of rows || []) {
+            if (r?.entry_json) {
+              try {
+                push(JSON.parse(r.entry_json));
+              } catch {
+                // ignore malformed row
+              }
+            }
+          }
+          if (results.length >= 40) break;
+        }
+      }
+    } catch {
+      // fall through to Durable Object store if D1 is unavailable
+    }
+  }
+
+  // Tier B.2 — Durable Object `NewsDesk` fallback
+  if (env?.NEWS) {
+    try {
+      const doEntries = (await call(env, 'eves-vault', 'vault-lookup', { canonicalHash })).entries || [];
+      for (const e of doEntries) push(e);
+    } catch {
+      // ignore DO lookup failure
+    }
+  }
+  return results;
+};
+
+export const putEvesVault = async (env, entry) => {
+  const tasks = [];
+  if (env?.EVES_VAULT_DB && entry && typeof entry.canonicalHash === 'string' && entry.canonicalHash) {
+    const fp = entry.fingerprint || {};
+    const interrogative = String(fp.interrogative || 'what');
+    const primaryEntity = String((fp.entities && fp.entities[0]) || '');
+    const primaryNumber = String((fp.numbers && fp.numbers[0]) || '');
+    tasks.push(
+      env.EVES_VAULT_DB.prepare(
+        'INSERT OR REPLACE INTO eves_vault (canonical_hash, interrogative, primary_entity, primary_number, question, answer_text, entry_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+        .bind(
+          entry.canonicalHash,
+          interrogative,
+          primaryEntity,
+          primaryNumber,
+          String(entry.question || ''),
+          String(entry.answerText || ''),
+          JSON.stringify(entry),
+          Number(entry.createdAt) || Date.now(),
+        )
+        .run()
+        .catch(() => ({ ok: false })),
+    );
+  }
+  if (env?.NEWS) {
+    tasks.push(call(env, 'eves-vault', 'vault-put', { entry }).catch(() => ({ ok: false })));
+  }
+  if (!tasks.length) return { ok: false };
+  await Promise.all(tasks);
+  return { ok: true };
+};
+
+export const seedEvesVault = (env, entries, force = false) => (env.NEWS ? call(env, 'eves-vault', 'vault-seed', { entries, force }) : Promise.resolve({ ok: false }));
+export const putEvesFlag = (env, flag) => (env?.NEWS ? call(env, 'eves-vault', 'flag-put', { flag }).catch(() => ({ ok: false })) : Promise.resolve({ ok: false }));
+export const listEvesFlags = async (env, limit = 50) => (env?.NEWS ? ((await call(env, 'eves-vault', 'flag-list', { limit }).catch(() => ({})))?.flags || []) : []);

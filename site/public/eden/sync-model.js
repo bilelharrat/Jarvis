@@ -43,7 +43,12 @@ export function merge(mine, theirs) {
   out.metaAt = Math.max(mine.metaAt || 0, theirs.metaAt || 0) || undefined;
   if (mine.shares || theirs.shares) out.shares = mergeShares(mine.shares, theirs.shares); // Q3: shared links made on either device; revoked stays revoked
   for (const k of ['title', 'titleSet', 'pinned', 'personaId']) if (k in named) out[k] = named[k]; else if (tied) delete out[k]; // (a tie: all of the winner's, so both devices agree)
-  for (const k of ['project', 'mode', 'kind', 'lastRoute', 'allowTools', 'todos', 'privacy', 'deckVersions']) if (k in newer) out[k] = newer[k];
+  for (const k of ['project', 'mode', 'kind', 'lastRoute', 'allowTools', 'todos', 'privacy']) if (k in newer) out[k] = newer[k];
+  // Q14: a deck's versions only ever get added, so both copies' are kept (two tabs editing at once lost one tab's
+  // edit when the newer copy's list replaced the other's), and both copies' pictures (they never travel: wire)
+  if (mine.deckVersions || theirs.deckVersions) out.deckVersions = newer === theirs ? mergeVersions(mine.deckVersions, theirs.deckVersions) : mergeVersions(theirs.deckVersions, mine.deckVersions);
+  if (mine.deckImages || theirs.deckImages) out.deckImages = { ...(theirs.deckImages || {}), ...(mine.deckImages || {}) };
+  if (out.deckVersions) out.deckVersions = foldComments(out.deckVersions, [mine.deckVersions, theirs.deckVersions]); // a deck's comments from both copies (each may have written them into the same version), on its newest version (deck-comments.js)
   out.updated = Math.max(mine.updated || 0, theirs.updated || 0);
   for (const [id, n] of Object.entries(theirs.nodes || {})) {
     const m = out.nodes[id];
@@ -53,6 +58,19 @@ export function merge(mine, theirs) {
     if (pick.attachments) out.nodes[id].attachments = withTexts(pick.attachments, (pick === m ? n : m).attachments);
   }
   return out;
+}
+
+const MAX_DECK_VERSIONS = 40; // deck-model.js MAX_VERSIONS
+// A version's identity: its id (deck-model.js addVersion), else when it was made, how, from which reply. Its deck can
+// change in place (pictures filled in after it was made: deck.js), so the content is not part of it.
+const versionKey = (v) => v.id || `${v.at || 0}:${v.kind || ''}:${v.nodeId || ''}`;
+/** Both lists of deck versions as one, in time order, each version once (`newer`'s copy of it), the newest 40. */
+export function mergeVersions(older, newer) {
+  const m = new Map();
+  for (const v of [...(Array.isArray(older) ? older : []), ...(Array.isArray(newer) ? newer : [])]) if (v && typeof v === 'object') m.set(versionKey(v), v);
+  const all = [...m.values()].sort((x, y) => (x.at || 0) - (y.at || 0));
+  let drop = all.length - MAX_DECK_VERSIONS; // the oldest go, but named (pinned) versions stay (deck-model.js capVersions)
+  return drop > 0 ? all.filter((v, k) => !(drop > 0 && !v.pinned && k < all.length - 1 && drop--)) : all;
 }
 
 /**
@@ -199,3 +217,45 @@ export function takeIn(local, stored, { sent = new Set(), keyOf = (id) => id, st
   }
   return took;
 }
+
+/*
+ * A deck's comments (deck.comments, deck-comments-model.js) from two copies as one: every thread and reply of both, by
+ * id; a thread's own fields (text, resolved, task, deleted) from the copy changed last (`edited`, then the larger copy
+ * so both sides agree); replies the same, one by one. A deleted thread stays as a tombstone so it never comes back.
+ */
+const stampC = (x) => Number(x && (x.edited || x.at)) || 0;
+const later = (a, b) => (stampC(b) > stampC(a) ? b : stampC(b) < stampC(a) ? a : JSON.stringify(b) > JSON.stringify(a) ? b : a);
+const byTime = (x, y) => (stampC({ at: x.at }) - stampC({ at: y.at })) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+export const MAX_COMMENTS = 300; // deck-comments-model.js LIMITS.threads + room for tombstones
+export function mergeComments(a = [], b = []) {
+  const m = new Map();
+  for (const t of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
+    if (!t || typeof t !== 'object' || typeof t.id !== 'string') continue;
+    const prev = m.get(t.id);
+    if (!prev) { m.set(t.id, t); continue; }
+    const win = later(prev, t);
+    if (win.deleted) { m.set(t.id, win); continue; }
+    const rs = new Map();
+    for (const r of [...(prev.replies || []), ...(t.replies || [])]) if (r && typeof r.id === 'string') rs.set(r.id, rs.has(r.id) ? later(rs.get(r.id), r) : r);
+    const replies = [...rs.values()].sort(byTime);
+    m.set(t.id, { ...win, ...(replies.length ? { replies } : {}) });
+  }
+  const all = [...m.values()].sort(byTime);
+  if (all.length <= MAX_COMMENTS) return all;
+  const dead = all.filter((t) => t.deleted).slice(0, all.length - MAX_COMMENTS); // the oldest tombstones go first
+  return all.filter((t) => !dead.includes(t)).slice(-MAX_COMMENTS);
+}
+
+/** Every version's comments (and those of the version lists in `also`) merged onto the newest version (a copy; the list is returned as is when none has any). */
+export function foldComments(versions, also = []) {
+  if (!Array.isArray(versions) || !versions.length) return versions;
+  let all = null;
+  for (const v of [...versions, ...also.flatMap((x) => (Array.isArray(x) ? x : []))]) if (v && v.deck && Array.isArray(v.deck.comments) && v.deck.comments.length) all = mergeComments(all || [], v.deck.comments);
+  if (!all) return versions;
+  const last = versions.at(-1);
+  if (!last || !last.deck || JSON.stringify(last.deck.comments || []) === JSON.stringify(all)) return versions;
+  return [...versions.slice(0, -1), { ...last, deck: { ...last.deck, comments: all } }];
+}
+
+/** What a conversation's deck comments are, to compare two copies (state.js writes a merge back when they differ). */
+export const commentsKey = (c) => { const v = c && Array.isArray(c.deckVersions) ? c.deckVersions.at(-1) : null; return JSON.stringify((v && v.deck && v.deck.comments) || []); };

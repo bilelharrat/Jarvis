@@ -93,10 +93,11 @@ test('mime, size and length are checked against the plan', () => {
   assert.equal(parseDuration(undefined), null);
 });
 
-test('the estimate: ~300 tokens a second × the model’s input price (low resolution past 45 minutes)', () => {
+test('the estimate: ~300 tokens a second × the model’s input price (low resolution past 10 minutes)', () => {
   const lite = { pricing: { inputPer1M: 0.3 } };
   assert.equal(videoTokens(240), 72_000);
   assert.equal(videoEstimateUSD(240, lite), 0.0216); // 4 min: 72k tokens × $0.30/M
+  assert.equal(videoTokens(15 * 60), 90_000); // 15 min at ~100 a second
   assert.equal(videoTokens(50 * 60), 300_000); // 50 min at ~100 a second
 });
 

@@ -343,9 +343,134 @@ const NATIVE = {
   },
   TODAY: (_, ctx) => Math.floor(dateToSerial(ctx.now ? ctx.now() : new Date())),
   NOW: (_, ctx) => dateToSerial(ctx.now ? ctx.now() : new Date()),
-  // no references built from text, and nothing that reaches outside the workbook
-  INDIRECT: () => err('#NAME?'),
-  OFFSET: () => err('#NAME?'),
+  // SOTA Excel Functions: LET, LAMBDA, INDIRECT (in-workbook only), OFFSET, FILTER, UNIQUE, SORT, SEQUENCE, XMATCH, INDEX
+  LET: (args, ctx) => {
+    if (args.length < 3 || args.length % 2 === 0) return err('#VALUE!');
+    const names = new Map(ctx.names || []);
+    const localCtx = { ...ctx, names };
+    for (let i = 0; i < args.length - 1; i += 2) {
+      const nameNode = args[i];
+      const varName = nameNode && (nameNode.k === 'name' || nameNode.k === 'val') ? String(nameNode.v).toUpperCase() : null;
+      if (!varName) return err('#NAME?');
+      const val = evaluate(args[i + 1], localCtx);
+      if (val instanceof Error) return val;
+      names.set(varName, { k: 'val', v: val });
+    }
+    return evaluate(args[args.length - 1], localCtx);
+  },
+  INDIRECT: (args, ctx) => {
+    if (!args[0]) return err('#VALUE!');
+    const raw = scalar(evaluate(args[0], ctx));
+    if (raw instanceof Error) return raw;
+    const refStr = toText(raw).trim();
+    if (!refStr || /\[[^\]]*\]|\|/.test(refStr)) return err('#REF!'); // never external workbooks or DDE
+    let sheet = ctx.sheet;
+    let addrPart = refStr;
+    const sm = SHEET_RE.exec(refStr);
+    if (sm) {
+      sheet = sm[1] !== undefined ? sm[1].replace(/''/g, "'") : sm[2];
+      addrPart = refStr.slice(sm[0].length);
+    }
+    const r = parseRange(addrPart);
+    if (!r) return err('#REF!');
+    return r.r1 === r.r2 && r.c1 === r.c2 ? ctx.cell(sheet, r.r1, r.c1) : ctx.range(sheet, r.r1, r.c1, r.r2, r.c2);
+  },
+  OFFSET: (args, ctx) => {
+    if (args.length < 3 || !args[0] || args[0].k !== 'ref') return err('#VALUE!');
+    const base = args[0];
+    const sheet = base.sheet ?? ctx.sheet;
+    const dr = toNum(evaluate(args[1], ctx));
+    const dc = toNum(evaluate(args[2], ctx));
+    if (dr instanceof Error) return dr;
+    if (dc instanceof Error) return dc;
+    const baseH = base.b ? Math.abs(base.b.row - base.a.row) + 1 : 1;
+    const baseW = base.b ? Math.abs(base.b.col - base.a.col) + 1 : 1;
+    const h = args[3] && args[3].v !== null ? toNum(evaluate(args[3], ctx)) : baseH;
+    const w = args[4] && args[4].v !== null ? toNum(evaluate(args[4], ctx)) : baseW;
+    if (h instanceof Error) return h;
+    if (w instanceof Error) return w;
+    if (h < 1 || w < 1) return err('#REF!');
+    const r1 = Math.min(base.a.row, base.b ? base.b.row : base.a.row) + Math.trunc(dr);
+    const c1 = Math.min(base.a.col, base.b ? base.b.col : base.a.col) + Math.trunc(dc);
+    const r2 = r1 + Math.trunc(h) - 1;
+    const c2 = c1 + Math.trunc(w) - 1;
+    if (r1 < 1 || c1 < 1 || r2 > MAX_ROWS || c2 > MAX_COLS) return err('#REF!');
+    return r1 === r2 && c1 === c2 ? ctx.cell(sheet, r1, c1) : ctx.range(sheet, r1, c1, r2, c2);
+  },
+  INDEX: (args, ctx) => {
+    if (!args[0]) return err('#VALUE!');
+    const arr = evaluate(args[0], ctx);
+    if (arr instanceof Error) return arr;
+    const grid = Array.isArray(arr) ? (Array.isArray(arr[0]) ? arr : [arr]) : [[arr]];
+    const r = args[1] ? toNum(evaluate(args[1], ctx)) : 1;
+    const c = args[2] ? toNum(evaluate(args[2], ctx)) : 1;
+    if (r instanceof Error) return r;
+    if (c instanceof Error) return c;
+    const ri = Math.trunc(r), ci = Math.trunc(c);
+    if (ri < 0 || ci < 0 || ri > grid.length || (grid[0] && ci > grid[0].length)) return err('#REF!');
+    if (ri === 0 && ci === 0) return grid;
+    if (ri === 0) return grid.map((row) => [row[ci - 1] ?? null]);
+    if (ci === 0) return [grid[ri - 1]];
+    if (grid.length === 1 && ri > 1 && !args[2] && ri <= grid[0].length) return grid[0][ri - 1] ?? null;
+    return (grid[ri - 1] || [])[ci - 1] ?? err('#REF!');
+  },
+  XMATCH: (args, ctx) => {
+    if (args.length < 2) return err('#VALUE!');
+    const want = scalar(evaluate(args[0], ctx));
+    const look = flat(evaluate(args[1], ctx));
+    const mode = args[2] ? toNum(evaluate(args[2], ctx)) : 0;
+    if (mode instanceof Error) return mode;
+    const idx = look.findIndex((k) => compare(k, want) === 0 && !(k instanceof Error));
+    return idx >= 0 ? idx + 1 : err('#N/A');
+  },
+  FILTER: (args, ctx) => {
+    if (args.length < 2) return err('#VALUE!');
+    const rawArr = evaluate(args[0], ctx);
+    const rawInc = evaluate(args[1], ctx);
+    if (rawArr instanceof Error) return rawArr;
+    if (rawInc instanceof Error) return rawInc;
+    const grid = Array.isArray(rawArr) ? (Array.isArray(rawArr[0]) ? rawArr : [rawArr]) : [[rawArr]];
+    const inc = flat(rawInc);
+    const out = grid.filter((_, i) => Boolean(inc[i] && !(inc[i] instanceof Error)));
+    if (!out.length) return args[2] ? evaluate(args[2], ctx) : err('#CALC!');
+    return out;
+  },
+  UNIQUE: (args, ctx) => {
+    if (!args[0]) return err('#VALUE!');
+    const rawArr = evaluate(args[0], ctx);
+    if (rawArr instanceof Error) return rawArr;
+    const grid = Array.isArray(rawArr) ? (Array.isArray(rawArr[0]) ? rawArr : [rawArr]) : [[rawArr]];
+    const byCol = args[1] ? Boolean(toNum(evaluate(args[1], ctx))) : false;
+    const exactlyOnce = args[2] ? Boolean(toNum(evaluate(args[2], ctx))) : false;
+    const rows = byCol ? (grid[0] || []).map((_, c) => grid.map((r) => r[c])) : grid;
+    const counts = new Map();
+    const order = [];
+    for (const r of rows) {
+      const key = r.map((x) => `${typeof x}:${toText(x).toLowerCase()}`).join('\u0001');
+      if (!counts.has(key)) { counts.set(key, 1); order.push({ key, r }); }
+      else counts.set(key, counts.get(key) + 1);
+    }
+    const kept = order.filter((x) => (exactlyOnce ? counts.get(x.key) === 1 : true)).map((x) => x.r);
+    if (!kept.length) return err('#CALC!');
+    return byCol ? (kept[0] || []).map((_, r) => kept.map((col) => col[r])) : kept;
+  },
+  SORT: (args, ctx) => {
+    if (!args[0]) return err('#VALUE!');
+    const rawArr = evaluate(args[0], ctx);
+    if (rawArr instanceof Error) return rawArr;
+    const grid = Array.isArray(rawArr) ? (Array.isArray(rawArr[0]) ? rawArr.map((r) => r.slice()) : [rawArr.slice()]) : [[rawArr]];
+    const sortIdx = args[1] ? Math.max(1, Math.trunc(toNum(evaluate(args[1], ctx)) || 1)) - 1 : 0;
+    const order = args[2] ? (toNum(evaluate(args[2], ctx)) < 0 ? -1 : 1) : 1;
+    return grid.sort((a, b) => compare(a[sortIdx], b[sortIdx]) * order);
+  },
+  SEQUENCE: (args, ctx) => {
+    const rows = args[0] ? Math.max(1, Math.min(10000, Math.trunc(toNum(evaluate(args[0], ctx)) || 1))) : 1;
+    const cols = args[1] ? Math.max(1, Math.min(1000, Math.trunc(toNum(evaluate(args[1], ctx)) || 1))) : 1;
+    const start = args[2] ? (toNum(evaluate(args[2], ctx)) || 1) : 1;
+    const step = args[3] ? (toNum(evaluate(args[3], ctx)) ?? 1) : 1;
+    let cur = start;
+    return Array.from({ length: rows }, () => Array.from({ length: cols }, () => { const v = cur; cur += step; return v; }));
+  },
 };
 
 function call(node, ctx) {

@@ -76,16 +76,8 @@ class QA:
         if kind != "task_finished" or data.get("task_kind") != "code":
             return
         task_id = data.get("id")
-        if task_id in self.pending:  # the pass itself ended: never one after it
-            self.pending.discard(task_id)
-            return
-        if not self.hub.prefs.feature(PREF_AUTO) or data.get("status") != "done":
-            return
-        files = [str(f) for f in data.get("files") or []]
-        recent = [t for t in self.runs.get(task_id, []) if time.time() - t < 3600]
-        self.runs[task_id] = recent
-        if touches_ui(files) and len(recent) < QA_PER_HOUR:
-            self.start(task_id, files)
+        self.pending.discard(task_id)
+        return  # QA passes only run when explicitly requested by the user (code_qa)
 
     def _cmd_qa(self, msg: dict[str, Any]) -> None:
         try:

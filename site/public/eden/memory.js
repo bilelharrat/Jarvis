@@ -14,7 +14,7 @@ import { el, ico, toast, debounce, isMobile } from './util.js';
 import { api } from './api.js';
 import { state } from './state.js';
 import { checkJarvis } from './panels.js';
-import { assess, summarize, WORDS } from './memory-model.js';
+import { assess, summarize, topicOf, WORDS } from './memory-model.js';
 import { locale } from './i18n.js';
 
 const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
@@ -201,12 +201,12 @@ function matches(f) {
 }
 function visible() {
   // A fact forgotten here stays hidden through the undo, then shows as waiting on the Mac's card.
-  return S.facts.filter((f) => (!S.hidden.has(f.id) || (S.pending.get(f.id) || {}).kind === 'delete') && (S.topic === 'all' || f.category === S.topic) && (S.show === 'all' || (S.show === 'on') === (f.on !== false)) && (!S.review || assess(f, S.now).stale) && matches(f));
+  return S.facts.filter((f) => (!S.hidden.has(f.id) || (S.pending.get(f.id) || {}).kind === 'delete') && (S.topic === 'all' || topicOf(f.category) === S.topic) && (S.show === 'all' || (S.show === 'on') === (f.on !== false)) && (!S.review || assess(f, S.now).stale) && matches(f));
 }
 
 function renderTopics() {
   const live = S.facts.filter((f) => !S.hidden.has(f.id));
-  const count = (k) => (k === 'all' ? live.length : live.filter((f) => f.category === k).length);
+  const count = (k) => (k === 'all' ? live.length : live.filter((f) => topicOf(f.category) === k).length);
   R.topics.replaceChildren(...[['all', 'Everything'], ...TOPICS].map(([k, t]) => {
     const n = count(k);
     return el('button', { type: 'button', class: `mem-topic${S.topic === k ? ' on' : ''}`, 'aria-pressed': String(S.topic === k), disabled: S.phase !== 'ready' || (k !== 'all' && !n && S.topic !== k), onclick: () => { S.topic = k; renderList(); } },
@@ -245,17 +245,15 @@ function renderList() {
   }
   const out = [];
   for (const [k, t] of TOPICS) {
-    const group = facts.filter((f) => f.category === k);
+    const group = facts.filter((f) => topicOf(f.category) === k);
     if (!group.length) continue;
     out.push(el('h3', { class: 'mem-group', id: `mem-g-${k}` }, t, el('span', '', String(group.length))));
     for (const f of group) out.push(factRow(f));
   }
-  const stray = facts.filter((f) => !TOPIC[f.category]);
-  if (stray.length) { out.push(el('h3', 'mem-group', 'Other', el('span', '', String(stray.length)))); for (const f of stray) out.push(factRow(f)); }
   const focusId = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-id]') && document.activeElement.closest('[data-id]').dataset.id;
   const focusAct = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.act;
   R.list.replaceChildren(...out);
-  if (focusId) { const back = R.list.querySelector(`[data-id="${CSS.escape(focusId)}"] ${focusAct ? `[data-act="${focusAct}"]` : '[data-act]'}`); if (back) back.focus({ preventScroll: true }); }
+  if (focusId) { const back = R.list.querySelector(`[data-id="${CSS.escape(focusId)}"] ${focusAct ? `[data-act="${focusAct}"]:not([disabled])` : '[data-act]:not([disabled])'}`); if (back) back.focus({ preventScroll: true }); }
 }
 
 function day(iso) {
@@ -350,7 +348,8 @@ function foundList(f, found) {
 function editor(f) {
   const ta = el('textarea', { class: 'mf-edit-text', rows: 2, maxlength: 300, 'aria-label': 'The fact' });
   ta.value = f.text;
-  const topic = el('select', { 'aria-label': 'Topic' }, ...TOPICS.map(([k, t]) => el('option', { value: k, selected: f.category === k }, t)));
+  const curCat = topicOf(f.category);
+  const topic = el('select', { 'aria-label': 'Topic' }, ...TOPICS.map(([k, t]) => el('option', { value: k, selected: curCat === k }, t)));
   const sure = el('select', { 'aria-label': 'How sure' }, ...[['high', 'Sure'], ['medium', 'Fairly sure'], ['low', 'Not sure']].map(([k, t]) => el('option', { value: k, selected: (f.confidence || 'high') === k }, t)));
   const until = el('input', { type: 'date', 'aria-label': 'Until (optional)', value: f.expires || '' });
   const save = () => {
@@ -358,7 +357,7 @@ function editor(f) {
     const text = ta.value.replace(/\s+/g, ' ').trim();
     if (!text) { toast('A fact needs some words'); ta.focus(); return; }
     if (text !== f.text) changes.text = text;
-    if (topic.value !== f.category) changes.category = topic.value;
+    if (topic.value !== curCat) changes.category = topic.value;
     if (sure.value !== (f.confidence || 'high')) changes.confidence = sure.value;
     if ((until.value || '') !== (f.expires || '')) changes.expires = until.value || '';
     S.editing = null;
@@ -389,6 +388,7 @@ const SAID = {
 };
 
 function change(f, kind, args) {
+  if (S.pending.has(f.id)) return Promise.resolve();
   S.pending.set(f.id, { kind, args });
   renderList();
   const tool = { update: 'memory_update', delete: 'memory_delete', toggle: 'memory_toggle' }[kind];
@@ -450,9 +450,9 @@ function onListClick(e) {
 }
 function onListChange(e) {
   const input = e.target.closest('[data-act="toggle"]');
-  if (!input) return;
+  if (!input || input.disabled) return;
   const f = factOf(input);
-  if (f) change(f, 'toggle', { on: input.checked });
+  if (f && !S.pending.has(f.id)) change(f, 'toggle', { on: input.checked });
 }
 
 export function initMemory(handlers) {

@@ -34,12 +34,10 @@ function FILES() {
   return out;
 }
 
-/** One file's stamp: its ETag or Last-Modified (a HEAD), else a hash of its text. Null when it can't be read. */
+/** One file's stamp: its ETag or Last-Modified, else a hash of its text. Null when it can't be read. */
 async function stampFile(url) {
   if (!url) return null;
   try {
-    const head = await fetch(url, { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' });
-    if (head.ok) { const s = stampOf(head.headers); if (s) return s; }
     const res = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return null;
     return stampOf(res.headers) || `h:${textHash(await res.text())}`;

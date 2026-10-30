@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
+<title>Eden Guides · Model Routing, EVES Verification &amp; AI for Education</title>
+<meta name="description" content="Technical guides and benchmarks on stopping AI hallucinations with EVES, cutting LLM costs in half with Eden Router, and running syllabus-grounded AI tutors.">
+<link rel="canonical" href="https://askeden.com/guides">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Eden">
+<meta property="og:url" content="https://askeden.com/guides">
+<meta property="og:title" content="Eden Guides · Model Routing, EVES &amp; Education">
+<meta property="og:description" content="How EVES cuts hallucinations to 9.7% on 432 factual questions, how Eden Router cuts LLM costs in half, and how professors deploy syllabus-verified AI tutors.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/guides/guides.css">
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
+  <nav aria-label="Site"><a href="/">Eden</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a href="/eves">EVES</a><a class="pill" href="/signin">Sign in</a></nav>
+</header>
+
+<main id="main" itemscope itemtype="https://schema.org/CollectionPage">
+  <section class="hub-hero" aria-labelledby="hubH">
+    <p class="kicker">Eden · Technical Guides</p>
+    <h1 id="hubH" itemprop="name">Measured AI routing, verification, and course grounding<u aria-hidden="true"></u></h1>
+    <p class="lede" itemprop="description">Engineering notes, 432-question hallucination benchmarks, and faculty playbooks from the team building Eden, EVES, Eden Router, and Eden for Education.</p>
+  </section>
+
+  <section class="catalog-section" aria-labelledby="catH">
+    <p class="kicker">Technical Guides</p>
+    <h2 id="catH">Deep dives by topic</h2>
+    <div class="catalog-grid">
+      
+      <a class="guide-card" href="/guides/stop-ai-hallucinations-investment-memos">
+        <div>
+          <small>GUIDE · HALLUCINATION MITIGATION · 7 MIN</small>
+          <h3>How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis</h3>
+          <p>Why frontier LLMs fabricate citations and market figures during complex synthesis, and how a four-stage verification pipeline (EVES) reduces fabricated claims to 9.7% on 432 factual questions.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+
+      <a class="guide-card" href="/guides/ai-model-router-cut-llm-costs">
+        <div>
+          <small>GUIDE · MODEL ROUTING &amp; COST CALCULUS · 8 MIN</small>
+          <h3>AI Model Router vs. Single-Model Subscriptions: Cutting LLM Costs in Half Without Losing Quality</h3>
+          <p>How query-level routing across Claude, GPT, Gemini, and Kimi matches each prompt to the right model and reasoning effort in ~6.2 µs warm—delivering flagship quality at a $10/month subscription or via an OpenAI-compatible API.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+
+      <a class="guide-card" href="/guides/ai-tutor-for-university-courses-syllabus-slides">
+        <div>
+          <small>GUIDE · HIGHER EDUCATION &amp; SYLLABUS GROUNDING · 7 MIN</small>
+          <h3>AI-Assisted Workflows for Educators: Building a Course Tutor Grounded Only in Your Syllabus &amp; Slides</h3>
+          <p>A practical guide for university professors and instructional designers: how to give students a 24/7 AI study assistant that cites the exact lecture slide or textbook page word for word and refuses to fabricate answers.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+
+      <a class="guide-card" href="/guides/how-we-tested-432-factual-questions-eves-benchmark">
+        <div>
+          <small>GUIDE · BENCHMARK METHODOLOGY · 9 MIN</small>
+          <h3>Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5</h3>
+          <p>A transparent look at how we evaluated 300 SimpleQA Verified factual questions and 132 false-premise questions, why confidence intervals and abstention rates matter, and where verification helps most.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+
+      <a class="guide-card" href="/guides/plugging-hallucination-verification-api-into-ai-agents">
+        <div>
+          <small>GUIDE · AGENT ARCHITECTURE &amp; API · 8 MIN</small>
+          <h3>Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents</h3>
+          <p>Architecture patterns for engineering teams: how to keep your existing agent framework and drop in risk-aware model routing, cross-provider failover chains, and post-generation claim verification.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+
+      <a class="guide-card" href="/guides/canvas-lti-ai-study-assistant-for-professors">
+        <div>
+          <small>GUIDE · FACULTY ADOPTION &amp; PILOTS · 6 MIN</small>
+          <h3>How Professors Run a Free AI Tutor Pilot Without IT Procurement Delays</h3>
+          <p>Public universities and colleges have slow purchasing cycles. Here is how individual instructors launch a syllabus-verified Eden for Education course in five minutes—with join codes or LTI 1.3—at zero cost to students.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+    <div>
+      <p class="kicker">Free 4-part brief</p>
+      <h2 id="leadH">Get new benchmarks &amp; routing guides by email</h2>
+      <p class="sub">Join engineers, analysts, and educators receiving our benchmark reports and technical guides.</p>
+      <ul class="lead-perks">
+        <li>The 432-question EVES hallucination benchmark &amp; confidence intervals</li>
+        <li>How to plug risk-aware routing into existing Python/TS agent pipelines</li>
+        <li>Syllabus-grounded AI workflows for university courses</li>
+      </ul>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="power-user">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/guides">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>Work or academic email
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="lead-row">
+        <label>Optional SMS updates
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+        <label>Primary focus
+          <select name="audience">
+            <option value="power-user">AI Power User / Professional</option>
+            <option value="api">Developer / Agent APIs</option>
+            <option value="educator">Professor / Higher Ed</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Send me the technical brief</button>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+</footer>
+</body>
+</html>

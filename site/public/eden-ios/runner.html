@@ -1,0 +1,102 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Eden runner</title></head>
+<body>
+<!--
+  The canvas's in-browser runner (canvas-run.js frames it; canvas-model.js says what runs here).
+  Served with its own policy (RUNNER_CSP): an opaque-origin sandbox with no cookies, no storage,
+  no way into Eden's page, and no network but cdn.jsdelivr.net (Pyodide). Each run is a Web
+  Worker; Stop and the time limit terminate it. JavaScript gets a fresh worker per run; Python
+  keeps its worker (Pyodide takes seconds to load) until Stop or a timeout.
+-->
+<script>
+'use strict';
+const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/';
+const parentWin = window.parent;
+const send = (m) => parentWin.postMessage(m, '*'); // the parent checks event.source; nothing secret is sent
+
+const SHIM = `
+const __send = (stream, args) => postMessage({ type: 'out', stream, text: args.map((a) => typeof a === 'string' ? a : (() => { try { return JSON.stringify(a, null, 2) ?? String(a); } catch { return String(a); } })()).join(' ') + '\\n' });
+console.log = console.info = console.debug = (...a) => __send('stdout', a);
+console.warn = console.error = (...a) => __send('stderr', a);
+let __stdin = [];
+const readline = () => (__stdin.length ? __stdin.shift() : null);
+const prompt = (q) => { if (q) __send('stdout', [q]); return readline(); };
+self.fetch = self.XMLHttpRequest = self.WebSocket = self.EventSource = undefined;
+`;
+
+function jsWorker(code, stdin) {
+  const src = `${SHIM}
+__stdin = ${JSON.stringify(String(stdin).split('\n'))};
+self.onmessage = async () => {
+  let exitCode = 0;
+  try { await (async () => {
+${code}
+  })(); } catch (e) { exitCode = 1; postMessage({ type: 'out', stream: 'stderr', text: (e && e.stack ? e.stack : String(e)) + '\\n' }); }
+  postMessage({ type: 'exit', code: exitCode });
+};
+self.addEventListener('error', (e) => { postMessage({ type: 'out', stream: 'stderr', text: String(e.message) + '\\n' }); postMessage({ type: 'exit', code: 1 }); e.preventDefault(); });
+`;
+  return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+}
+
+const PY_WORKER = `
+importScripts('${PYODIDE}pyodide.js');
+let py = null;
+const out = (stream) => ({ batched: (t) => postMessage({ type: 'out', stream, text: t + '\\n' }) });
+self.onmessage = async (e) => {
+  const { code, stdin } = e.data;
+  try {
+    if (!py) { postMessage({ type: 'status', text: 'Loading Python…' }); py = await loadPyodide({ indexURL: '${PYODIDE}' }); }
+    postMessage({ type: 'started' });
+    py.setStdout(out('stdout')); py.setStderr(out('stderr'));
+    const lines = String(stdin || '').split('\\n'); let k = 0;
+    py.setStdin({ stdin: () => (k < lines.length ? lines[k++] : undefined) });
+    try { await py.loadPackagesFromImports(code); } catch { /* the import fails below with its own message */ }
+    const ns = py.globals.get('dict')();
+    try { await py.runPythonAsync(code, { globals: ns }); postMessage({ type: 'exit', code: 0 }); }
+    catch (err) {
+      const m = /SystemExit: (\\d+)/.exec(String(err));
+      if (m) postMessage({ type: 'exit', code: Number(m[1]) });
+      else { postMessage({ type: 'out', stream: 'stderr', text: String(err.message || err).replace(/^PythonError: /, '') + '\\n' }); postMessage({ type: 'exit', code: 1 }); }
+    } finally { ns.destroy(); }
+  } catch (err) { postMessage({ type: 'out', stream: 'stderr', text: 'Python couldn’t start: ' + (err && err.message || err) + '\\n' }); postMessage({ type: 'exit', code: 1 }); }
+};
+`;
+
+let worker = null, pyWorker = null, timer = 0, runId = 0;
+function stop(reason) {
+  clearTimeout(timer);
+  if (worker) { worker.terminate(); if (worker === pyWorker) pyWorker = null; worker = null; }
+  if (reason) send({ type: 'exit', id: runId, code: reason === 'timeout' ? 124 : 130, reason });
+}
+
+window.addEventListener('message', (e) => {
+  if (e.source !== parentWin) return;
+  const m = e.data || {};
+  if (m.type === 'stop') { stop('stopped'); return; }
+  if (m.type !== 'run') return;
+  stop();
+  runId = m.id;
+  const id = m.id, limit = Math.min(Number(m.timeMs) || 30000, 30000);
+  const arm = () => { clearTimeout(timer); timer = setTimeout(() => stop('timeout'), limit); };
+  try {
+    if (m.lang === 'py') {
+      if (!pyWorker) pyWorker = new Worker(URL.createObjectURL(new Blob([PY_WORKER], { type: 'text/javascript' })));
+      worker = pyWorker;
+    } else worker = jsWorker(m.code, m.stdin || '');
+  } catch (err) { send({ type: 'out', id, stream: 'stderr', text: `The runner couldn’t start: ${err.message}\n` }); send({ type: 'exit', id, code: 1 }); return; }
+  const w = worker;
+  w.onmessage = (ev) => {
+    if (w !== worker) return;
+    const d = ev.data || {};
+    if (d.type === 'started') { arm(); send({ type: 'started', id }); return; }
+    if (d.type === 'exit') { clearTimeout(timer); if (w !== pyWorker) { w.terminate(); } worker = null; }
+    send({ ...d, id });
+  };
+  w.onerror = (ev) => { ev.preventDefault(); if (w !== worker) return; send({ type: 'out', id, stream: 'stderr', text: `${ev.message || 'The runner failed.'}\n` }); stop(); send({ type: 'exit', id, code: 1 }); };
+  if (m.lang === 'py') w.postMessage({ code: m.code, stdin: m.stdin || '' });
+  else { arm(); send({ type: 'started', id }); w.postMessage({}); }
+});
+send({ type: 'ready' });
+</script>
+</body></html>

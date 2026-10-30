@@ -1572,6 +1572,24 @@ test('Settings › search finds in every pane, and a control asked for elsewhere
   await js('toggleSettings(false); true');
 });
 
+test('Settings › Eden Code pane combines new-session defaults, Models & API keys, and More settings panels into #settings', async () => {
+  await withSettingsNav();
+  await js('openJcSettings("models"); true');
+  await sleep(100);
+  const r = await js(`({
+    settingsOpen: !$("settings").hidden,
+    jcModalHidden: $("jc-settings").hidden,
+    pane: jarvisSettingsNav.pane(),
+    hasGeneral: $("settings").contains($("jcs-general")) && !$("jcs-general").hidden,
+    hasModels: $("settings").contains($("jcs-models")) && !$("jcs-models").hidden,
+    sections: ["jcs-sec-general", "jcs-sec-models", "jcs-sec-session", "jcs-sec-rules", "jcs-sec-mcp", "jcs-sec-plugins", "jcs-sec-acp", "jcs-sec-usage", "jcs-sec-sec-pane", "jcs-sec-copies"].every((id) => $("settings").contains($(id)) && getComputedStyle($(id)).display !== "none"),
+    jumps: document.querySelectorAll("#sn-code-jumps .sn-jump").length,
+  })`);
+  assert(r.settingsOpen && r.jcModalHidden && r.pane === 'code' && r.hasGeneral && r.hasModels && r.sections && r.jumps >= 10, JSON.stringify(r));
+  await js('closeJcSettings(); true');
+  assert(await js('$("settings").hidden'), 'closeJcSettings did not close #settings');
+});
+
 // ── The model chip's menu (web/features/model-menu.js) ──
 
 test('The model chip opens a menu of the models; a pick sets the model, Model Settings… opens AI & Models', async () => {

@@ -53,7 +53,7 @@
   let armed = null;  // { key, timer }: a Remove or Delete pressed once
   let paneBody = null;
   let asked = { id: null, at: 0 };
-  const paneShown = () => paneBody && paneBody.isConnected && typeof currentPane !== 'undefined' && currentPane === 'plugins';
+  const paneShown = () => paneBody && paneBody.isConnected && ((typeof currentPane !== 'undefined' && currentPane === 'plugins') || (root.document && !root.document.getElementById('settings')?.hidden && root.document.getElementById('settings')?.contains(paneBody)));
 
   function ask(task) {
     const now = Date.now();

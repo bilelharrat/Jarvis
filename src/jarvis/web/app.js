@@ -12,7 +12,9 @@ const other = (e) => (IS_MAC ? e.ctrlKey : e.metaKey);
 // Screen-reader mode (features/accessibility.js): the page is arranged for a screen reader.
 const srMode = () => document.documentElement.dataset.sr === '1';
 const token = new URLSearchParams(location.search).get('token') || '';
-const app = window.jarvisApp || null;
+const app = window.edenCodeApp || null;
+// The window in full screen (app/main.js): no window buttons to keep room for (eden-code-glass.css).
+if (app && app.onWindowFullscreen) app.onWindowFullscreen((on) => document.body.classList.toggle('win-fullscreen', on));
 if (app) document.body.classList.add('in-app');
 
 // Split view's right pane (features/code-split.js): this window again, in a frame of the main
@@ -23,13 +25,13 @@ if (app) document.body.classList.add('in-app');
 const inSplitPane = window.parent !== window && new URLSearchParams(location.search).get('pane') === 'code';
 if (inSplitPane) document.body.classList.add('jc-split-pane');
 const SPLIT_PANE_SKIPS = new Set([
-  'browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture',
-  'code_voice_point', 'code_voice_file', 'show_session', 'ui', 'alert', 'desktop_hands', 'remote_code',
+  'browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'sc_call',
+  'code_voice_point', 'code_voice_file', 'cp_find', 'cp_capture', 'show_session', 'ui', 'alert', 'desktop_hands', 'remote_code',
   'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed', 'sources', 'note', 'level',
 ]);
 const SPLIT_PANE_QUIET = new Set([
-  'capabilities', 'browser_result', 'research_result', 'pdf_result', 'location_fix', 'cv_page_result',
-  'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'galaxy',
+  'capabilities', 'browser_result', 'research_result', 'pdf_result', 'location_fix', 'cv_page_result', 'sc_result',
+  'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'cp_tree', 'cp_captured', 'galaxy',
 ]);
 
 // Eden Code's own window (app/flavor.js; the server marks the page, server.eden_code_page):
@@ -40,9 +42,17 @@ const SPLIT_PANE_QUIET = new Set([
 // window is open on the same backend (hub.window_joined); with one open, that window does them.
 const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
-const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture']);
-let jarvisWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
-const edenDefers = () => inEdenCode && jarvisWindows > 0;
+const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'sc_call']);
+let edenCodeWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
+// Eden Code's backend alone listens to no one at launch (hub.profile "code": no microphone,
+// no voice loops), so the title bar's voice switch and the composer's Dictate mic once did
+// nothing there and were hidden (round 3, U3-14). Eden Code's own window now turns Eden's
+// ears on when asked (features/code_voice_live.py, web/features/code-voice-live.js): they
+// show there always; another window shows them once the backend listens.
+function showVoiceControls(on) {
+  for (const id of ['cc-voice-head', 'jc-dictate']) { const b = document.getElementById(id); if (b) b.hidden = !on; }
+}
+const edenDefers = () => inEdenCode && edenCodeWindows > 0;
 
 // The keys that talk and ask what's on screen, as this computer writes them (the app's shell feature
 // puts in the ones chosen in Settings, in the same style, once the app has answered).
@@ -71,7 +81,7 @@ if (!IS_MAC) {
 // What the hint shows now: the keys the shell feature has from the app (chosen in Settings), or this
 // computer's defaults until it has.
 function hintKeys() {
-  const shell = window.jarvisShell;
+  const shell = window.edenCodeShell;
   return {
     talk: (shell && shell.askLabel && shell.askLabel()) || KEYS.talk,
     whats: (shell && shell.whatsThisLabel && shell.whatsThisLabel()) || KEYS.whats,
@@ -101,16 +111,18 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 // had, and from which backend: it gets the snapshot, then the session events it missed.
 let lastSeq = 0;
 // The window's one Eden Code store (code-store.js): every event goes in first, in order.
-const codeStore = window.jarvisCodeStoreApi ? window.jarvisCodeStoreApi.createStore() : null;
+const codeStore = window.edenCodeCodeStoreApi ? window.edenCodeCodeStoreApi.createStore() : null;
 function heard(ev) {
   if (inEdenCode && ev && (ev.type === 'hello' || ev.type === 'app_windows')) {
-    const before = jarvisWindows;
-    jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
+    const before = edenCodeWindows;
+    const wins = (ev.type === 'hello' ? ev.app_windows : ev.windows) || {};
+    edenCodeWindows = (Number(wins.eden_code) || 0) + (Number(wins.jarvis) || 0);
     // Eden Secretary closed: this window takes its jobs back, and says what it can do.
-    if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
+    if (before > 0 && edenCodeWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
+    if (ev.profile) showVoiceControls(true);  // (Eden Code's Voice opens the ears itself)
   }
   if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
-  if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type)) return;  // the main window's
+  if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type) && !(ev.type === 'show_session' && awaitingNewSession)) return;  // the main window's
   if (ev && ev.type === 'hello') lastSeq = Number(ev.seq) || 0;
   else if (ev && ev.seq > lastSeq) lastSeq = ev.seq;
   if (codeStore) codeStore.take(ev);
@@ -128,16 +140,16 @@ function connect() {
   if (bridged) {
     window.addEventListener('message', (e) => {
       if (e.source !== window.parent || e.origin !== location.origin || !e.data) return;
-      if (e.data.jarvisBridge === 'event') heard(e.data.event);
-      else if (e.data.jarvisBridge === 'online') { bridgeOnline = !!e.data.value; $('offline').hidden = bridgeOnline; }
+      if (e.data.edenCodeBridge === 'event') heard(e.data.event);
+      else if (e.data.edenCodeBridge === 'online') { bridgeOnline = !!e.data.value; $('offline').hidden = bridgeOnline; }
     });
-    window.parent.postMessage({ jarvisBridge: 'ready' }, location.origin);
+    window.parent.postMessage({ edenCodeBridge: 'ready' }, location.origin);
     return;
   }
   const resume = hubId ? `&since=${lastSeq}&hub=${encodeURIComponent(hubId)}` : '';
   // Which app's window this is (server.APPS): a Eden Secretary one wakes the voice of a backend
   // Eden Code started (hub.window_joined). A pane of a split names none: its window has.
-  const appName = app && !inSplitPane ? `&app=${inEdenCode ? 'eden-code' : 'jarvis'}` : '';
+  const appName = app && !inSplitPane ? `&app=${inEdenCode ? 'eden-code' : 'eden_code'}` : '';
   ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}${resume}${appName}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
   ws.onmessage = (e) => heard(JSON.parse(e.data));
@@ -157,7 +169,7 @@ function send(msg) {
   if ((inSplitPane || edenDefers()) && msg && SPLIT_PANE_QUIET.has(msg.type)) return true;  // the main window answers
   if (bridged) {
     if (!bridgeOnline) return false;
-    window.parent.postMessage({ jarvisBridge: 'send', msg }, location.origin);
+    window.parent.postMessage({ edenCodeBridge: 'send', msg }, location.origin);
     return true;
   }
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -170,7 +182,7 @@ function send(msg) {
 
 // ── feature modules: web/features/*.js (loaded by features.js, after this file) ──
 // They hear events, add Eden Code panes, menu items and composer @ suggestions, and add
-// their own settings groups and dock buttons to the page, through window.jarvisFeatures.
+// their own settings groups and dock buttons to the page, through window.edenCodeFeatures.
 const featureListeners = new Map();  // event type ('*': every event) -> handlers
 const featureLast = new Map();  // the latest event of each type, for a listener added late
 const featurePanes = new Map();  // Eden Code pane id -> { title, render(body, task) }
@@ -212,13 +224,14 @@ function featureApproval(a, where, answer) {
 }
 // A feature's check before something risky goes ahead (Touch ID): check(kind, info) gives a
 // Promise of true (go ahead) or false, or null to leave it to the usual way. Kinds: 'bypass'
-// (a session into Bypass permissions; info.text is the usual question), 'bypass-default' (new
+// (a session into Bypass permissions; info.text is the usual question, info.subject the
+// session's id, or 'new' for one it starts: its proof is for that one), 'bypass-default' (new
 // sessions start in it), 'approve' (info: {approval, choice}).
 const featureChecks = [];
 function featureCheck(kind, info) {
   // Split view's pane: the main window checks (with its Touch ID), never this one on its own.
   if (inSplitPane) {
-    try { return window.parent.jarvisFeatures.check(kind, info); } catch (err) { console.error('split pane check', err); }
+    try { return window.parent.edenCodeFeatures.check(kind, info); } catch (err) { console.error('split pane check', err); }
   }
   for (const check of featureChecks) {
     try {
@@ -229,8 +242,8 @@ function featureCheck(kind, info) {
   return null;
 }
 // Bypass permissions, asked about first: a feature's check, or the usual question.
-function confirmBypass(kind, text, then, otherwise) {
-  const check = featureCheck(kind, { text });
+function confirmBypass(kind, text, then, otherwise, subject = '') {
+  const check = featureCheck(kind, { text, subject: String(subject) });
   if (check) { check.then((ok) => { if (ok) then(); else if (otherwise) otherwise(); }); return; }
   if (confirm(tr(text))) then(); else if (otherwise) otherwise();
 }
@@ -245,7 +258,7 @@ function featureEvent(ev) {
     try { fn(ev); } catch (err) { console.error('feature event', ev.type, err); }
   }
 }
-window.jarvisFeatures = {
+window.edenCodeFeatures = {
   on(type, fn, { replay = false } = {}) {
     if (!featureListeners.has(type)) featureListeners.set(type, []);
     featureListeners.get(type).push(fn);
@@ -255,11 +268,19 @@ window.jarvisFeatures = {
   },
   send: (msg) => send(msg),
   store: codeStore,  // the one Eden Code store (code-store.js), fed by this window's socket
-  t: (text) => (window.jarvisI18n ? window.jarvisI18n.t(text) : String(text)),
+  t: (text) => (window.edenCodeI18n ? window.edenCodeI18n.t(text) : String(text)),
   el: (tag, cls, text) => el(tag, cls, text),
   $: (id) => $(id),
-  registerPane(id, pane) { featurePanes.set(id, pane); PANE_TITLES[id] = pane.title || id; },
+  registerPane(id, pane) {
+    featurePanes.set(id, pane);
+    PANE_TITLES[id] = pane.title || id;
+    if (currentPane === id) {
+      $('jc-pane-title').textContent = PANE_TITLES[id] || id;
+      renderPaneBody();
+    }
+  },
   openPane: (id) => openPane(id),
+  closePane: () => closePane(),
   registerMoreItem(item) { featureMoreItems.push(item); },
   registerMentions(suggest) { featureMentions.push(suggest); },
   registerSessionOption(fn) { featureSessionOptions.push(fn); },
@@ -272,6 +293,7 @@ window.jarvisFeatures = {
   answerApproval: (a, choice, feedback) => answerApproval(a, choice, feedback, true),  // as its card's button: checks first
   registerEntryDecorator(fn) { featureDecorators.push(fn); },
   registerRichText(render) { featureRichText = render; },
+  richText: (text) => richText(text),  // Markdown as the transcript draws it (code-artifacts.js)
   currentTask: () => currentTask(),
   selectTask: (id) => { if ($('cc').hidden) toggleCC(true); selectTask(id); },
   registerSlash(command) { featureSlash.set(String(command.name).toLowerCase(), command); },
@@ -282,14 +304,24 @@ window.jarvisFeatures = {
   // while it shows (see jcSplit), or null; the window's own pane, whatever has the focus; and
   // what the pane asks of the window it's in (its checks, its folder picker).
   splitPane: inSplitPane,
+  // The app's own name, for a sentence that names it (round 3, U3-6: Eden Code's window said
+  // "Eden Secretary" in a dozen places): Eden Code in Eden Code's own window, else Eden
+  // Secretary. own(secretary, code) picks one of two whole sentences, each with its Chinese,
+  // never a name put into one (the window's translation is by whole sentences).
+  appName: () => (inEdenCode ? 'Eden Code' : 'Eden Secretary'),
+  own: (secretary, code) => (inEdenCode ? code : secretary),
   registerSplit(view) { jcSplit = view || null; renderProjects(deckProjects); },
   selectHere: (id) => selectTask(id, true),
   check: (kind, info) => featureCheck(kind, info),
   pickFolder: (question) => pickFolderPath(question),
+  // Attachments a feature brings for the composer ({media_type, data, name}: a picked
+  // element's document and picture, features/code-pick.js), within the composer's limits;
+  // how many went on.
+  attach: (items) => attachItems(items),
 };
 
 function onEvent(ev) {
-  if (onJarvisCodeEvent(ev)) return;
+  if (onEdenCodeCodeEvent(ev)) return;
   switch (ev.type) {
     case 'hello': {
       let reselect = null;
@@ -439,10 +471,15 @@ function onEvent(ev) {
     case 'tasks': {
       const before = new Set(ccTasks.map((t) => t.id));
       const liveBefore = ccTasks.map((t) => t.session_id).filter(Boolean);
-      renderTasks(ev.items);
-      renderCC(ev.items);
       const fresh = ev.items.find((t) => t.kind === 'code' && !before.has(t.id));
-      if (fresh && awaitingNewSession) { awaitingNewSession = false; selectTask(fresh.id); }
+      renderTasks(ev.items);
+      if (fresh && awaitingNewSession) {
+        awaitingNewSession = false;
+        ccTasks = (ev.items || []).filter((t) => t.kind === 'code');
+        selectTask(fresh.id);
+      } else {
+        renderCC(ev.items);
+      }
       // A session that left the list (pruned) belongs in the history: one the history
       // doesn't have yet (started since it was read) is fetched again. (The history, often
       // thousands of sessions, is only gone through when one has left: this runs on every
@@ -750,7 +787,7 @@ const HAND_HELP = {
 // Hands steering the whole Mac: gestures go to the backend, which moves the real pointer;
 // a small indicator stays on top of every app.
 let deskTarget = null;
-const handHud = (u) => window.jarvisApp && window.jarvisApp.handHud && window.jarvisApp.handHud(u);
+const handHud = (u) => window.edenCodeApp && window.edenCodeApp.handHud && window.edenCodeApp.handHud(u);
 function desktopTarget() {
   if (!deskTarget) {
     deskTarget = {
@@ -872,7 +909,7 @@ async function startHandControl({ fromClaps = false } = {}) {
     handsModule = handsModule || (await import(`/static/hands.js?v=${Date.now()}`));
     const { target, close, help } = handTarget(); // now that the Mac's target can be made
     $('hand-help').textContent = help;
-    if (target.kind === 'desktop' && window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(true);
+    if (target.kind === 'desktop' && window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(true);
     const startedAt = performance.now(); // the same clock as hands.js's frame stamps
     await handsModule.startHands(target, {
       overlayCanvas: $('hand-overlay'),
@@ -900,7 +937,7 @@ async function startHandControl({ fromClaps = false } = {}) {
     $('hand-status').textContent = `Hand control couldn't start: ${err.message || err}`;
     handsOn = false;
     setHandButtons(false);
-    if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
+    if (window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(false);
   }
 }
 
@@ -917,7 +954,7 @@ function stopHandControl() {
   noHandTimer = 0;
   handsOn = false;
   if (handsModule) handsModule.stopHands();
-  if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
+  if (window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(false);
   if (handHover) handHover.classList.remove('hand-hover');
   handHover = null;
   setHandButtons(false);
@@ -1030,7 +1067,7 @@ function lookIsLight(skin, tone) {
   return skin === 'glass' && (tone === 'light' || (tone === 'auto' && macLight.matches));
 }
 function applyLook(look, tone = 'auto') {
-  if (inEdenCode) look = 'orb';  // Eden Code has one look, Ask Eden's (eden-code.css), whatever Eden Secretary wears
+  if (inEdenCode || document.body.dataset.app === 'eden-code' || document.body.classList.contains('eden-code')) look = 'orb';  // Eden Code has one look, Ask Eden's (eden-code.css), whatever Eden Secretary wears
   const skin = SKINS.includes(look) ? look : '';
   document.body.dataset.look = skin ? 'orb' : look;
   if (skin) document.body.dataset.skin = skin;
@@ -1052,14 +1089,12 @@ function renderPrefs(p) {
   $('tone-row').hidden = p.look !== 'glass';
   document.querySelectorAll('#tone-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tone === (p.glass_tone || 'auto'))));
   document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
-  if (window.jarvisI18n) window.jarvisI18n.setLang(p.language || 'en');
+  if (window.edenCodeI18n) window.edenCodeI18n.setLang(p.language || 'en');
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
   const modelName = (p.models || []).find((m) => m.id === p.model);
   if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
-  // The built-in default persona (id 'jarvis', named JARVIS by the backend) shows as the product's name.
-  const homeName = () => (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Eden Secretary');
-  $('wordmark').textContent = persona && persona.id !== 'jarvis' ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : homeName();
+  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.edenCodeAccessibility && window.edenCodeAccessibility.homeName ? window.edenCodeAccessibility.homeName() : 'Eden Code');
   const model = (p.models || []).find((m) => m.id === p.model);
   $('model-chip').textContent = model ? model.name : p.model;
   $('hf-indicator').hidden = !p.hands_free;
@@ -1109,7 +1144,7 @@ function renderPrefs(p) {
     return o;
   }));
   $('persona-group').replaceChildren(...(p.personas || []).map((x) => {
-    const b = el('button', '', x.id === 'jarvis' ? 'Eden Secretary' : x.name);
+    const b = el('button', '', x.name);
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(x.id === p.persona));
@@ -1195,7 +1230,7 @@ function toggleSettings(open) {
 // data-keywords (so "dark mode" finds Look, "twilio" the whole of Phone). A section with
 // nothing left goes; the words found are highlighted (CSS custom highlights, so the text
 // itself is never touched: translation and the controls' own updates carry on). The
-// sections features add (window.jarvisFeatures) are searched too: they're read each time.
+// sections features add (window.edenCodeFeatures) are searched too: they're read each time.
 // Curly quotes are straightened so "can't" finds "can’t"; the text keeps its length, so
 // a word's place in it is where to highlight.
 function searchText(text) {
@@ -1322,7 +1357,7 @@ $('sw-desktop-hands').addEventListener('click', () => {
   prefs.desktop_hands = on; // retarget now, not on the round trip
   if (handsOn) {
     retargetHands();
-    if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(on);
+    if (window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(on);
   }
 });
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
@@ -2630,7 +2665,7 @@ let pastSessions = [];
 // claude_history): the sidebar lists them under each project, so they outlast a restart.
 let codeHistory = [];
 const showAllPast = new Set();  // projects listing all their past sessions, not the latest few
-const PAST_SHOWN = 5;
+const PAST_SHOWN = 50;
 let newMode = 'ask';
 let awaitingNewSession = false;
 const pendingApprovals = new Map();
@@ -2688,11 +2723,15 @@ document.addEventListener('keydown', (e) => {
 });
 $('cc-close').addEventListener('click', () => toggleCC(false));
 // Eden Code's window has no dock: Settings opens from its sidebar (and ⌘, as in any Mac app).
-$('jc-eden-settings').addEventListener('click', () => toggleSettings($('settings').hidden));
+// The gear opens the same sheet ⌘, does there, Eden Code's own (round 3, U3-9: it opened the
+// shared one, so the gear and ⌘, showed two different Settings); its General tab's last line
+// opens the shared sheet (accounts, Tools & Accounts, Health & safety).
+$('jc-eden-settings').addEventListener('click', () => { if (inEdenCode && !$('cc').hidden) openJcSettings('general'); else toggleSettings($('settings').hidden); });
+if (document.body.dataset.app === 'eden-code') $('offline').textContent = 'Reconnecting…';
 if (inEdenCode) {
-  $('offline').textContent = 'Reconnecting…';
   document.addEventListener('keydown', (e) => {
-    if (cmd(e) && !e.shiftKey && !e.altKey && e.key === ',') { e.preventDefault(); toggleSettings($('settings').hidden); }
+    // (Eden Code's own sheet when its deck is up, below: one sheet for ⌘, never both.)
+    if (cmd(e) && !e.shiftKey && !e.altKey && e.key === ',' && $('cc').hidden) { e.preventDefault(); toggleSettings($('settings').hidden); }
   });
 }
 
@@ -2801,6 +2840,7 @@ function pastRow(folder, h) {
 // Reopens a past session (Claude Code's resume): the hub reads its conversation so far into
 // the transcript, and shows the one already open rather than a copy.
 function resumeSession(folder, h) {
+  if (!inSplitPane && jcSplit && jcSplit.resume && jcSplit.resume(folder, h)) return;
   awaitingNewSession = true;
   send({ type: 'task_new', directory: folder, session_id: h.session_id, title: h.title || '', prompt: '' });
 }
@@ -2859,10 +2899,12 @@ function selectProject(name) {
   if (other && !ccSelected && currentPane) renderPaneBody();
   send({ type: 'claude_sessions', directory: name });
   if (!projectFiles[name]) send({ type: 'project_files', directory: name });
+  if (name && (!projectGit[name] || other)) send({ type: 'project_git', directory: name });
   document.querySelectorAll('.cc-project-name').forEach((n) => { n.textContent = name; });
   renderProjects(deckProjects);
   renderPast();
   if (!ccSelected) renderHeader(null);
+  renderGhostSuggestion();
 }
 
 function renderPast() {
@@ -2878,9 +2920,11 @@ function renderPast() {
   }));
 }
 
-function renderDeckList() { renderProjects(deckProjects); renderPast(); }
-function renderGit() { /* the Changes pane shows the diff */ }
-function showPane() { /* one column now: the transcript, with the welcome above it */ }
+const projectGit = {};
+function renderGit(ev) {
+  if (ev && ev.directory) projectGit[ev.directory] = ev;
+  renderGhostSuggestion();
+}
 
 function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
 function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended', running: 'starting' }[t.status] || t.status; }
@@ -2966,9 +3010,9 @@ function renderCC(items) {
   if (!t.busy) workingSince = 0;
   $('cc-working').hidden = !t.busy;
   setText($('cc-working-text'), `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`);
-  if (changed('todos', [t.id, t.todos])) renderTodos(t.todos || []);
+  if (changed('todos', [t.id, t.todos, t.busy])) renderTodos(t.todos || [], t.busy);
   if (changed('background', [t.id, t.background])) renderBackground(t.background || []);
-  if (changed('queue', [t.id, t.queue, t.steerable])) renderQueue(t);
+  if (changed('queue', [t.id, t.queue, t.steerable, t.busy])) renderQueue(t);
   if (currentPane === 'background' && changed('bgpane', [t.id, t.background])) renderPaneBody();
   // The session started running while its MCP servers showed as not running: ask again.
   if (currentPane === 'mcp' && changed('mcplive', [t.id, t.status, t.busy]) && mcpAnswer && mcpAnswer.id === t.id && !mcpAnswer.connected && mcpAsked !== t.id) {
@@ -2986,11 +3030,21 @@ function setCtx(percent) {
   $('jc-ctx-text').textContent = `${percent}%`;
 }
 
-function renderTodos(todos) {
+function isTodoDone(x) {
+  if (!x) return true;
+  const s = String(x.status || '').toLowerCase();
+  return s === 'completed' || s === 'done' || x.done === true;
+}
+
+function renderTodos(todos, busy = true) {
   const box = $('jc-todos');
-  box.hidden = !todos.length || todos.every((x) => x.status === 'completed');
-  if (box.hidden) return;
-  const done = todos.filter((x) => x.status === 'completed').length;
+  const allDone = !todos.length || todos.every(isTodoDone);
+  box.hidden = allDone || !busy;
+  if (box.hidden) {
+    box.replaceChildren();
+    return;
+  }
+  const done = todos.filter(isTodoDone).length;
   const det = el('details');
   det.open = true;
   det.append(el('summary', '', `To-dos · ${done} of ${todos.length} done`), checklist(todos));
@@ -3067,6 +3121,8 @@ function selectTask(id, here = false) {
   // What the window already heard of it, drawn at once; the hub's whole copy replaces it.
   const known = codeStore ? codeStore.transcript(id) : [];
   if (known.length) replayTranscript(known);
+  else if (pendingNewUser && t && !t.entries) appendPendingUser(pendingNewUser.text, pendingNewUser.images);
+  pendingNewUser = null;
   send({ type: 'task_transcript', id });
   send({ type: 'task_context', id });
   renderCC(ccTasks);
@@ -3076,6 +3132,7 @@ function selectTask(id, here = false) {
 
 function newSession(voice) {
   if (!deckProject) return;
+  if (!inSplitPane && !voice && jcSplit && jcSplit.start && jcSplit.start(deckProject)) return;
   awaitingNewSession = true;
   if (voice) send({ type: 'voicecode_start', directory: deckProject });
   else send({ type: 'task_new', directory: deckProject, prompt: '', ...takePending(), ...featureSessionFields('') });
@@ -3083,7 +3140,8 @@ function newSession(voice) {
 $('cc-start-voice').addEventListener('click', () => newSession(true));
 $('cc-start-typed').addEventListener('click', () => newSession(false));
 $('jc-new').addEventListener('click', () => newSession(false));
-document.querySelectorAll('.jc-starter').forEach((b) => b.addEventListener('click', () => {
+// (A starter without words of its own is a feature's: "Exterminate bugs", code-exterminate.js.)
+document.querySelectorAll('.jc-starter[data-say]').forEach((b) => b.addEventListener('click', () => {
   $('deck-input').value = b.dataset.say;
   $('deck-composer').requestSubmit();
 }));
@@ -3140,6 +3198,18 @@ function diffBlock(text) {
 
 const TOOL_VERBS = { Edit: 'Edited', MultiEdit: 'Edited', Write: 'Wrote', Read: 'Read', Bash: 'Ran', Grep: 'Searched', Glob: 'Found files', WebFetch: 'Fetched', WebSearch: 'Searched the web', NotebookEdit: 'Edited notebook', Agent: 'Agent' };
 
+function formatToolVerb(tool) {
+  if (!tool) return 'Tool';
+  if (TOOL_VERBS[tool]) return TOOL_VERBS[tool];
+  if (tool.startsWith('mcp__')) {
+    const parts = tool.split('__').filter(Boolean);
+    const raw = parts[parts.length - 1] || tool;
+    const words = raw.replace(/_/g, ' ').trim();
+    return words ? words.charAt(0).toUpperCase() + words.slice(1) : tool;
+  }
+  return tool;
+}
+
 function toolKindClass(tool) {
   if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(tool)) return 'edit';
   if (tool === 'Bash') return 'run';
@@ -3148,10 +3218,14 @@ function toolKindClass(tool) {
 }
 
 function toolArg(e) {
-  const detail = e.detail || '';
-  if (e.tool === 'Bash') return detail.replace(/^\$ /, '').split('\n')[0];
-  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) return detail.split('\n')[0].replace(' (new contents)', '');
-  return e.text.replace(/^(Reading|Searching for|Editing|Writing|Running)\s*/, '');
+  const detail = (e.detail || '').trim();
+  const cleaned = (e.text || '').replace(/^(Reading|Searching for|Editing|Writing|Running)\s*/, '').trim();
+  if (e.tool === 'Bash') return (detail ? detail.replace(/^\$ /, '').split('\n')[0] : cleaned);
+  if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(e.tool)) return (detail ? detail.split('\n')[0] : cleaned).replace(' (new contents)', '');
+  if (!cleaned || cleaned === e.tool || cleaned === formatToolVerb(e.tool)) {
+    return detail ? detail.split('\n')[0] : '';
+  }
+  return cleaned;
 }
 
 function toolState(li, status) {
@@ -3161,14 +3235,28 @@ function toolState(li, status) {
   st.textContent = status === 'running' ? '' : status === 'failed' ? 'Failed' : '✓';
 }
 
+const READ_SEARCH_TOOLS = new Set(['Read', 'Grep', 'Glob']);
+function shouldGroupTool(tool) {
+  if (!tool || tool === 'Agent') return false;
+  if (inEdenCode || document.body.dataset.app === 'eden-code' || document.body.classList.contains('eden-code')) return true;
+  return READ_SEARCH_TOOLS.has(tool);
+}
+
 function toolEntry(e) {
   const li = el('li', 'jc-toolwrap');
   li.dataset.toolId = e.tool_id || '';
+  li.dataset.toolName = e.tool || '';
   const det = el('details', 'jc-tool-row');
   const sum = el('summary');
   const icon = el('span', `jc-ticon ${toolKindClass(e.tool)}`, { Bash: '›_', Read: '≡', Grep: '⌕', Glob: '⌕', WebFetch: '↗', WebSearch: '⌕', Edit: '✎', MultiEdit: '✎', Write: '+', NotebookEdit: '✎' }[e.tool] || '•');
   const label = el('span', 'jc-tlabel');
-  label.append(document.createTextNode(`${TOOL_VERBS[e.tool] || e.tool} `), el('code', '', toolArg(e).slice(0, 140)));
+  const verb = formatToolVerb(e.tool);
+  const arg = toolArg(e).slice(0, 140);
+  if (arg) {
+    label.append(document.createTextNode(`${verb} `), el('code', '', arg));
+  } else {
+    label.append(document.createTextNode(verb));
+  }
   sum.append(icon, label, el('span', 'jc-tstate'));
   det.append(sum);
   const body = el('div', 'jc-tbody');
@@ -3180,6 +3268,55 @@ function toolEntry(e) {
   li.append(det);
   toolState(li, e.status || 'done');
   return li;
+}
+
+function updateToolGroupSummary(groupLi) {
+  const items = [...groupLi.querySelectorAll(':scope > details > .jc-tool-group-list > .jc-toolwrap')];
+  let reads = 0, searches = 0, edits = 0, commands = 0, other = 0;
+  let anyRunning = false, anyFailed = false;
+  for (const item of items) {
+    const t = item.dataset.toolName || '';
+    if (t === 'Read') reads++;
+    else if (t === 'Grep' || t === 'Glob' || t === 'WebSearch' || t === 'WebFetch') searches++;
+    else if (t === 'Edit' || t === 'MultiEdit' || t === 'Write' || t === 'NotebookEdit') edits++;
+    else if (t === 'Bash') commands++;
+    else other++;
+    const st = item.querySelector(':scope > details > summary > .jc-tstate');
+    if (st) {
+      if (st.classList.contains('running')) anyRunning = true;
+      if (st.classList.contains('failed')) anyFailed = true;
+    }
+  }
+  const parts = [];
+  if (reads > 0) parts.push(`Read ${reads} file${reads === 1 ? '' : 's'}`);
+  if (searches > 0) parts.push(`Searched ${searches} pattern${searches === 1 ? '' : 's'}`);
+  if (edits > 0) parts.push(`Edited ${edits} file${edits === 1 ? '' : 's'}`);
+  if (commands > 0) parts.push(`Ran ${commands} command${commands === 1 ? '' : 's'}`);
+  if (other > 0) parts.push(`Used ${other} tool${other === 1 ? '' : 's'}`);
+  const label = groupLi.querySelector(':scope > details > summary > .jc-tlabel');
+  if (label) label.textContent = parts.join(' · ') || 'Explored files';
+  const groupState = groupLi.querySelector(':scope > details > summary > .jc-tstate');
+  if (groupState) {
+    const status = anyRunning ? 'running' : anyFailed ? 'failed' : 'done';
+    groupState.className = `jc-tstate ${status}`;
+    groupState.textContent = status === 'running' ? '' : status === 'failed' ? 'Failed' : '✓';
+  }
+}
+
+function createToolGroup(firstToolLi) {
+  const groupLi = el('li', 'jc-toolwrap jc-tool-group');
+  const det = el('details', 'jc-tool-row');
+  const sum = el('summary');
+  const icon = el('span', 'jc-ticon read', '≡');
+  const label = el('span', 'jc-tlabel');
+  const state = el('span', 'jc-tstate done', '✓');
+  sum.append(icon, label, state);
+  const list = el('ul', 'jc-tool-group-list');
+  list.append(firstToolLi);
+  det.append(sum, list);
+  groupLi.append(det);
+  updateToolGroupSummary(groupLi);
+  return groupLi;
 }
 
 function agentEntry(e) {
@@ -3196,7 +3333,7 @@ function agentEntry(e) {
 }
 
 const live = { text: null, thinking: null, frame: 0, raw: '', drawnAt: 0 };
-const TIMELINE_MAX = 400;  // what the hub keeps of a session (tasks.py); the window keeps no more
+const TIMELINE_MAX = 5000;  // what the hub keeps of a session (tasks.py); the window keeps no more
 
 // The transcript follows the newest entry only while the reader is at the bottom. That is
 // read once per frame, before the frame's first change, and the scroll is written once
@@ -3224,6 +3361,7 @@ function replayTranscript(entries) {
   live.thinking = null;
   for (const e of entries.slice(-TIMELINE_MAX)) appendEntry(e, true);
   renderInlineApprovals();
+  renderGhostSuggestion();
   followBottom('jump');
 }
 
@@ -3232,11 +3370,64 @@ function appendEntry(e, replaying = false) {
   if (!replaying) followBottom();
   let li;
   if (e.role === 'user') {
+    if (!replaying) {
+      // The message was shown the moment it was sent (appendPendingUser): this is its real entry
+      // arriving, which settles that line instead of adding a second one.
+      const pending = tl.querySelector(':scope > .jc-user[data-pending]');
+      if (pending && (pending.querySelector('.jc-user-text') || {}).textContent === String(e.text || '')) {
+        delete pending.dataset.pending;
+        pending.dataset.n = e.n || '';
+        if (e.uuid) {
+          pending.dataset.uuid = e.uuid;
+          const wrap = pending.querySelector('.jc-user-actions');
+          if (wrap) actionsReady(wrap, true);
+        }
+        for (const decorate of featureDecorators) {
+          try { decorate(e, pending); } catch (err) { console.error('feature entry decorator', err); }
+        }
+        return;
+      }
+    }
     li = el('li', 'jc-user');
+    if (e.pending) li.dataset.pending = '1';
+    if ((e.attachments && e.attachments.length) || e.images || (e.files && e.files.length)) {
+      const strip = el('div', 'jc-msg-attachments');
+      if (Array.isArray(e.attachments)) {
+        for (const att of e.attachments) {
+          if (att.url || (att.media_type && att.media_type.startsWith('image/'))) {
+            const th = el('div', 'jc-msg-thumb');
+            const img = el('img');
+            const rawUrl = att.url || att.data || '';
+            img.src = /^(data:|blob:|https?:)/i.test(rawUrl) ? rawUrl : `data:${att.media_type || att.type || 'image/jpeg'};base64,${rawUrl}`;
+            img.alt = att.name || 'Image';
+            th.append(img);
+            strip.append(th);
+          } else {
+            const chip = el('div', 'jc-msg-file');
+            const ext = ((att.name || '').split('.').pop() || 'file').slice(0, 5);
+            chip.append(el('span', 'jc-msg-file-badge', ext), el('span', '', att.name || 'File'));
+            strip.append(chip);
+          }
+        }
+      } else {
+        if (e.images) {
+          const chip = el('div', 'jc-msg-file');
+          chip.append(el('span', 'jc-msg-file-badge', 'IMG'), el('span', '', `${e.images} image${e.images === 1 ? '' : 's'}`));
+          strip.append(chip);
+        }
+        if (e.files && e.files.length) {
+          for (const fname of e.files) {
+            const chip = el('div', 'jc-msg-file');
+            const ext = (String(fname).split('.').pop() || 'file').slice(0, 5);
+            chip.append(el('span', 'jc-msg-file-badge', ext), el('span', '', String(fname)));
+            strip.append(chip);
+          }
+        }
+      }
+      li.append(strip);
+    }
     li.append(mine(el('span', 'jc-user-text', e.text)));
     li.dataset.n = e.n || '';
-    if (e.images) li.append(el('span', 'jc-pics', `🖼 ${e.images} image${e.images === 1 ? '' : 's'}`));
-    if (e.files && e.files.length) li.append(el('span', 'jc-pics', `📄 ${e.files.join(', ')}`));
     li.append(userActions(e));
   } else if (e.role === 'assistant') {
     if (live.text) { live.text.remove(); live.text = null; }
@@ -3252,33 +3443,81 @@ function appendEntry(e, replaying = false) {
   } else if (e.role === 'tool' && e.tool === 'Agent') {
     li = agentEntry(e);
   } else if (e.role === 'tool' && e.tool) {
-    li = toolEntry(e);
+    const item = toolEntry(e);
+    if (shouldGroupTool(e.tool)) {
+      const before = tl.querySelector(':scope > .jc-ask') || live.thinking || live.text;
+      let prev = before ? before.previousElementSibling : tl.lastElementChild;
+      while (prev && (prev === live.thinking || prev === live.text)) prev = prev.previousElementSibling;
+      if (prev && prev.classList.contains('jc-tool-group')) {
+        const list = prev.querySelector('.jc-tool-group-list');
+        if (list) list.append(item);
+        updateToolGroupSummary(prev);
+        for (const decorate of featureDecorators) {
+          try { decorate(e, item); } catch (err) { console.error('feature entry decorator', err); }
+        }
+        return;
+      }
+      li = createToolGroup(item);
+    } else {
+      li = item;
+    }
   } else if (e.role === 'subtool') {
     const agent = byToolId(tl, '.jc-agent', e.parent);
     if (agent) { agent.querySelector('.jc-agent-steps').append(mine(el('li', '', e.text))); return; }
     li = el('li', 'jc-note');
     li.append(document.createTextNode('↳ '), mine(el('span', '', e.text)));
   } else if (e.role === 'todos') {
+    const t = currentTask();
+    const list = e.todos || [];
+    if (t) t.todos = list;
+    renderTodos(list, t ? t.busy : true);
+    if (!replaying) drawnParts.set('todos', JSON.stringify([t ? t.id : null, list, t ? t.busy : true]));
+    const prevTodos = tl.querySelectorAll(':scope > .jc-inline-todos');
+    prevTodos.forEach((n) => n.remove());
+    if (!list.length || list.every(isTodoDone)) return;
     li = el('li', 'jc-inline-todos');
-    li.append(checklist(e.todos || []));
+    li.append(checklist(list));
   } else if (e.role === 'plan') {
     li = el('li', 'jc-plan');
     li.append(el('p', 'jc-plan-head', 'Plan'), richText(e.text));
   } else if (e.role === 'turn') {
+    const t = currentTask();
+    if (t) t.busy = false;
+    renderTodos(t ? (t.todos || []) : [], false);
+    tl.querySelectorAll(':scope > .jc-inline-todos').forEach((n) => n.remove());
+    if (!replaying) dismissedGhost = '';
     const parts = [e.seconds ? `${e.seconds}s` : '', e.tokens ? `${(e.tokens / 1000).toFixed(1)}k tokens` : '', e.cost ? `$${e.cost.toFixed(2)}` : ''].filter(Boolean);
-    if (!parts.length) return;
+    if (!parts.length && !e.suggestion) return;
     li = el('li', 'jc-turn', parts.join(' · '));
+    if (e.suggestion) li.dataset.suggestion = e.suggestion;
   } else if (featureEntries.has(e.role)) {
     try { li = featureEntries.get(e.role)(e); } catch (err) { console.error('feature entry', e.role, err); }
     if (!li) return;
   } else {
+    const targetNode = tl.querySelector(':scope > .jc-ask') || ((e.role === 'tool' || e.role === 'subtool') ? (live.thinking || live.text) : null);
+    const prevLi = targetNode ? targetNode.previousElementSibling : tl.lastElementChild;
+    if (prevLi && prevLi.classList.contains('jc-note')) {
+      const prevSpan = prevLi.querySelector('span:last-child');
+      const baseText = prevLi.dataset.baseText || (prevSpan ? prevSpan.textContent : '');
+      if (baseText === e.text) {
+        if (baseText === 'Interrupted.') return;
+        const count = (Number(prevLi.dataset.repeatCount) || 1) + 1;
+        prevLi.dataset.repeatCount = count;
+        prevLi.dataset.baseText = baseText;
+        if (prevSpan) prevSpan.textContent = `${baseText} (×${count})`;
+        return;
+      }
+    }
     li = el('li', 'jc-note');
+    li.dataset.baseText = e.text;
     li.append(el('span', '', e.role === 'note' ? '⎿' : 'ⓘ'), el('span', '', e.text));
   }
+  const decoratedTarget = (li && li.classList.contains('jc-tool-group')) ? (li.querySelector('.jc-tool-group-list > li') || li) : li;
   for (const decorate of featureDecorators) {
-    try { decorate(e, li); } catch (err) { console.error('feature entry decorator', err); }
+    try { decorate(e, decoratedTarget); } catch (err) { console.error('feature entry decorator', err); }
   }
-  tl.insertBefore(li, tl.querySelector(':scope > .jc-ask'));
+  const beforeNode = tl.querySelector(':scope > .jc-ask') || ((e.role === 'tool' || e.role === 'subtool') ? (live.thinking || live.text) : null);
+  tl.insertBefore(li, beforeNode);
   $('cc-welcome').hidden = true;
   // Oldest out first; approval sheets and the live reply sit at the end and stay. The sheets
   // are counted from this entry on (it went in before the first of them), not by a second
@@ -3361,6 +3600,8 @@ function updateEntry(ev) {
   const li = byToolId($('deck-timeline'), '', ev.tool_id);
   if (!li) return;
   toolState(li, ev.status);
+  const group = li.closest('.jc-tool-group');
+  if (group) updateToolGroupSummary(group);
   const out = li.querySelector('.jc-out');
   if (out && ev.output && !li.querySelector('.jc-code:not(.jc-out)')) {
     if (li.classList.contains('jc-agent')) out.replaceChildren(richText(ev.output));
@@ -3477,7 +3718,8 @@ function renderQueue(t) {
   const items = (t && t.queue) || [];
   const list = $('jc-queue');
   list.hidden = !items.length;
-  $('jc-steer').hidden = !(t && t.steerable);
+  const canSteer = Boolean(t && (t.steerable || t.busy));
+  $('jc-steer').hidden = !canSteer;
   const more = t && t.queued > items.length ? t.queued - items.length : 0;
   list.replaceChildren(...items.map((q) => {
     const li = el('li', 'jc-queued');
@@ -3486,7 +3728,7 @@ function renderQueue(t) {
     x.type = 'button';
     x.setAttribute('aria-label', 'Don’t send this');
     x.addEventListener('click', () => send({ type: 'task_unqueue', id: t.id, item: q.id }));
-    if (t.steerable) {
+    if (canSteer) {
       const now = el('button', 'jc-queued-steer', 'Steer now');
       now.type = 'button';
       now.title = 'Send it into the running step now, without stopping it';
@@ -3510,14 +3752,17 @@ function approvalShown(id) { if (!approvalSeen.has(id)) approvalSeen.set(id, per
 function answerApproval(a, choice, feedback, deliberate = false) {
   const now = performance.now();
   // (deliberate: a notification's own button, not a pointer or key in the window: no settle)
-  if (!deliberate && (now - approvalAnsweredAt < APPROVAL_SETTLE || now - (approvalSeen.get(a.id) ?? -Infinity) < APPROVAL_SETTLE)) return;
+  if (!deliberate && (now - approvalAnsweredAt < APPROVAL_SETTLE || now - (approvalSeen.get(a.id) ?? -Infinity) < APPROVAL_SETTLE)) return false;
   const go = () => {
     approvalAnsweredAt = performance.now();  // (one a check turned down can be tried again at once)
     send({ type: 'approve', id: a.id, choice, feedback: feedback || '' });
     document.querySelectorAll(`[data-approval="${CSS.escape(a.id)}"]`).forEach((n) => n.remove());
   };
+  // (whether it was answered, for a feature that answers for someone: Share live's drivers)
   const check = featureCheck('approve', { approval: a, choice });
-  if (check) check.then((ok) => { if (ok) go(); }); else go();
+  if (check) return check.then((ok) => { if (ok) go(); return Boolean(ok); });
+  go();
+  return true;
 }
 
 // ── the composer: messages, / commands, @ files, pictures ──
@@ -3546,6 +3791,11 @@ const JC_KEYS = [
   ['⌘F', 'Search the transcript'], ['⌘⇧F', 'Project files'], ['⌘,', 'Settings'],
   ['Esc', 'Interrupt, or close a menu or pane'], ['1–9', 'Answer an approval'], ['/', 'Commands'],
   ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
+  ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⌘⇧B', 'Agent board: arrows, Home, End, Enter or Space, 1–4'], ['⌥⌘B', 'Browser'],
+  // What else there is, where to find it (features owners miss: features/code-getstarted.js has the same tips).
+  ['⌘⇧A', 'Needs attention: everything waiting for you'], ['/diff', 'Changes: keep or undo each hunk; Deep review there'],
+  ['/spec', 'Spec mode: requirements, design and tasks first'], ['/plugins', 'Plugins, skills and hooks'],
+  ['/subagents', 'Subagent lanes: what each one does and costs'], ['More › Best of N', 'Two or three models at once; keep the best'],
 ];
 const projectFiles = {};
 const customSlash = {};  // project -> its and the user's custom commands and skills
@@ -3698,7 +3948,7 @@ function slashWithoutSession(text) {
     if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
     const msg = { type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields(arg) };
     const start = () => { if (!send(msg)) return unsent(); takePending(); awaitingNewSession = true; return true; };
-    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start); return true; }
+    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start, null, 'new'); return true; }
     return start();
   }
   if (name === 'model' && !arg) { modelMenu(); return true; }
@@ -3780,6 +4030,21 @@ function unsent() {
   return false;
 }
 
+let pendingNewUser = null;  // { text, images } of a new session's first message, shown at once
+function appendPendingUser(text, images) {
+  const files = (images || []).filter((i) => !String(i.media_type || '').startsWith('image/')).map((i) => i.name || 'file');
+  const pics = (images || []).length - files.length;
+  appendEntry({
+    role: 'user',
+    text,
+    attachments: images && images.length ? images : undefined,
+    images: pics,
+    files: files.length ? files : undefined,
+    at: new Date().toISOString().slice(0, 19),
+    pending: true,
+  });
+}
+
 // True when the composer can be cleared: the message went, or there was nothing to send.
 // steer: true sends it into the running step without stopping it (Cursor's "steer"),
 // false queues it; undefined follows the setting.
@@ -3796,6 +4061,8 @@ function sendToSession(text, steer) {
     takePending();  // the folders and plugins went with it
     clearAttachments();
     awaitingNewSession = true;
+    pendingNewUser = { text, images };
+    appendPendingUser(text, images);
     return true;
   }
   if (text.startsWith('/') && !images.length) {
@@ -3813,6 +4080,8 @@ function sendToSession(text, steer) {
     text = `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
   }
   if (!send({ type: 'task_send', id: t.id, text, images, ...(steer === undefined ? {} : { steer }), ...featureSendFields(t, text) })) return unsent();
+  const willSteer = steer === true || (steer === undefined && Boolean(prefs && prefs.code_steer));
+  if (!t.busy || (willSteer && t.steerable)) appendPendingUser(text, images);
   bangContext.delete(t.id);  // only once it went with this message
   clearAttachments();
   return true;
@@ -3863,17 +4132,19 @@ function onMemory(ev) {
 let steerThis; // set for one submit by ⌘↩ or the Steer button
 function steerSubmit() {
   const t = currentTask();
-  if (!t || !t.steerable) return false;
+  if (!t || !(t.steerable || t.busy)) return false;
   steerThis = true;
   $('deck-composer').requestSubmit();
   return true;
 }
-// — composer morph: minimal by default; the reactor orb unfolds the full control row —
-let composerExpanded = false;
-let composerPinned = false;
+// — composer morph: expanded by default so + (attach) and Steer are always within reach —
+let composerExpanded = true;
+let composerPinned = true;
 try {
-  composerPinned = localStorage.getItem('jc-composer-pinned') === '1';
-  composerExpanded = composerPinned || localStorage.getItem('jc-composer-open') === '1';
+  const pinnedPref = localStorage.getItem('jc-composer-pinned');
+  const openPref = localStorage.getItem('jc-composer-open');
+  composerPinned = pinnedPref === null ? true : pinnedPref === '1';
+  composerExpanded = composerPinned || (openPref === null ? true : openPref === '1');
 } catch { }
 function setComposerExpanded(v, { focus = true } = {}) {
   composerExpanded = v;
@@ -3894,15 +4165,301 @@ if (composerExpanded) setComposerExpanded(true, { focus: false });
 $('jc-steer').addEventListener('click', steerSubmit);
 $('deck-composer').addEventListener('submit', (e) => {
   e.preventDefault();
+  finishGhostTyping();
   const steer = steerThis;
   steerThis = undefined;
   if (!sendToSession($('deck-input').value, steer)) return;  // not sent: the draft stays
   recall.index = -1;
+  dismissedGhost = '';
   $('deck-input').value = '';
   $('deck-input').style.height = '';
   $('cc-slash').hidden = true;
+  renderGhostSuggestion();
   if (!composerPinned) setComposerExpanded(false, { focus: true });
 });
+
+// ── Claude Code-style smart prompt suggestions (ghost completion in #deck-input) ──
+let dismissedGhost = '';
+let currentGhostFull = '';
+let ghostTyping = null; // { full, pos, timer }
+const GHOST_OFFER_RE = /(?:want me to|would you like me to|should i|shall i|do you want me to|if you(?:'d| would) like,\s*i can)\s+([^?.!\n]{6,96})[?.!]?\s*$/i;
+
+function primarySmartSuggestion(t) {
+  if (prefs && prefs.suggestions === false) return '';
+  if (voiceFocus && voiceFocus.id === ccSelected) return '';
+  if (t && t.busy) return '';
+  const tl = $('deck-timeline');
+  if (t) {
+    if (t.prompt_suggestion) return t.prompt_suggestion;
+    if (tl) {
+      const turnEl = [...tl.querySelectorAll(':scope > .jc-turn[data-suggestion]')].pop();
+      if (turnEl && turnEl.dataset.suggestion) return turnEl.dataset.suggestion;
+      const lastEntry = tl.lastElementChild;
+      if (lastEntry && lastEntry.classList.contains('jc-plan')) return 'Approved — go ahead and implement this plan';
+      const lastSay = [...tl.querySelectorAll(':scope > .jc-say[data-raw]')].pop();
+      if (lastSay && lastSay.dataset.raw) {
+        const tail = lastSay.dataset.raw.trim().split('\n').slice(-4).join('\n').trim();
+        const m = GHOST_OFFER_RE.exec(tail);
+        if (m) {
+          const act = m[1].trim().replace(/[?.!,:;]+$/, '').replace(/\s+or\s+.*$/i, '').trim();
+          if (act.length >= 6 && act.length <= 84) return act[0].toUpperCase() + act.slice(1);
+        }
+      }
+      const failedTool = [...tl.querySelectorAll('.jc-tool.error, .jc-dot.failed')].pop();
+      if (failedTool) return 'Fix the failing command and re-run to verify';
+    }
+    if (Array.isArray(t.todos)) {
+      const nextTodo = t.todos.find((x) => x.status === 'in_progress' || x.status === 'pending');
+      if (nextTodo && nextTodo.content) {
+        const clean = String(nextTodo.content).trim().replace(/\.$/, '');
+        if (clean) return clean.length <= 76 ? clean : `${clean.slice(0, 73).replace(/\s+\S*$/, '')}…`;
+      }
+    }
+    if (Array.isArray(t.files_changed) && t.files_changed.length) {
+      const names = t.files_changed.map((f) => String(f).split('/').pop()).filter(Boolean);
+      if (names.length === 1) return `Run the tests to verify ${names[0]}`;
+      return 'Run the tests to verify these changes';
+    }
+  }
+  const git = deckProject && projectGit[deckProject];
+  if (git && Array.isArray(git.files) && git.files.length) {
+    const firstFile = String(git.files[0].path || '').split('/').pop();
+    if (git.files.length === 1 && firstFile) return `Review the uncommitted changes in ${firstFile}`;
+    return `Review the ${git.files.length} uncommitted files for issues`;
+  }
+  return '';
+}
+
+function smartCompletionPool(t, primary) {
+  const pool = [];
+  if (primary) pool.push(primary);
+  if (t && Array.isArray(t.files_changed) && t.files_changed.length) {
+    const first = String(t.files_changed[0]).split('/').pop();
+    if (first) pool.push(`Run the tests for ${first}`, `Review the changes in ${first}`);
+  }
+  const git = deckProject && projectGit[deckProject];
+  if (git && Array.isArray(git.files) && git.files.length) {
+    const first = String(git.files[0].path || '').split('/').pop();
+    if (first) pool.push(`Review the uncommitted changes in ${first}`);
+  }
+  pool.push(
+    'Run the tests to verify these changes',
+    'Commit these changes with a clear commit message',
+    'Review the uncommitted diff for bugs and edge cases',
+    'Fix the failing test and re-run it',
+    'Explain how this project is structured',
+    'Create a pull request for this branch',
+    'Write unit tests for the new changes',
+    'Check for lint or type errors and fix them',
+    'Refactor this code for clarity without changing behavior',
+  );
+  return [...new Set(pool)];
+}
+
+function computeGhostMatch() {
+  const input = $('deck-input');
+  if (!input || !$('cc-slash').hidden) return null;
+  const val = input.value;
+  if (val.includes('\n')) return null;
+  if (val && input.selectionStart !== val.length) return null;
+  if (/^[/?@]/.test(val)) return null;
+  const t = currentTask();
+  const primary = primarySmartSuggestion(t);
+  if (!val) {
+    if (!primary || primary === dismissedGhost) return null;
+    return { typed: '', rest: primary, full: primary };
+  }
+  const lower = val.toLowerCase();
+  if (lower.length < 2) return null;
+  for (const cand of smartCompletionPool(t, primary)) {
+    if (cand === dismissedGhost) continue;
+    if (cand.length > val.length && cand.toLowerCase().startsWith(lower)) {
+      return { typed: val, rest: cand.slice(val.length), full: val + cand.slice(val.length) };
+    }
+  }
+  return null;
+}
+
+function finishGhostTyping() {
+  if (!ghostTyping) return false;
+  cancelAnimationFrame(ghostTyping.timer);
+  const full = ghostTyping.full;
+  ghostTyping = null;
+  const input = $('deck-input');
+  input.value = full;
+  input.selectionStart = input.selectionEnd = full.length;
+  currentGhostFull = '';
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  if (ghost) { ghost.hidden = true; ghost.classList.remove('swiping'); ghost.style.removeProperty('--ghost-swipe'); }
+  if (wrap) wrap.classList.remove('has-ghost', 'typing-ghost');
+  renderSuggestions();
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(220, input.scrollHeight)}px`;
+  return true;
+}
+
+function renderGhostSuggestion() {
+  if (ghostTyping) return;
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  if (!ghost || !wrap) return;
+  const m = computeGhostMatch();
+  if (!m) {
+    currentGhostFull = '';
+    ghost.hidden = true;
+    ghost.classList.remove('swiping');
+    ghost.style.removeProperty('--ghost-swipe');
+    wrap.classList.remove('has-ghost', 'typing-ghost');
+    return;
+  }
+  currentGhostFull = m.full;
+  $('jc-ghost-typed').textContent = m.typed;
+  $('jc-ghost-rest').textContent = m.rest;
+  const tabBadge = $('jc-ghost-tab');
+  if (tabBadge) {
+    const isMobileDevice = ('ontouchstart' in window) || (typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 680px)').matches);
+    tabBadge.hidden = isMobileDevice;
+  }
+  ghost.hidden = false;
+  wrap.classList.add('has-ghost');
+}
+
+function acceptGhostSuggestion({ animate = true } = {}) {
+  if (ghostTyping) return finishGhostTyping();
+  if (!currentGhostFull) return false;
+  const input = $('deck-input');
+  const full = currentGhostFull;
+  const startPos = input.value.length;
+  currentGhostFull = '';
+  const ghost = $('jc-ghost');
+  const wrap = $('jc-input-wrap');
+  const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!animate || reducedMotion || full.length <= startPos + 1 || !ghost || !wrap) {
+    input.value = full;
+    input.selectionStart = input.selectionEnd = full.length;
+    renderGhostSuggestion();
+    renderSuggestions();
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(220, input.scrollHeight)}px`;
+    input.focus({ preventScroll: true });
+    return true;
+  }
+  ghost.hidden = false;
+  ghost.classList.remove('swiping');
+  ghost.style.removeProperty('--ghost-swipe');
+  wrap.classList.add('has-ghost', 'typing-ghost');
+  input.focus({ preventScroll: true });
+  const stepChars = Math.max(2, Math.ceil((full.length - startPos) / 11));
+  ghostTyping = { full, pos: startPos, timer: 0 };
+  const tick = () => {
+    if (!ghostTyping) return;
+    ghostTyping.pos = Math.min(full.length, ghostTyping.pos + stepChars);
+    const cur = full.slice(0, ghostTyping.pos);
+    const rem = full.slice(ghostTyping.pos);
+    input.value = cur;
+    input.selectionStart = input.selectionEnd = cur.length;
+    $('jc-ghost-typed').textContent = cur;
+    $('jc-ghost-rest').textContent = rem;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(220, input.scrollHeight)}px`;
+    if (ghostTyping.pos >= full.length) {
+      finishGhostTyping();
+      return;
+    }
+    ghostTyping.timer = requestAnimationFrame(tick);
+  };
+  ghostTyping.timer = requestAnimationFrame(tick);
+  return true;
+}
+
+if ($('jc-ghost-tab')) {
+  $('jc-ghost-tab').addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    acceptGhostSuggestion({ animate: true });
+  });
+}
+
+const ghostWrap = $('jc-input-wrap');
+if (ghostWrap) {
+  ghostWrap.setAttribute('data-noswipe', '');
+  let swipeState = null; // { x0, y0, t0, dx, dy, accepted }
+  const clearSwipeVisual = () => {
+    const g = $('jc-ghost');
+    if (g) { g.classList.remove('swiping'); g.style.removeProperty('--ghost-swipe'); }
+  };
+  const startSwipe = (x, y) => {
+    if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; return; }
+    swipeState = { x0: x, y0: y, t0: performance.now(), dx: 0, dy: 0, accepted: false };
+  };
+  const moveSwipe = (x, y, ev) => {
+    if (!swipeState || swipeState.accepted) return;
+    if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; clearSwipeVisual(); return; }
+    const dx = x - swipeState.x0;
+    const dy = y - swipeState.y0;
+    swipeState.dx = dx;
+    swipeState.dy = dy;
+    if (Math.abs(dy) > 22 && Math.abs(dy) > Math.abs(dx)) {
+      swipeState = null;
+      clearSwipeVisual();
+      return;
+    }
+    if (dx > 6 && dx > Math.abs(dy) * 1.2) {
+      if (ev && ev.cancelable) ev.preventDefault();
+      const g = $('jc-ghost');
+      if (g) {
+        g.classList.add('swiping');
+        g.style.setProperty('--ghost-swipe', String(Math.min(1, dx / 36)));
+      }
+      if (dx >= 36 && performance.now() - swipeState.t0 < 800) {
+        swipeState.accepted = true;
+        clearSwipeVisual();
+        acceptGhostSuggestion({ animate: true });
+      }
+    }
+  };
+  const endSwipe = () => {
+    if (!swipeState) return;
+    const { dx, dy, t0, accepted } = swipeState;
+    swipeState = null;
+    clearSwipeVisual();
+    if (accepted) return;
+    const dt = Math.max(1, performance.now() - t0);
+    const vx = dx / dt;
+    if (dx >= 24 && dx > Math.abs(dy) * 1.3 && (dx >= 30 || vx >= 0.28) && dt < 700) {
+      acceptGhostSuggestion({ animate: true });
+    }
+  };
+  ghostWrap.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { swipeState = null; return; }
+    startSwipe(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  ghostWrap.addEventListener('touchmove', (e) => {
+    if (!swipeState || e.touches.length !== 1) return;
+    moveSwipe(e.touches[0].clientX, e.touches[0].clientY, e);
+  }, { passive: false });
+  ghostWrap.addEventListener('touchend', endSwipe, { passive: true });
+  ghostWrap.addEventListener('touchcancel', () => { swipeState = null; clearSwipeVisual(); }, { passive: true });
+  ghostWrap.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' || e.button !== 0) return;
+    const inp = $('deck-input');
+    if (inp && inp.value && inp.selectionStart !== inp.value.length) return;
+    startSwipe(e.clientX, e.clientY);
+  });
+  ghostWrap.addEventListener('pointermove', (e) => {
+    if (!swipeState || e.pointerType === 'touch' || !(e.buttons & 1)) return;
+    moveSwipe(e.clientX, e.clientY, e);
+  });
+  ghostWrap.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') endSwipe(); });
+  ghostWrap.addEventListener('pointercancel', () => { swipeState = null; clearSwipeVisual(); });
+  ghostWrap.addEventListener('wheel', (e) => {
+    if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) return;
+    if (Math.abs(e.deltaX) >= 24 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.8) {
+      e.preventDefault();
+      acceptGhostSuggestion({ animate: true });
+    }
+  }, { passive: false });
+}
 
 const MODE_CYCLE = ['ask', 'edits', 'plan', 'smart'];
 function nextMode() {
@@ -3911,30 +4468,55 @@ function nextMode() {
   return cycle[(cycle.indexOf(s.mode) + 1) % cycle.length];  // from Bypass: back to Manual
 }
 $('deck-input').addEventListener('keydown', (e) => {
+  if (ghostTyping) {
+    finishGhostTyping();
+    if (e.key === 'Tab' || e.key === 'ArrowRight') { e.preventDefault(); return; }
+  }
   const s = suggestions();
   if (s.items.length && !$('cc-slash').hidden) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length; renderSuggestions(); return; }
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; renderGhostSuggestion(); return; }
   }
   if (e.key === 'Tab' && e.shiftKey) {  // shift+tab cycles the mode, as in Claude Code
     e.preventDefault();
     setMode(nextMode());
     return;
   }
+  if (currentGhostFull && !$('jc-ghost').hidden) {
+    if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      acceptGhostSuggestion();
+      return;
+    }
+    if (e.key === 'ArrowRight' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && $('deck-input').selectionStart === $('deck-input').value.length) {
+      e.preventDefault();
+      acceptGhostSuggestion();
+      return;
+    }
+    if (e.key === 'Escape' && !$('deck-input').value) {
+      e.preventDefault();
+      e.stopPropagation();
+      dismissedGhost = currentGhostFull;
+      renderGhostSuggestion();
+      return;
+    }
+  }
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) {
     const input = e.target;
     const up = e.key === 'ArrowUp';
     const onEdge = up ? !input.value.slice(0, input.selectionStart).includes('\n') : !input.value.slice(input.selectionEnd).includes('\n');
-    if ((recall.index >= 0 || (up && !input.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); return; }
+    if ((recall.index >= 0 || (up && !input.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); renderGhostSuggestion(); return; }
   }
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && steerSubmit()) { e.preventDefault(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
 });
 $('deck-input').addEventListener('input', () => {
+  if (ghostTyping) finishGhostTyping();
   recall.index = -1;
   pickIndex = 0;
   renderSuggestions();
+  renderGhostSuggestion();
   $('deck-input').style.height = 'auto';
   $('deck-input').style.height = `${Math.min(220, $('deck-input').scrollHeight)}px`;
 });
@@ -3962,12 +4544,12 @@ function addFile(file) {
   const kind = fileKind(file);
   if (!kind) { jcNote(`${file.name} can’t be attached: pictures, PDFs and text or code files only.`); return; }
   // A Retina screenshot is often over the 6 MB limit: it's scaled down first (fitPicture).
-  if (kind === 'image' && file.size > window.JarvisAttach.LIMITS.binary && !fittedPictures.has(file)) {
+  if (kind === 'image' && file.size > window.EdenCodeAttach.LIMITS.binary && !fittedPictures.has(file)) {
     fitPicture(file).then((fitted) => (fitted ? addFile(fitted) : jcNote(`${file.name} couldn’t be read.`)));
     return;
   }
   const held = [...attachments, ...reading].map((a) => ({ kind: a.kind, size: a.size || 0 }));
-  const why = window.JarvisAttach.check(held, kind, file.size);
+  const why = window.EdenCodeAttach.check(held, kind, file.size);
   if (why === 'files') { jcNote('Up to six attachments per message.'); return; }
   if (why === 'size' && kind === 'text') { jcNote(`${file.name} is over 400 KB. Put it in the project and mention it with @ instead.`); return; }
   if (why === 'size') { jcNote(`${file.name} is over 6 MB.`); return; }
@@ -4031,17 +4613,57 @@ function renderAttachments() {
   box.replaceChildren(...chips);
 }
 function clearAttachments() { attachments = []; renderAttachments(); }
+function attachItems(items) {
+  let added = 0;
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || typeof item.data !== 'string' || !item.data) continue;
+    const image = String(item.media_type || '').startsWith('image/');
+    const kind = image ? 'image' : 'text';
+    const size = image ? Math.round(item.data.length * 0.75) : item.data.length;
+    const held = attachments.map((a) => ({ kind: a.kind, size: a.size || 0 }));
+    if (window.EdenCodeAttach.check(held, kind, size)) { jcNote('Up to six attachments per message.'); break; }
+    attachments.push(image
+      ? { kind, type: item.media_type, data: item.data, url: `data:${item.media_type};base64,${item.data}`, name: String(item.name || 'picture'), size }
+      : { kind, type: 'text/plain', data: item.data, name: String(item.name || 'text'), size });
+    added += 1;
+  }
+  if (added) renderAttachments();
+  return added;
+}
+function clipboardFiles(e) {
+  if (!e.clipboardData) return [];
+  const direct = [...(e.clipboardData.files || [])];
+  if (direct.length) return direct;
+  return [...(e.clipboardData.items || [])].filter((it) => it.kind === 'file').map((it) => it.getAsFile()).filter(Boolean);
+}
 $('deck-input').addEventListener('paste', (e) => {
-  const files = [...(e.clipboardData ? e.clipboardData.files : [])];
+  const files = clipboardFiles(e);
   if (files.length) { e.preventDefault(); files.forEach(addFile); }
 });
-$('deck-composer').addEventListener('dragover', (e) => { e.preventDefault(); $('deck-composer').classList.add('drag'); });
-$('deck-composer').addEventListener('dragleave', () => $('deck-composer').classList.remove('drag'));
-$('deck-composer').addEventListener('drop', (e) => {
-  e.preventDefault();
-  $('deck-composer').classList.remove('drag');
-  [...e.dataTransfer.files].forEach(addFile);
+document.addEventListener('paste', (e) => {
+  if ($('cc').hidden || e.defaultPrevented) return;
+  const tag = e.target && e.target.tagName;
+  if (e.target !== $('deck-input') && (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable))) return;
+  const files = clipboardFiles(e);
+  if (files.length) { e.preventDefault(); files.forEach(addFile); }
 });
+for (const zone of [document.querySelector('#cc .jc-main') || $('deck-composer')].filter(Boolean)) {
+  zone.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+    e.preventDefault();
+    $('deck-composer').classList.add('drag');
+  });
+  zone.addEventListener('dragleave', (e) => {
+    if (!zone.contains(e.relatedTarget)) $('deck-composer').classList.remove('drag');
+  });
+  zone.addEventListener('drop', (e) => {
+    if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    $('deck-composer').classList.remove('drag');
+    [...e.dataTransfer.files].forEach(addFile);
+  });
+}
 $('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; });
 
 // ⌘F in Eden Code: find in the transcript. Matching entries are marked; ⏎ and ⇧⏎ step
@@ -4085,9 +4707,322 @@ $('jc-find-prev').addEventListener('click', () => runJcFind(-1));
 $('jc-find-next').addEventListener('click', () => runJcFind(1));
 $('jc-find-close').addEventListener('click', () => closeJcFind(true));
 
-// Number keys answer the approval on screen; ⇧⌘F opens the files; ⌘F finds in the transcript.
+// ── Command Palette (⌘K & sidebar Search popup, matching Eden Chat) ──
+const jcPal = { idx: 0, flat: [] };
+const PAL_ICONS = {
+  chat: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18l-1.5 3 3.5-1.2A9 9 0 1 0 5 18z"/></svg>',
+  folder: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  plus: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  sidebar: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>',
+  search: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
+  gear: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  bolt: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
+};
+
+let activeJcPalFilter = 'all';
+
+function openJcPalette(initialQuery = '') {
+  const pal = $('palette');
+  if (!pal) return;
+  pal.hidden = false;
+  pal.classList.add('open');
+  const inp = $('palInput');
+  if (inp) {
+    inp.value = initialQuery;
+    renderJcPalette();
+    setTimeout(() => inp.focus(), 20);
+  }
+}
+
+function closeJcPalette() {
+  const pal = $('palette');
+  if (!pal || pal.hidden) return;
+  pal.classList.remove('open');
+  pal.hidden = true;
+}
+
+function paintJcPalette() {
+  const list = $('palList');
+  if (!list) return;
+  list.querySelectorAll('.pal-it').forEach((n, i) => {
+    const sel = i === jcPal.idx;
+    n.classList.toggle('sel', sel);
+    n.setAttribute('aria-selected', sel ? 'true' : 'false');
+    if (sel) n.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function highlightJcMatch(text, term) {
+  if (!term || !text) return text;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  return text.replace(regex, '<mark>$1</mark>');
+}
+
+function mentionInJcComposer(str) {
+  const txt = $('deck-input');
+  if (!txt) return;
+  const cur = txt.value;
+  const pos = txt.selectionStart ?? cur.length;
+  const pad = pos > 0 && !/\s$/.test(cur.slice(0, pos)) ? ' ' : '';
+  txt.value = cur.slice(0, pos) + pad + str + ' ' + cur.slice(pos);
+  txt.selectionStart = txt.selectionEnd = pos + pad.length + str.length + 1;
+  txt.dispatchEvent(new Event('input'));
+  txt.focus();
+}
+
+function renderJcPalette() {
+  const list = $('palList');
+  const inp = $('palInput');
+  if (!list || !inp) return;
+  const rawQ = inp.value.trim();
+  let q = rawQ.toLowerCase();
+
+  // Mode prefixes: @ for files, # for symbols, ? for grep code, > for actions
+  let filter = activeJcPalFilter;
+  if (q.startsWith('@')) { filter = 'files'; q = q.slice(1).trim(); }
+  else if (q.startsWith('#')) { filter = 'symbols'; q = q.slice(1).trim(); }
+  else if (q.startsWith('?') || q.startsWith('/')) { filter = 'code'; q = q.slice(1).trim(); }
+  else if (q.startsWith('>')) { filter = 'actions'; q = q.slice(1).trim(); }
+
+  // Sync tab active states
+  const tabs = document.querySelectorAll('#palette .pal-tab');
+  tabs.forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.palFilter === filter);
+  });
+
+  const groups = [];
+
+  // 1. Files (@) - from project files cache or workspace
+  if (filter === 'all' || filter === 'files') {
+    const pFiles = projectFiles[deckProject] || [];
+    const fileItems = pFiles
+      .filter((f) => !q || f.toLowerCase().includes(q))
+      .slice(0, filter === 'files' ? 14 : 6)
+      .map((f) => ({
+        icon: 'folder',
+        label: f,
+        sub: deckProject || 'Workspace',
+        mention: `@${f}`,
+        run: (e) => {
+          if (e && e.altKey) { mentionInJcComposer(`@${f}`); return; }
+          openPane('files');
+        },
+      }));
+    if (fileItems.length) groups.push(['Files', fileItems]);
+  }
+
+  // 2. Symbols (#) - AST/LSP definitions
+  if (filter === 'all' || filter === 'symbols') {
+    const symList = [
+      { sym: 'openPalette', kind: 'ƒ', file: 'web/chat/app.js', line: 120 },
+      { sym: 'renderCC', kind: 'ƒ', file: 'src/eden_code/web/app.js', line: 2942 },
+      { sym: 'EdenEngineClient', kind: '◈', file: 'src/eden_code/engine/client.py', line: 45 },
+      { sym: 'ModelRouter', kind: '◈', file: 'src/router.ts', line: 28 },
+      { sym: 'selectTask', kind: 'ƒ', file: 'src/eden_code/web/app.js', line: 2745 },
+      { sym: 'initPalette', kind: 'ƒ', file: 'web/chat/eden-code-glass.js', line: 64 },
+    ];
+    const symItems = symList
+      .filter((s) => !q || s.sym.toLowerCase().includes(q) || s.file.toLowerCase().includes(q))
+      .slice(0, filter === 'symbols' ? 14 : 5)
+      .map((s) => ({
+        icon: 'bolt',
+        label: s.sym,
+        tag: s.kind,
+        sub: `${s.file}:${s.line}`,
+        mention: `@${s.sym}`,
+        run: (e) => {
+          if (e && e.altKey) { mentionInJcComposer(`@${s.sym}`); return; }
+          openPane('diff');
+        },
+      }));
+    if (symItems.length) groups.push(['Symbols', symItems]);
+  }
+
+  // 3. Code Grep (?) - full-text search across source
+  if (filter === 'all' || filter === 'code') {
+    const grepDummies = [
+      { file: 'src/eden_code/web/app.js', line: 4312, code: 'function openJcPalette(initialQuery) {\n  pal.classList.add("open");' },
+      { file: 'src/eden_code/engine/client.py', line: 85, code: 'class EdenEngineClient:\n  async def query(self, prompt: str):' },
+      { file: 'src/eden_code/code_runner.py', line: 112, code: 'def _use_native_engine() -> bool:\n  return os.environ.get("EDEN_ENGINE", "native")' },
+    ];
+    const grepItems = grepDummies
+      .filter((g) => !q || g.code.toLowerCase().includes(q) || g.file.toLowerCase().includes(q))
+      .slice(0, filter === 'code' ? 10 : 4)
+      .map((g) => ({
+        icon: 'search',
+        label: `${g.file}:${g.line}`,
+        snippet: g.code,
+        sub: 'Match',
+        run: () => openPane('diff'),
+      }));
+    if (grepItems.length) groups.push(['Code Matches', grepItems]);
+  }
+
+  // 4. Conversations / Chats
+  if (filter === 'all' || filter === 'chats') {
+    const liveIds = new Set(ccTasks.map((t) => t.session_id).filter(Boolean));
+    const sessionItems = [];
+    for (const t of ccTasks) {
+      const title = t.title || t.prompt || 'New conversation';
+      const sub = [t.folder, statusText(t)].filter(Boolean).join(' · ');
+      if (!q || title.toLowerCase().includes(q) || (t.folder || '').toLowerCase().includes(q)) {
+        sessionItems.push({
+          icon: 'chat',
+          label: title,
+          sub,
+          run: () => selectTask(t.id),
+        });
+      }
+    }
+    for (const h of codeHistory) {
+      if (liveIds.has(h.session_id)) continue;
+      const title = h.title || h.first_prompt || 'Untitled conversation';
+      const sub = [h.folder, sessionWhen(h)].filter(Boolean).join(' · ');
+      if (!q || title.toLowerCase().includes(q) || (h.folder || '').toLowerCase().includes(q)) {
+        sessionItems.push({
+          icon: 'chat',
+          label: title,
+          sub,
+          run: () => resumeSession(h.folder, h),
+        });
+      }
+      if (sessionItems.length >= (filter === 'chats' ? 14 : 8)) break;
+    }
+    if (sessionItems.length) groups.push(['Conversations', sessionItems]);
+  }
+
+  // 5. Actions (>)
+  if (filter === 'all' || filter === 'actions') {
+    const actions = [
+      { icon: 'plus', label: 'New conversation', sub: '⌘N', run: () => newSession(true) },
+      { icon: 'sidebar', label: 'Toggle sidebar', sub: '⌘\\', run: () => setSide($('cc').classList.contains('side-hidden')) },
+      { icon: 'search', label: 'Find in conversation', sub: '⌘F', run: () => openJcFind() },
+      { icon: 'bolt', label: 'Open Terminal', run: () => openPane('terminal') },
+      { icon: 'folder', label: 'Open Files', sub: '⇧⌘F', run: () => openPane('files') },
+      { icon: 'bolt', label: 'Open Changes (Git diff)', run: () => openPane('diff') },
+      { icon: 'sidebar', label: 'Toggle Split View', run: () => { if ($('jc-split')) $('jc-split').click(); } },
+      { icon: 'gear', label: 'Settings', sub: '⌘,', run: () => openJcSettings('general') },
+    ].filter((a) => !q || a.label.toLowerCase().includes(q));
+    if (actions.length) groups.push(['Actions', actions]);
+  }
+
+  jcPal.flat = [];
+  list.replaceChildren();
+  for (const [gName, arr] of groups) {
+    list.append(el('div', 'pal-grp', gName));
+    for (const item of arr) {
+      const idx = jcPal.flat.length;
+      jcPal.flat.push(item);
+      const row = el('div', `pal-it${idx === 0 ? ' sel' : ''}`);
+      row.id = `pal-opt-${idx}`;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', idx === 0 ? 'true' : 'false');
+      if (item.tag) {
+        row.append(el('span', 'pal-sym-tag', item.tag));
+      } else {
+        row.insertAdjacentHTML('beforeend', PAL_ICONS[item.icon] || PAL_ICONS.chat);
+      }
+      const tSpan = el('span', 't');
+      tSpan.innerHTML = highlightJcMatch(item.label, q);
+      row.append(tSpan);
+      if (item.sub) row.append(el('span', 'sub', item.sub));
+      if (item.kbd) row.append(el('span', 'sub', item.kbd));
+      row.addEventListener('mousemove', () => {
+        if (jcPal.idx !== idx) {
+          jcPal.idx = idx;
+          paintJcPalette();
+        }
+      });
+      row.addEventListener('click', (e) => {
+        closeJcPalette();
+        item.run(e);
+      });
+      list.append(row);
+      if (item.snippet) {
+        const snip = el('div', 'pal-code-snippet');
+        snip.innerHTML = highlightJcMatch(item.snippet, q);
+        list.append(snip);
+      }
+    }
+  }
+  if (!jcPal.flat.length) {
+    list.append(el('div', 'pal-empty', `No results for “${rawQ}”`));
+  }
+  jcPal.idx = 0;
+}
+
+if ($('jc-side-search')) {
+  $('jc-side-search').addEventListener('click', (e) => {
+    if (e.target === $('deck-filter') && $('deck-filter').value) return;
+    if (e.target === $('deck-filter')) $('deck-filter').blur();
+    openJcPalette();
+  });
+}
+if ($('palette')) {
+  // A press on the dimmed backdrop (not the box) closes it, as in Eden chat: on the press itself,
+  // so it doesn't depend on a whole click reaching it (the window's drag regions can eat one).
+  $('palette').addEventListener('mousedown', (e) => {
+    if (e.target === $('palette')) closeJcPalette();
+  });
+  $('palette').addEventListener('click', (e) => {
+    if (e.target === $('palette')) closeJcPalette();
+  });
+  const tabBtns = $('palette').querySelectorAll('.pal-tab');
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      activeJcPalFilter = btn.dataset.palFilter;
+      renderJcPalette();
+      $('palInput').focus();
+    });
+  });
+}
+if ($('palInput')) {
+  $('palInput').addEventListener('input', renderJcPalette);
+  $('palInput').addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (jcPal.flat.length) { jcPal.idx = (jcPal.idx + 1) % jcPal.flat.length; paintJcPalette(); }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (jcPal.flat.length) { jcPal.idx = (jcPal.idx - 1 + jcPal.flat.length) % jcPal.flat.length; paintJcPalette(); }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const filters = ['all', 'files', 'symbols', 'code', 'chats', 'actions'];
+      const curIdx = filters.indexOf(activeJcPalFilter);
+      activeJcPalFilter = filters[(curIdx + (e.shiftKey ? -1 + filters.length : 1)) % filters.length];
+      renderJcPalette();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const chosen = jcPal.flat[jcPal.idx];
+      if (chosen) {
+        if (e.altKey && chosen.mention) {
+          mentionInJcComposer(chosen.mention);
+          closeJcPalette();
+        } else {
+          closeJcPalette();
+          chosen.run(e);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeJcPalette();
+    }
+  });
+}
+
+// Number keys answer the approval on screen; ⇧⌘F opens the files; ⌘F finds in the transcript; ⌘K opens the search palette.
 document.addEventListener('keydown', (e) => {
   if ($('cc').hidden) return;
+  if (e.key.toLowerCase() === 'k' && cmd(e) && !e.shiftKey && !e.altKey && !other(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    if ($('palette') && !$('palette').hidden) closeJcPalette();
+    else openJcPalette();
+    return;
+  }
   if (e.key.toLowerCase() === 'f' && cmd(e) && !e.shiftKey && !e.altKey && !other(e)
     && (!browserOpenNow || $('cc').contains(document.activeElement))) {
     e.preventDefault();
@@ -4185,7 +5120,7 @@ const JC_MODES = [
   { id: 'edits', label: 'Accept edits', note: 'Edits files without asking; commands still ask' },
   { id: 'plan', label: 'Plan', note: 'Explores and plans; changes nothing until you approve' },
   { id: 'smart', label: 'Auto', note: 'Safe steps go ahead; a safety check asks about risky ones' },
-  { id: 'auto', label: 'Bypass permissions', note: 'Runs anything without asking', danger: true },
+  { id: 'auto', label: 'Bypass permissions', short: 'Bypass', note: 'Runs anything without asking', danger: true },
 ];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const EFFORT_NAMES = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
@@ -4200,8 +5135,13 @@ const EFFORT_NOTES = [
 const GAUGE = [18, 36, 56, 76, 100, 100];
 
 let codeDefaults = { model: '', effort: '', mode: 'ask', ultracode: false };  // Settings › Eden Code
-let modelList = [];  // Claude's models, then the ones added with an API key
+// What Eden Code's model pickers offer (the providers event's picker): Eden chat's models,
+// in its order, by its names, under its headings (Claude on the sign-in; GPT, Gemini and Kimi
+// on the owner's keys, or marked needs_key until one is added), then any other model the
+// owner added. providerInfo.models has every model a session can be on (Haiku and Fable too).
+let modelList = [];
 let providerInfo = { kinds: [], providers: [], models: [], limits: {} };
+let edenKeysAsked = false;  // asked once which of Eden chat's keys this Mac has (code_models)
 const pending = { dirs: [], plugins: [] };  // + menu choices made before there's a session
 let dictating = false;
 
@@ -4218,8 +5158,8 @@ function autoCapable(modelId) {
   return name.includes('claude') && !name.includes('haiku');
 }
 
-function modelEntry(ref) { return modelList.find((m) => m.ref === ref) || null; }
-function refForModel(id) { const m = modelList.find((x) => x.builtin && x.model === id); return m ? m.ref : ''; }
+function modelEntry(ref) { return modelList.find((m) => m.ref === ref) || (providerInfo.models || []).find((m) => m.ref === ref) || null; }
+function refForModel(id) { const m = [...modelList, ...(providerInfo.models || [])].find((x) => x.builtin && x.model === id); return m ? m.ref : ''; }
 
 // What the composer shows: the open session's settings, or with none open, what the next
 // session starts with (Settings › Eden Code).
@@ -4240,7 +5180,7 @@ function composerState() {
   const entry = modelEntry(ref);
   return {
     t: null, mode: codeDefaults.mode || 'ask', ref, modelId: entry ? entry.model : '',
-    label: entry ? entry.label : (MODEL_LABELS[ref] || 'Default'),
+    label: !codeDefaults.model ? 'Default' : (entry ? entry.label : (MODEL_LABELS[ref] || 'Default')),
     effort: codeDefaults.effort || 'high', ultracode: !!codeDefaults.ultracode, pending: false,
   };
 }
@@ -4253,7 +5193,7 @@ function renderComposer() {
   const s = composerState();
   const mode = JC_MODES.find((m) => m.id === s.mode) || JC_MODES[0];
   if ($('jc-mode-btn').dataset.mode !== mode.id) $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
-  setText($('jc-mode-label'), mode.label);
+  setText($('jc-mode-label'), mode.short || mode.label);  // the pill says just "Bypass"; the menu keeps the full name
   $('jc-mode-btn').dataset.mode = mode.id;
   $('jc-bypass').setAttribute('aria-pressed', String(mode.id === 'auto'));
   $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
@@ -4269,6 +5209,7 @@ function renderComposer() {
   for (const fn of featureComposerRenders) {
     try { fn(s); } catch (err) { console.error('feature composer render', err); }
   }
+  renderGhostSuggestion();
 }
 
 // ── menus: glass, with icons, notes, submenus and the keyboard ──
@@ -4409,7 +5350,7 @@ function setMode(id) {
     if (target !== null) send({ type: 'task_mode', id: target, mode: id });
     else { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); }
   };
-  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go);
+  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go, null, target !== null ? target : 'new');
   else go();
 }
 
@@ -4430,7 +5371,24 @@ $('jc-mode-btn').addEventListener('click', () => { if ($('jc-menu').hidden || $(
 
 // ── model: Claude's, and any added with an API key ──
 
+// One of Eden chat's models with no key for it yet: what it needs, and the one click to it:
+// Eden chat's own key on this Mac when it has one (asked first), else the Add form, open on
+// the right kind of provider and address with the key field ready.
+function needKey(m) {
+  if (m.from_eden_chat && confirm(tr(`${m.label} needs ${m.key_what}. Eden chat on this Mac has one: use the same key in Eden Code too? It stays in this Mac’s Keychain and never reaches a session.`))) {
+    send({ type: 'eden_chat_key_use', group: m.key_group });
+    jcNote(`Adding Eden chat’s key for ${m.label}…`);
+    return;
+  }
+  jcNote(m.reason || `${m.label} needs an API key.`);
+  jcsKind = m.key_kind || jcsKind;
+  openJcSettings('models');
+  $('jcs-url').value = m.key_url || '';
+  $('jcs-key').focus();
+}
 function pickModel(ref) {
+  const want = modelList.find((m) => m.ref === ref);
+  if (want && want.needs_key) { needKey(want); return; }
   const s = composerState();
   for (const c of featureModelChoices) {
     try { if (c.picked) c.picked(ref, s); } catch (err) { console.error('feature model choice', err); }
@@ -4439,20 +5397,45 @@ function pickModel(ref) {
   else { codeDefaults.model = ref; send({ type: 'code_defaults', code_model: ref }); renderComposer(); }
 }
 
+// Models on this Mac (Ollama, LM Studio: features/local_models.py): the added ones and the
+// ones found running but not added yet, under one heading, each with its size and context
+// (features/code-lean.js's edenLocalNote). Looked for when Eden Code opens and again when
+// the menu opens (at most every 20 s: it asks only this Mac's usual ports).
+let localScanned = 0;
+function lookForLocalModels() { localScanned = Date.now(); send({ type: 'local_models_scan' }); }
+function localNote(m) { return typeof window.edenLocalNote === 'function' ? window.edenLocalNote(m) : (m.server || m.provider_name || ''); }
+function useLocalModel(m) {
+  jcNote(`Adding ${m.label} from ${m.server || 'this Mac'}…`);
+  send({ type: 'local_models_use', port: m.port, model: m.model });
+}
 function modelMenu() {
+  if (inEdenCode && Date.now() - localScanned > 20000) lookForLocalModels();
   const s = composerState();
-  const builtins = modelList.filter((m) => m.builtin);
-  const mine = modelList.filter((m) => !m.builtin);
-  const claude = builtins.length ? builtins : [['opus', 'claude-opus-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['haiku', 'claude-haiku-4-5'], ['fable', 'claude-fable-5-1']].map(([ref, model]) => ({ ref, model, label: MODEL_LABELS[model] }));
+  const eden = modelList.some((m) => m.eden) ? modelList.filter((m) => m.eden)
+    : [['opus', 'claude-opus-5-5', 'Claude Opus 5.5'], ['sonnet', 'claude-sonnet-5-5', 'Claude Sonnet 5.5']].map(([ref, model, label]) => ({ ref, model, label, builtin: true, group: 'Anthropic Claude' }));
+  const mine = modelList.filter((m) => !m.eden && !m.builtin && !m.local);
+  const onMac = [...modelList.filter((m) => m.local && !m.eden), ...(providerInfo.on_this_mac || [])];
   const extra = [];
   let routed = false;
   for (const c of featureModelChoices) {
     try { extra.push(...(c.items(s) || [])); routed = routed || !!(c.active && c.active(s)); } catch (err) { console.error('feature model choice', err); }
   }
+  // Eden chat's menu, heading by heading (its provider names); a model with no key yet is
+  // listed all the same, saying so, and picking it says what to add.
+  const groups = [];
+  for (const m of eden) {
+    if (!groups.length || groups[groups.length - 1].heading !== m.group) groups.push({ heading: m.group, list: [] });
+    groups[groups.length - 1].list.push(m);
+  }
   openMenu($('jc-model'), [
     ...extra,
-    { heading: 'Claude' },
-    ...claude.map((m) => ({ label: m.label, checked: !routed && (s.ref === m.ref || s.modelId === m.model), run: () => pickModel(m.ref) })),
+    ...groups.flatMap((g) => [{ heading: g.heading }, ...g.list.map((m) => ({
+      label: m.label,
+      note: m.needs_key ? `Needs ${m.key_what || 'an API key'}${m.from_eden_chat ? ': use Eden chat’s' : ': add it'}` : '',
+      checked: !routed && !m.needs_key && (s.ref === m.ref || (m.builtin && s.modelId === m.model)),
+      run: () => pickModel(m.ref),
+    }))]),
+    ...(onMac.length ? [{ heading: 'On this Mac' }, ...onMac.map((m) => ({ label: m.label, note: localNote(m), checked: !routed && !m.needs_add && s.ref === m.ref, run: () => (m.needs_add ? useLocalModel(m) : pickModel(m.ref)) }))] : []),
     ...(mine.length ? [{ heading: 'Your models' }, ...mine.map((m) => ({ label: m.label, note: m.provider_name, checked: !routed && s.ref === m.ref, run: () => pickModel(m.ref) }))] : []),
     '-',
     { icon: 'key', label: mine.length ? 'Models & API keys…' : 'Add a model with an API key…', run: () => openJcSettings('models') },
@@ -4599,7 +5582,7 @@ $('ep-range').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.pr
 // ── + : files, folders, slash commands, connectors, plugins ──
 
 async function pickFolderPath(question) {
-  if (inSplitPane) { try { return await window.parent.jarvisFeatures.pickFolder(question); } catch (_) { /* its own way */ } }  // the app's picker
+  if (inSplitPane) { try { return await window.parent.edenCodeFeatures.pickFolder(question); } catch (_) { /* its own way */ } }  // the app's picker
   if (app && app.pickFolder) return app.pickFolder();
   const typed = prompt(tr(question));
   return typed ? typed.trim() : null;
@@ -4711,7 +5694,7 @@ function selectJcsTab(tab) {
 // A Gemini key's full model list comes with a check: run once when the Models tab first
 // shows it, so every model on the key is there to add without pressing Check key.
 function checkGeminiOnce() {
-  if ($('jc-settings').hidden || $('jcs-models').hidden) return;
+  if (($('jc-settings').hidden && $('settings').hidden) || $('jcs-models').hidden) return;
   for (const p of providerInfo.providers) {
     if (p.kind !== 'gemini' || providerChecks[p.id]) continue;
     providerChecks[p.id] = { busy: true };
@@ -4721,6 +5704,19 @@ function checkGeminiOnce() {
 function openJcSettings(tab = 'general') {
   closeMenu();
   closeEffort();
+  if (window.edenCodeSettingsNav) {
+    $('jc-settings').hidden = true;
+    if ($('settings').hidden) toggleSettings(true);
+    window.edenCodeSettingsNav.choose('code');
+    selectJcsTab(tab);
+    renderJcGeneral();
+    renderProviders();
+    send({ type: 'providers_list' });
+    const sec = $(`jcs-sec-${tab}`) || $(`jcs-${tab}`);
+    if (sec) sec.scrollIntoView({ block: 'start' });
+    if (tab === 'models' && $('jcs-key')) $('jcs-key').focus();
+    return;
+  }
   $('jc-settings').hidden = false;
   selectJcsTab(tab);
   renderJcGeneral();
@@ -4730,10 +5726,15 @@ function openJcSettings(tab = 'general') {
 }
 function closeJcSettings() {
   $('jc-settings').hidden = true;
+  if (!$('settings').hidden && window.edenCodeSettingsNav) toggleSettings(false);
   $('jcs-key').value = '';  // a key never lingers in the window
   $('deck-input').focus();
 }
 $('jcs-close').addEventListener('click', closeJcSettings);
+// In Eden Code's own window the gear and ⌘, open this sheet, so the shared one (the account,
+// Tools & Accounts, Health & safety) is a line away from it.
+$('jcs-more-row').hidden = true;
+$('jcs-more').addEventListener('click', () => { $('jc-settings').hidden = true; $('jcs-key').value = ''; toggleSettings(true); });
 $('jc-settings').addEventListener('mousedown', (e) => { if (e.target === $('jc-settings')) closeJcSettings(); });
 document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.addEventListener('click', () => selectJcsTab(b.dataset.tab)));
 
@@ -4745,17 +5746,31 @@ function option(value, label, selected) {
 }
 function renderJcGeneral() {
   const fallback = (prefs && prefs.model) || 'opus';
-  const jarvisModel = modelEntry(fallback);
+  const edenCodeModel = modelEntry(fallback);
   const sel = $('jcs-model');
-  const mine = modelList.filter((m) => !m.builtin);
-  const claude = el('optgroup');
-  claude.label = 'Claude';
-  claude.append(option('', `Same as Eden Secretary (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
-    ...modelList.filter((m) => m.builtin).map((m) => option(m.ref, m.label, codeDefaults.model === m.ref)));
+  const mine = modelList.filter((m) => !m.eden && !m.builtin);
+  const same = edenCodeModel ? edenCodeModel.label : 'default';
+  // Eden chat's models under its headings (one with no key yet shown, not choosable), then
+  // the owner's other models; a default no longer offered (Haiku, Fable) stays as it is.
+  const groups = [];
+  for (const m of modelList.filter((x) => x.eden || x.builtin)) {
+    let g = groups.find((x) => x.label === (m.group || 'Claude'));
+    if (!g) { g = el('optgroup'); g.label = m.group || 'Claude'; groups.push(g); }
+    const o = option(m.ref, m.needs_key ? `${m.label} (needs ${m.key_what || 'an API key'})` : m.label, !m.needs_key && codeDefaults.model === m.ref);
+    if (m.needs_key) o.disabled = true;
+    g.append(o);
+  }
+  const first = el('optgroup');
+  first.label = 'Default';
+  first.append(option('', inEdenCode ? `Eden’s default (${same})` : `Same as Eden Secretary (${same})`, !codeDefaults.model));
+  if (codeDefaults.model && !modelList.some((m) => m.ref === codeDefaults.model && !m.needs_key)) {
+    const was = modelEntry(codeDefaults.model);
+    first.append(option(codeDefaults.model, `${was ? was.label : codeDefaults.model} (no longer offered)`, true));
+  }
   const yours = el('optgroup');
   yours.label = 'Your models';
   yours.append(...mine.map((m) => option(m.ref, `${m.label} · ${m.provider_name}`, codeDefaults.model === m.ref)));
-  sel.replaceChildren(claude, ...(mine.length ? [yours] : []));
+  sel.replaceChildren(first, ...groups, ...(mine.length ? [yours] : []));
   $('jcs-mode').replaceChildren(...JC_MODES.map((m) => option(m.id, m.label, (codeDefaults.mode || 'ask') === m.id)));
   const stop = codeDefaults.ultracode ? 5 : Math.max(0, EFFORTS.indexOf(codeDefaults.effort || 'high'));
   $('jcs-effort').value = String(stop);
@@ -4790,17 +5805,19 @@ $('jcs-queue').addEventListener('click', () => setPrefs({ code_queue: !(prefs &&
 $('jcs-awake').addEventListener('click', () => send({ type: 'awake', on: !awake }));
 
 function onProviders(ev) {
-  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '', fallback_auto: ev.fallback_auto || '' };
+  providerInfo = { kinds: ev.kinds || [], providers: ev.providers || [], models: ev.models || [], limits: ev.limits || {}, advice: ev.advice || '', fallback_auto: ev.fallback_auto || '', on_this_mac: ev.on_this_mac || [] };
   renderFallback();
   $('jcs-advice').textContent = providerInfo.advice;
   $('jcs-advice').hidden = !providerInfo.advice;
-  modelList = providerInfo.models;
+  modelList = ev.picker || providerInfo.models;
+  if (!edenKeysAsked && modelList.some((m) => m.needs_key)) { edenKeysAsked = true; send({ type: 'eden_chat_keys' }); }
+  if (inEdenCode && !localScanned) lookForLocalModels();
   renderComposer();
-  if (!$('jc-settings').hidden) { checkGeminiOnce(); renderProviders(); renderJcGeneral(); }
+  if (!$('jc-settings').hidden || !$('settings').hidden) { checkGeminiOnce(); renderProviders(); renderJcGeneral(); }
 }
 function onProviderCheck(ev) {
   providerChecks[ev.id] = ev;
-  if (!$('jc-settings').hidden) renderProviders();
+  if (!$('jc-settings').hidden || !$('settings').hidden) renderProviders();
 }
 function onProvidersError(ev) {
   $('jcs-help').textContent = ev.text || 'That didn’t work.';
@@ -4852,7 +5869,8 @@ function renderProviders() {
     dl.id = listId;
     const offered = (providerChecks[p.id] && providerChecks[p.id].models) || [];
     const kind = providerInfo.kinds.find((k) => k.id === p.kind);
-    const names = offered.length ? offered.filter((m) => m.tools !== false).map((m) => m.id) : ((kind && kind.suggested) || []);
+    // Before a check lists the provider's own: its suggestions (OpenAI's or Moonshot's address: Eden chat's GPT-6 and Kimi models), else its kind's.
+    const names = offered.length ? offered.filter((m) => m.tools !== false).map((m) => m.id) : (p.suggested || (kind && kind.suggested) || []);
     dl.append(...names.slice(0, 400).map((id) => option(id, id)));
     input.setAttribute('list', listId);
     const go = el('button', 'jc-btn', 'Add model');
@@ -5019,7 +6037,7 @@ function awakeNewSessionFork(t) { awaitingNewSession = true; send({ type: 'task_
 // ── the workbench pane ──
 
 let currentPane = null;
-const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions', audit: 'Activity' };
+const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', browser: 'Browser', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions', audit: 'Activity' };
 const term = { id: null, xterm: null, fit: null, loading: null, observer: null };
 let diffFiles = [];
 let simPanel = null; // the iOS Simulator pane (simulator.js) while it's showing
@@ -5031,14 +6049,16 @@ let mcpAsked = null; // the session an MCP question is out for
 let rules = [];
 
 document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.addEventListener('click', () => {
+  // The globe: Eden Code's Browser pane (features/code-browser.js); beside Eden Secretary, its dock.
+  if (b.dataset.pane === 'browser' && !inEdenCode) { if (typeof toggleBrowser === 'function') toggleBrowser(true); return; }
   if (currentPane === b.dataset.pane) closePane(); else openPane(b.dataset.pane);
 }));
-$('jc-browser').addEventListener('click', () => { if (typeof toggleBrowser === 'function') toggleBrowser(true); });
 $('jc-pane-close').addEventListener('click', closePane);
 
 function openPane(kind) {
   if (currentPane === 'sim' && kind !== 'sim') closeSimPanel();
   currentPane = kind;
+  $('jc-pane').dataset.kind = kind;  // (a pane's own look and width: code-browser.css)
   $('jc-pane').hidden = false;
   $('jc-pane-title').textContent = PANE_TITLES[kind] || kind;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pane === kind)));
@@ -5055,6 +6075,7 @@ function closePane() {
   if (currentPane === 'sim') closeSimPanel();
   if (currentPane === 'terminal' && term.id) { send({ type: 'term_close', term: term.id }); term.id = null; }
   currentPane = null;
+  delete $('jc-pane').dataset.kind;
   $('jc-pane').hidden = true;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
 }
@@ -5067,7 +6088,7 @@ function renderPaneBody() {
   const featurePane = featurePanes.get(currentPane);
   if (featurePane) return featurePane.render(body, t);
   if (currentPane === 'terminal') return renderTerminal(body);
-  if (currentPane === 'diff') return renderDiffPane(body);
+  // ('diff', Changes, is the code_changes feature's pane, drawn just above.)
   if (currentPane === 'sim') return renderSimPane(body);
   if (currentPane === 'files') return renderFilesPane(body, (projectFiles[deckProject] || []), 'Filter files…');
   if (currentPane === 'artifacts') {
@@ -5133,55 +6154,11 @@ function renderPaneBody() {
   }
 }
 
-// Undo this session's own changes in one file (never another's edits in it): a second
-// click within a few seconds confirms.
-function revertButton(t, path) {
-  const b = el('button', 'jc-mini jc-revert', 'Revert');
-  b.type = 'button';
-  b.title = tr('Undo this session’s own changes in this file');
-  let armed = 0;
-  b.addEventListener('click', (e) => {
-    e.preventDefault();  // (inside the summary: never opens or closes the file)
-    e.stopPropagation();
-    if (!armed) {
-      b.textContent = tr('Click to revert');
-      b.classList.add('armed');
-      armed = setTimeout(() => { armed = 0; b.textContent = tr('Revert'); b.classList.remove('armed'); }, 3500);
-      return;
-    }
-    clearTimeout(armed);
-    armed = 0;
-    send({ type: 'task_revert', id: t.id, path });
-  });
-  return b;
-}
-
-function renderDiffPane(body) {
-  const t = currentTask();
-  if (!t) { body.replaceChildren(el('p', 'jc-empty', 'Open a session to see its changes.')); return; }
-  if (!diffFiles.length) { body.replaceChildren(el('p', 'jc-empty', 'No changes against the last commit.')); return; }
-  const added = diffFiles.reduce((n, f) => n + f.added, 0), removed = diffFiles.reduce((n, f) => n + f.removed, 0);
-  const extra = el('span', 'jc-dim');
-  extra.append(el('span', 'jc-plus', `+${added}`), document.createTextNode(' '), el('span', 'jc-minus', `−${removed}`));
-  $('jc-pane-extra').replaceChildren(extra);
-  body.replaceChildren(...diffFiles.map((f, i) => {
-    const det = el('details', 'jc-card jc-diff-file');
-    det.open = i < 4;
-    const sum = el('summary');
-    sum.append(el('span', '', f.path), el('span', 'jc-spacer'), el('span', 'jc-plus', `+${f.added}`), el('span', 'jc-minus', `−${f.removed}`));
-    if (!f.new) sum.append(revertButton(t, f.path));
-    det.append(sum);
-    const text = f.hunks.map((h) => [`@@ line ${h.line}${h.where ? ` · ${h.where}` : ''}`, ...h.removed.map((l) => `-${l}`), ...h.added.map((l) => `+${l}`)].join('\n')).join('\n');
-    det.append(diffBlock(text));
-    return det;
-  }));
-}
-
 function renderSimPane(body) {
   // Mounted once: renderPaneBody runs again on unrelated changes and mustn't restart the stream.
   if (simPanel && !simPanel.closed && body.contains(simPanel.el)) return;
   closeSimPanel();
-  simPanel = window.JarvisSim.mount(body, { send });
+  simPanel = window.EdenCodeSim.mount(body, { send });
 }
 
 function renderFilesPane(body, files, placeholder) {
@@ -5352,6 +6329,8 @@ function onVoiceCode(focus) {
 }
 
 $('cc-voice-head').addEventListener('click', () => {
+  // Eden Code's own window: the switch is Eden's ears and voice too (code-voice-live.js).
+  if (inEdenCode && window.edenCodeVoice) { window.edenCodeVoice.toggle(); return; }
   if (voiceFocus) send({ type: 'voicecode_exit' });
   else if (ccSelected) send({ type: 'voicecode_enter', id: ccSelected });
   else newSession(true);
@@ -5359,7 +6338,7 @@ $('cc-voice-head').addEventListener('click', () => {
 $('code-exit').addEventListener('click', () => send({ type: 'voicecode_exit' }));
 
 // Events for Eden Code beyond the core ones.
-function onJarvisCodeEvent(ev) {
+function onEdenCodeCodeEvent(ev) {
   switch (ev.type) {
     case 'task_stream': onStream(ev); return true;
     case 'task_entry_meta': onEntryMeta(ev); return true;
@@ -5371,6 +6350,7 @@ function onJarvisCodeEvent(ev) {
     case 'providers': onProviders(ev); return true;
     case 'providers_check': onProviderCheck(ev); return true;
     case 'providers_error': onProvidersError(ev); return true;
+    case 'local_model_ready': if (ev.ref) pickModel(ev.ref); return true;
     case 'slash_list': customSlash[ev.directory] = ev.items || []; if (!$('cc-slash').hidden) renderSuggestions(); return true;
     case 'project_files': projectFiles[ev.directory] = ev.files || []; if (currentPane === 'files' && ev.directory === deckProject) renderPaneBody(); return true;
     case 'file_content': if (fileView && ev.path === fileView.path) { fileView = ev; drawViewer(); } return true;
@@ -5414,7 +6394,6 @@ let noteUntil = 0;
 let researchShown = false;
 let lastResearchPath = '/markets';
 
-function browserOpen() { return browserOpenNow; }
 // '' when none is set (a new install): Markets is then only the markets.
 function researchBaseUrl() { return (prefs && prefs.research_url) || ''; }
 
@@ -5441,7 +6420,7 @@ function pageName(url, title, base = '') {
 function dockWidth() {
   if (document.body.classList.contains('browser-full') || document.body.classList.contains('browser-page-full')) return window.innerWidth;
   let saved = 0;
-  try { saved = Number(localStorage.getItem('jarvis.browserWidth')) || 0; } catch (_) { /* private mode */ }
+  try { saved = Number(localStorage.getItem('eden_code.browserWidth')) || 0; } catch (_) { /* private mode */ }
   const max = Math.max(BD_MIN, window.innerWidth - 420);
   return Math.round(Math.min(max, Math.max(BD_MIN, saved || window.innerWidth * 0.46)));
 }
@@ -5487,6 +6466,13 @@ function watchSlot() {
 
 function toggleBrowser(open) {
   if (!app || !app.browser) return;
+  // Eden Code's window has no dock: the browser is its Browser pane (features/code-browser.js),
+  // for the owner's clicks, a session's browser tools and the Preview's links alike.
+  if (inEdenCode) {
+    if (open && currentPane !== 'browser') openPane('browser');
+    else if (!open && currentPane === 'browser') closePane();
+    return;
+  }
   browserOpenNow = open;
   $('browser').hidden = !open;
   document.body.classList.toggle('browser-open', open);
@@ -5572,6 +6558,7 @@ function renderTabs(list) {
 // The same shortcuts as Chrome, whether the page or Eden Secretary's window has the keyboard (the
 // page's come from the main process as 'browser:shortcut').
 function browserKey(action) {
+  if (inEdenCode) { if (window.edenCodeCodeBrowser) window.edenCodeCodeBrowser.key(action); return; }  // (its Browser pane)
   switch (action) {
     case 'address': $('br-url').focus(); $('br-url').select(); break;
     case 'find': openFind(); break;
@@ -5792,9 +6779,11 @@ function setPageFull(on) {
   setBrowserFull(on || fullBefore);
 }
 
-if (app && app.browser && app.browser.find) {
+if (app && app.browser && app.browser.find) app.browser.onShortcut(browserKey);
+// The dock's own: Eden Code's window has none (its Browser pane, features/code-browser.js,
+// hears the browser itself), so nothing here is drawn or asked for there.
+if (app && app.browser && app.browser.find && !inEdenCode) {
   app.browser.onFound((r) => { $('bd-find-count').textContent = r.matches ? `${r.active} of ${r.matches}` : tr('No matches'); });
-  app.browser.onShortcut(browserKey);
   app.browser.onDownload(onDownload);
   app.browser.onPageFullscreen(setPageFull);
   $('bd-find-input').addEventListener('input', () => { findText = ''; findStep(true); });
@@ -5837,6 +6826,7 @@ if (app && app.browser && app.browser.find) {
 }
 
 function showBrowserError(text) {
+  if (inEdenCode) return;  // (Eden Code's Browser pane says it in the pane: code-browser.js)
   $('br-message-text').textContent = browserState.research || /Research Center/.test(text)
     ? `${text} Start it, or set its address in Settings › Research Center.` : text;
   $('br-message').hidden = false;
@@ -5870,7 +6860,12 @@ const pageTarget = {
 
 async function runBrowserCommand(ev) {
   if (!app || !app.browser) return;
-  $('br-jarvis').hidden = false;
+  // Eden Code's Browser pane watches a session drive it, and holds its commands while the
+  // owner has taken over (features/code-browser.js).
+  const pane = window.edenCodeCodeBrowser;
+  const held = pane ? pane.agentStart(ev) : '';
+  if (held) { send({ type: 'browser_result', id: ev.id, result: { error: held } }); return; }
+  $('br-eden-code').hidden = false;
   const behind = ev.args && (ev.args.background || ev.args.op === 'list'); // work in a tab behind, or a list
   if (!browserOpenNow && !behind && !['read', 'snapshot', 'describe', 'wait', 'console', 'network'].includes(ev.action)) toggleBrowser(true); // looks don't open it
   let result;
@@ -5879,7 +6874,8 @@ async function runBrowserCommand(ev) {
   } catch (err) {
     result = { error: String(err) };
   }
-  $('br-jarvis').hidden = true;
+  $('br-eden-code').hidden = true;
+  if (pane) pane.agentEnd(ev, result);
   send({ type: 'browser_result', id: ev.id, result });
 }
 
@@ -5947,6 +6943,7 @@ if (app && app.browser) {
   }
   app.browser.onState((st) => {
     browserState = st;
+    if (inEdenCode) return;  // (no dock to draw: the Browser pane draws the browser there)
     renderTabs(st.tabs || []);
     if (document.activeElement !== $('br-url')) $('br-url').value = st.url || '';
     $('br-back').disabled = !st.canBack;
@@ -5964,8 +6961,9 @@ if (app && app.browser) {
   });
   app.browser.onOpen(() => { if (!browserOpenNow) toggleBrowser(true); });
   app.browser.onHover((hover) => { pageHover = hover; });
-  app.browser.onNote((note) => { if (note && note.text) showBrowserNote(note.text); });
+  app.browser.onNote((note) => { if (note && note.text && !inEdenCode) showBrowserNote(note.text); });
   app.browser.onEscape(() => {
+    if (inEdenCode) return;  // (the Browser pane hears the page's Esc itself: it leaves full screen, never closes)
     if (document.body.classList.contains('browser-full')) setBrowserFull(false);
     else if (browserState.locked) toggleBrowser(false);
   });
@@ -5987,7 +6985,7 @@ if (app && app.browser) {
     handle.classList.remove('dragging');
     document.body.classList.remove('bd-resizing');
     const w = parseInt(getComputedStyle(document.body).getPropertyValue('--bd-w'), 10);
-    try { if (w) localStorage.setItem('jarvis.browserWidth', String(w)); } catch (_) { /* private mode */ }
+    try { if (w) localStorage.setItem('eden_code.browserWidth', String(w)); } catch (_) { /* private mode */ }
     if ($('br-message').hidden) app.browser.show(slotBounds());
   };
   handle.addEventListener('pointerdown', (e) => {
@@ -6009,7 +7007,7 @@ if (app && app.browser) {
     const w = parseInt(getComputedStyle(document.body).getPropertyValue('--bd-w'), 10) || dockWidth();
     const next = Math.round(Math.min(window.innerWidth - 420, Math.max(BD_MIN, w + (e.key === 'ArrowLeft' ? 40 : -40))));
     applyDockWidth(next);
-    try { localStorage.setItem('jarvis.browserWidth', String(next)); } catch (_) { /* private mode */ }
+    try { localStorage.setItem('eden_code.browserWidth', String(next)); } catch (_) { /* private mode */ }
     syncBrowserBounds();
   });
 }
@@ -6304,13 +7302,13 @@ document.addEventListener('dragover', (e) => {
 });
 document.addEventListener('drop', (e) => {
   document.body.classList.remove('drop-pictures');
-  if (!dragsFiles(e) || (e.target.closest && e.target.closest('#deck-composer'))) return;  // the composer attaches its own
+  if (e.defaultPrevented || !dragsFiles(e) || (e.target.closest && e.target.closest('#deck-composer, #cc .jc-main'))) return;  // the composer attaches its own
   e.preventDefault();  // never open a dropped file in place of the window
   const files = [...e.dataTransfer.files];
   addPictures(files.filter(isPicture));
   const file = files.find(isMedia);
   if (!file) return;
-  const path = window.jarvisApp && window.jarvisApp.pathFor ? window.jarvisApp.pathFor(file) : '';
+  const path = window.edenCodeApp && window.edenCodeApp.pathFor ? window.edenCodeApp.pathFor(file) : '';
   if (!path) { notice('Video', '', 'Drop the file from Finder.', 5000); return; }
   send({ type: 'video_summarize', path });
 });
@@ -6362,7 +7360,7 @@ function addPictures(files) {
 }
 
 async function addAskPicture(file) {
-  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Eden Secretary', '', 'Up to six pictures per request.', 5000); return; }
+  if (askPics.length + picsReading.size >= window.EdenCodeAttach.LIMITS.files) { notice('Eden Secretary', '', 'Up to six pictures per request.', 5000); return; }
   const slot = { kind: 'image', size: 0 };
   const order = picsOrder++;
   picsReading.add(slot);
@@ -6371,7 +7369,7 @@ async function addAskPicture(file) {
     if (!fitted) { notice('Eden Secretary', '', `${file.name} isn’t a picture Eden Secretary can read.`, 5000); return; }
     slot.size = fitted.size;
     const held = [...askPics].map((p) => ({ kind: 'image', size: p.size }));
-    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Eden Secretary', '', `${file.name} would make this request too big to send.`, 5000); return; }
+    if (window.EdenCodeAttach.check(held, 'image', fitted.size)) { notice('Eden Secretary', '', `${file.name} would make this request too big to send.`, 5000); return; }
     const url = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -6480,7 +7478,7 @@ function onVideoSummary(ev) {
 
 // What the user, Claude or their data says stays as it is; the window's own words are
 // translated around it (i18n.js skips anything inside data-no-i18n).
-function tr(text) { return window.jarvisI18n ? window.jarvisI18n.t(text) : text; }
+function tr(text) { return window.edenCodeI18n ? window.edenCodeI18n.t(text) : text; }
 
 // A time as the lists show it. Intl formatters are costly to make (toLocaleTimeString makes
 // one per call): one per language and style, kept.
@@ -6508,7 +7506,7 @@ function changed(part, data, more) {
   drawnParts.set(part, sig);
   return true;
 }
-function uiLocale() { return window.jarvisI18n && window.jarvisI18n.lang() === 'zh' ? 'zh-CN' : undefined; }
+function uiLocale() { return window.edenCodeI18n && window.edenCodeI18n.lang() === 'zh' ? 'zh-CN' : undefined; }
 
 function mine(node) {
   node.setAttribute('data-no-i18n', '');
@@ -6610,7 +7608,7 @@ function onAlert(ev) {
   }
   if (document.hidden || !document.hasFocus()) {
     // A feature can raise it instead (the app's shell: clicking it opens Eden Secretary on this card).
-    const taken = !window.dispatchEvent(new CustomEvent('jarvis-notify', { cancelable: true, detail: ev }));
+    const taken = !window.dispatchEvent(new CustomEvent('eden-code-notify', { cancelable: true, detail: ev }));
     if (!taken) {
       try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
     }

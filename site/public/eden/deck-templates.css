@@ -1,0 +1,46 @@
+/* Eden Slides templates gallery (deck-templates.js, web only). Loaded by that module on first open. */
+/* margin:auto: app.css's *{margin:0} reset would pin a modal <dialog> to the top-left corner */
+.dtpl{margin:auto;border:0;border-radius:18px;padding:0;width:min(1240px,calc(100vw - 32px));max-height:min(820px,calc(100dvh - 32px));display:flex;flex-direction:column;color:var(--text);background:var(--content);box-shadow:var(--sh2,0 20px 60px rgba(0,0,0,.25)),inset 0 0 0 .5px var(--hairline);overflow:hidden}
+.dtpl:not([open]){display:none}
+.dtpl::backdrop{background:rgba(0,0,0,.32)}
+.dtpl-head{display:flex;align-items:center;gap:8px;padding:14px 16px 6px}
+.dtpl-head h2{flex:1;margin:0;font-size:18px;font-weight:650}
+.dtpl-x{width:40px;height:40px;border-radius:12px;border:1px solid var(--hairline);background:var(--content);color:var(--text);font:inherit;font-size:20px;line-height:1;cursor:pointer}
+.dtpl-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:4px 16px 16px;display:flex;flex-direction:column;gap:10px}
+.dtpl-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.dtpl-tabs,.dtpl-cats{display:flex;gap:6px;flex-wrap:wrap}
+.dtpl-cats[hidden]{display:none}
+.dtpl-tab,.dtpl-cat{min-height:40px;padding:8px 14px;border-radius:14px;border:1px solid var(--hairline);background:var(--content);color:var(--text);font:inherit;font-size:13px;cursor:pointer}
+.dtpl-cat{min-height:32px;padding:5px 12px;font-size:12px}
+.dtpl-tab[aria-pressed="true"],.dtpl-cat[aria-pressed="true"]{border-color:var(--accent);background:var(--content2);font-weight:600}
+.dtpl-lang-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);white-space:nowrap}
+.dtpl-lang{width:auto;max-width:160px;flex:none;min-height:40px;padding:8px 10px;border-radius:12px;border:1px solid var(--hairline);background:var(--content2);color:var(--text);font:inherit;font-size:13px}
+.dtpl-lang:focus-visible,.dtpl-search:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dtpl-search{flex:1;min-width:160px;min-height:40px;box-sizing:border-box;padding:8px 12px;border-radius:12px;border:1px solid var(--hairline);background:var(--content2);color:var(--text);font:inherit;font-size:13px}
+.dtpl-count,.dtpl-hint,.dtpl-note{margin:0;font-size:12px;color:var(--text2);line-height:1.4}
+.dtpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.dtpl-styles .dtpl-cat{display:inline-flex;align-items:center;gap:6px}
+.dtpl-sw{display:inline-grid;place-items:center;width:26px;height:18px;border-radius:4px;border:1px solid;border-left-width:4px;font-size:10px;font-weight:700}
+.dtpl-card{width:100%;display:flex;flex-direction:column;gap:4px;text-align:start;padding:8px;border-radius:14px;border:1px solid var(--hairline);background:var(--content);color:var(--text);font:inherit;cursor:pointer;transition:transform .18s cubic-bezier(.32,.72,0,1),border-color .18s ease}
+.dtpl-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.dtpl-card:active{transform:scale(.98)}
+.dtpl-card:focus-visible,.dtpl-tab:focus-visible,.dtpl-cat:focus-visible,.dtpl-x:focus-visible,.dtpl-back:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dtpl-thumb{position:relative;width:100%;aspect-ratio:16/9;border-radius:9px;overflow:hidden;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.dtpl-thumb iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;pointer-events:none}
+.dtpl-name{font-size:13px;font-weight:600;margin-top:4px}
+.dtpl-desc{font-size:12px;color:var(--text2);line-height:1.35}
+.dtpl-meta{font-size:11px;color:var(--text2)}
+.dtpl-back{align-self:flex-start;min-height:40px;padding:8px 12px;border-radius:12px;border:1px solid var(--hairline);background:var(--content);color:var(--text);font:inherit;font-size:13px;cursor:pointer}
+.dtpl-desc-lg{margin:0;font-size:14px;color:var(--text2)}
+.dtpl-strip{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.dtpl-strip li{display:flex;flex-direction:column;gap:4px}
+.dtpl-slide-name{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtpl-acts{display:flex;flex-wrap:wrap;gap:8px}
+.dtpl-acts .cap,.dtpl-fill .cap{min-height:40px}
+.dtpl-fill{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:14px;border:1px solid var(--hairline);background:var(--content2)}
+.dtpl-fill label{font-size:13px;font-weight:600}
+.dtpl-fill-row{display:flex;gap:8px;flex-wrap:wrap}
+.dtpl-topic{flex:1;min-width:180px;min-height:40px;box-sizing:border-box;padding:8px 12px;border-radius:12px;border:1px solid var(--hairline);background:var(--content);color:var(--text);font:inherit;font-size:13px}
+.dtpl-topic[aria-invalid="true"]{border-color:#e5484d}
+@media (max-width:640px){.dtpl{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.dtpl-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.dtpl-strip{grid-template-columns:repeat(2,1fr)}}
+@media (prefers-reduced-motion:reduce){.dtpl-card{transition:none}.dtpl-card:hover,.dtpl-card:active{transform:none}}

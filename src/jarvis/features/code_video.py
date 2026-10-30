@@ -150,7 +150,7 @@ class VideoProof:
         return task
 
     def enabled(self, task: Any) -> bool:
-        return project_default(self.hub, task, PROJECT_VIDEO) is True
+        return False
 
     def server_url(self, task: Any) -> str:
         cv = getattr(self.hub, "code_verify", None)
@@ -160,16 +160,7 @@ class VideoProof:
     # ── what the sessions do ──
 
     def on_task_event(self, kind: str, data: dict[str, Any]) -> None:
-        if kind != "task_finished" or data.get("task_kind") != "code":
-            return
-        if data.get("status") != "done" or not changed_ui(data.get("files")):
-            return
-        task = self.hub.tasks.tasks.get(data.get("id"))
-        if task is None or task.kind != "code" or not self.enabled(task):
-            return
-        if not self.server_url(task):
-            return  # nothing to record (the Preview check says so, when it's on)
-        self.spawn(self.record(task))
+        return  # Video proof is only recorded when explicitly requested by the user (vp_record)
 
     # ── the recording ──
 

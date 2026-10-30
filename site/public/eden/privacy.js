@@ -131,9 +131,16 @@ export function paint() {
   btn.setAttribute('aria-pressed', String(on));
   btn.classList.toggle('on', on);
   const phone = onPhone();
-  btn.title = on ? (phone ? ph('Private: this chat stays on this iPhone. Tap to turn privacy off.') : 'Private: this chat stays on your Mac. Click to turn privacy off.')
-    : (phone ? ph('Privacy mode: keep this chat on this iPhone') : 'Privacy mode: keep this chat on your Mac');
-  btn.setAttribute('aria-label', on ? (phone ? ph('Privacy mode on: this chat stays on this iPhone') : 'Privacy mode on: this chat stays on your Mac') : 'Turn on privacy mode for this chat');
+  const cur = chosenModel();
+  const isBridge = cur && cur.server === 'deepinfra';
+  const onTitle = isBridge
+    ? 'Private: zero-retention cloud bridge. Click to turn privacy off.'
+    : (phone ? ph('Private: this chat stays on this iPhone. Tap to turn privacy off.') : 'Private: this chat stays on your Mac. Click to turn privacy off.');
+  const onLabel = isBridge
+    ? 'Privacy mode on: zero-retention cloud bridge'
+    : (phone ? ph('Privacy mode on: this chat stays on this iPhone') : 'Privacy mode on: this chat stays on your Mac');
+  btn.title = on ? onTitle : (phone ? ph('Privacy mode: keep this chat on this iPhone') : 'Privacy mode: keep this chat on your Mac');
+  btn.setAttribute('aria-label', on ? onLabel : 'Turn on privacy mode for this chat');
   paintBar();
 }
 
@@ -141,13 +148,22 @@ function modelPicker(s) {
   const models = s.models || [];
   const cur = chosenModel();
   if (models.length < 2) return el('b', '', cur ? cur.id : '');
-  const sel = el('select', { 'aria-label': 'Local model for private chats' });
+  const sel = el('select', { 'aria-label': 'Model for private chats' });
+  const localGroup = el('optgroup', { label: 'On this Mac (100% Local GPU)' });
+  const bridgeGroup = el('optgroup', { label: 'Cloud Bridge (Zero-Retention)' });
+
   for (const m of models) {
+    const isBridge = m.server === 'deepinfra';
     const o = el('option', { value: m.id }, `${m.id} · ${m.serverName}`);
     if (cur && m.id === cur.id) o.selected = true;
-    sel.append(o);
+    (isBridge ? bridgeGroup : localGroup).append(o);
   }
-  sel.addEventListener('change', () => { state.settings.localModel = sel.value; saveSettings(); });
+  if (localGroup.children.length) sel.append(localGroup);
+  if (bridgeGroup.children.length) sel.append(bridgeGroup);
+
+  if (models.length >= 2) {
+    sel.addEventListener('change', () => { state.settings.localModel = sel.value; saveSettings(); paint(); });
+  }
   return sel;
 }
 
@@ -162,8 +178,11 @@ function paintBar() {
     if (s.available && s.onDevice) {
       bar.replaceChildren(ico('lock', 13), el('span', 'pb-t', ph('Private · answered on this iPhone by Apple’s on-device model')));
     } else if (s.available) {
-      const one = (s.models || []).length < 2 && chosenModel();
-      bar.replaceChildren(...[ico('lock', 13), el('span', 'pb-t', `Private · answered on ${hosted() ? 'your' : 'this'} Mac by `), modelPicker(s), one ? el('span', 'pb-sub', ` in ${one.serverName}`) : null].filter(Boolean));
+      const cur = chosenModel();
+      const one = (s.models || []).length < 2 && cur;
+      const isBridge = cur && cur.server === 'deepinfra';
+      const prefix = isBridge ? 'Private · answered via Zero-Retention bridge by ' : `Private · answered on ${hosted() ? 'your' : 'this'} Mac by `;
+      bar.replaceChildren(...[ico('lock', 13), el('span', 'pb-t', prefix), modelPicker(s), one ? el('span', 'pb-sub', ` in ${one.serverName}`) : null].filter(Boolean));
     } else {
       bar.className = 'privacy-bar on warn';
       // (replaceChildren would turn a null into the text "null")
@@ -204,7 +223,7 @@ export function privacySettings() {
   const servers = (s.servers || []).map((v) => `${v.name}: ${v.available ? v.models.join(', ') : v.reason}`);
   const status = s.available ? servers.filter((x, i) => s.servers[i].available).join(' · ') : (s.reason || NO_LOCAL_MODEL);
   const modelRow = el('div', 'prov',
-    el('div', 'grow', el('div', 'p-n', 'Local models'), el('div', `p-c${s.available ? ' ok' : ''}`, status),
+    el('div', 'grow', el('div', 'p-n', 'Private models'), el('div', `p-c${s.available ? ' ok' : ''}`, status),
       s.refused && s.refused.length ? el('div', 'p-c', `Ignored (not on this Mac): ${s.refused.join('; ')}`) : null),
     s.available && (s.models || []).length > 1 ? modelPicker(s) : null,
     el('button', { type: 'button', class: 'cap', onclick: async () => { await checkLocal(); redraw(); } }, 'Check again'));
@@ -219,7 +238,7 @@ export function privacySettings() {
       modelRow),
     el('p', 'sp-note', hosted()
       ? 'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (Eden’s Settings on the Mac › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.'
-      : 'Privacy mode uses a model running on this Mac: install Ollama (ollama.com) or LM Studio, load a model, and keep it running. Web search is off in private chats. Each reply shows where it was computed.'));
+      : 'Privacy mode uses a local model running on this Mac (Ollama or LM Studio, 100% offline) or an optional zero-retention cloud bridge for larger open-weight models. Web search is off in private chats. Each reply shows where it was computed.'));
   return sec;
 }
 

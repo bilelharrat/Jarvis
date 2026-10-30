@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/static/stark-glass.css">
 <link rel="stylesheet" href="/static/obsidian.css">
 <link rel="stylesheet" href="/static/eden-code.css">
+<link rel="stylesheet" href="/static/eden-code-glass.css">
 </head>
 <body data-state="idle" data-look="orb">
 <canvas id="galaxy-canvas" class="galaxy-canvas" aria-hidden="true"></canvas>
@@ -512,6 +513,9 @@
       </div>
       <span id="br-jarvis" class="br-jarvis" hidden>Eden Secretary is browsing</span>
       <span id="br-zoom" class="bd-zoom" hidden></span>
+      <button type="button" class="bd-icon" id="br-pick" aria-pressed="false" aria-label="Select element" title="Select element on page"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4.5M2.5 2.5v4.5M13.5 2.5H9M13.5 2.5v4.5M2.5 13.5h4.5M2.5 13.5V9"/><path d="M7.5 7.5l6 2.2-2.6 1.2-1.2 2.6z"/></svg></button>
+      <button type="button" class="bd-icon" id="br-shot" aria-label="Take screenshot and attach to chat" title="Screenshot to chat"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.2A1.5 1.5 0 013.5 3.7h1.4l1-1.4h4.2l1 1.4h1.4A1.5 1.5 0 0114 5.2v6.8a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12V5.2z"/><circle cx="8" cy="8.5" r="2.3"/></svg></button>
+      <button type="button" class="bd-icon" id="br-console" aria-pressed="false" aria-label="Developer console" title="Console & network logs"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.2 5L2 8l3.2 3M10.8 5L14 8l-3.2 3M9 3.5l-2 9"/></svg></button>
       <button type="button" class="bd-icon" id="br-library" aria-pressed="false" aria-label="Bookmarks" title="Bookmarks"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2.5h7.5a2 2 0 012 2v9H5a2 2 0 01-2-2z"/><path d="M3 11.5a2 2 0 012-2h7.5"/></svg></button>
       <button type="button" class="bd-icon" id="br-history" aria-pressed="false" aria-label="History" title="History (⌘Y)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.7 8.6A5.4 5.4 0 104.2 4.2"/><path d="M2.3 2.4v2.8h2.8"/><path d="M8 5.2V8l2 1.3"/></svg></button>
       <button type="button" class="bd-icon" id="br-research" aria-label="Open the BSH Research Center" title="BSH Research Center"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 15.5l4.2-6.4 2.4 3.3 3.3-6.9L18 15.5z"/></svg></button>
@@ -557,6 +561,19 @@
         <li><i aria-hidden="true">✊</i><b>Close</b></li>
       </ol>
     </div>
+    <div id="br-devbar" class="br-devbar" hidden>
+      <span class="br-devbar-dot" aria-hidden="true"></span>
+      <span id="br-devbar-text" class="br-devbar-text">Dev server isn't running.</span>
+      <button type="button" id="br-devbar-btn" class="br-devbar-btn">Start</button>
+    </div>
+    <div id="br-console-drawer" class="br-console-drawer" hidden>
+      <div class="br-console-head">
+        <strong>Console &amp; Network</strong>
+        <button type="button" class="bd-find-done" id="br-console-send" title="Send console errors to Eden Code">Send errors to chat</button>
+        <button type="button" class="bd-icon" id="br-console-close" aria-label="Close console"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+      <pre id="br-console-log" class="br-console-log">No console errors or failed requests.</pre>
+    </div>
   </div>
 </section>
 
@@ -577,7 +594,11 @@
       </button>
     </div>
     <label for="deck-filter" class="sr-only">Search projects</label>
-    <input id="deck-filter" class="jc-field" placeholder="Search projects" autocomplete="off">
+    <div class="jc-side-search" id="jc-side-search" role="search" title="Search conversations, projects and commands (⌘K)">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <input id="deck-filter" class="jc-field" placeholder="Search" autocomplete="off">
+      <kbd id="jc-search-kbd">⌘K</kbd>
+    </div>
     <div class="jc-projects-wrap">
       <div class="jc-glider" id="jc-glider" aria-hidden="true"></div>
       <ul id="deck-project-list" class="jc-projects"></ul>
@@ -604,6 +625,7 @@
         <button type="button" class="jc-tool" data-pane="diff" title="Changes" aria-label="Changes"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="M10 6.5v5M7.5 9h5M7.5 14h5"/></svg></button>
         <button type="button" class="jc-tool" id="jc-browser" title="Browser" aria-label="Browser"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2 2 2.8 4.4 2.8 7S12 15 10 17c-2-2-2.8-4.4-2.8-7S8 5 10 3z"/></svg></button>
         <button type="button" class="jc-tool" data-pane="sim" title="iOS Simulator" aria-label="iOS Simulator"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="2.5" width="9" height="15" rx="2.2"/><path d="M8.8 15h2.4"/></svg></button>
+        <button type="button" class="jc-tool" id="jc-split" title="Split view" aria-label="Split view"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M10 3.5v13"/></svg></button>
         <button type="button" class="jc-tool jc-bypass" id="jc-bypass" title="Bypass permissions: run anything without asking" aria-label="Bypass permissions" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 11h5l-1 7 7-9h-5z"/></svg></button>
         <button type="button" class="jc-tool" id="jc-more" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4.5" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="15.5" r="1.5"/></svg></button>
       </div>
@@ -745,6 +767,38 @@
           <p class="jcs-help" id="jcs-help"></p>
           <div class="jcs-actions"><button type="submit" class="jc-btn filled" id="jcs-add-btn">Add provider</button></div>
         </form>
+      </div>
+    </div>
+  </div>
+  <div id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
+    <div class="pal-box glass">
+      <div class="pal-in">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input id="palInput" placeholder="Search files, symbols, code, chats or actions… (@files, #symbols, ?grep, >commands)" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list">
+        <span>esc</span>
+      </div>
+      <div class="pal-tabs">
+        <button type="button" class="pal-tab active" data-pal-filter="all">All</button>
+        <button type="button" class="pal-tab" data-pal-filter="files">@ Files</button>
+        <button type="button" class="pal-tab" data-pal-filter="symbols"># Symbols</button>
+        <button type="button" class="pal-tab" data-pal-filter="code">? Code (Grep)</button>
+        <button type="button" class="pal-tab" data-pal-filter="chats">Chats</button>
+        <button type="button" class="pal-tab" data-pal-filter="actions">&gt; Actions</button>
+      </div>
+      <div id="palList" role="listbox" aria-label="Results"></div>
+      <div class="pal-foot">
+        <div class="pal-tips">
+          <span>↑↓ navigate</span>
+          <span>↵ select</span>
+          <span>⌥↵ mention in chat</span>
+          <span>esc close</span>
+        </div>
+        <div class="pal-modes">
+          <span>@files</span>
+          <span>#symbols</span>
+          <span>?grep</span>
+          <span>&gt;actions</span>
+        </div>
       </div>
     </div>
   </div>

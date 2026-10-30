@@ -1,0 +1,167 @@
+/* Eden motion layer (Apple style). Spec: research_notes/travel/customers-and-motion-2026-10-28.md §2, DESIGN.md §7.
+   - Tokens on :root are harmless everywhere.
+   - EVERY behaviour rule is scoped under html.eden-motion, which the app sets only outside the Eden iPhone app
+     (it is in App Review and must look unchanged).
+   - Movement (scale/translate) sits inside (prefers-reduced-motion: no-preference); with reduced motion only plain
+     fades are left, and the tokens drop to 0 ms (app.css also cuts every transition to .01ms there).
+   - We use the individual `scale` / `translate` properties, never `transform`, so nothing here clobbers the
+     transforms the app already uses (the toast's centring, hover lifts, :active presses).
+   - Rules that only ADD a transition use :where() (zero specificity), so a component's own transition still wins. */
+
+/* ---------- 1. Tokens (spec §2.3, verbatim) ---------- */
+:root{
+  --ease-smooth: cubic-bezier(.32,.72,0,1);   /* = --spring; no overshoot: sheets, panels */
+  --ease-snappy: cubic-bezier(.2,.9,.25,1);    /* what the hand touches: press, chips, menus */
+  --ease-bouncy: cubic-bezier(.34,1.32,.64,1); /* rare success moments only */
+  --ease-exit:   cubic-bezier(.4,0,.9,.4);     /* leaving: accelerate away, short */
+  --dur-1: 120ms;  /* press, colour, focus */
+  --dur-2: 220ms;  /* hover lift, chips, small fades, exits */
+  --dur-3: 360ms;  /* cards, list items, backdrops */
+  --dur-4: 520ms;  /* sheets, the Ask Eden panel */
+  --stagger: 35ms;
+}
+@supports (transition-timing-function: linear(0, 1)){
+  :root{
+    --ease-smooth: linear(0, .05, .16, .289, .416, .531, .63, .711, .777, .829, .87, .902, .926, .945, .959,
+      .97, .978, .983, .988, .991, .993, .995, .996, .997, 1);
+    --ease-snappy: linear(0, .048, .157, .292, .43, .556, .666, .757, .829, .884, .925, .955, .975, .989,
+      .997, 1.003, 1.005, 1.006, 1.006, 1.006, 1.005, 1.004, 1.003, 1.002, 1);
+    --ease-bouncy: linear(0, .061, .201, .373, .544, .695, .817, .909, .973, 1.014, 1.036, 1.045, 1.045,
+      1.04, 1.033, 1.025, 1.017, 1.011, 1.006, 1.003, 1, .999, .998, .998, 1);
+  }
+}
+@media (prefers-reduced-motion: reduce){
+  :root{ --dur-1:0ms; --dur-2:0ms; --dur-3:0ms; --dur-4:0ms; --stagger:0ms; }
+}
+
+/* ---------- 2. Press feedback: buttons and clickable cards scale to .98 ---------- */
+/* Buttons (app.css button/.btn/.iconbtn, travel.css .tv-btn, …). Skipped: controls that already press with their
+   own transform (.jc-send, .jc-orb, .jc-steer, .cx-btn, .tb-plus, .mx-new, .mx-chip) and the draggable orbs. */
+:where(html.eden-motion) :where(button, .btn, [role="button"]):where(:not(.jc-send, .jc-orb, .jc-steer, .cx-btn, .tb-plus,
+  .mx-new, .mx-chip, .tut-orb, .talk-orb)){
+  transition: scale var(--dur-1) var(--ease-snappy);
+}
+/* Cards that already have a transition: restate theirs (values from courses/edu/settings/study/travel/app.css)
+   and add scale, so the press eases instead of snapping. */
+html.eden-motion :is(.crs-card, .nb-card, .stu-tile){
+  transition: transform .15s var(--spring), box-shadow .15s ease, opacity .3s, scale var(--dur-1) var(--ease-snappy);
+}
+html.eden-motion :is(.theme-tile, .route-card){
+  transition: transform .22s var(--spring), box-shadow .22s, scale var(--dur-1) var(--ease-snappy);
+}
+html.eden-motion .sugg button{ transition: transform .2s var(--spring), scale var(--dur-1) var(--ease-snappy); }
+html.eden-motion .tv-stop{
+  transition: background .2s, scale var(--dur-1) var(--ease-snappy),
+    translate var(--dur-2) var(--ease-smooth), box-shadow var(--dur-2) var(--ease-smooth);
+}
+
+@media (prefers-reduced-motion: no-preference){
+  :where(html.eden-motion) :where(button, .btn, [role="button"]):not(.jc-send, .jc-orb, .jc-steer, .cx-btn, .tb-plus,
+    .mx-new, .mx-chip, .tut-orb, .talk-orb, :disabled, [aria-disabled="true"]):active,
+  html.eden-motion :is(.crs-card, .nb-card, .stu-tile, .theme-tile, .route-card):active,
+  html.eden-motion .tv-stop:has(> .tv-stop-head:active){   /* the stop's header button is its click target */
+    scale: .98;
+  }
+
+  /* ---------- 3. Hover lift: 2px + shadow, real pointers only ----------
+     Cards that already lift (.crs-card, .nb-card, .theme-tile, .route-card) are left as they are. */
+  @media (hover: hover){
+    html.eden-motion :is(a, button).card{
+      transition: translate var(--dur-2) var(--ease-smooth), box-shadow var(--dur-2) var(--ease-smooth),
+        scale var(--dur-1) var(--ease-snappy);
+    }
+    html.eden-motion :is(a, button).card:hover,
+    html.eden-motion .tv-stop:not(:has(.tv-stop-toggle[aria-expanded="true"])):hover{
+      translate: 0 -2px;
+      box-shadow: var(--sh1);
+    }
+  }
+}
+
+/* ---------- 4. Menus and popovers: scale in from the anchor ----------
+   .jc-menu / #jc-submenu / .jc-effort-pop (app.css, index.html) and the composer's slash list .jc-popover (#cc-slash).
+   They are shown by removing [hidden]; @starting-style gives the entrance. No exit animation: [hidden] is
+   display:none!important and a lingering, clickable menu is worse than a quick close. */
+html.eden-motion :is(.jc-menu, .jc-effort-pop, .jc-popover){
+  transition: opacity var(--dur-2) var(--ease-smooth), scale var(--dur-2) var(--ease-snappy);
+}
+@starting-style{ html.eden-motion :is(.jc-menu, .jc-effort-pop, .jc-popover){ opacity: 0; } }
+@media (prefers-reduced-motion: no-preference){
+  /* anchors in the composer (ids jc-…) sit below their menu; the rest (title bar, sidebar) sit above it */
+  html.eden-motion .jc-menu{ transform-origin: 50% 0; }
+  html.eden-motion :is(.jc-menu[data-anchor^="jc-"], .jc-effort-pop){ transform-origin: 50% 100%; }
+  html.eden-motion .jc-popover{ transform-origin: 24px 100%; }
+  html.eden-motion #jc-submenu{ transform-origin: 0 0; }
+  @starting-style{ html.eden-motion :is(.jc-menu, .jc-effort-pop, .jc-popover){ scale: .96; } }
+}
+
+/* ---------- 5. Dialogs and sheets: rise in, sink out ----------
+   .sheet is the backdrop (display:none → flex via .open, app.css); .sheet-card is the dialog. Its old `palin`
+   keyframe is replaced by transitions so the exit can play too (transition-behavior: allow-discrete keeps the
+   backdrop displayed until the fade ends; pointer-events:none so it never blocks a click while leaving). */
+html.eden-motion .sheet{
+  transition: opacity var(--dur-2) var(--ease-exit), display var(--dur-2) allow-discrete;
+  transition-behavior: allow-discrete;
+}
+html.eden-motion .sheet:not(.open){ opacity: 0; pointer-events: none; }
+html.eden-motion .sheet.open{ opacity: 1; transition: opacity var(--dur-3) var(--ease-smooth), display 0s allow-discrete; }
+@starting-style{ html.eden-motion .sheet.open{ opacity: 0; } }
+html.eden-motion .sheet-card{
+  animation: none;
+  transition: translate var(--dur-2) var(--ease-exit), opacity var(--dur-2) var(--ease-exit);
+}
+html.eden-motion .sheet.open .sheet-card{
+  transition: translate var(--dur-4) var(--ease-smooth), opacity var(--dur-3) var(--ease-smooth);
+}
+html.eden-motion .sheet:not(.open) .sheet-card{ opacity: 0; }
+@starting-style{ html.eden-motion .sheet.open .sheet-card{ opacity: 0; } }
+@media (prefers-reduced-motion: no-preference){
+  html.eden-motion .sheet:not(.open) .sheet-card{ translate: 0 12px; }
+  @starting-style{ html.eden-motion .sheet.open .sheet-card{ translate: 0 24px; } }
+  /* phones: app.css makes it a bottom sheet (≤640px), so it rises from below the screen, without fading */
+  @media (max-width: 640px){
+    html.eden-motion .sheet:not(.open) .sheet-card{ translate: 0 100%; opacity: 1; }
+    @starting-style{ html.eden-motion .sheet.open .sheet-card{ translate: 0 100%; opacity: 1; } }
+  }
+}
+
+/* ---------- 6. The Ask Eden panel (travel.css: body.travel-open #center), wide screens only ----------
+   Slides 24px in from the right when it is shown again (travel-chat-hidden removed). */
+@media (min-width: 1000px) and (prefers-reduced-motion: no-preference){
+  html.eden-motion body.travel-open:not(.travel-chat-hidden) #center{
+    transition: translate var(--dur-4) var(--ease-smooth), opacity var(--dur-3) var(--ease-smooth);
+  }
+  @starting-style{
+    html.eden-motion body.travel-open:not(.travel-chat-hidden) #center{ translate: 24px 0; opacity: 0; }
+  }
+}
+
+/* ---------- 7. Toast: slides up and fades (app.css #toast, which already moves; this tunes the curves) ----------
+   In: snappy rise, smooth fade. Out: short and accelerating. Only transform/opacity, never `all`. */
+html.eden-motion #toast{ transition: transform var(--dur-2) var(--ease-exit), opacity var(--dur-2) var(--ease-exit); }
+html.eden-motion #toast.show{
+  transition: transform var(--dur-3) var(--ease-snappy), opacity var(--dur-2) var(--ease-smooth);
+}
+
+/* ---------- 8. Focus rings ease in ----------
+   app.css draws a 2px accent outline at offset 2px on :focus-visible. A one-shot animation brings it in from a wider,
+   transparent ring, so no resting outline is added (Windows forced colours stays correct). Zero specificity:
+   an element's own animation, or outline:none, wins. */
+:where(html.eden-motion) :where(:focus-visible){
+  animation: eden-focus-in var(--dur-2) var(--ease-snappy);
+}
+@keyframes eden-focus-in{ from{ outline-color: transparent; outline-offset: 5px; } }
+
+/* ---------- 9. Composer send button ----------
+   The send ↔ stop icon swap (composer.js toggles .stop; the icons switch display) pops in with a tiny snappy scale. */
+html.eden-motion .jc-send svg{ transition: scale var(--dur-2) var(--ease-snappy), opacity var(--dur-1) var(--ease-smooth); }
+@starting-style{ html.eden-motion .jc-send svg{ opacity: 0; } }
+@media (prefers-reduced-motion: no-preference){
+  @starting-style{ html.eden-motion .jc-send svg{ scale: .6; } }
+}
+
+/* ---------- Not here on purpose ----------
+   - New chat messages: app.js renderTranscript() rebuilds every message with replaceChildren (and .msg.last is
+     re-added each time), so an entrance would replay on every render and during streaming. Needs a one-time class.
+   - Streaming text, timers, the flight redraw, typing dots, badges: they update often and stay still.
+   - Palette, #spacePanel, #chipPop, #costPop, #citePop, .apps-pop already animate in app.css. */

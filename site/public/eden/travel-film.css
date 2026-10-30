@@ -1,0 +1,14 @@
+/* Make a film (travel-film.js): a sheet over Memories with the recording, its progress, then the preview and "Save the film".
+   Eden Glass; nothing moves here by itself (the canvas shows the recording only while it records, never under reduced motion). */
+.tvf-sheet{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.6);outline:none}
+.tvf-card{width:min(760px,100%);max-height:calc(100vh - 32px);overflow:auto;display:flex;flex-direction:column;gap:10px}
+.tvf-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tvf-top h2{margin:0;font:700 22px/1.2 -apple-system,"SF Pro Display",system-ui,sans-serif;color:var(--text)}
+.tvf-top .tv-x{color:var(--text2)}
+.tvf-top .tv-x:hover{background:rgba(120,120,128,.16);color:var(--text)}
+.tvf-body{display:flex;flex-direction:column;gap:10px}
+.tvf-body p{margin:0}
+.tvf-stage canvas,.tvf-video{display:block;width:100%;aspect-ratio:16/9;height:auto;border-radius:14px;background:#0b111b}
+.tvf-bar{width:100%;height:6px;accent-color:var(--accent)}
+.tvf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);pointer-events:none}
+.tvf-hidden .tvf-mapsrc{width:640px}

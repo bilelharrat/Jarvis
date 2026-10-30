@@ -64,6 +64,27 @@ export function evesMock(p, method, body, signal, plan) {
     run.stopped.add(lane);
     return json({ ok: true });
   }
+  if (p === '/api/chat/eves/flag') {
+    const rating = body.rating === 'up' ? 'up' : 'down';
+    const q = String(body.question || '').trim();
+    const ans = String(body.answer || '').trim();
+    if (rating === 'up') {
+      return json({ ok: true, rating: 'up', logged: true, vaultUpdated: true, summary: 'Confirmed accurate and stored in EVES Vault.' });
+    }
+    return sleep(450).then(() =>
+      json({
+        ok: true,
+        rating: 'down',
+        logged: true,
+        repaired: true,
+        vaultUpdated: true,
+        counterClaim: `The earlier answer for “${q.slice(0, 60) || 'this question'}” contained an unverified claim.`,
+        fixedAnswer: `${ans ? ans.replace(/\b1887\b/g, '1889') : 'Corrected answer.'}\n\n*Verified & auto-corrected by EVES (Gemini 4 Argon + web search): cross-checked against primary reference sources and updated in the EVES Vault.*`,
+        citations: [{ title: 'EVES Verified Reference Source', url: 'https://en.wikipedia.org/wiki/Main_Page' }],
+        summary: 'Verified against web sources with Gemini 4 Argon, repaired automatically, and saved to the EVES Vault.',
+      }),
+    );
+  }
   if (p !== '/api/chat/eves') return json({ error: 'Not found' }, 404);
 
   const q = lastUser(body);
@@ -87,6 +108,33 @@ export function evesMock(p, method, body, signal, plan) {
         independence: new Set(lanes.map((l) => l.provider)).size >= 3 ? 'full' : 'partial', independenceNote: null,
         estimate: { totalUSD: lanes.reduce((n, l) => n + l.costUSD, 0) + synthesis.costUSD + 0.01, typicalUSD: lanes.reduce((n, l) => n + l.costUSD, 0), latencyS: 14 }, privacy: false, notes: ['Mock: no model is called.'],
       });
+      if (/\b(?:1923|vault)\b/i.test(q)) {
+        const vaultText = 'In **1923** (a presidential transition year), the Presidents of the United States were **Warren G. Harding** (29th President, Republican, served 1921–1923) and **Calvin Coolidge** (30th President, Republican, served 1923–1929).';
+        put('eves_stage', { stage: 'finalizing', detail: 'Verified answer found in the EVES Vault' });
+        put('verdict', {
+          winner: 0,
+          agreement: 'unanimous',
+          claims: [{ id: 'c1', text: vaultText, by: [0, 1, 2], against: [], status: 'agreed', verdict: 'supported' }],
+          corrections: [],
+          skippedJudge: true,
+          summary: '3 models agreed, so the judge wasn’t needed. (Served from the EVES Verified Vault — timeless verified fact.)',
+          judgeCostUSD: 0,
+          totalCostUSD: 0,
+        });
+        put('citations', { lane: 'final', sources: [{ title: 'U.S. National Archives & Census State Records', url: 'https://www.archives.gov/founding-docs' }] });
+        put('text', { lane: 'final', text: vaultText });
+        put('usage', { lane: 'final', inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUSD: 0, notional: false, calls: 0 });
+        put('done', { lane: 'final', finish: 'stop' });
+        put('verification', {
+          label: { kind: 'eves_verified', text: 'Verified by EVES Vault', detail: 'Timeless factual answer verified against primary sources and served from the EVES Immutable Verified Vault.', severity: 'ok' },
+          findings: [],
+          added: { costUSD: 0, latencyMs: 12, calls: 0 },
+        });
+        put('end', {});
+        runs.delete(id);
+        if (!aborted) controller.close();
+        return;
+      }
       put('eves_stage', { stage: 'answering' });
 
       // the three lanes, each at its own pace; a stopped lane ends "aborted", a failing one errors halfway

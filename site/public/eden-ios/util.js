@@ -1,0 +1,367 @@
+// Small DOM and formatting helpers. Everything that puts text on the page goes through
+// textContent (el, text) — never innerHTML with data.
+
+export const $ = (id) => document.getElementById(id);
+export const qs = (sel, root = document) => root.querySelector(sel);
+export const qsa = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+/** el('div', 'cls', 'text') or el('div', { class, title, ... }, ...children) */
+export function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  if (typeof attrs === 'string') { if (attrs) n.className = attrs; }
+  else if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === undefined || v === null || v === false) continue;
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k === 'style' && typeof v === 'object') {
+        // Custom properties (--n, --c) only take through setProperty; Object.assign drops them.
+        for (const [p, x] of Object.entries(v)) {
+          if (x === undefined || x === null) continue;
+          if (p.startsWith('--')) n.style.setProperty(p, String(x));
+          else n.style[p] = x;
+        }
+      }
+      else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
+      else if (k === 'dataset') Object.assign(n.dataset, v);
+      else n.setAttribute(k, v === true ? '' : String(v));
+    }
+  }
+  for (const k of kids.flat()) {
+    if (k === undefined || k === null || k === false) continue;
+    n.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  }
+  return n;
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+export function svgEl(tag, attrs = {}) {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) n.setAttribute(k, String(v));
+  return n;
+}
+/** An Atelier sprite icon: <svg class="ic"><use href="#i-name"/></svg> */
+export function ico(name, size, cls = '') {
+  const s = svgEl('svg', { class: `ic ${cls}`.trim(), 'aria-hidden': 'true' });
+  if (size) { s.style.width = `${size}px`; s.style.height = `${size}px`; }
+  s.append(svgEl('use', { href: `#i-${name}` }));
+  return s;
+}
+
+export function uid(prefix = '') {
+  const a = new Uint8Array(8);
+  crypto.getRandomValues(a);
+  return prefix + [...a].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function fmtCost(n, { notional } = {}) {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—';
+  const v = Number(n);
+  let s;
+  if (v === 0) s = '$0';
+  else if (v < 0.001) s = '<$0.001';
+  else if (v < 0.1) s = `$${v.toFixed(3)}`;
+  else if (v < 100) s = `$${v.toFixed(2)}`;
+  else s = `$${Math.round(v)}`;
+  return notional ? `${s}*` : s;
+}
+/**
+ * The route's confidence as a whole percent. The router sends 0–100 (an integer:
+ * src/router.ts), which the page multiplied by 100 again ("conf. 5600%"); a fraction
+ * (0.82, as the mock sends) is still read as one. null when there's none.
+ */
+export function confidencePct(x) {
+  if (typeof x !== 'number' || !Number.isFinite(x)) return null;
+  const pct = !Number.isInteger(x) && x > 0 && x < 1 ? x * 100 : x;
+  return Math.round(Math.min(100, Math.max(0, pct)));
+}
+export function fmtTokens(n) {
+  if (!n) return '0';
+  if (n >= 1e6) return `${+(n / 1e6).toFixed(n % 1e6 ? 2 : 0)}M`;
+  if (n >= 1e3) return `${+(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k`;
+  return String(n);
+}
+export function sizeText(n) { return n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`; }
+
+export const EFFORT_LABEL = { none: 'no thinking', minimal: 'minimal thinking', low: 'low effort', medium: 'medium effort', high: 'high effort', xhigh: 'extra-high effort', max: 'max effort' };
+export const EFFORT_SHORT = { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+export function effortLabel(e) { return EFFORT_LABEL[e] || (e ? `${e} effort` : ''); }
+
+export function shortModel(name) {
+  return String(name || '').replace(/^Claude /, '').replace(/ \(preview\)$/, '');
+}
+
+/**
+ * `fn` every `ms` while the page is visible, and no timer at all while it's hidden (a background
+ * tab, the app in the background): efficiency pass 2. Returns a stop function.
+ */
+export function whileVisible(fn, ms) {
+  let t = null;
+  const run = () => { if (!document.hidden) fn(); };
+  const sync = () => {
+    if (document.hidden) { clearInterval(t); t = null; } else if (!t) t = setInterval(run, ms);
+  };
+  document.addEventListener('visibilitychange', sync);
+  sync();
+  return () => { clearInterval(t); t = null; document.removeEventListener('visibilitychange', sync); };
+}
+
+/**
+ * Before trying something again that failed (askeden.com didn't answer at startup): a while, longer each try (5 s,
+ * 10 s… a minute at most), or less when the network comes back, the app says it's online again, the page is looked
+ * at again or someone asks (`eden:sync-retry`). Never while the page is hidden. Resolves when it's time.
+ */
+export function retryWait(tries = 0) {
+  return new Promise((resolve) => {
+    let t = null;
+    const done = () => {
+      clearTimeout(t);
+      for (const e of ['online', 'eden:caps', 'eden:sync-retry']) removeEventListener(e, done);
+      document.removeEventListener('visibilitychange', vis);
+      resolve();
+    };
+    const vis = () => { if (!document.hidden) done(); };
+    t = setTimeout(() => { if (!document.hidden) done(); }, Math.min(60_000, 5000 * (tries + 1)));
+    for (const e of ['online', 'eden:caps', 'eden:sync-retry']) addEventListener(e, done);
+    document.addEventListener('visibilitychange', vis);
+  });
+}
+
+/** Says a file loaded after startup (a lazy module, its stylesheet), so page-update.js's deploy check covers it too. */
+export function noteAsset(url) {
+  try { dispatchEvent(new CustomEvent('eden:asset', { detail: String(url) })); } catch { /* no window (tests) */ }
+}
+const sheets = new Map(); // key -> its load promise
+/**
+ * A stylesheet added on first use (once, by `key`), noted for the deploy check. `before`: a selector
+ * for the stylesheet it came before in index.html, so the cascade stays as it was. Resolves when it
+ * has loaded (or failed: the page goes on), so a surface can wait for it before it shows.
+ */
+export function addStylesheet(href, key, before = '') {
+  if (sheets.has(key)) return sheets.get(key);
+  const l = el('link', { rel: 'stylesheet', href });
+  l.dataset.css = key;
+  const p = new Promise((resolve) => { l.addEventListener('load', resolve, { once: true }); l.addEventListener('error', resolve, { once: true }); });
+  const at = before ? document.querySelector(before) : null;
+  if (at) at.before(l); else document.head.append(l);
+  noteAsset(href);
+  sheets.set(key, p);
+  return p;
+}
+
+/**
+ * A module loaded on first use: `load()` runs once (again after a failure). The returned function
+ * gives its promise; a requested load says so in a toast when it fails, a `quiet` one (a preload,
+ * a background job) doesn't. (Was app.js's own; compose-entry.js and calendar-entry.js use it too.)
+ */
+export function lazy(load, assets = []) {
+  let p = null;
+  return ({ quiet = false } = {}) => {
+    // `assets`: the module's own URL(s), noted once loaded (page-update.js's deploy check)
+    p ??= load().then((m) => { for (const a of assets) noteAsset(a); return m; }).catch((e) => { p = null; throw e; });
+    return quiet ? p : p.catch((e) => { toast(`Couldn’t load that part of Eden: ${e.message}`); throw e; });
+  };
+}
+
+let toastT;
+export function toast(msg, action) {
+  const t = $('toast');
+  t.replaceChildren(document.createTextNode(msg));
+  if (action) t.append(el('button', { type: 'button', onclick: () => { t.classList.remove('show'); action.run(); } }, action.label));
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2600);
+}
+
+export const store = {
+  get(key, fallback) {
+    try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+  },
+  del(key) { try { localStorage.removeItem(key); } catch { /* private mode */ } },
+};
+
+export async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied'); return true; }
+  catch {
+    const ta = el('textarea', { style: { position: 'fixed', opacity: '0' } });
+    ta.value = text;
+    document.body.append(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
+    toast(ok ? 'Copied' : 'Couldn’t copy');
+    return ok;
+  }
+}
+
+/** Copy a reply's Markdown as rich text (clean HTML for Gmail/Docs) plus a Markdown-free plain version. */
+export async function copyRich(markdown) {
+  const mod = import('./md-plain.js'); // lazily: tests load util.js on its own
+  const text = mod.then((m) => m.mdToPlain(markdown));
+  try {
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard.write) throw new Error('no rich clipboard');
+    // write() starts inside the click (Safari's rule); the blobs follow as promises
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/plain': text.then((t) => new Blob([t], { type: 'text/plain' })),
+      'text/html': mod.then((m) => new Blob([m.mdToHtml(markdown)], { type: 'text/html' })),
+    })]);
+    toast('Copied');
+    return true;
+  } catch { return copyText(await text); }
+}
+
+export function download(name, text, type = 'text/markdown') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = el('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+export function debounce(fn, ms) {
+  let t;
+  const d = (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  d.cancel = () => clearTimeout(t);
+  return d;
+}
+
+export function relDay(ts) {
+  const d = new Date(ts), now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (ts >= start) return 'Today';
+  if (ts >= start - 864e5) return 'Yesterday';
+  if (ts >= start - 7 * 864e5) return 'Previous 7 days';
+  return d.getFullYear() === now.getFullYear() ? 'Earlier' : String(d.getFullYear());
+}
+
+export const isMobile = () => matchMedia('(max-width:640px)').matches;
+/** A touch screen (no hover, or a finger as the main pointer): keyboard hints mean nothing there.
+ *  Not while Eden's iPad app has a hardware keyboard attached (the app marks the page .eden-kbd). */
+// Eden Mail on its own (askeden.com/mail, from askedenmail.com): only Mail, full window, no chat around it (panels.js, mail.css).
+// ?mock=1&mailonly=1 shows the same on the sample data.
+export const MAIL_ONLY = typeof location !== 'undefined' && (location.pathname === '/mail' || (/[?&]mock=1\b/.test(location.search) && /[?&]mailonly=1\b/.test(location.search)));
+if (MAIL_ONLY && typeof document !== 'undefined') document.documentElement.classList.add('mail-only');
+export const isTouch = () => !(typeof document !== 'undefined' && document.documentElement.classList.contains('eden-kbd'))
+  && matchMedia('(hover:none), (pointer:coarse)').matches;
+const KEY_HINT = /\s*\((?:[^()]*?(?:[⌘⇧⌥⇥⏎↵]|\bEsc\b))[^()]*\)|\s*·?\s*\bEsc stops\b/g;
+/** Text without its keyboard hints ("(⇧Tab)", "(⌘⇧I)", "Esc stops") on a touch screen; unchanged elsewhere. */
+export function noKeys(text, touch = isTouch()) {
+  return touch ? String(text).replace(KEY_HINT, '').replace(/\s+([.,;:])/g, '$1') : text;
+}
+export const isNarrow = () => matchMedia('(max-width:1100px)').matches;
+
+/** Position a fixed popup next to an anchor (Eden Code's placePopup). */
+export function placePopup(pop, anchor, side) {
+  const r = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left, top;
+  if (side === 'right') {
+    left = r.right + 4 + w > window.innerWidth - 8 ? r.left - w - 4 : r.right + 4;
+    top = Math.min(window.innerHeight - h - 8, r.top - 6);
+  } else if (side === 'below') {
+    left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left));
+    top = r.bottom + 8 + h > window.innerHeight - 8 && r.top - h - 8 >= 8 ? r.top - h - 8 : r.bottom + 8;
+  } else {
+    left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left + r.width / 2 > window.innerWidth / 2 ? r.right - w : r.left));
+    top = r.top - h - 8 >= 8 && (r.bottom + 8 + h > window.innerHeight - 8 || r.top > window.innerHeight / 2) ? r.top - h - 8 : r.bottom + 8;
+  }
+  pop.style.left = `${Math.max(8, left)}px`;
+  pop.style.top = `${Math.max(8, top)}px`;
+}
+
+/** Same seg control logic everywhere: thumb + .on + aria. */
+// The thumb sits exactly under the chosen button (labels of different lengths make unequal buttons);
+// before layout (hidden), the CSS's equal-width estimate stands. Re-fitted when the control resizes.
+const segFit = new WeakMap();
+function fitThumb(seg) {
+  const thumb = seg.querySelector('.seg-thumb');
+  const b = seg.querySelectorAll('button')[segFit.get(seg)?.i ?? 0];
+  if (!thumb || !b || !b.offsetWidth) return;
+  thumb.style.width = `${b.offsetWidth}px`;
+  thumb.style.transform = `translateX(${b.offsetLeft - thumb.offsetLeft}px)`;
+}
+export function setSeg(seg, i) {
+  const thumb = seg.querySelector('.seg-thumb');
+  if (thumb) thumb.style.setProperty('--i', i);
+  if (thumb) {
+    if (!segFit.has(seg) && typeof ResizeObserver === 'function') new ResizeObserver(() => fitThumb(seg)).observe(seg);
+    segFit.set(seg, { i });
+    fitThumb(seg);
+  }
+  [...seg.querySelectorAll('button')].forEach((b, j) => {
+    b.classList.toggle('on', j === i);
+    if (b.getAttribute('role') === 'tab') b.setAttribute('aria-selected', String(j === i));
+    if (b.getAttribute('role') === 'radio') b.setAttribute('aria-checked', String(j === i));
+  });
+}
+
+// Fit every segmented control's thumb to its chosen button once the page has laid out (setSeg does it afterwards).
+if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
+  const later = (f) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(f) : setTimeout(f, 0));
+  const fitAll = () => document.querySelectorAll('.seg').forEach((seg) => {
+    if (!seg.querySelector('.seg-thumb') || segFit.has(seg)) return;
+    const i = Math.max(0, [...seg.querySelectorAll('button')].findIndex((b) => b.classList.contains('on')));
+    setSeg(seg, i);
+  });
+  if (document.readyState === 'loading' && typeof document.addEventListener === 'function') document.addEventListener('DOMContentLoaded', () => later(fitAll));
+  else later(fitAll);
+}
+
+// Copying from the conversation: what lands on the clipboard reads like an email or a note — paragraphs, bullets,
+// numbered lists, code and tables as plain structure — not the page's colors, buttons, model chips or layout.
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  const CHROME = 'button, svg, .cb-head, .msg-head, .chip-wrap, .route-chip, .rationale, .msg-actions, .acts, [data-act], .think-body, .thinking, [aria-hidden="true"]';
+  const BLOCK = /^(P|DIV|H[1-6]|UL|OL|LI|PRE|BLOCKQUOTE|TABLE|TR|SECTION|ARTICLE|HR)$/;
+  const plain = (node, out = { s: '', ol: [] }) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { out.s += n.nodeValue.replace(/\s+/g, ' '); continue; }
+      if (n.nodeType !== 1) continue;
+      const t = n.tagName;
+      if (t === 'BR') { out.s += '\n'; continue; }
+      if (t === 'PRE') { out.s += `\n\n\u0001${n.textContent.replace(/\n+$/, '')}\u0002\n\n`; continue; }
+      if (t === 'TD' || t === 'TH') { plain(n, out); out.s += '\t'; continue; }
+      if (t === 'OL') out.ol.push(0);
+      if (t === 'LI') {
+        const ol = n.parentElement && n.parentElement.tagName === 'OL' && out.ol.length;
+        out.s += `\n${ol ? `${++out.ol[out.ol.length - 1]}. ` : '• '}`;
+        plain(n, out);
+        continue;
+      }
+      if (BLOCK.test(t)) out.s += '\n\n';
+      plain(n, out);
+      if (t === 'OL') out.ol.pop();
+      if (BLOCK.test(t)) out.s += '\n\n';
+    }
+    return out;
+  };
+  document.addEventListener('copy', (e) => {
+    const sel = typeof getSelection === 'function' ? getSelection() : null;
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !e.clipboardData) return;
+    const range = sel.getRangeAt(0);
+    const at = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+    if (!at || !at.closest('#transcript') || at.closest('textarea, input, [contenteditable="true"]')) return;
+    const box = document.createElement('div');
+    box.append(range.cloneContents());
+    box.querySelectorAll(CHROME).forEach((n) => n.remove());
+    // Tidy the spacing everywhere except inside code (\u0001…\u0002), whose indentation is kept.
+    const text = plain(box).s.split(/(\u0001[\s\S]*?\u0002)/).map((part) => (part.startsWith('\u0001') ? part.slice(1, -1) : part.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n'))).join('').replace(/\n{3,}/g, '\n\n').trim();
+    if (!text) return;
+    // Rich version for email and docs: the same structure, none of the page's colors, classes or styles.
+    box.querySelectorAll('*').forEach((n) => { n.removeAttribute('class'); n.removeAttribute('style'); n.removeAttribute('id'); [...n.attributes].forEach((a) => { if (a.name.startsWith('data-') || a.name.startsWith('aria-')) n.removeAttribute(a.name); }); });
+    e.clipboardData.setData('text/plain', text);
+    e.clipboardData.setData('text/html', box.innerHTML);
+    e.preventDefault();
+  });
+}
+
+/** A file's type for its card: the extension in capitals and a colour family (PDF red, sheets green, docs blue, code grey…). */
+export function fileType(name = '', kind = '') {
+  const ext = (String(name).match(/\.([a-z0-9]{1,6})$/i) || [])[1]?.toLowerCase() || '';
+  if (kind === 'video') return { label: ext ? ext.toUpperCase() : 'Video', tone: 'ft-video', icon: 'play' };
+  const tone = ext === 'pdf' ? 'pdf' : /^(xlsx?|csv|tsv|numbers)$/.test(ext) ? 'sheet' : /^(docx?|pages|rtf|odt)$/.test(ext) ? 'doc'
+    : /^(pptx?|key)$/.test(ext) ? 'slides' : /^(txt|md)$/.test(ext) ? 'text' : /^(js|ts|py|json|html|css|swift|java|c|cpp|go|rs|rb|sh|sql)$/.test(ext) ? 'code' : 'file';
+  const labels = { pdf: 'PDF', sheet: 'Spreadsheet', doc: 'Document', slides: 'Presentation', text: 'Text', code: 'Code' };
+  return { label: labels[tone] || (ext ? ext.toUpperCase() : 'File'), tone: `ft-${tone}`, icon: 'doc' }; // ft-: never a shared class such as .sheet (the bottom sheet)
+}

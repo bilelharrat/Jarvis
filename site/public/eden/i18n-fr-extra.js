@@ -2,6 +2,9 @@
 // weekly summary, exam plan, first-run card…). See i18n.js. Loaded before i18n-fr-overrides.js.
 
 const N = ' ';
+// "Check with EVES" labels (eves-check-model.js VERDICTS)
+const EVC_FR = { Supported: 'Confirmé', Contradicted: 'Contredit', Unverified: 'Non vérifié', 'Evidence differs': 'Sources divergentes', 'Not a claim': 'Pas une affirmation' };
+const EVC_COUNT_FR = { supported: ['confirmée', 'confirmées'], contradicted: ['contredite', 'contredites'], unverified: ['non vérifiée', 'non vérifiées'], 'evidence differs': ['aux sources divergentes', 'aux sources divergentes'] };
 
 // ── spreadsheet canvas (sheet*.js / sheet-*.mjs) and slide decks (deck*.js): pieces of assembled strings ──
 // Sheet names, cell addresses, file names and formulas are captured and kept exactly as written.
@@ -401,6 +404,44 @@ export default {
     'Open report': 'Ouvrir le rapport',
     'Export Markdown': 'Exporter en Markdown',
     'Open in the canvas': 'Ouvrir dans le canevas',
+
+    // ── eves-check.js, eves-check-model.js ("Check with EVES") ──
+    'Check with EVES': 'Vérifier avec EVES',
+    'Check this reply with EVES': 'Vérifier cette réponse avec EVES',
+    'Check this text with EVES': 'Vérifier ce texte avec EVES',
+    'EVES is checking…': 'EVES vérifie…',
+    'EVES is checking each claim…': 'EVES vérifie chaque affirmation…',
+    'Nothing to check here.': 'Rien à vérifier ici.',
+    'EVES took too long. Try again.': 'EVES a mis trop de temps. Réessayez.',
+    'EVES couldn’t check that.': 'EVES n’a pas pu vérifier cela.',
+    'EVES check': 'Vérification EVES',
+    'Hide the EVES check': 'Masquer la vérification EVES',
+    'Other claims EVES checked': 'Autres affirmations vérifiées par EVES',
+    'Supported': 'Confirmé',
+    'Contradicted': 'Contredit',
+    'Evidence differs': 'Sources divergentes',
+    'Not a claim': 'Pas une affirmation',
+    'EVES found sources that support this claim.': 'EVES a trouvé des sources qui confirment cette affirmation.',
+    'EVES found sources that contradict this claim.': 'EVES a trouvé des sources qui contredisent cette affirmation.',
+    'EVES couldn’t verify this claim.': 'EVES n’a pas pu vérifier cette affirmation.',
+    'The sources EVES found disagree about this claim.': 'Les sources trouvées par EVES divergent sur cette affirmation.',
+    'This is an opinion or a prediction, not a factual claim.': 'C’est une opinion ou une prédiction, pas une affirmation factuelle.',
+    'How': 'Comment',
+    'Not checked: an opinion or a prediction': `Non vérifié${N}: une opinion ou une prédiction`,
+    'Worked out exactly': 'Calculé exactement',
+    'Checked against web sources': 'Vérifié avec des sources du web',
+    'Not checked against a source': 'Non vérifié avec une source',
+    'No sources for this one.': 'Aucune source pour celle-ci.',
+    'Report a wrong label': 'Signaler une étiquette erronée',
+    'It should be': 'Elle devrait être',
+    'I’m not sure': 'Je ne sais pas',
+    'What’s wrong with this label? (optional)': `Qu’est-ce qui ne va pas avec cette étiquette${N}? (facultatif)`,
+    'Send report': 'Envoyer le signalement',
+    'Thanks. Your report helps EVES get labels right.': 'Merci. Votre signalement aide EVES à mieux étiqueter.',
+    'No factual claims to check: only opinions or predictions.': `Aucune affirmation factuelle à vérifier${N}: seulement des opinions ou des prédictions.`,
+    'EVES found no factual claims to check.': 'EVES n’a trouvé aucune affirmation factuelle à vérifier.',
+    'Give EVES some text or a link to check.': 'Donnez à EVES un texte ou un lien à vérifier.',
+    'No model is available to check claims.': 'Aucun modèle n’est disponible pour vérifier les affirmations.',
   },
   patterns: [
     [/^Make (.+) a TA$/, 'Nommer $1 assistant·e'],
@@ -461,5 +502,17 @@ export default {
     [/^(This message|Pinned|Routed) to (.+?), (minimal|low|medium|high|xhigh|max) effort(.*)\. Show alternatives$/,
       (_, w, m, e, rest) => `${{ 'This message': 'Ce message', Pinned: 'Épinglé', Routed: 'Routé' }[w]} vers ${m}, effort ${EFFORT_FR[e]}${rest}. Afficher les autres options`],
     [/^(\d+) pages, “all rights reserved”$/, `$1 pages, «${N}tous droits réservés${N}»`],
+
+    // ── eves-check.js, eves-check-model.js, src/chat/eves-check.ts ("Check with EVES") ──
+    [/^EVES: (Supported|Contradicted|Unverified|Evidence differs|Not a claim)\. Open details$/, (_, w) => `EVES${N}: ${EVC_FR[w]}. Ouvrir les détails`],
+    [/^(Very sure|Fairly sure|Not very sure|Not sure) \((\d+)%\)$/, (_, w, n) => `${{ 'Very sure': 'Très sûr', 'Fairly sure': 'Assez sûr', 'Not very sure': 'Peu sûr', 'Not sure': 'Pas sûr' }[w]} (${n}${N}%)`],
+    [/^(\d+) claims? checked: (.+?)\.((?: Only the start was checked\.)?)((?: Ran out of time: the rest is unverified\.)?)$/, (_, n, bits, start, time) => {
+      const fr = bits.split(', ').map((b) => b.replace(/^(\d+) (supported|contradicted|unverified|evidence differs)$/, (_, k, w) => `${k} ${EVC_COUNT_FR[w][Number(k) > 1 ? 1 : 0]}`)).join(', ');
+      return `${n} ${Number(n) > 1 ? 'affirmations vérifiées' : 'affirmation vérifiée'}${N}: ${fr}.${start ? ' Seul le début a été vérifié.' : ''}${time ? ` Temps écoulé${N}: le reste n’est pas vérifié.` : ''}`;
+    }],
+    [/^You’ve used today’s (\d+) EVES checks\. More tomorrow\.$/, `Vous avez utilisé vos $1 vérifications EVES du jour. D’autres demain.`],
+    [/^That’s too long to check at once \(most is ([\d,]+) characters\)\.$/, `C’est trop long pour une seule vérification (au plus $1 caractères).`],
+    [/^EVES couldn’t check that: ([\s\S]+)$/, `EVES n’a pas pu vérifier cela${N}: $1`],
+    [/^Couldn’t start EVES: ([\s\S]+)$/, `Impossible de lancer EVES${N}: $1`],
   ],
 };

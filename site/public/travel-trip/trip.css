@@ -1,0 +1,35 @@
+/* A trip shared with the people on it (trip.js): Eden Glass like the flight tracker, light and dark, one 680px column. */
+:root{--bg:#f5f5f7;--content:#fff;--text:#1d1d1f;--text2:#6e6e73;--text3:#86868b;--glass:rgba(255,255,255,.72);--hairline:rgba(0,0,0,.06);--rim:rgba(255,255,255,.5);--accent:#0a84ff;--warn:#ff9f0a;--ok:#30d158;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#161618;--content:#1e1e20;--text:#f5f5f7;--text2:#98989d;--text3:#8e8e93;--glass:rgba(32,32,34,.72);--hairline:rgba(255,255,255,.09);--rim:rgba(255,255,255,.16);--accent:#3b9bff}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;color:var(--text);background:var(--bg);background-image:radial-gradient(ellipse at 10% 0%,rgba(216,232,250,.9),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(210,230,252,.85),transparent 55%);min-height:100vh}
+@media (prefers-color-scheme:dark){body{background-image:radial-gradient(ellipse at 10% 0%,rgba(20,42,66,.55),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(18,38,62,.5),transparent 55%)}}
+#trip{max-width:680px;margin:0 auto;padding:20px 16px 8px;display:flex;flex-direction:column;gap:14px}
+.tp-loading,.tp-note{color:var(--text2)}
+.tp-kicker{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+.tp-head h1{margin:2px 0 4px;font-size:26px;font-weight:650;letter-spacing:-.01em}
+.tp-card{background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);border-radius:20px;padding:16px;box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),0 2px 6px rgba(0,0,0,.05)}
+.tp-days{display:flex;gap:6px;overflow-x:auto;padding:2px}
+.tp-days button{flex:none;min-height:44px;padding:6px 14px;border:0;border-radius:12px;background:var(--content);color:var(--text);font:inherit;font-size:14px;cursor:pointer;box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tp-days button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.tp-day h2{margin:0 0 10px;font-size:18px}
+.tp-stops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.tp-stop{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:10px 0;border-top:.5px solid var(--hairline)}
+.tp-stop:first-child{border-top:0}
+.tp-time{font-variant-numeric:tabular-nums;font-weight:600}
+.tp-stop b{display:block}
+.tp-meta{color:var(--text2);font-size:13px}
+.tp-check{font-size:13px;color:var(--text2);margin-top:2px}
+.tp-check.warn{color:var(--warn)}
+.tp-check small{display:block;color:var(--text3);font-size:11px}
+.tp-alert{border-left:3px solid var(--warn);padding:8px 12px;border-radius:10px;background:var(--content)}
+.tp-map{width:100%;aspect-ratio:2/1;border-radius:16px;object-fit:cover;display:block;background:var(--content)}
+.tp-acts{display:flex;gap:8px;flex-wrap:wrap}
+.tp-btn{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
+.tp-foot{max-width:680px;margin:8px auto 24px;padding:0 16px;color:var(--text3);font-size:12px}
+.tp-foot a{color:inherit}
+.tp-mapbox{position:relative}
+.tp-pin{position:absolute;transform:translate(-50%,-50%);min-width:24px;height:24px;padding:0 6px;border-radius:12px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.25)}
+.tp-time{display:flex;flex-direction:column;gap:6px}
+.tp-photo{width:48px;height:48px;border-radius:10px;object-fit:cover;display:block;background:var(--content)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

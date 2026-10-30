@@ -758,7 +758,29 @@ DENIED_RETRY = 120  # after "no access", don't ask the helper again for a while
 
 async def fetch(hours_back: float = 0, hours_ahead: float = 24, timeout: float = 70) -> dict:
     """Run the helper from the app. {"events": [...]} or {"error": ...}."""
-    return await _helper("events", str(hours_back), str(hours_ahead), timeout=timeout)
+    base = await _helper("events", str(hours_back), str(hours_ahead), timeout=timeout)
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is None:
+        return base
+    import asyncio
+
+    now = datetime.now()
+    start = now - timedelta(hours=hours_back)
+    end = now + timedelta(hours=hours_ahead)
+    try:
+        eden_rows, _ = await asyncio.to_thread(edencal.fetch_events, cfg, start, end, False)
+    except Exception:
+        eden_rows = []
+    if "events" in base:
+        merged = [*base["events"], *eden_rows]
+        merged.sort(key=lambda r: (str(r.get("begin") or ""), not bool(r.get("all_day"))))
+        return {"events": merged}
+    if eden_rows:
+        eden_rows.sort(key=lambda r: (str(r.get("begin") or ""), not bool(r.get("all_day"))))
+        return {"events": eden_rows}
+    return base
 
 
 async def events_at(start: str) -> dict:
@@ -767,16 +789,58 @@ async def events_at(start: str) -> dict:
         when(start)
     except ValueError:
         return {"error": f"“{start}” isn't a time: give it like 2026-09-30T15:00."}
-    return await _helper("at", start)
+    base = await _helper("at", start)
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is None:
+        return base
+    import asyncio
+
+    try:
+        eden_rows = await asyncio.to_thread(edencal.at, cfg, start)
+    except Exception:
+        eden_rows = []
+    if "events" in base:
+        return {"events": [*base["events"], *eden_rows]}
+    if eden_rows:
+        return {"events": eden_rows}
+    return base
 
 
 async def remove_at(start: str, event_id: str, calendar: str, future: bool) -> dict:
     """{"removed": {...}, "span": "this"|"future"} or {"error": ...} (see remove())."""
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is not None:
+        import asyncio
+
+        eden_hits = await asyncio.to_thread(edencal.at, cfg, start)
+        if any(
+            r["id"] == event_id and (not calendar or r["calendar"].casefold() == calendar.casefold())
+            for r in eden_hits
+        ):
+            return await asyncio.to_thread(edencal.remove, cfg, start, event_id, calendar, future)
     return await _helper("remove", start, event_id, calendar, "1" if future else "0")
 
 
 async def edit_at(start: str, event_id: str, calendar: str, future: bool, changes: dict) -> dict:
     """{"edited": {...}, "was": {...}, "span": "this"|"future"} or {"error": ...} (see edit())."""
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is not None:
+        import asyncio
+
+        eden_hits = await asyncio.to_thread(edencal.at, cfg, start)
+        if any(
+            r["id"] == event_id and (not calendar or r["calendar"].casefold() == calendar.casefold())
+            for r in eden_hits
+        ):
+            return await asyncio.to_thread(
+                edencal.edit, cfg, start, event_id, calendar, future, changes
+            )
     return await _helper(
         "edit", start, event_id, calendar, "1" if future else "0", json.dumps(changes)
     )
@@ -784,11 +848,38 @@ async def edit_at(start: str, event_id: str, calendar: str, future: bool, change
 
 async def create_at(spec: dict[str, Any]) -> dict:
     """{"created": {...}} or {"error": ...} (see create())."""
-    return await _helper("create", json.dumps(spec))
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is not None:
+        wanted_cal = str(spec.get("calendar") or "").strip()
+        if wanted_cal:
+            import asyncio
+
+            matched = await asyncio.to_thread(edencal.matches_calendar, cfg, wanted_cal)
+            if matched is not None:
+                return await asyncio.to_thread(edencal.create, cfg, spec, matched)
+    base = await _helper("create", json.dumps(spec))
+    if "error" in base and cfg is not None and not str(spec.get("calendar") or "").strip():
+        import asyncio
+
+        return await asyncio.to_thread(edencal.create, cfg, spec, None)
+    return base
 
 
 async def add_event(event: dict[str, Any]) -> dict:
     """{"added": {...}} or {"error": ...} (see add())."""
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is not None:
+        wanted_cal = str(event.get("calendar") or "").strip()
+        if event.get("source") == "eden" or (
+            wanted_cal and edencal.matches_calendar(cfg, wanted_cal) is not None
+        ):
+            import asyncio
+
+            return await asyncio.to_thread(edencal.add, cfg, event)
     keep = ("title", "begin", "end", "all_day", "location", "calendar")
     return await _helper("add", json.dumps({k: event.get(k) for k in keep}))
 
@@ -796,7 +887,30 @@ async def add_event(event: dict[str, Any]) -> dict:
 async def fetch_between(start: str, end: str, timeout: float = 70) -> dict:
     """Every event from start to end, local times (see between()): {"events": [...],
     "calendars": [...], "timeZone": ...} or {"error": ...}."""
-    return await _helper("range", start, end, timeout=timeout)
+    base = await _helper("range", start, end, timeout=timeout)
+    from . import edencal
+
+    cfg = edencal.load_config()
+    if cfg is None:
+        return base
+    import asyncio
+
+    try:
+        eden_data = await asyncio.to_thread(edencal.between, cfg, start, end)
+    except Exception:
+        return base
+    if "events" in base:
+        events = [*base["events"], *eden_data.get("events", [])]
+        events.sort(key=lambda r: (str(r.get("start") or ""), not bool(r.get("allDay"))))
+        calendars = [*base.get("calendars", []), *eden_data.get("calendars", [])]
+        return {**base, "events": events, "calendars": calendars}
+    if eden_data.get("events") or eden_data.get("calendars"):
+        return {
+            "events": eden_data.get("events", []),
+            "calendars": eden_data.get("calendars", []),
+            "timeZone": mac_zone(),
+        }
+    return base
 
 
 async def _helper(*argv: str, timeout: float = 70) -> dict:

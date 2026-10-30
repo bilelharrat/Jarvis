@@ -39,7 +39,7 @@ const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const plat = require('./platform-paths');
 const LOG_DIR = plat.logDir(FLAVOR.logName);
 const LOG_LABEL = plat.logLabel(FLAVOR.logName);
-const DATA_DIR = plat.dataDir(); // the backend's (prefs.APP_SUPPORT)
+const DATA_DIR = plat.dataDir(EDEN_CODE ? { appName: 'Eden Code', macFolder: 'Eden Code' } : undefined); // each app's own data folder
 // app.log: what the app did on the way up and what went wrong, for a start that shows nothing (startup-log.js).
 const trace = createTrace(path.join(LOG_DIR, 'app.log'));
 const APP_LOG_LABEL = LOG_LABEL.replace(/backend\.log$/, 'app.log');

@@ -1,0 +1,14 @@
+/* Eden Slides share links (deck-share.js), on top of the presenting sheet look (deck-present.css). */
+.dsl .dpr-sheet-body { display: grid; gap: 10px; }
+.dsl-new { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--dpr-line); border-radius: 14px; background: var(--dpr-content2); }
+.dsl-new .dpr-row > select { flex: 1 1 160px; }
+.dsl-h { font-size: 13px; font-weight: 600; margin: 6px 0 0; color: var(--dpr-text2); }
+.dsl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.dsl-list li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--dpr-line); border-radius: 12px; }
+.dsl-list li.gone .dsl-who { opacity: .55; }
+.dsl-who { display: grid; min-width: 0; }
+.dsl-who strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsl-list select { width: auto; min-height: 32px; }
+.dsl-stop { justify-content: flex-start; }
+.dsl-linkbtn { font: inherit; color: var(--dpr-accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+@media (max-width: 560px) { .dsl-list li { grid-template-columns: 1fr auto; } .dsl-who { grid-column: 1 / -1; } }

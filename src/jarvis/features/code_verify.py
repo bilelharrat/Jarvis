@@ -170,11 +170,7 @@ class CodeVerify:
     def session(self, task_id: int) -> SessionChecks:
         checks = self.sessions.get(task_id)
         if checks is None:
-            # A new session checks after each turn if its project says so, else if the owner
-            # chose that for all of them.
-            own = self.project_verify(self.hub.tasks.tasks.get(task_id))
-            verify = own if own is not None else bool(self.hub.prefs.feature(PREF_VERIFY))
-            checks = self.sessions[task_id] = SessionChecks(verify=verify)
+            checks = self.sessions[task_id] = SessionChecks(verify=False)
         return checks
 
     def project_verify(self, task: Any) -> bool | None:
@@ -733,15 +729,7 @@ class CodeVerify:
             self.tests.changed(task.cwd)  # a watch runs again, without waiting to look
 
     def _turn_ended(self, data: dict[str, Any]) -> None:
-        task = self.hub.tasks.tasks.get(data.get("id"))
-        if task is None or task.kind != "code":
-            return
-        checks = self.session(task.id)  # (a new session's switch follows the owner's setting)
-        if not (checks.verify or checks.problems):
-            return
-        if data.get("status") != "done" or not data.get("files"):
-            return  # stopped, failed, or nothing changed: nothing to check
-        self.spawn(self.check_turn(task))
+        return  # Preview checks only run when explicitly requested by the user (cv_check)
 
     def _sessions_changed(self, items: list[dict[str, Any]]) -> None:
         """A session that ended (End session, a crash) or was let go: the dev servers it

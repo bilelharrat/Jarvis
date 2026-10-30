@@ -358,7 +358,8 @@ _DATED = r"(?:[-@](?:\d{8}|\d{4}-\d{2}-\d{2})|-latest)"
 # published by each provider; a model not listed shows what Claude Code reports.
 CONTEXT_WINDOWS: list[tuple[str, int]] = [
     (r"gemini-1\.5-pro", 2_000_000),
-    (r"gemini-(1\.5-flash|2|3|flash|pro)", 1_048_576),
+    (r"gemini-(1\.5-flash|2|3|4|flash|pro)", 1_048_576),
+    (r"gpt-(6|5\.6)", 1_050_000),
     (r"gpt-5", 400_000),
     (r"gpt-4\.1", 1_047_576),
     (r"gpt-4o|gpt-4-turbo", 128_000),

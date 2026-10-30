@@ -1905,6 +1905,7 @@
     "Too many requests",
     "Too many connections",
     "wait a minute",
+    "Eden is already writing 10 replies",
     "Eden is already writing 2 replies"
    ]
   },

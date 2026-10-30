@@ -276,6 +276,13 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
 .legal-links a, .fine a { color: inherit; }
 /* Turnstile's widget (its own frame) and "Create an account with a passkey" */
 .human { display: flex; justify-content: center; margin-top: 14px; min-height: 65px; }
+/* The shared test account's form (TEST_LOGIN): shown only when the server says it's on */
+.testlogin { display: grid; gap: 6px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hairline); text-align: left; }
+.testlogin[hidden] { display: none; }
+.testlogin-title { margin: 0 0 4px; font-size: 0.867em; color: var(--text2); }
+.testlogin label { font-size: 0.8em; color: var(--text2); }
+.testlogin input { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--inset); color: var(--text); min-width: 0; }
+.testlogin .button { margin-top: 8px; }
 .newpk { margin-top: 12px; font-size: 0.867em; color: var(--text2); }
 .textlink { border: 0; padding: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 

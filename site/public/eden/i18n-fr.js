@@ -1,7 +1,7 @@
 // The French strings, gathered from one file per area of the app (see i18n.js). Loaded only
 // when French is on. A part that fails to load is skipped, so the rest still translates.
 
-const PARTS = ['shell', 'chat', 'mail', 'compose', 'calendar', 'account', 'voice', 'edu', 'server', 'extra', 'overrides'];
+const PARTS = ['shell', 'chat', 'mail', 'compose', 'calendar', 'account', 'voice', 'edu', 'server', 'extra', 'templates', 'travel', 'overrides'];
 
 const loaded = await Promise.allSettled(PARTS.map((p) => import(`./i18n-fr-${p}.js`)));
 export default loaded.flatMap((r, i) => {

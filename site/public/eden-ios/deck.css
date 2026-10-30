@@ -1,0 +1,23 @@
+/* Slide decks in the canvas (ROADMAP Q14, deck.js). The slides themselves are styled inside their
+   sandboxed frame (deck-render.js); this is Eden's toolbar around them. */
+#artPreview:has(.deck-stage){display:flex;flex-direction:column;overflow:hidden}
+.deck-bar{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:.5px solid var(--hairline);overflow-x:auto;flex:none;scrollbar-width:thin}
+.deck-bar .cap{white-space:nowrap;flex:none}
+.deck-bar .deck-theme{flex:none;font:inherit;font-size:12px;border-radius:999px;padding:5px 10px;border:.5px solid var(--hairline);background:var(--content2);color:var(--text);max-width:170px}
+.deck-panel{display:flex;gap:8px;align-items:flex-start;padding:8px 12px;font-size:13px;line-height:1.4;background:var(--content2);border-bottom:.5px solid var(--hairline);color:var(--text2);flex:none}
+.deck-panel .grow{flex:1;min-width:0}
+.deck-alt{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.deck-alt label{display:flex;flex-direction:column;gap:4px;font-weight:600;color:var(--text);flex:1;min-width:200px}
+.deck-alt input{font:inherit;font-weight:400;padding:7px 10px;border-radius:10px;border:.5px solid var(--hairline);background:var(--content);color:var(--text)}
+.deck-gs ol{margin:6px 0;padding-left:18px}.deck-gs-acts{display:flex;gap:8px;flex-wrap:wrap}.deck-gs a.cap{text-decoration:none}
+.deck-stage{position:relative;flex:1;min-height:0}
+.deck-stage .deck-frame{width:100%;height:100%;border:0;display:block;background:transparent}
+.deck-stage:fullscreen{background:#000}
+.deck-stage.deck-full{position:fixed;inset:0;z-index:1000;background:#000}
+.deck-exit{position:absolute;top:max(10px,env(safe-area-inset-top));right:10px;z-index:2;display:flex;align-items:center;gap:4px;font:600 13px -apple-system,system-ui,sans-serif;color:#fff;background:rgba(30,32,40,.7);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:6px 12px;cursor:pointer;backdrop-filter:blur(12px)}
+.deck-exit[hidden]{display:none}
+.deck-empty{max-width:520px;margin:48px auto;padding:0 20px;text-align:center;color:var(--text2);font-size:14px;line-height:1.5}
+.deck-empty h3{color:var(--text);font-size:18px;margin:0 0 8px}
+.deck-empty-acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+.artlink.deck-link.bad .ic{color:var(--warn,#c2410c)}
+@media (max-width:640px){.deck-bar{padding:6px 8px}.deck-empty{margin-top:24px}}

@@ -82,6 +82,17 @@ async function main() {
     // offline: the page says so itself
   }
   mount(session);
+  if (session && session.test) testBanner(session.test); // the shared test account only (src/accounts/test-login.js)
+}
+
+// The shared test account: a banner that stays, so nobody types personal information into it.
+function testBanner(test) {
+  const bar = document.createElement('div');
+  bar.id = 'testAccountBanner';
+  bar.setAttribute('role', 'status');
+  bar.textContent = typeof test.banner === 'string' ? test.banner : 'Test account: shared and reset daily. Don’t enter personal information.';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:1000;padding:6px 16px;padding-top:max(6px,env(safe-area-inset-top));font:600 13px/1.35 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;text-align:center;color:#fff;background:#c93400;pointer-events:none';
+  document.body.append(bar);
 }
 
 // Errors in this browser, for the owner's dashboard (stats/stats.js clientError): the message and the page, nothing typed.

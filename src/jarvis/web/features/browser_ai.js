@@ -926,4 +926,145 @@
     }
     F.send({ type: 'browser_ai_result', id: ev.id, result: result || {} });
   });
+
+  // ── Claude Browser toolbar controls: Element Picker (↖), Screenshot (📷), Console (<>), Dev Server bar ──
+  const pickBtn = F.$('br-pick');
+  const shotBtn = F.$('br-shot');
+  const consoleBtn = F.$('br-console');
+  const consoleDrawer = F.$('br-console-drawer');
+  const consoleLog = F.$('br-console-log');
+  const consoleSend = F.$('br-console-send');
+  const consoleClose = F.$('br-console-close');
+  const devBar = F.$('br-devbar');
+  const devBarText = F.$('br-devbar-text');
+  const devBarBtn = F.$('br-devbar-btn');
+
+  if (pickBtn) {
+    pickBtn.addEventListener('click', async () => {
+      if (!app || !app.feature) return;
+      const active = pickBtn.getAttribute('aria-pressed') === 'true';
+      pickBtn.setAttribute('aria-pressed', String(!active));
+      try {
+        const res = await call('snapshot', { interactive: true, tab: page.tab });
+        if (res && res.text && F.$('deck-input')) {
+          const input = F.$('deck-input');
+          const summary = String(res.text).split('\n').slice(0, 12).join('\n');
+          input.value = `${input.value ? `${input.value}\n\n` : ''}[Page elements on ${page.url || 'current tab'}]:\n\`\`\`\n${summary}\n\`\`\`\n`;
+          input.dispatchEvent(new Event('input'));
+          input.focus();
+        }
+      } catch (_) {}
+      setTimeout(() => pickBtn.setAttribute('aria-pressed', 'false'), 400);
+    });
+  }
+
+  if (shotBtn) {
+    shotBtn.addEventListener('click', async () => {
+      if (!app || !app.feature) return;
+      try {
+        const res = await call('screenshot', { tab: page.tab });
+        const b64 = (res && (res.jpeg || res.png || res.data)) || '';
+        if (b64) {
+          const mime = res.png ? 'image/png' : 'image/jpeg';
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const file = new File([bytes], `browser-${Date.now()}.${res.png ? 'png' : 'jpg'}`, { type: mime });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          const fileInput = F.$('jc-file');
+          if (fileInput) {
+            fileInput.files = dt.files;
+            fileInput.dispatchEvent(new Event('change'));
+          }
+        }
+      } catch (_) {}
+    });
+  }
+
+  async function refreshConsoleDrawer() {
+    if (!consoleDrawer || consoleDrawer.hidden || !app || !app.feature) return;
+    try {
+      const [cons, net] = await Promise.all([
+        call('console', { level: 'all', limit: 30, tab: page.tab }).catch(() => null),
+        call('network', { failed: true, limit: 20, tab: page.tab }).catch(() => null),
+      ]);
+      const lines = [];
+      if (cons && cons.text) lines.push(cons.text.trim());
+      if (net && net.text && !/No (failed )?requests/i.test(net.text)) lines.push(net.text.trim());
+      consoleLog.textContent = lines.filter(Boolean).join('\n\n') || 'No console messages or failed requests.';
+    } catch (_) {
+      consoleLog.textContent = 'Console ready.';
+    }
+  }
+
+  if (consoleBtn && consoleDrawer) {
+    consoleBtn.addEventListener('click', () => {
+      const open = consoleDrawer.hidden;
+      consoleDrawer.hidden = !open;
+      consoleBtn.setAttribute('aria-pressed', String(open));
+      if (open) refreshConsoleDrawer();
+    });
+  }
+  if (consoleClose && consoleDrawer) {
+    consoleClose.addEventListener('click', () => {
+      consoleDrawer.hidden = true;
+      if (consoleBtn) consoleBtn.setAttribute('aria-pressed', 'false');
+    });
+  }
+  if (consoleSend && consoleLog) {
+    consoleSend.addEventListener('click', () => {
+      const input = F.$('deck-input');
+      if (!input) return;
+      const text = consoleLog.textContent.trim();
+      input.value = `${input.value ? `${input.value}\n\n` : ''}Browser console on ${page.url || 'current page'}:\n\`\`\`\n${text}\n\`\`\`\n`;
+      input.dispatchEvent(new Event('input'));
+      input.focus();
+    });
+  }
+
+  let currentDevServer = null;
+  F.on('cv_state', (ev) => {
+    if (!devBar || !devBarText || !devBarBtn) return;
+    const configs = Array.isArray(ev && ev.configs) ? ev.configs : [];
+    const running = Array.isArray(ev && ev.servers) ? ev.servers : [];
+    if (!configs.length && !running.length) {
+      devBar.hidden = true;
+      currentDevServer = null;
+      return;
+    }
+    const live = running[0];
+    const cfg = configs[0];
+    devBar.hidden = false;
+    if (live) {
+      currentDevServer = { action: 'stop', key: live.key, name: live.name, url: live.url };
+      devBar.classList.add('running');
+      devBarText.textContent = `Dev server "${live.name}" running${live.url ? ` at ${live.url}` : ''}.`;
+      devBarBtn.textContent = 'Open';
+    } else if (cfg) {
+      currentDevServer = { action: 'start', name: cfg.name };
+      devBar.classList.remove('running');
+      devBarText.textContent = `Dev server "${cfg.name}" isn't running.`;
+      devBarBtn.textContent = 'Start';
+    }
+  });
+  if (devBarBtn) {
+    devBarBtn.addEventListener('click', () => {
+      if (!currentDevServer) return;
+      if (currentDevServer.action === 'stop' && currentDevServer.url) {
+        const urlInput = F.$('br-url');
+        const form = F.$('browser-bar');
+        if (urlInput && form) {
+          urlInput.value = currentDevServer.url;
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+        return;
+      }
+      const t = F.currentTask && F.currentTask();
+      F.send({
+        type: 'cv_server',
+        action: 'start',
+        name: currentDevServer.name,
+        ...(t ? { id: t.id } : {}),
+      });
+    });
+  }
 })();

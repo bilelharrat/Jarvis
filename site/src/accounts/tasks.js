@@ -35,10 +35,11 @@
 // This module imports nothing from accounts/index.js (it imports the account object, which
 // imports this): chat.js hands in `call` and `limited`.
 
-import { ApiError, isPhone, json } from './util.js';
+import { ApiError, WEB_PUSH_APPS, isPhone, isWebPushApp, json } from './util.js';
 import { costOf, priceOf } from './proxy.js';
 import { serviceAiReady, serviceFetch } from './service-ai.js';
 import { GONE, MAX_PAYLOAD, pushReady, sendPush } from './apns.js';
+import { FCM_GONE, fcmReady, sendFcm } from './fcm.js';
 import { TOKEN_RECORD, openTokens } from './tokens.js';
 import { backgroundFetch, calendarScopesOk, gmailScopesOk, googleInAccount, scheduleJob, unscheduleJob } from './schedule.js';
 import { GoogleError, runCalendarAction, runGmailAction } from '../eden/vendor/google.js';
@@ -51,7 +52,7 @@ export const TASKS = {
   days: 30,
   run: { min: 0.005, max: 0.5, usd: 0.05 },
   month: { min: 0.05, max: 20, usd: 1 },
-  model: 'claude-haiku-4-5',
+  model: 'gemini-3.8-flash',
   maxTokens: 1200,
   minTokens: 300,
   runs: 10,
@@ -350,14 +351,14 @@ export function checkRun(v) {
 }
 
 /** One structured answer from Claude: { ok, value?, error?, costUSD, model }. Never throws for Claude's own refusals. */
-export async function askModel(env, { system, user, schema, maxTokens, model, fetch: f }) {
+export async function askModel(env, { system, user, schema, maxTokens, model, effort = 'low', fetch: f }) {
   if (!serviceAiReady(env)) return { ok: false, error: 'The included AI is not set up on askeden.com yet.', costUSD: 0, model };
   let res;
   try {
     // Claude on the service's key, or without one the service's Gemini or OpenAI (service-ai.js).
     res = await serviceFetch(
       env,
-      { model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], output_config: { format: { type: 'json_schema', schema } } },
+      { model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], output_config: { format: { type: 'json_schema', schema }, ...(effort ? { effort } : {}) } },
       { fetch: f, url: ANTHROPIC, signal: AbortSignal.timeout ? AbortSignal.timeout(60_000) : undefined },
     );
   } catch (e) {
@@ -468,19 +469,51 @@ const taskPush = (title, text, data) =>
     eden: { url: '/#tasks', ...data },
   });
 
+// An Android app's push (Ask Eden Travel for Android, TravelMessaging.kt): a data message { title, body, kind, url?,
+// collapse? }, the app draws it; one per flight or trip (collapse), a newer one replacing the last.
+const fcmPush = (title, body, data) => {
+  const collapse = data.approval || data.task || (data.trip ? [data.kind, data.trip, data.stop || data.ident].filter(Boolean).join(':') : null);
+  return {
+    title: cut(oneLine(title), 80),
+    body: cut(oneLine(body), 240),
+    kind: String(data.kind || ''),
+    ...(typeof data.url === 'string' && data.url.startsWith('/') && !data.url.startsWith('//') ? { url: data.url } : {}),
+    ...(collapse ? { collapse: String(collapse).slice(0, 64) } : {}),
+  };
+};
+
 /**
  * A notification on the account's own iPhone/iPad/Watch (never a Mac, a browser or anyone
  * else): each device's registered token, through pushCheck (this account's tokens only, 60 a
- * minute), as POST /api/push does. Returns how many went.
+ * minute), as POST /api/push does. A browser in an app of its own (Ask Eden Travel) hears only
+ * that app's kinds, on the iPhone through APNs, on Android through FCM (fcm.js). Returns how many went.
  */
 export async function notifyOwner(account, { title, body, data = {}, local = false }) {
   const env = account.env;
   const send = account.sendPush || ((push) => sendPush(env, push, backgroundFetch(env, local)));
-  if (!account.sendPush && !pushReady(env)) return 0;
+  const sendAndroid = account.sendFcm || ((msg) => sendFcm(env, msg, backgroundFetch(env, local)));
+  const apnsOn = Boolean(account.sendPush) || pushReady(env);
+  const fcmOn = Boolean(account.sendFcm) || fcmReady(env);
+  if (!apnsOn && !fcmOn) return 0;
   const now = account.now();
   let sent = 0;
   for (const d of await account.devices()) {
-    if (!d.apns_token || !isPhone(d.kind) || (d.expires && d.expires <= now)) continue;
+    if (fcmOn && d.fcm_token && d.kind === 'web' && isWebPushApp(d.fcm_app) && WEB_PUSH_APPS[d.fcm_app].has(data.kind) && !(d.expires && d.expires <= now)) {
+      try {
+        const checked = await account.pushCheck({ fcm_token: d.fcm_token, push_type: 'alert' });
+        const r = await sendAndroid({ token: checked.token, data: fcmPush(title, body, data), priority: 'high' });
+        if (FCM_GONE.has(r.reason)) await account.pushGone({ fcm_token: checked.token });
+        else if (r.status === 200) sent += 1;
+        else console.error('task push (android) failed', r.status, r.reason);
+      } catch (e) {
+        if (!(e instanceof ApiError)) console.error('task push (android) failed', e && e.message); // 429: enough this minute
+      }
+    }
+    if (!apnsOn) continue;
+    if (!d.apns_token || (d.expires && d.expires <= now)) continue;
+    // a web device in an app of its own (Ask Eden Travel) hears only that app's kinds; the apps' phones hear everything
+    const webApp = d.kind === 'web' && isWebPushApp(d.apns_topic);
+    if (webApp ? !WEB_PUSH_APPS[d.apns_topic].has(data.kind) : !isPhone(d.kind)) continue;
     try {
       const checked = await account.pushCheck({ apns_token: d.apns_token, push_type: 'alert' });
       let text = cut(oneLine(body), 240);
@@ -489,7 +522,7 @@ export async function notifyOwner(account, { title, body, data = {}, local = fal
         text = cut(text, Math.floor(text.length / 2));
         payload = taskPush(title, text, data);
       }
-      const r = await send({ apns_token: checked.token, apns_env: d.apns_env, push_type: 'alert', priority: 10, collapse_id: data.approval || data.task || undefined, body: payload });
+      const r = await send({ apns_token: checked.token, apns_env: d.apns_env, apns_topic: webApp ? d.apns_topic : undefined, push_type: 'alert', priority: 10, collapse_id: data.approval || data.task || undefined, body: payload });
       if (GONE.has(r.reason) || r.status === 410) await account.pushGone({ apns_token: checked.token });
       else if (r.status === 200) sent += 1;
     } catch (e) {
@@ -967,7 +1000,7 @@ export async function tasksApi(request, env, who, path, { call, limited, readBod
   const body = await readBody(request, 64 * 1024);
   const args = isObj(body.args) ? body.args : {};
   if (body.action === 'propose') {
-    await limited(env, 'EDEN_RATE', `turn:${who.account}`);
+    await limited(env, 'USER_RATE', `turn:${who.account}`);
     return json(await propose(env, who, args, { call, local }));
   }
   if (!ACTION_OPS.has(body.action)) throw bad(`action must be one of propose, ${[...ACTION_OPS].join(', ')}.`);

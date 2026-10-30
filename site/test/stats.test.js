@@ -7,6 +7,7 @@ import { call } from '../src/accounts/index.js';
 import { parseToken } from '../src/accounts/util.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { productOf, routeName, deviceOf, record } from '../src/stats/stats.js';
+import { RouterApi } from '../src/router-api/store.js';
 import { Account, Identity, Link, namespace, rateLimiter } from './fakes.js';
 
 /** Cloudflare D1, on Node's own SQLite (the same SQL). */
@@ -46,6 +47,7 @@ beforeEach(() => {
   env.ACCOUNTS = namespace(Account, env);
   env.LINKS = namespace(Link, env);
   env.IDENTITIES = namespace(Identity, env);
+  env.ROUTER_API = namespace(RouterApi, env);
   env.ASSETS = { fetch: async (req) => new Response(`<html>${new URL(req.url).pathname}</html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } }) };
 });
 
@@ -162,4 +164,80 @@ test('without the database nothing breaks', async () => {
   delete env.STATS;
   assert.equal((await get('/privacy')).status, 200);
   await settle();
+});
+
+test('owner dashboard /api/admin/keys manages API keys, spend limits, monthly failover policies, and CSV export', async () => {
+  const owner = await browser(A, 'owner@example.com');
+  const other = await browser(B, 'someone@example.com');
+  const postKey = (body, cookie = `__Host-eden=${owner}`) =>
+    worker.fetch(new Request(`${ORIGIN}/api/admin/keys`, {
+      method: 'POST',
+      headers: { origin: ORIGIN, cookie, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }), env, ctx);
+
+  // Non-owners cannot access /api/admin/keys
+  assert.equal((await get('/api/admin/keys')).status, 404);
+  assert.equal((await get('/api/admin/keys', { cookie: `__Host-eden=${other}` })).status, 404);
+
+  // Create a scoped key with daily and monthly spend limits
+  const createdRes = await postKey({
+    action: 'create',
+    name: 'Production Mobile Gateway',
+    daily_usd: 200,
+    monthly_usd: 5000,
+    rpm: 120,
+    tag: 'tag: mobile-ios',
+    ip_whitelist: ['198.51.100.0/24'],
+    on_cap_breach: 'failover',
+    models: ['claude-3-5-sonnet', 'gpt-4o'],
+  });
+  assert.equal(createdRes.status, 200);
+  const created = await createdRes.json();
+  assert.match(created.api_key, /^sk-eden-[A-Za-z0-9_-]{43}$/);
+  assert.equal(created.client.name, 'Production Mobile Gateway');
+  assert.equal(created.client.daily_usd, 200);
+  assert.equal(created.client.monthly_usd, 5000);
+  assert.equal(created.client.rpm, 120);
+  assert.equal(created.client.tag, 'tag: mobile-ios');
+  assert.deepEqual(created.client.models, ['claude-3-5-sonnet', 'gpt-4o']);
+
+  // Pause (hold) and resume key
+  const paused = await (await postKey({ action: 'pause', id: created.client.id })).json();
+  assert.equal(paused.client.paused, true);
+  const resumed = await (await postKey({ action: 'resume', id: created.client.id })).json();
+  assert.equal(resumed.client.paused, false);
+
+  // Rotate with 24h grace period
+  const rotated = await (await postKey({ action: 'rotate', id: created.client.id, grace_period_ms: 86_400_000 })).json();
+  assert.match(rotated.api_key, /^sk-eden-[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(rotated.api_key, created.api_key);
+  assert.equal(rotated.grace_period_ms, 86_400_000);
+
+  // Update monthly failover & alert policy
+  const pol = await (await postKey({
+    action: 'policy',
+    policy: {
+      daily_pool_cap_usd: 600,
+      monthly_pool_cap_usd: 12000,
+      slack_alerts_enabled: true,
+      webhook_url: 'https://hooks.slack.com/services/T00/B00/X99',
+      ttft_threshold_ms: 2200,
+    },
+  })).json();
+  assert.equal(pol.policy.daily_pool_cap_usd, 600);
+  assert.equal(pol.policy.monthly_pool_cap_usd, 12000);
+  assert.equal(pol.policy.ttft_threshold_ms, 2200);
+
+  // Read full dashboard state
+  const dash = await (await get('/api/admin/keys', { cookie: `__Host-eden=${owner}` })).json();
+  assert.equal(dash.totals.active_keys, 1);
+  assert.ok(dash.audits.length >= 4);
+
+  // CSV export
+  const csvRes = await get('/api/admin/keys?format=csv', { cookie: `__Host-eden=${owner}` });
+  assert.equal(csvRes.status, 200);
+  const csvText = await csvRes.text();
+  assert.match(csvText, /Production Mobile Gateway/);
+  assert.match(csvText, /tag: mobile-ios/);
 });

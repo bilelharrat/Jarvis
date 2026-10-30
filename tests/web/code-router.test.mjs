@@ -149,6 +149,7 @@ const KINDS = [
   { ref: 'custom:o1', model: 'gpt-6-luna', builtin: false, kind: 'openai' },
   { ref: 'custom:g1', model: 'gemini-3.8-flash', builtin: false, kind: 'gemini' },
   { ref: 'custom:g2', model: 'gemini-3.1-pro-preview', builtin: false, kind: 'gemini' },
+  { ref: 'custom:g4', model: 'gemini-4-argon', builtin: false, kind: 'gemini' },
   { ref: 'custom:a1', model: 'claude-sonnet-5-5', builtin: false, kind: 'anthropic' },
   { ref: 'custom:r1', model: 'kimi-k3', builtin: false, kind: 'openrouter' },
 ];
@@ -159,6 +160,7 @@ test('the relays’ models take low, medium or high; Gemini Pro and the rest the
   assert.deepEqual(efforts(profile('claude-opus-5-5', ['low', 'max'], 'medium')), R.CLAUDE_EFFORTS);
   assert.deepEqual(efforts(profile('gpt-6-luna', ['none', 'low', 'medium', 'high', 'xhigh', 'max'], 'medium')), ['low', 'medium', 'high']);
   assert.deepEqual(efforts(profile('gemini-3.8-flash', ['low', 'medium', 'high'], 'medium')), ['low', 'medium', 'high']);
+  assert.deepEqual(efforts(profile('gemini-4-argon', ['low', 'medium', 'high'], 'high')), ['low', 'medium', 'high']);
   assert.deepEqual(efforts(profile('gemini-3.1-pro-preview', ['low', 'medium', 'high'], 'high')), ['high']);
   assert.deepEqual(efforts(profile('claude-sonnet-5-5', ['none', 'low'], 'high')), R.CLAUDE_EFFORTS);  // an Anthropic key
   assert.deepEqual(efforts(profile('kimi-k3', ['low', 'high', 'max'], 'max')), ['max']);  // OpenRouter: its own
@@ -168,10 +170,11 @@ test('the relays’ models take low, medium or high; Gemini Pro and the rest the
 test('a pick carries its effort to the relays’ models too', () => {
   assert.deepEqual(R.routeFor(KINDS, { model: 'gpt-6-luna', effort: 'low' }), { ref: 'custom:o1', model: 'gpt-6-luna', effort: 'low' });
   assert.deepEqual(R.routeFor(KINDS, { model: 'gemini-3.8-flash', effort: 'medium' }), { ref: 'custom:g1', model: 'gemini-3.8-flash', effort: 'medium' });
+  assert.deepEqual(R.routeFor(KINDS, { model: 'gemini-4-argon', effort: 'high' }), { ref: 'custom:g4', model: 'gemini-4-argon', effort: 'high' });
   assert.deepEqual(R.routeFor(KINDS, { model: 'gemini-3.1-pro-preview', effort: 'high' }), { ref: 'custom:g2', model: 'gemini-3.1-pro-preview' });
   assert.deepEqual(R.routeFor(KINDS, { model: 'kimi-k3', effort: 'max' }), { ref: 'custom:r1', model: 'kimi-k3' });
   assert.deepEqual(R.routeFor(KINDS, { model: 'gpt-6-luna', effort: 'none' }), { ref: 'custom:o1', model: 'gpt-6-luna' });  // (no such session effort)
-  assert.ok(R.geminiFlash('gemini-flash-latest') && R.geminiFlash('gemini-3.6-flash') && !R.geminiFlash('gemini-2.5-flash') && !R.geminiFlash('gemini-pro-latest'));
+  assert.ok(R.geminiFlash('gemini-flash-latest') && R.geminiFlash('gemini-3.6-flash') && R.geminiFlash('gemini-4-argon') && !R.geminiFlash('gemini-2.5-flash') && !R.geminiFlash('gemini-pro-latest'));
 });
 
 test('a route’s next picks, as sessions take them, for the fallback', () => {
@@ -380,7 +383,7 @@ test('a trivial message never waits; Shadow mode logs and moves nothing; learned
   assert.equal(shadow.route.shadow, true);
   assert.equal(shadow.route_wait, undefined);
   assert.equal(w.bodies.at(-1).sticky, undefined);  // (the owner's model, not the router's)
-  w.fire('prefs', { features: { code_router_on: false } });
+  w.fire('prefs', { features: { code_router_on: false, code_router_shadow: false } });
   assert.deepEqual(w.reg.send(w.task, 'refactor the scheduler to use a heap'), {});  // off, no shadow
   w.fire('prefs', { features: { code_router_on: true } });
   w.fire('model_router_state', { learned: { on: true, updated: 'u1', overrides: { 'gpt-6-luna': { capabilities: { coding: 70 } } } } });

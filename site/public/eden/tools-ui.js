@@ -15,14 +15,23 @@ import { chatVectors, queryVector } from './chat-vectors.js';
 import { privacyOn } from './privacy.js';
 import { locale } from './i18n.js';
 import { singleFlight, DEADLINE } from './resilience.js';
-import { IN_APP } from './native.js';
+import { IN_APP, IN_TRAVEL_APP } from './native.js';
+import * as F from './flight-tools.js';
+import * as FU from './flight-ui.js';
+import * as TT from './trip-tools.js';
+import * as TU from './trip-ui.js';
 // The essay writer (essay.js, loaded on demand): askeden.com in a browser only. In the iPhone/Android app nothing of it
 // runs: no system text, no essay blocks read, no cards, no essay module loaded.
 const ESSAYS = !IN_APP;
+// Flights (flight-tools.js, docs/flights-duffel.md): askeden in a browser only, and only when the server has EDEN_FLIGHTS=1.
+const FLIGHTS = !IN_APP;
+// Trips (trip-tools.js, Eden Travel): askeden.com in a browser only, and only when its Worker has EDEN_TRAVEL=1.
+const TRIPS = !IN_APP;
 
-/** The chats_search tool: words plus meaning over this browser's chats (never from a temporary or private chat). */
-async function searchPastChats({ query, from, to, limit }) {
-  const cur = state.current;
+/** The chats_search tool: words plus meaning over this browser's chats (never from a temporary or private chat, or when recall is off). */
+async function searchPastChats({ query, from, to, limit }, forConv = state.current) {
+  if (state.settings && state.settings.recall === false) return [];
+  const cur = forConv || state.current;
   if (cur && (cur.temp || cur.course || privacyOn(cur))) return [];
   const convs = state.convs || [];
   const [vecs, qvec] = await Promise.all([chatVectors(convs).catch(() => ({})), queryVector(query)]);
@@ -122,10 +131,30 @@ export async function toolsSystemFor(user, base = '') {
     const tools = T.toolsSystem({ calendar: c.calendar && want.calendar, mail: c.mail && want.mail, now: new Date(), zone: zone(), scope: scope === 'calendar' || scope === 'mail' ? scope : null });
     if (tools) parts.push(tools);
   } else if (want.mail || want.calendar) parts.push(T.connectSystem());
-  // Chat search only when the message points back at an earlier chat ("what did I ask before", "in my other chat").
+  // Chat search only when the message points back at an earlier chat ("what did I ask before", "in my other chat")
+  // and recall is allowed for this conversation.
   // Offered on every message, a small model searched the person's chats for a plain question about the world
   // ("Rains" at LMU, 2026-10-12) instead of answering or searching the web.
-  if (asksBack(user && user.content)) parts.push(T.chatsSystem());
+  const curConv = state.current;
+  const recallAllowed = (!curConv || (!curConv.temp && !curConv.course && !privacyOn(curConv))) && (!state.settings || state.settings.recall !== false);
+  if (recallAllowed) if (asksBack(user && user.content)) parts.push(T.chatsSystem());
+  if (FLIGHTS) {
+    const fs = await FU.flightStatus();
+    const lookup = user && user.toolResult && (user.context || []).some((b) => b.source === 'flights');
+    if (fs.enabled && (lookup || F.flightIntent(user && user.content, recent))) parts.push(F.flightsSystem({ mode: fs.mode || 'test' }));
+  }
+  if (TRIPS) {
+    const ts = await TU.travelStatus();
+    const lookup = user && user.toolResult && (user.context || []).some((b) => b.source === 'travel');
+    const open = TU.viewing(); // Eden Travel open beside the chat: Eden knows the trip and the day on screen
+    const standalone = typeof document !== 'undefined' && document.body.classList.contains('travel-standalone'); // Eden Travel's own address: every message is about trips
+    const asked = standalone || open || lookup || TT.tripIntent(user && user.content, recent);
+    // without Plus the trip tools are refused by the server: Eden says what Plus gives instead of starting a card that fails
+    // a trip shared with this person (site travel/members.js): read and suggest only, whatever their own plan
+    if (ts.enabled && open && open.shared) parts.push(TT.sharedSystem({ viewing: open }));
+    else if (ts.enabled && ts.plus === false && asked) parts.push(TT.noPlusSystem({ inTravelApp: IN_TRAVEL_APP }));
+    else if (ts.enabled && asked) parts.push(TT.tripsSystem({ maps: ts.maps || 'standin', viewing: open, standalone }));
+  }
   // the essay writer: Eden knows it exists; an essay open beside the chat is seen and written in (essay.js; loaded only
   // when one is on screen). The selection and blocks are kept as they are now (Eden's "selection" means what was selected
   // when this was sent: T19c), the chat remembers its essay (reopened with it), and the send says how much this turn
@@ -191,6 +220,16 @@ async function afterTurn(c, node) {
   const user = path(c).filter((n) => n.role === 'user').at(-1);
   noteRaw(node); // the raw JSON of each call, before the blocks are stripped from the reply
   const found = T.parseToolCalls(nodeText(node), { zone: zone(), ...(ESSAYS ? { essays: true, cutOff } : {}) });
+  // flight tools aren't in eden-tools.js's list: read again with flight-tools.js when the feature is on
+  if (FLIGHTS && found.calls.some((r) => !r.ok) && (await FU.flightStatus()).enabled) {
+    const raws = nodeTextRaw(node);
+    found.calls = found.calls.map((r, i) => { const raw = r.raw || raws[i]; return !r.ok && F.isFlightTool(raw) ? { ...F.validateFlightCall(raw), raw } : r; });
+  }
+  // trip tools likewise, read with trip-tools.js when Travel is on
+  if (TRIPS && found.calls.some((r) => !r.ok) && (await TU.travelStatus()).enabled) {
+    const raws = nodeTextRaw(node);
+    found.calls = found.calls.map((r, i) => { const raw = r.raw || raws[i]; return !r.ok && TT.isTripTool(raw) ? { ...TT.validateTripCall(raw), raw } : r; });
+  }
   if (cutOff) { found.calls = found.calls.filter((r) => r.ok && r.call.kind === 'essay'); if (!found.calls.length) return; }
   const parts = node.parts || [];
   const text = parts.filter((p) => p.type === 'text');
@@ -242,17 +281,19 @@ function noteRaw(node) {
 }
 
 async function runReads(c, node, reads) {
-  const rounds = path(c).filter((n) => n.role === 'user' && n.toolResult).length;
+  const rounds = IN_APP ? path(c).filter((n) => n.role === 'user' && n.toolResult).length : T.roundsSinceAsk(path(c)); // (the iPhone app keeps the old count while in App Review) per message the person sent, not per chat (a long chat could look nothing up)
   if (rounds >= T.MAX_ROUNDS) { node.notes = [...(node.notes || []), 'Eden stopped looking things up after a few rounds.']; ui.updateMessage(c, node); return; }
   const out = [];
   for (const { call } of reads) {
-    try { out.push(`## ${call.name} ${JSON.stringify(call.args)}\n${await T.executeRead(call, { gcal, gmail, chats: searchPastChats })}`); }
+    try { out.push(`## ${call.name} ${JSON.stringify(call.args)}\n${FLIGHTS && F.isFlightTool(call) ? await F.executeFlightRead(call, FU.flightsPost) : TRIPS && TT.isTripTool(call) ? await TT.executeTripRead(call, { get: TU.tripGet, post: TU.tripPost }) : await T.executeRead(call, { gcal, gmail, chats: (args) => searchPastChats(args, c) })}`); }
     catch (e) { out.push(`## ${call.name}\nFailed: ${String(e.message || e).slice(0, 200)}`); }
   }
+  if (c !== state.current && !splitStateShows(c)) return;
   const { sendMessage } = await import('./chat.js');
-  const kind = reads[0].call.name.startsWith('calendar') ? 'calendar' : reads[0].call.name === 'chats_search' ? 'chats' : 'mail';
-  sendMessage(`(Eden ran ${reads.map((r) => r.call.name).join(', ')} and attached the result.)`, [], { context: [{ title: kind === 'calendar' ? 'Calendar lookup' : kind === 'chats' ? 'Chat search' : 'Mail lookup', text: out.join('\n\n'), source: kind }], toolResult: true });
+  const kind = reads[0].call.name.startsWith('calendar') ? 'calendar' : reads[0].call.name === 'chats_search' ? 'chats' : reads[0].call.name.startsWith('flight_') ? 'flights' : reads[0].call.name.startsWith('trip_') ? 'travel' : 'mail';
+  sendMessage(`(Eden ran ${reads.map((r) => r.call.name).join(', ')} and attached the result.)`, [], { context: [{ title: kind === 'calendar' ? 'Calendar lookup' : kind === 'chats' ? 'Chat search' : kind === 'flights' ? 'Flights (Duffel)' : kind === 'travel' ? 'Your trip' : 'Mail lookup', text: out.join('\n\n'), source: kind === 'chats' ? 'recall' : kind }], toolResult: true, conv: c });
 }
+const splitStateShows = (c) => Boolean(c && typeof document !== 'undefined' && document.querySelector(`#center.sv-on`));
 
 /* ---------- cards ---------- */
 
@@ -299,6 +340,14 @@ function card(c, node, t) {
       el('div', 'tc-acts',
         el('button', { type: 'button', class: 'cap primary', onclick: () => applyEssay(c, node, t, { name: 'essay_write', kind: 'essay', args: { text: words, where: 'end' } }) }, 'Put it at the end of the essay'),
         el('button', { type: 'button', class: 'cap', onclick: () => navigator.clipboard.writeText(words).then(() => toast('Copied'), () => toast('Couldn’t copy')) }, 'Copy')));
+  }
+  if (FLIGHTS && F.isFlightTool(t.raw)) {
+    const fv = F.validateFlightCall(t.raw);
+    return fv.ok ? FU.flightCard(c, node, t, fv.call) : el('div', 'notice warn', `Eden couldn’t use a tool: ${fv.error}`);
+  }
+  if (TRIPS && TT.isTripTool(t.raw)) {
+    const tv = TT.validateTripCall(t.raw);
+    return tv.ok ? TU.tripCard(c, node, t, tv.call) : el('div', 'notice warn', `Eden couldn’t use a tool: ${tv.error}`);
   }
   const v = T.validateCall(t.raw || {}, { zone: zone(), essays: ESSAYS });
   if (!v.ok) return el('div', 'notice warn', `Eden couldn’t use a tool: ${v.error}`);
@@ -413,5 +462,8 @@ const CSS = `.toolcard{margin:10px 0 0;padding:12px 14px;border-radius:var(--r-m
 .tc-writing{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;color:var(--accent,#0a84ff)}
 .toolcard.error{box-shadow:inset 0 0 0 .5px var(--danger,#ff453a)}
 .toolcard .tc-raw{margin:8px 0}.toolcard .tc-raw summary{cursor:pointer;color:var(--text2,#666)}
-.toolcard .tc-raw-t{white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:6px;padding:8px;border-radius:8px;background:var(--surface,rgba(127,127,127,.06));font-size:12.5px}`;
+.toolcard .tc-raw-t{white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:6px;padding:8px;border-radius:8px;background:var(--surface,rgba(127,127,127,.06));font-size:12.5px}
+.toolcard .tc-form{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}.toolcard .tc-row2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.toolcard .tc-form input{min-height:36px;padding:0 10px;border-radius:8px;border:0;box-shadow:inset 0 0 0 .5px var(--line,rgba(127,127,127,.35));background:var(--surface,rgba(127,127,127,.06));color:inherit;font:inherit}
+.toolcard .tc-src{font-size:11.5px;color:var(--text3,#888);margin:0 0 8px}.toolcard .tc-error{color:var(--danger,#ff453a);margin:0 0 8px}`;
 if (typeof document !== 'undefined' && !document.getElementById('tools-css')) document.head.append(Object.assign(document.createElement('style'), { id: 'tools-css', textContent: CSS }));

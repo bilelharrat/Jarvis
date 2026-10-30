@@ -88,10 +88,41 @@ const RISK_RULES = [
 ];
 const MAKES = /^\s*(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:write|draft|compose|rewrite|rephrase|translate|proofread|edit|fix|refactor|debug|summari[sz]e|paraphrase|generate|create|make|code|implement)\b/i;
 
+// Short conversational turns (greetings, acknowledgements, thanks, sign-offs, emoji reactions, and
+// bare formatting/continuation nudges) carry no factual question to cross-check, so even when EVES
+// is On they are answered directly by a single model instead of burning 3 lanes + claim extraction.
+const TRIVIAL_EXACT = /^(?:(?:make (?:it|that|this) )?(?:shorter|longer|simpler|more concise|more detailed|more formal|more casual|brief)|too long|too short|tl;?dr|summari[sz]e(?: (?:it|that|this))?|(?:in|as|use) (?:bullet points?|bullets|a table|plain english|simple terms)|eli5|continue|go on|keep going|carry on|more|next|try again|regenerate|rewrite(?: (?:it|that|this))?|rephrase(?: (?:it|that|this))?|never ?mind|nvm|forget it|stop|cancel|that'?s all|nothing else|all good|i'?m good|(?:you|are you) there|how are you(?:\s+doing)?|how'?s it going|what'?s up|test|testing|ping)[.!?\s]*$/i;
+const TRIVIAL_LEAD = /^(?:hi|hello|hey|heya|howdy|yo|sup|greetings|good\s+(?:morning|afternoon|evening|night)|morning|evening|gn|goodnight|thanks?(?:\s+you)?|thank\s+you(?:\s+so\s+much|\s+very\s+much)?|thx|ty|tysm|appreciate\s+it|much\s+appreciated|cheers|ok(?:ay)?|k|kk|alright|all\s+right|got\s+it|gotcha|understood|makes\s+sense|fair\s+enough|noted|copy\s+that|roger|sounds\s+good|looks\s+good|works\s+for\s+me|perfect|great|awesome|nice(?:\s+one)?|cool|sweet|dope|neat|solid|bet|word|i\s+see|ah\s+ok(?:ay)?|oh\s+ok(?:ay)?|oh\s+i\s+see|right|true|bye|goodbye|see\s+ya|cya|talk\s+soon|ttyl|have\s+a\s+good\s+one|lol|lmao|haha|hehe|wow|whoa|damn|brilliant|amazing|love\s+it|spot\s+on|nailed\s+it|hola|bonjour|salut|hallo|ciao|ol[aá]|bom\s+dia|buenos\s+d[ií]as|buenas\s+tardes|gracias|merci|danke|你好|您好|谢谢|こんにちは|ありがとう|안녕하세요|감사합니다|привет|спасибо)\b/iu;
+const TRIVIAL_TAIL_WORDS = new Set([
+  'hi', 'hello', 'hey', 'there', 'eden', 'jarvis', 'friend', 'mate', 'bro', 'man', 'buddy', 'pal', 'boss', 'team', 'all', 'everyone',
+  'how', 'are', 'you', 'doing', 'is', 'it', 'going', 'things', 'today', 'tonight', 'this', 'morning', 'afternoon', 'evening', 'night',
+  'good', 'great', 'fine', 'well', 'ok', 'okay', 'alright', 'cool', 'nice', 'awesome', 'perfect', 'sweet', 'solid',
+  'thanks', 'thank', 'thx', 'ty', 'tysm', 'much', 'very', 'so', 'a', 'lot', 'for', 'that', 'the', 'help', 'info', 'answer', 'update', 'clarifying', 'checking', 'explaining',
+  'got', 'gotcha', 'makes', 'sense', 'understood', 'noted', 'sounds', 'looks', 'works', 'me', 'fair', 'enough', 'i', 'see', 'ah', 'oh', 'right', 'true',
+  'whats', "what's", 'up', 'hows', "how's", 'again', 'now', 'bye', 'goodbye', 'see', 'ya', 'soon', 'later', 'take', 'care', 'cheers', 'lol', 'haha',
+]);
+
+/** True when `text` is a short greeting, acknowledgement, reaction, or formatting nudge with no factual claim to verify. */
+export function isTrivialEvesTurn(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 60) return false;
+  // Emoji-only or punctuation-only turns (no letters or digits at all)
+  if (!/[\p{L}\p{N}]/u.test(t)) return true;
+  if (TRIVIAL_EXACT.test(t)) return true;
+  const lead = TRIVIAL_LEAD.exec(t);
+  if (!lead) return false;
+  const rest = t
+    .slice(lead[0].length)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}'’]+/u)
+    .filter(Boolean);
+  return rest.length <= 6 && rest.every((w) => TRIVIAL_TAIL_WORDS.has(w));
+}
+
 /** Why a question looks risky to get wrong: a list of 'health' | 'legal' | 'money' | 'exact' | 'true' (empty: routine). */
 export function riskReasons(text) {
   const t = String(text || '').replace(/```[\s\S]*?```/g, ' ').trim();
-  if (t.length < 4 || t.length > 600 || MAKES.test(t)) return [];
+  if (t.length < 4 || t.length > 600 || MAKES.test(t) || isTrivialEvesTurn(t)) return [];
   return RISK_RULES.filter(([, re]) => re.test(t)).map(([id]) => id);
 }
 
@@ -100,10 +131,13 @@ export function riskReasons(text) {
  * 'auto' goes only when the page's rule says so: `factual(text)` (autosearch-rules.js), riskReasons, or the
  * server's risk class for this very text (`risk`, from POST /api/chat/eves/estimate: { eves: 'auto' }). This is the
  * only place Auto starts EVES (POST /api/chat/send never does), so the chip has shown the price first.
+ * Even when mode is 'on', short greetings, acknowledgements ("hi", "ok", "thanks") and bare formatting nudges
+ * skip EVES so they return immediately without running 3 models + claim judging.
  */
 export function wantsEves({ mode, applies = { ok: true }, text = '', factual = () => false, risk = null } = {}) {
   const m = normalizeMode(mode);
   if (m === 'off' || !applies.ok) return null;
+  if (String(text || '').trim() && isTrivialEvesTurn(text)) return null;
   if (m === 'on') return 'on';
   return riskReasons(text).length > 0 || !!factual(text) || !!(risk && risk.eves === 'auto') ? 'auto' : null;
 }
@@ -167,6 +201,8 @@ export function tookWords(ms) {
 }
 export const shortModel = (name) => String(name || '').replace(/^Claude /, '').replace(/ \(preview\)$/, '');
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+/** Inside the iPhone/Android app (native.js IN_APP, repeated here: this module has no imports). */
+const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '') && !/\bEdenBeta\//.test(navigator.userAgent || ''); // a TestFlight beta gets everything
 
 /**
  * Why the checks are weaker when the answers don't come from enough different providers. Plain
@@ -487,6 +523,7 @@ export function reviveState(blob) {
   s.id = clean(blob.id, 80) || null;
   s.phase = TERMINAL.includes(blob.phase) ? blob.phase : 'stopped';
   s.stage = STAGES.includes(blob.stage) ? blob.stage : null;
+  s.stageDetail = clean(blob.stageDetail, 160);
   s.seen = (Array.isArray(blob.seen) ? blob.seen : []).filter((x) => STAGES.includes(x));
   s.skipped = blob.skipped === true;
   s.error = clean(blob.error, 300) || null;
@@ -616,6 +653,42 @@ export function costLine(s) {
 }
 export const elapsedMs = (s, now = Date.now()) => Math.max(0, (s.doneAt ?? now) - (s.startedAt || now));
 
+/** Whether this EVES run was served directly from the EVES Immutable Verified Vault. */
+export const isVaultHit = (s) => !!(
+  s && (
+    /EVES (?:Immutable )?(?:Verified )?Vault/i.test(s.stageDetail || '') ||
+    /EVES (?:Immutable )?(?:Verified )?Vault/i.test((s.verdict && s.verdict.summary) || '') ||
+    /EVES (?:Immutable )?(?:Verified )?Vault/i.test((s.verification && s.verification.label && `${s.verification.label.text} ${s.verification.label.detail}`) || '')
+  )
+);
+
+// Compact web progress copy. Counts describe returned answers, never agreement or verification.
+export function progressView(s, now = Date.now()) {
+  const labels = { answering: 'Ask models', checking: 'Check facts', judging: 'Compare', evidence: 'Check disputes', finalizing: 'Answer' };
+  const descriptions = {
+    answering: 'Waiting for the models’ independent answers.',
+    checking: 'Running factual checks on the answers.',
+    judging: 'Comparing the answers for agreement and differences.',
+    evidence: 'Looking for evidence for disputed claims.',
+    finalizing: 'Writing the answer from the checked results.',
+  };
+  const vault = isVaultHit(s);
+  const returned = s.lanes.filter((l) => l.status === 'done').length;
+  const failed = vault ? 0 : s.lanes.filter((l) => l.status === 'failed').length;
+  const stopped = vault ? 0 : s.lanes.filter((l) => l.status === 'stopped').length;
+  const counts = vault ? 'Verified in EVES Vault' : s.lanes.length ? `${returned} of ${s.lanes.length} answers returned` : 'Preparing models';
+  const cost = costLine(s);
+  return {
+    labels,
+    vault,
+    title: vault && s.phase === 'done' ? 'Verified from EVES Vault' : liveText(s, true),
+    description: vault ? 'Timeless factual answer verified against primary sources and served from the EVES Immutable Verified Vault.' : s.phase === 'error' ? 'Verification could not finish.' : s.phase === 'stopped' ? 'Verification stopped before completion.' : s.phase === 'done' ? 'Checks finished. Model agreement does not guarantee accuracy.' : descriptions[s.stage] || 'Preparing the verification run.',
+    warning: [failed ? `${failed} model${failed === 1 ? '' : 's'} failed` : '', stopped ? `${stopped} model${stopped === 1 ? '' : 's'} stopped` : ''].filter(Boolean).join(' · '),
+    meta: [counts, cost ? `${cost}${s.phase === 'done' ? ' total' : ' so far'}` : 'Cost pending'].join(' · '),
+    elapsed: `${Math.floor(elapsedMs(s, now) / 1000)}s`,
+  };
+}
+
 /* ---------- the badge ---------- */
 
 const AGREEMENT = {
@@ -680,14 +753,14 @@ export function badgeView(s, live = false) {
   // something keeps the normal badge below (its label is "Corrected after checking").
   const one = s.verification && s.verification.label;
   if (phase !== 'error' && v && v.timedOut && !(one && one.kind === 'issues_found') && v.agreement !== 'single') return make(PARTLY_CHECKED, [PARTLY_CHECKED], 'eves_partial', 'info', { failed: false });
+  const vault = isVaultHit(s);
   if (phase === 'error' || judgeFailed(v)) return make(NOT_VERIFIED, [], 'failed', 'warn', { failed: true });
-  if (v.winner === null && got === 0) return make('No model gave a usable answer.', [], 'failed', 'bad', { failed: true });
+  if (v.winner === null && got === 0 && !vault) return make('No model gave a usable answer.', [], 'failed', 'bad', { failed: true });
 
   const counts = tally(v);
   const open = counts.flagged + counts.unverified;
   const parts = [];
-  const allAgreed = v.agreement === 'unanimous' || v.skippedJudge === true || (one && one.kind === 'eves_verified');
-  if (!allAgreed && (v.agreement === 'single' || got < 2)) {
+  if (!vault && (v.agreement === 'single' || got < 2)) {
     const text = got === 1 && total > 1 ? 'Only one of the models answered · not cross-checked' : 'Answered by one model · not cross-checked';
     if (counts.corrected) parts.push(`${counts.corrected} corrected`);
     if (counts.added) parts.push(`${counts.added} added from the web`);
@@ -699,7 +772,9 @@ export function badgeView(s, live = false) {
     if (counts.contradicted) sev = worse(sev, 'bad');
     return make([text, ...parts].join(' · '), [text, ...parts], 'eves_single', sev);
   }
-  const lead = got < 2 && allAgreed ? 'All models agreed' : got === total ? `Checked by ${plural(got, 'model', 'models')}` : `Checked by ${got} of ${total} models`;
+  // nothing confirmed (every claim unverified: none agreed, confirmed or corrected): the badge never says "Checked"
+  const noneConfirmed = !IN_APP && !vault && open > 0 && open === (v.claims || []).length && !counts.agreed && !counts.confirmed && !counts.corrected && !counts.added && !counts.removed && !counts.contradicted;
+  const lead = vault ? 'Verified by EVES Vault' : noneConfirmed ? `Not confirmed · ${plural(got, 'model', 'models')} answered` : got === total ? `Checked by ${plural(got, 'model', 'models')}` : `Checked by ${got} of ${total} models`;
   parts.push(lead);
   if (counts.agreed) parts.push(`${counts.agreed} agreed`);
   if (counts.confirmed) parts.push(`${counts.confirmed} confirmed by sources`);
@@ -757,8 +832,9 @@ export function detailView(s, live = false, now = Date.now()) {
       original: claim ? claim.text : '', replacement: c.replacement, reason: c.reason,
     };
   });
+  const vault = isVaultHit(s);
   const checks = [...s.checks, ...(s.verification ? s.verification.findings : [])];
-  const judge = !v ? '' : v.skippedJudge ? 'No judge was needed: every claim was agreed by all models.' : s.plan && s.plan.judge && (s.plan.judge.modelName || s.plan.judge.model) ? `Compared by ${shortModel(s.plan.judge.modelName || s.plan.judge.model)}.` : '';
+  const judge = !v ? '' : vault ? 'Served from the EVES Immutable Verified Vault.' : v.skippedJudge ? 'No judge was needed: every claim was agreed by all models.' : s.plan && s.plan.judge && (s.plan.judge.modelName || s.plan.judge.model) ? `Compared by ${shortModel(s.plan.judge.modelName || s.plan.judge.model)}.` : '';
   const c = runCost(s);
   const total = [c.totalUSD === null ? '' : `Total ${costLine(s)}`, tookWords(elapsedMs(s, now))].filter(Boolean).join(' · ');
   const got = answered(s).length;
@@ -771,13 +847,13 @@ export function detailView(s, live = false, now = Date.now()) {
   return {
     notVerified: failed ? NOT_VERIFIED : timedOut ? 'Time ran out before every claim was checked, so this answer is only partly checked.' : '',
     note: s.verification ? s.verification.label.detail : '',
-    agreement: v && v.agreement && !judgeFailed(v) ? { id: v.agreement, text: AGREEMENT[v.agreement](Math.max(got, 1)) } : null,
+    agreement: v && v.agreement && !judgeFailed(v) ? { id: v.agreement, text: vault && got === 0 ? 'Verified against primary sources in the EVES Immutable Verified Vault.' : AGREEMENT[v.agreement](Math.max(got, 1)) } : null,
     summary: v ? v.summary : '',
-    winner: v && v.winner !== null && names[v.winner] ? `The answer above is ${names[v.winner]}’s${corrections.length ? ', with the changes below' : ''}.` : '',
+    winner: !vault && v && v.winner !== null && names[v.winner] ? `The answer above is ${names[v.winner]}’s${corrections.length ? ', with the changes below' : ''}.` : '',
     claims, corrections,
     struck: struckOnly(s.verification && s.verification.repaired ? s.verification.repaired.struck : [], corrections),
     checks,
-    models: s.lanes.map((l) => laneView(l, now)),
+    models: vault && got === 0 ? [] : s.lanes.map((l) => laneView(l, now)),
     judge, total, notes,
     added: addedLine(s.verification && s.verification.added),
   };
@@ -836,7 +912,7 @@ export function estimateView(est, { privacy = false } = {}) {
 export function chipView({ mode, applies = { ok: true, why: '' }, wouldRun = true, est = null, loading = false, hasText = false } = {}) {
   const m = normalizeMode(mode);
   const ev = estimateView(est);
-  const pricing = m !== 'off' && applies.ok && hasText && (m === 'on' || wouldRun);
+  const pricing = m !== 'off' && applies.ok && hasText && wouldRun;
   const price = pricing && ev ? ev.price : '';
   let sub = MODE_INFO[m].label;
   let tone = m;
@@ -846,7 +922,7 @@ export function chipView({ mode, applies = { ok: true, why: '' }, wouldRun = tru
   const weak = pricing && !!ev && ev.weak;
   const bits = [tone === 'na' ? `EVES is ${MODE_INFO[m].label.toLowerCase()}, but not for this message.` : `EVES is ${MODE_INFO[m].label.toLowerCase()}.`, EVES_HELP];
   if (tone === 'na') bits.push(applies.why);
-  else if (m === 'auto' && hasText && !wouldRun) bits.push('This message looks routine, so it will be answered as usual.');
+  else if (m !== 'off' && hasText && !wouldRun) bits.push('This message looks routine, so it will be answered as usual.');
   else if (price) bits.push(ev.typical ? `Estimated ${ev.typical} when the models agree, up to ${price} if they disagree${ev.time ? `, ${ev.time}` : ''}.` : `Estimated ${price}${ev.time ? `, ${ev.time}` : ''}.`);
   if (weak && ev.note) bits.push(ev.note);
   const title = bits.join(' ');
@@ -874,3 +950,30 @@ export function evesBody(base, { mode, models } = {}) {
   if (Array.isArray(models) && models.length && b.privacy !== true) out.models = models.map((x) => ({ model: x.model, ...(x.effort ? { effort: x.effort } : {}) }));
   return out;
 }
+
+/** A finished answer that only asks the person something back (like the server's isClarifyingQuestion, judge.ts). */
+const asksBack = (l) => {
+  const s = String(l.text || '').trim();
+  return l.status === 'done' && s.length <= 850 && s.endsWith('?') && !/```|~~~/.test(s) && s.split(/\n+/).filter((x) => x.trim()).length <= 5;
+};
+
+/**
+ * Which model's answer shows as the draft while EVES checks (eves.js draftView): `current`, the lane shown so far
+ * (the first to write), while it has text and has not failed; when it fails, was stopped, or turned out to be a question
+ * back to the person while another answer is whole, the first answer that is. null: no draft. Only ever reads the lanes;
+ * never decides anything about the check.
+ */
+export function draftLaneOf(lanes, current) {
+  const list = Array.isArray(lanes) ? lanes : [];
+  const usable = (l) => Boolean(l && typeof l.text === 'string' && l.text.trim() && l.status !== 'failed');
+  const whole = (l) => usable(l) && l.status !== 'stopped' && !asksBack(l);
+  const cur = Number.isInteger(current) ? list[current] : undefined;
+  if (whole(cur) || (usable(cur) && !list.some(whole))) return current;
+  const i = list.findIndex(whole);
+  if (i >= 0) return i;
+  const j = list.findIndex(usable);
+  return j >= 0 ? j : null;
+}
+
+/** A deck or a workbook shows as its card, never as a draft: the fences deck-card.js and sheet-entry.js read. */
+export const draftHidden = (text) => /(^|\n) {0,3}(`{3,}|~{3,})[ \t]*(?:deck|deck-patch|slides|eden-sheet)\b/i.test(String(text || ''));

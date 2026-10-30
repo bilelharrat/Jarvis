@@ -135,8 +135,8 @@ function infoQuestion(t) {
   return true;
 }
 
-// Asks to make or change text: "the latest version of my essay" is not news.
-const MAKES = /^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|pls\s+)?(?:write|draft|compose|rewrite|rephrase|translate|proofread|edit|fix|refactor|debug|summari[sz]e|paraphrase|generate|create|make|code|implement|explain\s+how|redacta|escribe|traduce|écris|écrire|traduis|schreib|übersetze)\b/i;
+// Asks to make or change text, pictures or videos: "the latest version of my essay" or "draw me a lighthouse at sunset" is not news.
+const MAKES = /^\s*(?:(?:hey\s+)?eden[,:]?\s+)?(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|will\s+you\s+|pls\s+|i\s+(?:want|need|would\s+like)\s+(?:you\s+to\s+)?)?(?:write|draft|compose|rewrite|rephrase|translate|proofread|edit|fix|refactor|debug|summari[sz]e|paraphrase|generate|create|make|draw|paint|design|render|produce|sketch|illustrate|animate|shoot|film|imagine|code|implement|explain\s+how|redacta|escribe|traduce|écris|écrire|traduis|schreib|übersetze)\b/i;
 
 /** Does this message need the web: explicit, or about now/news/prices/scores/weather/places/changed facts? */
 export function needsCurrentInfo(text) {
@@ -185,4 +185,22 @@ export function autoSearchMode({ text, mode = 'chat', enabled = true, temp = fal
 export function factCheckSettings(settings) {
   const s = settings && typeof settings === 'object' ? settings : {};
   return { ...(s.premiseCheck === false ? { premiseCheck: false } : {}), ...(s.answerCheck === false ? { answerCheck: false } : {}) };
+}
+
+/**
+ * The links an earlier reply cited, as a short note appended to that reply when it goes back to the model as history
+ * (chat.js history): without them the model reads its own cited figures as unverified and takes them back (2026-10-25
+ * replay). '' when there are none. At most `max` links, http(s) only, titles and URLs clipped.
+ */
+export function citedSourcesNote(citations, max = 6) {
+  const seen = new Set();
+  const lines = [];
+  for (const c of Array.isArray(citations) ? citations : []) {
+    const url = c && typeof c.url === 'string' ? c.url.trim() : '';
+    if (!/^https?:\/\//i.test(url) || seen.has(url) || lines.length >= max) continue;
+    seen.add(url);
+    const title = String((c && c.title) || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    lines.push(`- ${title ? `${title}: ` : ''}${url.slice(0, 300)}`);
+  }
+  return lines.length ? `\n\n[Sources this reply cited from its web search:\n${lines.join('\n')}]` : '';
 }

@@ -2,16 +2,264 @@
 // Changes tab (GET /api/chat/code/changes: files + diff hunks, each one markable as
 // reviewed or sent back with "ask to revert") and Plan tab (TodoWrite), the activity drawer.
 
-import { $, el, ico, toast, noKeys } from './util.js';
-import { state, saveConversation } from './state.js';
+import { $, el, ico, toast, noKeys, uid } from './util.js';
+import { state, ui, saveConversation } from './state.js';
 import { api } from './api.js';
 import { todoList, hunkStates } from './render.js';
-import { activity } from './chat.js';
+import { activity, sendMessage } from './chat.js';
+import { locale } from './i18n.js';
 
 let H = {};
 
+/* ---------- Timed tasks for Code sessions ("resume this at 2 am", /later 2am) ---------- */
+export const DEFAULT_CODE_RESUME = 'Carry on with my last request from where it was left, without repeating what is already done.';
+const MAX_WAIT_SEC = 7 * 86400;
+
+function resolveWallTime(now, hour, min, dayWord) {
+  const d = new Date(now.getTime());
+  d.setHours(hour, min, 0, 0);
+  if (dayWord === 'tomorrow' || d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
+  if (d.getTime() - now.getTime() > MAX_WAIT_SEC * 1000) return null;
+  return d;
+}
+
+function cleanTimedPrompt(rest) {
+  let c = String(rest || '').trim();
+  if (!c || /^(?:please\s+)?(?:resume|continue|carry\s+on|pick\s+(?:this\s+)?up|keep\s+going)(?:\s+(?:this(?:\s+(?:session|task|work))?|it|here|from\s+here|where\s+(?:we|you)\s+left\s+off))?\s*[.!]?$/i.test(c)) {
+    return DEFAULT_CODE_RESUME;
+  }
+  c = c.replace(/^(?:please\s+)?(?:resume|continue|carry\s+on)(?:\s+this)?\s+(?:and|then)\s+/i, '').trim();
+  return c || DEFAULT_CODE_RESUME;
+}
+
+/** Parse `<when> [task]` (for `/later <when> [task]` or `/schedule <when> [task]`) into `{ atMs, prompt, display }`. */
+export function parseCodeWhenAndTask(raw, nowMs = Date.now()) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const now = new Date(nowMs);
+
+  const rel = /^(?:in\s+|after\s+)?(?:(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|hr|h)\b\s*(?:(?:and\s+)?(\d+)\s*(?:minutes?|mins?|min|m)\b)?|(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|min|m)\b|(\d+)\s*(?:seconds?|secs?|sec|s)\b)(?:\s*[:,;-]?\s*(.*))?$/is.exec(s);
+  if (rel) {
+    const h = Number(rel[1] || 0);
+    const m = Number(rel[2] || rel[3] || 0);
+    const sec = Number(rel[4] || 0);
+    const deltaSec = h * 3600 + m * 60 + sec;
+    if (deltaSec > 0 && deltaSec <= MAX_WAIT_SEC) {
+      const prompt = cleanTimedPrompt(rel[5] || '');
+      return { atMs: Math.round(nowMs + deltaSec * 1000), prompt, display: prompt === DEFAULT_CODE_RESUME ? 'Resume session' : prompt };
+    }
+  }
+
+  const wordAt = /^(?:(tomorrow|tonight|today)\s+)?(?:at\s+)?(midnight|noon|midday)(?:\s+(tomorrow|tonight|today))?(?:\s*[:,;-]?\s*(.*))?$/is.exec(s);
+  if (wordAt) {
+    const dayWord = (wordAt[1] || wordAt[3] || '').toLowerCase();
+    const hour = wordAt[2].toLowerCase() === 'midnight' ? 0 : 12;
+    const target = resolveWallTime(now, hour, 0, dayWord);
+    if (target) {
+      const prompt = cleanTimedPrompt(wordAt[4] || '');
+      return { atMs: target.getTime(), prompt, display: prompt === DEFAULT_CODE_RESUME ? 'Resume session' : prompt };
+    }
+  }
+
+  const at = /^(?:(tomorrow|tonight|today)\s+)?(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s+(tomorrow|tonight|today))?(?:\s*[:,;-]?\s*(.*))?$/is.exec(s);
+  if (at) {
+    const dayWord = (at[1] || at[5] || '').toLowerCase();
+    let hour = Number(at[2]);
+    const min = Number(at[3] || 0);
+    const ampm = (at[4] || '').toLowerCase().replace(/\./g, '');
+    if (!ampm && at[3] === undefined && !/^(?:at|tomorrow|tonight|today)\b/i.test(s)) return null;
+    if (min > 59) return null;
+    if (ampm) {
+      if (hour < 1 || hour > 12) return null;
+      hour = ampm === 'am' ? (hour === 12 ? 0 : hour) : (hour === 12 ? 12 : hour + 12);
+    } else if (hour > 23) return null;
+    const target = resolveWallTime(now, hour, min, dayWord);
+    if (target) {
+      const prompt = cleanTimedPrompt(at[6] || '');
+      return { atMs: target.getTime(), prompt, display: prompt === DEFAULT_CODE_RESUME ? 'Resume session' : prompt };
+    }
+  }
+  return null;
+}
+
+/** Detect natural timed messages in a Code session, e.g. "resume this at 2 am", "at 2am run the tests". */
+export function parseNaturalCodeTimedMessage(text, nowMs = Date.now()) {
+  const s = String(text || '').trim();
+  if (!s || s.startswith?.('/') || s.startsWith('/') || s.length > 1000 || s.includes('\n')) return null;
+
+  const resumeFirst = /^\s*(?:please\s+)?(?:resume|continue|carry\s+on|pick\s+this\s+up|wake(?:\s+up)?|run\s+this|start\s+this)(?:\s+(?:this(?:\s+(?:session|task|work))?|it|here|from\s+here|where\s+(?:we|you)\s+left\s+off))?\s+((?:(?:tomorrow|tonight|today)\s+)?(?:at\s+(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?|midnight|noon|midday)|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)|in\s+\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)(?:\s+(?:and\s+)?\d+\s*(?:minutes?|mins?|min|m))?)(?:\s+(?:tomorrow|tonight|today))?)(?:\s*(?:,|;|:|\band\b|\bthen\b|\bto\b)\s*(.+)|\s*)?$/is.exec(s);
+  if (resumeFirst) {
+    const parsed = parseCodeWhenAndTask(resumeFirst[1].trim(), nowMs);
+    if (parsed) {
+      const prompt = cleanTimedPrompt(resumeFirst[2] || '');
+      return { atMs: parsed.atMs, prompt, display: prompt === DEFAULT_CODE_RESUME ? 'Resume session' : prompt };
+    }
+  }
+
+  const timeFirst = /^\s*((?:(?:tomorrow|tonight|today)\s+)?at\s+(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)|(?:\d{1,2}:\d{2})|midnight|noon|midday)(?:\s+(?:tomorrow|tonight|today))?|in\s+\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)(?:\s+(?:and\s+)?\d+\s*(?:minutes?|mins?|min|m))?)(?:\s*(?:,|;|:|-|\bplease\b)\s*|\s+)(.+)$/is.exec(s);
+  if (timeFirst) {
+    const parsed = parseCodeWhenAndTask(timeFirst[1].trim(), nowMs);
+    if (parsed && timeFirst[2].trim()) {
+      const prompt = cleanTimedPrompt(timeFirst[2] || '');
+      return { atMs: parsed.atMs, prompt, display: prompt === DEFAULT_CODE_RESUME ? 'Resume session' : prompt };
+    }
+  }
+  return null;
+}
+
+export function formatScheduledTime(atMs) {
+  const d = new Date(atMs);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const timeStr = d.toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return timeStr;
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${timeStr}`;
+  return d.toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+export function scheduleCodeTask(c, { atMs, prompt, display }) {
+  if (!c || c.kind !== 'code') return null;
+  c.scheduled = Array.isArray(c.scheduled) ? c.scheduled : [];
+  const item = {
+    id: uid('sched'),
+    at: atMs,
+    text: prompt || DEFAULT_CODE_RESUME,
+    display: display || (prompt === DEFAULT_CODE_RESUME ? 'Resume session' : prompt),
+  };
+  c.scheduled.push(item);
+  c.scheduled.sort((a, b) => a.at - b.at);
+  saveConversation(c);
+  ui.renderComposer();
+  ui.renderSidebar();
+  toast(`Scheduled for ${formatScheduledTime(atMs)}: ${item.display}`);
+  ensureScheduleLoop();
+  return item;
+}
+
+export function runScheduledCodeTaskNow(c, id) {
+  if (!c || !Array.isArray(c.scheduled)) return;
+  const item = id ? c.scheduled.find((x) => x.id === id) : c.scheduled[0];
+  if (!item) return;
+  c.scheduled = c.scheduled.filter((x) => x !== item);
+  saveConversation(c);
+  ui.renderComposer();
+  ui.renderSidebar();
+  fireScheduledItem(c, item);
+}
+
+export function cancelScheduledCodeTask(c, id) {
+  if (!c || !Array.isArray(c.scheduled)) return;
+  const item = id ? c.scheduled.find((x) => x.id === id) : c.scheduled[0];
+  if (!item) return;
+  c.scheduled = c.scheduled.filter((x) => x !== item);
+  saveConversation(c);
+  ui.renderComposer();
+  ui.renderSidebar();
+  toast(`Cancelled timed task for ${formatScheduledTime(item.at)}`);
+}
+
+function fireScheduledItem(c, item) {
+  const prev = state.current;
+  if (state.streams.has(c.id)) {
+    // Session is currently mid-step: queue it to run right after
+    c.queue = c.queue || [];
+    c.queue.push({ id: uid('q'), text: item.text, state: 'queued' });
+    ui.renderComposer();
+    return;
+  }
+  state.current = c;
+  try {
+    sendMessage(item.text, []);
+  } finally {
+    if (prev && prev !== c) {
+      state.current = prev;
+      ui.render();
+    }
+  }
+}
+
+let schedInterval = 0;
+export function ensureScheduleLoop() {
+  if (schedInterval) return;
+  schedInterval = setInterval(() => {
+    const now = Date.now();
+    let anyLeft = false;
+    for (const c of state.convs) {
+      if (!c || c.kind !== 'code' || !Array.isArray(c.scheduled) || !c.scheduled.length) continue;
+      const due = c.scheduled.filter((x) => x.at <= now);
+      if (due.length) {
+        c.scheduled = c.scheduled.filter((x) => x.at > now);
+        saveConversation(c);
+        for (const item of due) fireScheduledItem(c, item);
+        ui.renderComposer();
+        ui.renderSidebar();
+      }
+      if (c.scheduled.length) anyLeft = true;
+    }
+    if (anyLeft && state.current && state.current.kind === 'code' && Array.isArray(state.current.scheduled) && state.current.scheduled.length) {
+      ui.renderComposer();
+    }
+    if (!anyLeft) {
+      clearInterval(schedInterval);
+      schedInterval = 0;
+    }
+  }, 1000);
+}
+
+export function scheduleTaskDialog(c = state.current, prefill = '') {
+  if (!c || c.kind !== 'code') {
+    toast('Open a Code session first to schedule a timed coding task.');
+    return;
+  }
+  const body = $('dlgBody');
+  const whenInput = el('input', { type: 'text', value: '2:00 am', placeholder: 'e.g. 2:00 am, in 30m, tomorrow 9am', 'aria-label': 'When to run' });
+  const promptInput = el('textarea', { rows: '3', placeholder: 'Leave blank to resume this session where it left off, or type what to do…', 'aria-label': 'Task instructions' });
+  promptInput.value = prefill;
+  const err = el('div', { class: 'muted', 'aria-live': 'polite' });
+  const presets = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' } },
+    ...[['In 30m', 'in 30m'], ['In 1h', 'in 1h'], ['2:00 AM', '2:00 am'], ['6:00 AM', '6:00 am'], ['9:00 AM', '9:00 am']].map(([lbl, val]) =>
+      el('button', { type: 'button', class: 'cap', onclick: () => { whenInput.value = val; whenInput.focus(); } }, lbl)));
+  const submit = () => {
+    const parsed = parseCodeWhenAndTask(whenInput.value.trim());
+    if (!parsed) {
+      err.textContent = 'Enter a time like “2am”, “in 45m”, or “tomorrow 9:00am”.';
+      whenInput.focus();
+      return;
+    }
+    const custom = promptInput.value.trim();
+    const prompt = custom ? cleanTimedPrompt(custom) : parsed.prompt;
+    const display = custom || parsed.display;
+    H.closeDialog();
+    scheduleCodeTask(c, { atMs: parsed.atMs, prompt, display });
+  };
+  whenInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  body.replaceChildren(
+    el('p', 'sp-note', `Schedule a timed task for ${c.project ? c.project.name : 'this Code session'}. Leave the task blank to resume from where it left off.`),
+    presets,
+    el('div', 'field', 'When', whenInput),
+    el('div', { class: 'field', style: { marginTop: '10px' } }, 'What to do (optional)', promptInput),
+    err,
+    el('div', { class: 'dlg-acts', style: { marginTop: '14px' } },
+      el('button', { type: 'button', class: 'btn', onclick: () => H.closeDialog() }, 'Cancel'),
+      el('button', { type: 'button', class: 'btn primary', onclick: submit }, 'Schedule')),
+  );
+  H.openDialog('Schedule timed task', body);
+  setTimeout(() => { whenInput.focus(); whenInput.select(); }, 40);
+}
+
 export async function loadProjects() {
-  try { state.projects = await api.projects(); } catch (e) { state.projects = []; state.projectsError = e.message; }
+  try {
+    state.projects = await api.projects();
+    state.projectsError = null;
+  } catch (e) {
+    state.projects = [];
+    state.projectsError = e.message;
+    // On askeden.com without a Mac (503/404), avoid logging console noise
+    if (e.status !== 503 && e.status !== 404) {
+      console.warn('Projects not available:', e.message);
+    }
+  }
   return state.projects;
 }
 

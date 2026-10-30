@@ -4,7 +4,7 @@
 import './i18n.js'; // first of all: the page's language (French loads its strings before any module draws)
 import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
 import { keyStatus, providerGlyph } from './settings-model.js';
-import { $, el, ico, qsa, toast, lazy, whileVisible, retryWait, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
+import { $, el, ico, qsa, toast, lazy, whileVisible, retryWait, copyText, copyRich, download, fmtCost, relDay, fmtTimestamp, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { LANGS, langPref, setLang, isFr, locale, t as tx } from './i18n.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
@@ -27,7 +27,7 @@ import { initAccount } from './account.js';
 import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
-import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
+import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer, parseCodeWhenAndTask, parseNaturalCodeTimedMessage, scheduleCodeTask, scheduleTaskDialog, ensureScheduleLoop } from './code.js';
 import { initCalendar, openCalendar, calendarReturnPending, RETURN_KEY as CAL_RETURN_KEY } from './calendar-entry.js'; // calendar.js loads when it opens (efficiency pass 2)
 import { initMemory } from './memory.js';
 import { importLabel } from './import-label.js'; // the sidebar's "Imported from …" (the readers load with the Import dialog)
@@ -42,21 +42,26 @@ import { initTasks, openTasks, pendingApprovals } from './tasks.js';
 import { initWorkflows, openWorkflows, saveWorkflowFrom } from './workflows.js';
 import { openNews, closeNews } from './news-panel.js';
 import { initLearned, learnedSettings } from './learned.js';
-import { initAutopilot, autopilotSettings } from './autopilot.js';
-import { decorateEves, evesSettings } from './eves.js'; // N13: EVES's progress line and badge on a reply, and its switch in Settings › Routing
+import { initAutopilot, autopilotSettings, refreshSpend, spendStatus, monthSavings } from './autopilot.js';
+import { decorateEves, evesSettings, drawEvesPane } from './eves.js'; // N13: EVES's progress line and badge on a reply, and its switch in Settings › Routing & EVES pane
 import { decorateVerify } from './verify.js'; // N13: the label under a reply
 import { acting, actingHas } from './acting.js';
 import { initTour, startTour } from './tour.js'; // I1: the try-it tour
 import { reportFileName, reportTitle } from './research-model.js'; // Q2: the research report's title and file name
 import { decorateFirstRun, initFirstRun } from './first-run.js'; // Q4: the first minute
 import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
-import { IN_APP, openAppSettings, AI_CONSENT_WORDS, reviewAiConsent } from './native.js';
+import { IN_APP, IN_APP_SHELL, openAppSettings, AI_CONSENT_WORDS, reviewAiConsent } from './native.js';
 import { essayCommand, essayStyleIn } from './eden-tools.js';
 // The essay writer (essay.js, ROADMAP T11–T12): askeden.com in a browser only. The iPhone/Android app never shows it
 // (no Essays button, no /essay-style command, no paste-into-essay) and never loads its modules.
 const ESSAYS = !IN_APP;
 let essayChat = null; // essay-chat.js once loaded (website only): an open essay stays with its chat (T20e)
-import { imagesAvailable } from './image-mode.js'; // Image mode's send extra and the /image command
+import { imagesAvailable, videosAvailable } from './image-mode.js'; // Image & Video modes' send extra and /image, /video commands
+import {
+  initSplitView, updateSplitMessage, renderSplitPaneFor, command as splitCmd,
+  handleSplitKey, takeConv, onOwnChanged, onConvDeleted, rowItem as splitRowItem,
+  splitMenuItems, splitPaletteCommands, splitState,
+} from './split-view.js';
 import './edu-budget.js'; // its send extra (`eduOwn` on a course chat sent from here) must be on at startup, before Courses ever opens (R2C-6); small: util + api only
 
 /* ---------- features loaded when first used, not at startup (efficiency pass 1) ---------- */
@@ -64,6 +69,11 @@ import './edu-budget.js'; // its send extra (`eduOwn` on a course chat sent from
 // A background load (`{ quiet: true }`) fails without a word: only a load someone asked for says so (R2C-19).
 // Q3: share a chat as a read-only link (share.js, its model and share.css)
 const shareMod = lazy(() => import('./share.js').then((m) => { m.initShare({ openDialog, closeDialog }); return m; }), [new URL('./share.js', import.meta.url).href]);
+// Apple-style motion (motion.css): everywhere but the Eden and Edu iPhone apps, which must look unchanged while in App
+// Review (CLAUDE.md freeze rule); the travel iPhone app has it
+if (!/EdenApp\/|EdenEdu/.test(navigator.userAgent || '')) document.documentElement.classList.add('eden-motion');
+// Eden Travel's own address is its own app from the first paint (travel.js STANDALONE; travel.css .travel-standalone)
+if (!IN_APP && /(^|\.)askedentravel\.com$|^travel\.localhost$/.test(location.hostname)) { document.body.classList.add('travel-standalone'); const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'travel.css?v=20261029c'; document.head.append(css); }
 const openShare = (c) => shareMod().then((m) => m.openShare(c), () => {});
 // Import chats from ChatGPT, Claude or Gemini (import-chatgpt.js and the three readers, import-chatgpt.css)
 const importMod = lazy(() => import('./import-chatgpt.js').then((m) => { m.initImportChatGPT({ openDialog, closeDialog, toast }); return m; }), [new URL('./import-chatgpt.js', import.meta.url).href]);
@@ -93,12 +103,359 @@ const closeBrowser = () => (browserPane ? browserPane.closeBrowser() : false); /
 
 /* ================= theme ================= */
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+const COLOR_PRESETS = [
+  ['blue', 'Eden Blue', '#007aff'],
+  ['indigo', 'Indigo', '#5e5ce6'],
+  ['purple', 'Purple', '#af52de'],
+  ['rose', 'Rose', '#ff2d55'],
+  ['red', 'Red', '#ff3b30'],
+  ['orange', 'Orange', '#ff9500'],
+  ['emerald', 'Emerald', '#34c759'],
+  ['teal', 'Teal', '#30b0c7'],
+  ['neutral', 'Neutral Slate', '#2c2c2e'],
+  ['black', 'Black', '#000000'],
+];
+const DEFAULT_GLASS_STYLE = 'capsule';
+const GLASS_STYLES = [
+  ['capsule', 'Liquid Glass Capsule', 'Specular lens sheen + colored glow'],
+  ['obsidian', 'Smoked Obsidian Rim', 'Dark smoked glass + 1px neon rim'],
+  ['crystal', 'VisionOS Frosted Crystal', 'Airy high-refraction bevel'],
+  ['seaglass', 'Deep Caustic Sea Glass', 'Rich inner cushion + caustic core'],
+  ['classic', 'Classic Solid', 'Original flat solid fill'],
+];
+function normGlassStyle(s) {
+  if (typeof s !== 'string') return '';
+  const v = s.trim().toLowerCase();
+  return GLASS_STYLES.some(([id]) => id === v) ? v : '';
+}
+function glassSurfaceRulesFor(r, g, b, effHex, contrast, styleId, dark) {
+  const style = normGlassStyle(styleId) || DEFAULT_GLASS_STYLE;
+  const comma = `${r}, ${g}, ${b}`;
+  if (style === 'classic') {
+    return {
+      bg: effHex,
+      sh: `inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 3px rgba(0, 0, 0, ${dark ? '0.28' : '0.12'})`,
+      filter: 'none',
+      sheen: 'none',
+      radius: '19px 19px 5px 19px',
+      ink: contrast,
+    };
+  }
+  if (style === 'obsidian') {
+    const baseBg = dark ? 'rgba(8, 11, 18, 0.78)' : 'rgba(14, 18, 28, 0.76)';
+    return {
+      bg: `linear-gradient(155deg, rgba(${comma}, 0.24) 0%, ${baseBg} 100%)`,
+      sh: `inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(${comma}, 0.36), 0 4px 12px -4px rgba(0, 0, 0, 0.36)`,
+      filter: 'blur(28px) saturate(175%)',
+      sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 100%)',
+      radius: '16px 16px 4px 16px',
+      ink: '#ffffff',
+    };
+  }
+  if (style === 'crystal') {
+    const midAlpha = dark ? '0.22' : '0.32';
+    const endAlpha = dark ? '0.12' : '0.18';
+    return {
+      bg: `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? '0.18' : '0.38'}) 0%, rgba(${comma}, ${midAlpha}) 52%, rgba(${comma}, ${endAlpha}) 100%)`,
+      sh: `inset 0 1px 0 rgba(255, 255, 255, ${dark ? '0.30' : '0.62'}), inset 0 0 0 1px rgba(${comma}, ${dark ? '0.28' : '0.22'}), 0 4px 12px -4px rgba(0, 0, 0, ${dark ? '0.28' : '0.10'})`,
+      filter: 'blur(34px) saturate(195%)',
+      sheen: 'linear-gradient(155deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.02) 60%, transparent 100%)',
+      radius: '21px 21px 5px 21px',
+      ink: dark ? '#ffffff' : '#0f172a',
+    };
+  }
+  if (style === 'seaglass') {
+    return {
+      bg: dark
+        ? `linear-gradient(160deg, rgba(255, 255, 255, 0.12) 0%, rgba(${comma}, 0.30) 56%, rgba(8, 20, 28, 0.44) 100%)`
+        : `linear-gradient(160deg, rgba(255, 255, 255, 0.62) 0%, rgba(${comma}, 0.36) 56%, rgba(${comma}, 0.24) 100%)`,
+      sh: `inset 0 1px 0 rgba(255, 255, 255, ${dark ? '0.24' : '0.65'}), inset 0 0 0 1px rgba(${comma}, ${dark ? '0.30' : '0.24'}), 0 4px 12px -4px rgba(0, 0, 0, ${dark ? '0.28' : '0.09'})`,
+      filter: 'blur(26px) saturate(190%)',
+      sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 100%)',
+      radius: '18px 18px 5px 18px',
+      ink: dark ? '#ffffff' : '#0f172a',
+    };
+  }
+  return {
+    bg: dark
+      ? `linear-gradient(160deg, rgba(255, 255, 255, 0.11) 0%, rgba(${comma}, 0.24) 55%, rgba(255, 255, 255, 0.05) 100%)`
+      : `linear-gradient(160deg, rgba(255, 255, 255, 0.66) 0%, rgba(${comma}, 0.28) 55%, rgba(${comma}, 0.18) 100%)`,
+    sh: `inset 0 1px 0 rgba(255, 255, 255, ${dark ? '0.22' : '0.68'}), inset 0 0 0 1px rgba(${comma}, ${dark ? '0.26' : '0.22'}), 0 4px 12px -4px rgba(0, 0, 0, ${dark ? '0.28' : '0.08'})`,
+    filter: 'blur(28px) saturate(190%)',
+    sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 100%)',
+    radius: '16px 16px 4px 16px',
+    ink: dark ? 'rgba(255, 255, 255, 0.96)' : '#0f172a',
+  };
+}
+function clampNum(n, a, b) { const v = Number(n); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; }
+function normHex(s) {
+  if (typeof s !== 'string') return '';
+  const r = s.trim().replace(/^#/, '').toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(r)) return `#${r[0]}${r[0]}${r[1]}${r[1]}${r[2]}${r[2]}`;
+  return /^[0-9a-f]{6}$/.test(r) ? `#${r}` : '';
+}
+function hexRgb(hex) {
+  const n = parseInt((normHex(hex) || '#007aff').slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbHex(r, g, b) {
+  const h = (c) => Math.round(clampNum(c, 0, 255)).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+function rgbHsv(r, g, b) {
+  const rn = clampNum(r, 0, 255) / 255, gn = clampNum(g, 0, 255) / 255, bn = clampNum(b, 0, 255) / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn), d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === rn) h = ((gn - bn) / d) % 6;
+    else if (max === gn) h = (bn - rn) / d + 2;
+    else h = (rn - gn) / d + 4;
+    h = Math.round(h * 60);
+    if (h < 0) h += 360;
+  }
+  return { h, s: max === 0 ? 0 : d / max, v: max };
+}
+function hsvRgb(h, s, v) {
+  const hn = (((Number(h) || 0) % 360) + 360) % 360, sn = clampNum(s, 0, 1), vn = clampNum(v, 0, 1);
+  const c = vn * sn, x = c * (1 - Math.abs(((hn / 60) % 2) - 1)), m = vn - c;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (hn < 60) { r1 = c; g1 = x; } else if (hn < 120) { r1 = x; g1 = c; }
+  else if (hn < 180) { g1 = c; b1 = x; } else if (hn < 240) { g1 = x; b1 = c; }
+  else if (hn < 300) { r1 = x; b1 = c; } else { r1 = c; b1 = x; }
+  return { r: Math.round((r1 + m) * 255), g: Math.round((g1 + m) * 255), b: Math.round((b1 + m) * 255) };
+}
+function ensureAccentStyleTag() {
+  if (!document.head) return null;
+  let tag = document.getElementById('eden-chat-color-vars');
+  if (!tag) {
+    tag = document.createElement('style');
+    tag.id = 'eden-chat-color-vars';
+    document.head.append(tag);
+  }
+  return tag;
+}
+function applyAccentColor() {
+  let saved = normHex(state.settings.accentColor || '');
+  if (!saved && state.settings.accentColor === undefined) {
+    try { saved = normHex(localStorage.getItem('eden.code.color') || ''); } catch { /* ignore */ }
+    if (saved) state.settings.accentColor = saved;
+  }
+  let savedGlass = normGlassStyle(state.settings.glassStyle || '');
+  if (!savedGlass && state.settings.glassStyle === undefined) {
+    try { savedGlass = normGlassStyle(localStorage.getItem('eden.code.glass_style') || ''); } catch { /* ignore */ }
+    if (savedGlass) state.settings.glassStyle = savedGlass;
+  }
+  const hex = saved;
+  const rootEl = document.documentElement;
+  const tag = ensureAccentStyleTag();
+  const dark = rootEl.dataset.theme === 'dark';
+  const effectiveGlass = IN_APP ? 'classic' : (savedGlass || DEFAULT_GLASS_STYLE);
+  if (!IN_APP) {
+    rootEl.dataset.chatGlass = effectiveGlass;
+    if (document.body) document.body.dataset.chatGlass = effectiveGlass;
+  } else {
+    delete rootEl.dataset.chatGlass;
+    if (document.body) delete document.body.dataset.chatGlass;
+  }
+
+  if (!hex && IN_APP) {
+    for (const k of ['--accent', '--accent-soft', '--accent-contrast', '--orb', '--wash1', '--wash2', '--c-accent', '--c-accent-hover', '--c-accent-soft', '--c-accent-ink', '--c-glow', '--lg-surface-bg', '--lg-surface-sh', '--lg-surface-filter', '--lg-surface-sheen', '--lg-bubble-radius', '--lg-surface-ink']) rootEl.style.removeProperty(k);
+    if (tag) tag.textContent = '';
+    return;
+  }
+  const activeHex = hex || (dark ? '#0a84ff' : '#007aff');
+  const rawRgb = hexRgb(activeHex);
+  const { h, s, v } = rgbHsv(rawRgb.r, rawRgb.g, rawRgb.b);
+  const pitchBlack = Boolean(hex) && v <= 0.12;
+  const effRgb = (dark && pitchBlack) ? { r: 38, g: 38, b: 43 } : rawRgb;
+  const effHex = (dark && pitchBlack) ? '#26262b' : activeHex;
+  const { r, g, b } = effRgb;
+  const hi = hsvRgb(h, clampNum(s * 0.85, 0, 1), clampNum(Math.min(1, Math.max(v, 0.35) + 0.14), 0.3, 1));
+  const lo = hsvRgb(h, clampNum(s * 1.05, 0, 1), clampNum(Math.max(v, 0.25) * 0.84, 0.15, 1));
+  const ink = dark
+    ? (pitchBlack ? { r: 220, g: 220, b: 228 } : hsvRgb(h, clampNum(s * 0.65, 0, 0.8), clampNum(Math.max(v, 0.78), 0.72, 1)))
+    : (pitchBlack ? { r: 20, g: 20, b: 24 } : hsvRgb(h, clampNum(s * 1.05, 0, 1), clampNum(Math.min(v, 0.68), 0.22, 0.68)));
+  const softRgb = dark
+    ? hsvRgb(h, clampNum(s * 0.75, 0, 0.85), 0.24)
+    : hsvRgb(h, clampNum(s * 0.18, 0, 0.25), 0.97);
+  const w1 = hsvRgb(h, clampNum(s * (dark ? 0.65 : 0.22), 0.08, 0.7), dark ? 0.28 : 0.97);
+  const w2 = hsvRgb((h + 32) % 360, clampNum(s * (dark ? 0.55 : 0.18), 0.06, 0.6), dark ? 0.24 : 0.96);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const contrast = lum > 0.55 ? '#0f172a' : '#ffffff';
+  const glass = glassSurfaceRulesFor(r, g, b, effHex, contrast, effectiveGlass, dark);
+
+  if (hex) {
+    rootEl.style.setProperty('--accent', effHex);
+    rootEl.style.setProperty('--accent-contrast', contrast);
+    rootEl.style.setProperty('--accent-soft', (dark && pitchBlack) ? 'rgba(255,255,255,0.12)' : `rgba(${r},${g},${b},${dark ? 0.18 : 0.12})`);
+    rootEl.style.setProperty('--orb', `linear-gradient(135deg,${rgbHex(hi.r, hi.g, hi.b)},${rgbHex(lo.r, lo.g, lo.b)})`);
+    rootEl.style.setProperty('--wash1', pitchBlack && dark ? 'rgba(0,0,0,0)' : `rgba(${w1.r},${w1.g},${w1.b},${dark ? 0.58 : 0.9})`);
+    rootEl.style.setProperty('--wash2', pitchBlack && dark ? 'rgba(0,0,0,0)' : `rgba(${w2.r},${w2.g},${w2.b},${dark ? 0.5 : 0.9})`);
+    rootEl.style.setProperty('--c-accent', `${r} ${g} ${b}`);
+    rootEl.style.setProperty('--c-accent-hover', `${lo.r} ${lo.g} ${lo.b}`);
+    rootEl.style.setProperty('--c-accent-soft', `${softRgb.r} ${softRgb.g} ${softRgb.b}`);
+    rootEl.style.setProperty('--c-accent-ink', `${ink.r} ${ink.g} ${ink.b}`);
+    rootEl.style.setProperty('--c-glow', `${hi.r} ${hi.g} ${hi.b}`);
+  } else {
+    for (const k of ['--accent', '--accent-soft', '--accent-contrast', '--orb', '--wash1', '--wash2', '--c-accent', '--c-accent-hover', '--c-accent-soft', '--c-accent-ink', '--c-glow']) rootEl.style.removeProperty(k);
+  }
+  rootEl.style.setProperty('--lg-surface-bg', glass.bg);
+  rootEl.style.setProperty('--lg-surface-sh', glass.sh);
+  rootEl.style.setProperty('--lg-surface-filter', glass.filter);
+  rootEl.style.setProperty('--lg-surface-sheen', glass.sheen);
+  rootEl.style.setProperty('--lg-bubble-radius', glass.radius);
+  rootEl.style.setProperty('--lg-surface-ink', glass.ink);
+
+  if (tag) {
+    const edenMarkWhite = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%23ffffff' stroke='%23ffffff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E")`;
+    const comma = `${r}, ${g}, ${b}`;
+    let composerBg;
+    let composerBorder;
+    let composerSh;
+    let composerFilter = glass.filter === 'none' ? 'blur(22px) saturate(175%)' : glass.filter;
+    if (effectiveGlass === 'classic') {
+      composerBg = dark ? 'rgba(28, 28, 32, 0.90)' : 'rgba(255, 255, 255, 0.92)';
+      composerBorder = dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.10)';
+      composerSh = dark
+        ? `inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 8px 24px -10px rgba(0, 0, 0, 0.45)`
+        : `inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 8px 22px -10px rgba(15, 23, 42, 0.10)`;
+    } else if (effectiveGlass === 'obsidian') {
+      composerBg = dark ? 'rgba(10, 12, 18, 0.86)' : 'rgba(18, 22, 32, 0.82)';
+      composerBorder = `rgba(${comma}, 0.34)`;
+      composerSh = `inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 26px -10px rgba(0, 0, 0, 0.50)`;
+    } else if (effectiveGlass === 'crystal') {
+      composerBg = dark ? 'rgba(24, 28, 38, 0.64)' : 'rgba(255, 255, 255, 0.74)';
+      composerBorder = hex ? `rgba(${comma}, ${dark ? '0.28' : '0.22'})` : (dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.10)');
+      composerSh = `inset 0 1px 0 rgba(255, 255, 255, ${dark ? '0.20' : '0.88'}), 0 10px 26px -10px rgba(0, 0, 0, ${dark ? '0.45' : '0.10'})`;
+    } else if (effectiveGlass === 'seaglass') {
+      composerBg = dark ? 'rgba(14, 24, 30, 0.74)' : 'rgba(246, 251, 255, 0.80)';
+      composerBorder = `rgba(${comma}, ${dark ? '0.26' : '0.20'})`;
+      composerSh = `inset 0 1px 0 rgba(255, 255, 255, ${dark ? '0.18' : '0.85'}), 0 8px 24px -10px rgba(0, 0, 0, ${dark ? '0.42' : '0.08'})`;
+    } else {
+      composerBg = dark ? 'rgba(26, 28, 34, 0.74)' : 'rgba(255, 255, 255, 0.80)';
+      composerBorder = hex ? `rgba(${comma}, ${dark ? '0.26' : '0.20'})` : (dark ? 'rgba(255, 255, 255, 0.13)' : 'rgba(15, 23, 42, 0.10)');
+      composerSh = dark
+        ? `inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 26px -10px rgba(0, 0, 0, 0.45)`
+        : `inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 8px 24px -10px rgba(15, 23, 42, 0.10)`;
+    }
+    const webGlassCss = !IN_APP ? `
+.msg.user .bubble {
+  position: relative;
+  overflow: hidden;
+  background: ${glass.bg} !important;
+  color: ${glass.ink} !important;
+  box-shadow: ${glass.sh} !important;
+  backdrop-filter: ${glass.filter} !important;
+  -webkit-backdrop-filter: ${glass.filter} !important;
+  border-radius: ${glass.radius} !important;
+}
+.msg.user .bubble::before {
+  content: "";
+  position: absolute;
+  inset: 1px 1px auto 1px;
+  height: 40%;
+  border-radius: inherit;
+  background: ${glass.sheen} !important;
+  pointer-events: none;
+}
+.msg.user .bubble .utext, .msg.user .bubble a, .msg.user .bubble .more {
+  position: relative;
+  z-index: 1;
+  color: ${glass.ink} !important;
+}
+html:not(.eden-app)[data-chat-glass] .jc-composer {
+  background: ${composerBg} !important;
+  border: 1px solid ${composerBorder} !important;
+  box-shadow: ${composerSh} !important;
+  backdrop-filter: ${composerFilter} !important;
+  -webkit-backdrop-filter: ${composerFilter} !important;
+}
+html:not(.eden-app)[data-chat-glass] .jc-composer:focus-within {
+  border-color: ${dark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(15, 23, 42, 0.15)'} !important;
+  box-shadow: ${composerSh} !important;
+}
+.jc-send:not(.stop), .jc-composer.expanded .jc-orb {
+  position: relative;
+  overflow: hidden;
+  background: ${glass.bg} !important;
+  color: ${glass.ink} !important;
+  box-shadow: ${glass.sh} !important;
+  backdrop-filter: ${glass.filter} !important;
+  -webkit-backdrop-filter: ${glass.filter} !important;
+}
+.jc-send:not(.stop)::before {
+  content: "";
+  position: absolute;
+  inset: 1px 1px auto 1px;
+  height: 48%;
+  border-radius: 999px 999px 8px 8px;
+  background: ${glass.sheen} !important;
+  pointer-events: none;
+}` : `
+.msg.user .bubble, .jc-send:not(.stop), .jc-composer.expanded .jc-orb {
+  background: var(--accent) !important;
+  color: var(--accent-contrast, #fff) !important;
+  box-shadow: 0 1px 3px rgba(${r}, ${g}, ${b}, ${dark ? 0.48 : 0.32}), inset 0 0 0 1px rgba(${dark ? '255,255,255,0.14' : '0,0,0,0.08'}) !important;
+}
+.msg.user .bubble .utext, .msg.user .bubble a, .msg.user .bubble .more {
+  color: var(--accent-contrast, #fff) !important;
+}`;
+    const accentCss = hex ? `
+:root, [data-theme="light"], [data-theme="dark"], .jc, [data-theme="dark"] .jc {
+  --accent: ${effHex};
+  --accent-contrast: ${contrast};
+  --c-accent: ${r} ${g} ${b};
+  --c-accent-hover: ${lo.r} ${lo.g} ${lo.b};
+  --c-accent-soft: ${softRgb.r} ${softRgb.g} ${softRgb.b};
+  --c-accent-ink: ${ink.r} ${ink.g} ${ink.b};
+  --c-glow: ${hi.r} ${hi.g} ${hi.b};
+}
+.sitem.active, #desk #sideScroll .sitem.active, .btn.primary, .cap.primary, #setSeg button.on, .pal-it.sel {
+  background: var(--accent) !important;
+  color: var(--accent-contrast, #fff) !important;
+  box-shadow: 0 1px 3px rgba(${r}, ${g}, ${b}, ${dark ? 0.48 : 0.32}), inset 0 0 0 1px rgba(${dark ? '255,255,255,0.14' : '0,0,0,0.08'}) !important;
+}
+.sitem.active .ic, .sitem.active .lbl, .sitem.active .sub, .sitem.active .pin-ic {
+  color: var(--accent-contrast, #fff) !important;
+}
+.orb {
+  background: ${edenMarkWhite} center / 56% no-repeat, linear-gradient(135deg, ${rgbHex(hi.r, hi.g, hi.b)}, ${rgbHex(lo.r, lo.g, lo.b)}) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 1px 3px rgba(${r}, ${g}, ${b}, 0.38) !important;
+}
+.jc-popover button.active, .jc-popover button:hover, .jc-menu button:hover:not(.danger):not([disabled]), .jc-menu button:focus-visible:not(.danger):not([disabled]) {
+  background: rgb(var(--c-accent)) !important;
+  color: var(--accent-contrast, #fff) !important;
+}${pitchBlack && dark ? '\n[data-theme="dark"], [data-theme="dark"] body { --bg: #000000 !important; --content: #0a0a0c !important; --content2: #121215 !important; }' : ''}` : '';
+    tag.textContent = `${accentCss}\n${webGlassCss}`.trim();
+  }
+}
+function setGlassStyle(styleId) {
+  const clean = normGlassStyle(styleId);
+  state.settings.glassStyle = clean && clean !== DEFAULT_GLASS_STYLE ? clean : '';
+  try {
+    if (state.settings.glassStyle) localStorage.setItem('eden.code.glass_style', state.settings.glassStyle);
+    else localStorage.removeItem('eden.code.glass_style');
+  } catch { /* ignore */ }
+  saveSettings();
+  applyAccentColor();
+}
+function setAccentColor(hex) {
+  const clean = normHex(hex);
+  state.settings.accentColor = clean;
+  try {
+    if (state.settings.accentColor) localStorage.setItem('eden.code.color', state.settings.accentColor);
+    else localStorage.removeItem('eden.code.color');
+  } catch { /* ignore */ }
+  saveSettings();
+  applyAccentColor();
+}
 function applyTheme() {
   const t = state.settings.theme || 'system';
   const dark = t === 'dark' || (t === 'system' && darkMQ.matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   $('themeIco').firstElementChild.setAttribute('href', dark ? '#i-sun' : '#i-moon');
   $('btnTheme').title = `Appearance: ${t[0].toUpperCase()}${t.slice(1)} (click to switch)`;
+  applyAccentColor();
 }
 function setTheme(t) { state.settings.theme = t; saveSettings(); applyTheme(); }
 darkMQ.addEventListener('change', applyTheme);
@@ -186,13 +543,8 @@ function titleOf(c) {
   if (isFr && c.kind === 'code' && c.project && c.title === `${c.project.name} session`) return `Session ${c.project.name}`;
   return c.title;
 }
-function switchTo(c) {
-  closeNews(); // a chat picked from the sidebar comes to the front
-  if (state.current === c) {
-    if (c && c.remote) dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } })); // a stub still loading: asked for again
-    if (isMobile()) closeOverlays();
-    return;
-  }
+function selectHere(c) {
+  const prev = state.current ? state.current.id : null;
   state.current = c;
   ui_open.editing = null;
   state.selectedNode = c ? [...path(c)].reverse().find((n) => n.role === 'assistant' && n.route) || null : null;
@@ -200,6 +552,34 @@ function switchTo(c) {
   if (!(essayChat && essayChat.essayStays(c))) closeArtifact(); // T20e (essay-chat.js): an open essay stays for a new chat or its own chat
   closeChipPop();
   renderAll();
+  onOwnChanged(c ? c.id : null, prev);
+  dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } })); // import-chatgpt.js loads an imported chat's images
+  if (essayChat) essayChat.essayFollows(c); // that chat's essay comes back beside it (c.essayId)
+  if (curTab === 'Changes' && inspectorVisible()) loadChanges();
+  if (isMobile()) closeOverlays();
+  schedulePreview();
+}
+function switchTo(c) {
+  closeNews(); // a chat picked from the sidebar comes to the front
+  if (takeConv(c)) {
+    if (c && c.remote) dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } }));
+    if (isMobile()) closeOverlays();
+    return;
+  }
+  if (state.current === c) {
+    if (c && c.remote) dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } })); // a stub still loading: asked for again
+    if (isMobile()) closeOverlays();
+    return;
+  }
+  const prev = state.current ? state.current.id : null;
+  state.current = c;
+  ui_open.editing = null;
+  state.selectedNode = c ? [...path(c)].reverse().find((n) => n.role === 'assistant' && n.route) || null : null;
+  store.set('jchat:current', c && !c.temp ? c.id : null);
+  if (!(essayChat && essayChat.essayStays(c))) closeArtifact(); // T20e (essay-chat.js): an open essay stays for a new chat or its own chat
+  closeChipPop();
+  renderAll();
+  onOwnChanged(c ? c.id : null, prev);
   dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } })); // import-chatgpt.js loads an imported chat's images
   if (essayChat) essayChat.essayFollows(c); // that chat's essay comes back beside it (c.essayId)
   if (curTab === 'Changes' && inspectorVisible()) loadChanges();
@@ -241,8 +621,9 @@ function removeConversation(c) {
   if (!c) return;
   confirmDialog(`Delete “${c.title}”? This can’t be undone.`, 'Delete', () => {
     stop(c);
+    onConvDeleted(c);
     deleteConversation(c);
-    if (state.current === c) switchTo(null);
+    if (state.current === c) selectHere(null);
     renderSidebar();
     toast('Deleted');
   }, true);
@@ -276,13 +657,21 @@ function section(id, title, items, { add, extra = [], grow = false, cls = '' } =
   sec.append(head, el('div', 'sec-items', el('div', '', ...items)));
   return sec;
 }
+function convTooltip(c) {
+  const base = importLabel(c) ? `${c.title} (imported from ${importLabel(c)})` : c.title;
+  const time = fmtTimestamp(c.updated || c.created);
+  return time ? `${base} · ${time}` : base;
+}
 function convItem(c, { child } = {}) {
   const streaming = state.streams.has(c.id);
   const lbl = el('span', { class: 'lbl', 'data-no-i18n': '' }, titleOf(c)); // the chat's own title: never translated
   if (c.kind === 'code' && !child) lbl.append(el('span', 'sub', c.project ? c.project.name : 'Code'));
   const st = streaming ? 'run' : c.status === 'waiting' ? 'wait' : null;
-  return el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${state.current === c ? ' active' : ''}`, 'aria-current': state.current === c ? 'page' : null, title: importLabel(c) ? `${c.title} (imported from ${importLabel(c)})` : c.title, onclick: () => switchTo(c),
-    draggable: c.temp || child ? null : 'true', ondragstart: (e) => { try { e.dataTransfer.setData('text/eden-chat', c.id); e.dataTransfer.effectAllowed = 'move'; } catch {} },
+  const sv = splitState();
+  const isActive = sv.on ? sv.focusedConv() === c : state.current === c;
+  const inPane = sv.on && sv.shows(c.id);
+  return el('button', { type: 'button', 'data-chat-id': c.id, class: `sitem${child ? ' child' : ''}${isActive ? ' active' : ''}${inPane ? ' in-pane' : ''}`, 'aria-current': isActive ? 'page' : null, title: convTooltip(c), onclick: () => switchTo(c),
+    draggable: c.temp ? null : 'true', ondragstart: (e) => { try { e.dataTransfer.setData('text/eden-chat', c.id); e.dataTransfer.setData('text/plain', titleOf(c)); e.dataTransfer.effectAllowed = 'copyMove'; } catch {} },
     oncontextmenu: (e) => { e.preventDefault(); convMenu(e.currentTarget, c); } },
     ico(c.temp ? 'clock' : c.kind === 'code' ? 'term' : 'chat'), lbl,
     c.pinned && !child ? ico('pin', 11, 'pin-ic') : null,
@@ -450,12 +839,14 @@ function renderSidebar() {
 }
 
 /* ================= titlebar ================= */
+const activeConv = () => { const sv = splitState(); return sv.on ? sv.focusedConv() : state.current; };
 function renderTitle() {
-  const c = state.current;
+  const c = activeConv();
   const t = $('tbTitle');
-  if (!t.isContentEditable) t.textContent = c ? titleOf(c) : tx('New chat'); // #tbTitle is data-no-i18n: the chat's own title
-  t.title = tx('Double-click to rename');
-  const site = inMailOnly() ? 'Eden Mail' : isMock ? 'Eden (mock)' : 'Eden';
+  if (!t.isContentEditable) t.textContent = c ? titleOf(c) : document.body.classList.contains('travel-standalone') ? 'Ask Eden' : tx('New chat'); // #tbTitle is data-no-i18n: the chat's own title
+  const titleTime = c ? fmtTimestamp(c.updated || c.created) : '';
+  t.title = titleTime ? `${tx('Double-click to rename')} · ${titleTime}` : tx('Double-click to rename');
+  const site = inMailOnly() ? 'Eden Mail' : isMock ? 'Eden (mock)' : document.body.classList.contains('travel-standalone') ? 'Ask Eden Travel' : 'Eden';
   if (inMailOnly()) { document.title = site; return; }
   document.title = c && path(c).length ? `${c.title} — ${site}` : site;
   const code = c && c.kind === 'code';
@@ -470,6 +861,7 @@ function renderTitle() {
   if (code && c.project) tags.push(el('span', { class: 'tag', 'data-no-i18n': '' }, c.project.name));
   $('tbTags').replaceChildren(...tags);
   const s = sessionCost(c);
+  $('tbCtx').hidden = !code;
   $('tbCost').textContent = `${fmtCost(s.total)}${s.notional ? '*' : ''}`;
   $('tbCost').title = s.notional ? 'Session cost (* Claude via subscription: counted, not billed)' : 'Session cost';
   const pct = Number(($('jc-ctx-text').textContent || '0').replace('%', '')) || 0;
@@ -482,15 +874,43 @@ function renderTitle() {
 
 /* ================= transcript ================= */
 const scrollcol = () => $('scrollcol');
-const nearBottom = () => { const s = scrollcol(); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; };
+let userScrolledTurn = false;
 function toBottom() { const s = scrollcol(); s.scrollTop = s.scrollHeight; }
-// While a reply streams, follow it like ChatGPT: down to the bottom, but never past the question it answers — once the
-// reply is taller than the window, the question stays at the top and the reply is read from its start.
-function followReply(msg) {
+// Anchor the current turn's question and the top of the new output at the top of the viewport (like Claude, ChatGPT, and Gemini),
+// reserving bottom runway on #transcript so the turn can scroll to the top immediately and stream downward without jumping.
+function followReply(msg, { snapToTop = true } = {}) {
   const s = scrollcol();
+  const box = $('transcript');
+  if (!s || !box || !msg) return;
   const q = msg.previousElementSibling && msg.previousElementSibling.classList.contains('user') ? msg.previousElementSibling : msg;
-  const cap = s.scrollTop + q.getBoundingClientRect().top - s.getBoundingClientRect().top - 12;
-  s.scrollTop = Math.min(s.scrollHeight, Math.max(0, cap));
+  const sRect = s.getBoundingClientRect();
+  const qRect = q.getBoundingClientRect();
+  const mRect = msg.getBoundingClientRect();
+  const qTop = s.scrollTop + (qRect.top - sRect.top);
+  const mTop = s.scrollTop + (mRect.top - sRect.top);
+  const mBottom = s.scrollTop + (mRect.bottom - sRect.top);
+  const mdEl = msg.querySelector(':scope > .bubble > .md');
+  const mdTop = mdEl ? s.scrollTop + (mdEl.getBoundingClientRect().top - sRect.top) : mTop;
+  let targetTop;
+  if (mdEl && (mdTop - qTop) > Math.max(220, s.clientHeight * 0.42)) {
+    targetTop = Math.max(0, Math.round(mdTop - 88));
+  } else if (q !== msg && qRect.height > Math.max(140, s.clientHeight * 0.28)) {
+    targetTop = Math.max(0, Math.round(mTop - 52));
+  } else {
+    targetTop = Math.max(0, Math.round(qTop - 12));
+  }
+  const turnSpan = Math.max(0, mBottom - targetTop);
+  const runway = Math.max(24, Math.ceil(s.clientHeight - turnSpan - 12));
+  box.style.paddingBottom = `${runway}px`;
+  if (snapToTop) {
+    s.scrollTop = targetTop;
+  }
+}
+function scrollTurnToTop() {
+  const box = $('transcript');
+  const lastMsg = box && box.lastElementChild;
+  if (lastMsg && lastMsg.classList.contains('msg')) followReply(lastMsg, { snapToTop: true });
+  else toBottom();
 }
 /** Q2: a research reply's report in the canvas (Markdown, drawn as a page; Download there saves the .md). */
 function openReport(node) {
@@ -529,8 +949,37 @@ function renderTranscript() {
     box.replaceChildren(emptyState(c, { onSuggest: (text) => setComposerText(text) }));
     return;
   }
+  // Incremental append: if the current DOM already renders the prefix of the conversation path,
+  // append only newly added nodes instead of wiping and re-rendering the entire transcript DOM tree.
+  const existingMsgs = box.querySelectorAll(':scope > .msg');
+  if (existingMsgs.length > 0 && !box.querySelector('#empty') && existingMsgs.length < nodes.length) {
+    let match = true;
+    for (let i = 0; i < existingMsgs.length; i++) {
+      if (existingMsgs[i].dataset.id !== nodes[i].id) { match = false; break; }
+    }
+    if (match) {
+      // The previous last message might have follow-ups or styling specific to `last`
+      const prevLastIdx = existingMsgs.length - 1;
+      const prevLastEl = existingMsgs[prevLastIdx];
+      const freshPrevLast = msgEl(c, nodes[prevLastIdx], false);
+      prevLastEl.replaceWith(freshPrevLast);
+
+      for (let i = existingMsgs.length; i < nodes.length; i++) {
+        box.appendChild(msgEl(c, nodes[i], i === nodes.length - 1));
+      }
+      userScrolledTurn = false;
+      scrollTurnToTop();
+      requestAnimationFrame(scrollTurnToTop);
+      return;
+    }
+  }
   box.replaceChildren(...nodes.map((n, i) => msgEl(c, n, i === nodes.length - 1)));
-  requestAnimationFrame(toBottom);
+  if (nodes.length > 0) {
+    scrollTurnToTop();
+    requestAnimationFrame(scrollTurnToTop);
+  } else {
+    box.style.paddingBottom = '';
+  }
 }
 // Ask Eden for Mac (window.askEdenMac, set by the app's preload; nothing on the web): a native
 // notification when something needs the person and the window is in the background.
@@ -548,18 +997,27 @@ function macNotifyTurn(c, node) {
 }
 function updateMessage(c, node, { final, keepScroll } = {}) {
   if (final) macNotifyTurn(c, node);
+  updateSplitMessage(c, node, { final });
   if (c !== state.current) { if (final) renderSidebar(); return; }
   const old = $('transcript').querySelector(`.msg[data-id="${node.id}"]`);
-  const stick = nearBottom() && !keepScroll;
-  const keepTop = keepScroll ? scrollcol().scrollTop : 0;
+  const keepTop = scrollcol().scrollTop;
   const nodes = path(c);
   if (!old) { renderTranscript(); return; }
+  const isLast = nodes.at(-1) === node;
   const focusAct = document.activeElement && old.contains(document.activeElement) ? document.activeElement.dataset.act : null;
-  const fresh = msgEl(c, node, nodes.at(-1) === node);
+  const fresh = msgEl(c, node, isLast);
   old.replaceWith(fresh);
+  if (!IN_APP && node.streaming) {
+    const vp = fresh.querySelector('.ath-viewport');
+    if (vp) vp.scrollTop = vp.scrollHeight;
+  }
   if (focusAct) { const f = fresh.querySelector(`[data-act="${focusAct}"]`); if (f) f.focus({ preventScroll: true }); }
-  if (keepScroll) scrollcol().scrollTop = keepTop;
-  if (stick) followReply(fresh);
+  if (isLast && !keepScroll) {
+    followReply(fresh, { snapToTop: !userScrolledTurn });
+    if (userScrolledTurn) scrollcol().scrollTop = keepTop;
+  } else {
+    scrollcol().scrollTop = keepTop;
+  }
   if (final) { renderComposer(); renderTitle(); refreshArtifact(); if (c.kind === 'code') renderPlan(); }
   else { renderTitle(); }
 }
@@ -583,9 +1041,9 @@ function animateOpen(body, open) {
   }
 }
 
-function nodeOf(target) {
+function nodeOf(target, conv = state.current) {
   const m = target.closest('.msg');
-  const c = state.current;
+  const c = conv || state.current;
   return m && c ? c.nodes[m.dataset.id] : null;
 }
 
@@ -619,13 +1077,28 @@ function regenMenu(anchor, c, node) {
   ]);
 }
 
-function onTranscriptClick(e) {
-  const c = state.current;
+function onTranscriptClick(e, conv = state.current, box = $('transcript'), setPaneInput = setComposerText) {
+  const c = conv || state.current;
   const cite = e.target.closest('[data-cite]');
-  if (cite) { e.stopPropagation(); citePop(cite, nodeOf(cite), Number(cite.dataset.cite)); return; }
+  if (cite) { e.stopPropagation(); citePop(cite, nodeOf(cite, c), Number(cite.dataset.cite)); return; }
   const b = e.target.closest('[data-act]');
-  if (!b || !c) return;
-  const node = nodeOf(b);
+  if (!b) {
+    // Tapping a reply bubble in a split pane toggles its model details just like the main transcript
+    if (box !== $('transcript')) {
+      const bubble = e.target.closest?.('.msg.assistant > .bubble');
+      if (!bubble || e.target.closest?.('a, button, input, textarea, select, label, summary, [role="button"], [contenteditable="true"], [data-act], .route-chip, .codeblk, pre') || String(window.getSelection?.() || '')) return;
+      const m = bubble.parentElement, id = m && m.dataset.id;
+      if (!id || !m.querySelector(':scope > .msg-head')) return;
+      const show = !ui_open.meta.has(id);
+      if (show) ui_open.meta.add(id); else ui_open.meta.delete(id);
+      m.classList.toggle('meta-hidden', !show);
+    }
+    return;
+  }
+  if (!c) return;
+  const node = nodeOf(b, c);
+  if (!node) return;
+  const redraw = () => { if (c === state.current) renderTranscript(); else renderSplitPaneFor(c); };
   const act = b.dataset.act;
   switch (act) {
     case 'chip':
@@ -634,6 +1107,19 @@ function onTranscriptClick(e) {
       state.selectedNode = node; renderTurnCard(node);
       break;
     case 'think': {
+      const card = b.closest('.auto-think-glass');
+      if (card && !IN_APP) {
+        const activelyThinking = Boolean(node.streaming && (node.thinkingLive || !nodeText(node).trim()));
+        if (activelyThinking) {
+          if (ui_open.thinkClosed.has(node.id)) ui_open.thinkClosed.delete(node.id);
+          else ui_open.thinkClosed.add(node.id);
+        } else {
+          if (ui_open.thinks.has(node.id)) ui_open.thinks.delete(node.id);
+          else ui_open.thinks.add(node.id);
+        }
+        updateMessage(c, node, { keepScroll: true });
+        break;
+      }
       const open = !ui_open.thinks.has(node.id);
       if (open) ui_open.thinks.add(node.id); else ui_open.thinks.delete(node.id);
       b.setAttribute('aria-expanded', String(open));
@@ -653,10 +1139,11 @@ function onTranscriptClick(e) {
     case 'sib-prev': case 'sib-next': {
       if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return; }
       const n = selectSibling(c, node, act === 'sib-prev' ? -1 : 1);
-      if (n) { saveConversation(c); renderTranscript(); renderComposer(); renderTitle(); const m = $('transcript').querySelector(`.msg[data-id="${n.id}"] [data-act="${act}"]`); if (m && !m.disabled) m.focus(); }
+      if (n) { saveConversation(c); redraw(); if (c === state.current) { renderComposer(); renderTitle(); } const m = box.querySelector(`.msg[data-id="${n.id}"] [data-act="${act}"]`); if (m && !m.disabled) m.focus(); }
       break;
     }
     case 'to-essay': if (ESSAYS) import('./essay.js').then((m) => m.pasteIntoEssay(nodeText(node))).catch((e) => toast(`Couldn’t open the essay writer: ${e.message}`)); break;
+    case 'eves-check': import('./eves-check.js').then((m) => m.runEvesCheck(c, node, nodeText(node), () => updateMessage(c, node, { keepScroll: true }))).catch((e) => toast(`Couldn’t start EVES: ${e.message}`)); break; // off by default, never in the iPhone app (eves-check.js)
     case 'copy-msg': if (node.role === 'user') copyText(node.content || ''); else copyRich(nodeText(node)); break;
     case 'open-mail': { const d = parseEmailDraft(nodeText(node)); if (d) openCompose({ to: d.to, cc: d.cc, subject: d.subject, body: d.body }); break; } // the user reviews and sends
     case 'expand-user':
@@ -665,22 +1152,30 @@ function onTranscriptClick(e) {
       break;
     case 'edit':
       ui_open.editing = node.id;
-      renderTranscript();
-      requestAnimationFrame(() => { const ta = $('transcript').querySelector('textarea[data-edit]'); if (ta) { ta.focus(); ta.selectionStart = ta.value.length; ta.style.height = `${Math.min(300, ta.scrollHeight)}px`; } });
+      redraw();
+      requestAnimationFrame(() => { const ta = box.querySelector('textarea[data-edit]'); if (ta) { ta.focus(); ta.selectionStart = ta.value.length; ta.style.height = `${Math.min(300, ta.scrollHeight)}px`; } });
       break;
-    case 'edit-cancel': ui_open.editing = null; renderTranscript(); break;
+    case 'edit-cancel': ui_open.editing = null; redraw(); break;
     case 'edit-send': {
       const ta = b.closest('.msg').querySelector('textarea[data-edit]');
       const text = ta.value.trim();
       ui_open.editing = null;
-      if (!text) { renderTranscript(); return; }
+      if (!text) { redraw(); return; }
       editResend(c, node, text);
       break;
     }
     case 'regen': regenMenu(b, c, node); break;
     case 'inspect': selectTurn(node); break;
     case 'retry': retry(c, node); break;
-    case 'continue': sendFromComposer('Continue exactly where you stopped, without repeating anything.', [], []); break; // a reply cut off at the output limit
+    case 'continue': if (c === state.current) sendFromComposer('Continue exactly where you stopped, without repeating anything.', [], []); else sendMessage('Continue exactly where you stopped, without repeating anything.', [], { conv: c }); break; // a reply cut off at the output limit
+    case 'followup': {
+      const prompt = (b.dataset.prompt || '').trim();
+      if (!prompt) break;
+      if (e.shiftKey || e.altKey || state.streams.has(c.id)) setPaneInput(prompt);
+      else if (c === state.current) sendFromComposer(prompt, [], []);
+      else sendMessage(prompt, [], { conv: c });
+      break;
+    }
     case 'perm': answerPermission(c, node, Number(b.closest('[data-perm]').dataset.perm), b.dataset.choice); break;
     case 'hunk': {
       const h = b.closest('[data-hunk]');
@@ -689,7 +1184,7 @@ function onTranscriptClick(e) {
       if (b.dataset.state === 'revert') {
         const part = (node.parts || []).find((p) => p.id === id.split(':')[0]);
         const file = b.dataset.file || (part && part.input && part.input.file_path) || 'that file';
-        setComposerText(`Revert edit ${Number(id.split(':')[1]) + 1} you made to ${file}.`);
+        setPaneInput(`Revert edit ${Number(id.split(':')[1]) + 1} you made to ${file}.`);
       }
       updateMessage(c, node);
       break;
@@ -724,6 +1219,7 @@ function commands() {
     { t: 'Open Changes', s: 'Inspector', i: 'edit', run: () => openInspector('Changes') },
     { t: 'Toggle inspector', s: '⌘⌥0', i: 'insp', run: toggleInspector },
     { t: 'Toggle sidebar', s: '⌘B', i: 'side', run: () => toggleSidebar() },
+    ...splitPaletteCommands(),
     { t: 'Code activity', s: '⌘J', i: 'term', run: () => toggleDrawer() },
     { t: 'Morning brief', s: 'Calendar · mail · notes', i: 'sun', run: () => openBrief() },
     { t: 'Memory', s: 'Your Mac', i: 'bulb', run: () => openSpace('memory') },
@@ -748,6 +1244,7 @@ function commands() {
     { t: 'Use the router (auto)', s: 'Model', i: 'sliders', run: () => setOverride(null) },
     ...[1, 2, 3, 4, 5].map((n) => ({ t: `Router level ${n}`, s: 'Optimization', i: 'chart', run: () => { setLevel(n); toast(`Level ${n}`); } })),
     { t: 'New persona…', s: 'Personas', i: 'spark', run: () => editPersona(null) },
+    { t: 'API Keys & Spend Dashboard', s: '⌘,', i: 'key', run: () => openSettings(0) },
     { t: 'Settings & API keys', s: '⌘,', i: 'gear', run: () => openSettings(0) },
     { t: 'Switch appearance', s: 'Light / Dark / System', i: 'moon', run: cycleTheme },
     { t: 'Take the tour', s: 'Try every feature, safely', i: 'spark', run: () => startTour() },
@@ -913,10 +1410,22 @@ function narrowItems() {
   return items.length ? ['-', ...items] : [];
 }
 function convMenu(anchor, c) {
+  if (document.body.classList.contains('travel-standalone')) { // Eden Travel: this chat about the trip, nothing of Eden's
+    openMenu(anchor, [
+      { label: 'New chat', run: () => document.dispatchEvent(new CustomEvent('eden:new-chat')) },
+      c ? { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } } : null,
+      '-',
+      { label: 'Settings', key: '⌘,', run: () => openSettings(0) },
+      c ? '-' : null,
+      c ? { label: 'Delete…', danger: true, run: () => removeConversation(c) } : null,
+    ]);
+    return;
+  }
   if (!c) { // a new chat, nothing sent yet: still a menu, never a dead button
     openMenu(anchor, [
       { heading: 'New chat' },
       { label: 'Rename', disabled: true, note: 'Send a message first' },
+      ...splitMenuItems(),
       { label: 'Browser', key: '⌘⇧B', run: () => toggleBrowser() },
       { label: 'Command palette', key: '⌘K', run: () => openPalette() },
       { label: 'Settings', key: '⌘,', run: () => openSettings(0) },
@@ -925,22 +1434,27 @@ function convMenu(anchor, c) {
     return;
   }
   const narrow = anchor && anchor.id === 'btnConvMenu' ? narrowItems() : []; // the title bar's ⋯ only: ['-', …] or []
+  const rowSplit = anchor && anchor.id !== 'btnConvMenu' ? splitRowItem(c) : null;
+  const barSplit = anchor && anchor.id === 'btnConvMenu' ? splitMenuItems() : [];
   openMenu(anchor, [
     ...narrow.slice(1), ...narrow.slice(0, 1),
     { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
+    ...(rowSplit ? [rowSplit] : []),
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
     ...(c.temp || c.kind === 'code' ? [] : [moveItems(c, openMenu, anchor)]),
     ...(c.temp || c.kind === 'code' ? [] : [{ label: 'Share a read-only link…', run: () => openShare(c) }]), // Q3
     { label: 'Export as Markdown', run: () => exportConversation(c) },
     ...(c.kind !== 'code' ? [{ label: 'Save as workflow…', run: () => saveWorkflowFrom(c) }] : []), // H9
     ...(c.kind === 'code' ? [{ label: 'Code activity', key: '⌘J', run: () => toggleDrawer(true) }, { label: 'Changes', run: () => openInspector('Changes') }] : []),
+    ...(barSplit.length ? ['-', ...barSplit] : []),
     '-',
     { label: 'Delete…', danger: true, run: () => removeConversation(c) },
   ]);
 }
 function startRename() {
   const t = $('tbTitle');
-  if (!state.current) { toast('Send a message first'); return; }
+  const c = activeConv();
+  if (!c) { toast('Send a message first'); return; }
   t.contentEditable = 'true';
   t.focus();
   const r = document.createRange(); r.selectNodeContents(t);
@@ -950,15 +1464,165 @@ function finishRename(save) {
   const t = $('tbTitle');
   if (t.contentEditable !== 'true') return;
   t.contentEditable = 'false';
-  if (save) renameConversation(state.current, t.textContent);
+  const c = activeConv();
+  if (save && c) { renameConversation(c, t.textContent); renderSplitPaneFor(c); }
   renderTitle();
 }
 
 /* ================= settings ================= */
 let setTabI = 0;
+function paintColorWheel(canvas, brightness = 1) {
+  if (!canvas || typeof canvas.getContext !== 'function') return;
+  const size = 132, dpr = Math.min(2, Math.max(1, Number(window.devicePixelRatio) || 1)), px = Math.round(size * dpr);
+  if (canvas.width !== px || canvas.height !== px) { canvas.width = px; canvas.height = px; }
+  const ctx = canvas.getContext('2d');
+  if (!ctx || typeof ctx.createImageData !== 'function') return;
+  const img = ctx.createImageData(px, px), data = img.data, half = px / 2, val = clampNum(brightness, 0.2, 1);
+  for (let y = 0; y < px; y += 1) {
+    const dy = y + 0.5 - half;
+    for (let x = 0; x < px; x += 1) {
+      const dx = x + 0.5 - half, dist = Math.hypot(dx, dy);
+      if (dist > half + 0.8) continue;
+      let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+      if (angle < 0) angle += 360;
+      const rgb = hsvRgb(angle, Math.min(1, dist / half), val);
+      const a = dist > half - 1 ? clampNum(half + 0.8 - dist, 0, 1) : 1;
+      const i = (y * px + x) * 4;
+      data[i] = rgb.r; data[i + 1] = rgb.g; data[i + 2] = rgb.b; data[i + 3] = Math.round(a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function colorPickerSection() {
+  const card = el('div', 'icard ecp-card');
+  const resetBtn = el('button', { type: 'button', class: 'ecp-reset', onclick: () => { setAccentColor(''); sync(); } }, 'Reset');
+  const top = el('div', 'ecp-top',
+    el('div', 'ecp-head', el('span', 'ecp-title', 'Theme color'), el('span', 'ecp-sub', 'Choose a preset color or spin the RGB wheel.')),
+    resetBtn);
+  const swatchBtns = new Map();
+  const presets = el('div', { class: 'ecp-presets', role: 'radiogroup', 'aria-label': 'Preset colors' },
+    ...COLOR_PRESETS.map(([, label, hex]) => {
+      const b = el('button', { type: 'button', class: 'ecp-swatch', role: 'radio', 'data-color': hex, 'aria-label': label, title: label, onclick: () => { setAccentColor(hex); sync(); } });
+      b.style.setProperty('--sw-color', hex);
+      b.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5"/></svg>';
+      swatchBtns.set(hex, b);
+      return b;
+    }));
+  const canvas = el('canvas', 'ecp-wheel-canvas');
+  const thumb = el('span', 'ecp-wheel-thumb');
+  const wheelWrap = el('div', { class: 'ecp-wheel-wrap', tabindex: '0', role: 'slider', 'aria-label': 'RGB color wheel' }, canvas, thumb);
+  const previewDot = el('span', 'ecp-preview-dot');
+  const hexInput = el('input', { type: 'text', class: 'ecp-hex', maxlength: '7', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Hex color', 'data-no-i18n': '' });
+  const brightVal = el('span', { 'data-no-i18n': '' }, '100%');
+  const brightSlider = el('input', { type: 'range', class: 'ecp-bright', min: '0', max: '100', step: '1', value: '100', 'aria-label': 'Brightness' });
+  const makeCh = (lbl, aria) => {
+    const inp = el('input', { type: 'number', min: '0', max: '255', 'aria-label': aria, 'data-no-i18n': '' });
+    return { wrap: el('label', 'ecp-rgb-field', el('span', { 'data-no-i18n': '' }, lbl), inp), inp };
+  };
+  const rCh = makeCh('R', 'Red channel'), gCh = makeCh('G', 'Green channel'), bCh = makeCh('B', 'Blue channel');
+  const controls = el('div', 'ecp-controls',
+    el('div', 'ecp-preview-row', previewDot, hexInput),
+    el('div', 'ecp-bright-row', el('div', 'ecp-bright-head', el('span', '', 'Brightness'), brightVal), brightSlider),
+    el('div', 'ecp-rgb-row', rCh.wrap, gCh.wrap, bCh.wrap));
+  card.append(top, presets, el('div', 'ecp-wheel-row', wheelWrap, controls));
+  let curHsv = rgbHsv(0, 122, 255), lastV = -1, dragging = false;
+  const pickAt = (e) => {
+    const rect = wheelWrap.getBoundingClientRect(), r = (rect.width || 132) / 2;
+    const dx = e.clientX - (rect.left + r), dy = e.clientY - (rect.top + r);
+    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    if (angle < 0) angle += 360;
+    const vUse = curHsv.v > 0.05 ? curHsv.v : 1;
+    curHsv = { h: angle, s: clampNum(Math.hypot(dx, dy) / r, 0, 1), v: vUse };
+    const rgb = hsvRgb(curHsv.h, curHsv.s, curHsv.v);
+    setAccentColor(rgbHex(rgb.r, rgb.g, rgb.b));
+    sync();
+  };
+  wheelWrap.addEventListener('pointerdown', (e) => { dragging = true; try { wheelWrap.setPointerCapture(e.pointerId); } catch {} pickAt(e); });
+  wheelWrap.addEventListener('pointermove', (e) => { if (dragging) pickAt(e); });
+  wheelWrap.addEventListener('pointerup', (e) => { if (dragging) { dragging = false; pickAt(e); } });
+  wheelWrap.addEventListener('pointercancel', () => { dragging = false; });
+  wheelWrap.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 15 : 5;
+    if (e.key === 'ArrowRight') curHsv.h = (curHsv.h + step) % 360;
+    else if (e.key === 'ArrowLeft') curHsv.h = (curHsv.h - step + 360) % 360;
+    else if (e.key === 'ArrowUp') curHsv.s = clampNum(curHsv.s + 0.05, 0, 1);
+    else if (e.key === 'ArrowDown') curHsv.s = clampNum(curHsv.s - 0.05, 0, 1);
+    else return;
+    e.preventDefault();
+    const rgb = hsvRgb(curHsv.h, curHsv.s, curHsv.v || 1);
+    setAccentColor(rgbHex(rgb.r, rgb.g, rgb.b));
+    sync();
+  });
+  brightSlider.addEventListener('input', () => {
+    curHsv.v = clampNum(Number(brightSlider.value) / 100, 0, 1);
+    const rgb = hsvRgb(curHsv.h, curHsv.s, curHsv.v);
+    setAccentColor(rgbHex(rgb.r, rgb.g, rgb.b));
+    sync();
+  });
+  hexInput.addEventListener('change', () => { const c = normHex(hexInput.value); if (c) setAccentColor(c); sync(); });
+  for (const ch of [rCh, gCh, bCh]) ch.inp.addEventListener('change', () => {
+    setAccentColor(rgbHex(rCh.inp.value, gCh.inp.value, bCh.inp.value));
+    sync();
+  });
+  function sync() {
+    const active = normHex(state.settings.accentColor || '') || '#007aff';
+    const rgb = hexRgb(active), hsv = rgbHsv(rgb.r, rgb.g, rgb.b);
+    curHsv = hsv;
+    const pure = hsvRgb(hsv.h, Math.max(0.2, hsv.s), 1);
+    card.style.setProperty('--ecp-current', active);
+    card.style.setProperty('--ecp-pure', rgbHex(pure.r, pure.g, pure.b));
+    for (const [hex, b] of swatchBtns.entries()) b.setAttribute('aria-checked', String(hex === active));
+    const rad = (hsv.h * Math.PI) / 180, dist = hsv.s * 58;
+    thumb.style.left = `${66 + Math.cos(rad) * dist}px`;
+    thumb.style.top = `${66 + Math.sin(rad) * dist}px`;
+    thumb.style.background = active;
+    if (document.activeElement !== hexInput) hexInput.value = active.toUpperCase();
+    const pct = Math.round(clampNum(hsv.v, 0, 1) * 100);
+    brightSlider.value = String(pct);
+    brightVal.textContent = `${pct}%`;
+    if (document.activeElement !== rCh.inp) rCh.inp.value = String(rgb.r);
+    if (document.activeElement !== gCh.inp) gCh.inp.value = String(rgb.g);
+    if (document.activeElement !== bCh.inp) bCh.inp.value = String(rgb.b);
+    wheelWrap.setAttribute('aria-valuetext', active.toUpperCase());
+    resetBtn.disabled = !state.settings.accentColor;
+    const rv = Math.round(clampNum(hsv.v, 0.25, 1) * 50) / 50;
+    if (lastV !== rv) { lastV = rv; paintColorWheel(canvas, rv); }
+  }
+  if (!IN_APP) {
+    const glassReset = el('button', { type: 'button', class: 'ecp-reset', onclick: () => { setGlassStyle(''); syncGlass(); } }, 'Reset');
+    const glassTop = el('div', 'ecp-top',
+      el('div', 'ecp-head', el('span', 'ecp-title', 'Liquid Glass style'), el('span', 'ecp-sub', 'Choose how message bubbles and the input bar refract.')),
+      glassReset);
+    const styleBtns = new Map();
+    const grid = el('div', { class: 'ecp-glass-grid', role: 'radiogroup', 'aria-label': 'Glass styles' },
+      ...GLASS_STYLES.map(([id, label, sub], i) => {
+        const pill = el('span', { class: 'ecp-glass-pill', 'data-no-i18n': '' }, `0${i + 1}`);
+        const sendDot = el('span', 'ecp-glass-send');
+        sendDot.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg>';
+        const b = el('button', { type: 'button', role: 'radio', 'data-glass-style': id, 'aria-label': label, class: `ecp-glass-opt ecp-glass-${id}`, onclick: () => { setGlassStyle(id === DEFAULT_GLASS_STYLE ? '' : id); syncGlass(); } },
+          el('div', 'ecp-glass-preview', pill, sendDot),
+          el('div', 'ecp-glass-meta', el('span', 'ecp-glass-name', label), el('span', 'ecp-glass-desc', sub)));
+        styleBtns.set(id, b);
+        return b;
+      }));
+    const syncGlass = () => {
+      const activeGlass = normGlassStyle(state.settings.glassStyle || '') || DEFAULT_GLASS_STYLE;
+      for (const [id, b] of styleBtns.entries()) {
+        const checked = id === activeGlass;
+        b.setAttribute('aria-checked', String(checked));
+        b.classList.toggle('active', checked);
+      }
+      glassReset.disabled = !state.settings.glassStyle || state.settings.glassStyle === DEFAULT_GLASS_STYLE;
+    };
+    card.append(el('hr', 'ecp-divider'), glassTop, grid);
+    syncGlass();
+  }
+  sync();
+  return card;
+}
 /** In the iPhone and iPad app: a row that opens the app's own Settings (server, Delete Account…, the welcome): R2-11. */
 function appSettingsCard() {
-  if (!IN_APP) return null;
+  if (!IN_APP_SHELL) return null;
   return el('div', 'set-sec', el('h3', '', 'This app'),
     el('div', 'icard', el('div', 'prov',
       el('div', 'grow', el('div', 'p-n', 'App settings'), el('div', 'p-c', 'The Eden app’s own settings: the server, Delete Account…, and the welcome tour.')),
@@ -966,11 +1630,12 @@ function appSettingsCard() {
 }
 function openSettings(i = 0) {
   if (i === 'accounts') i = 1;
+  else if (i === 'eves') i = 6;
   clearPhoneOverlays();
   $('settingsSheet').classList.add('open');
   setTabI = i;
   drawSettings();
-  requestAnimationFrame(() => $('setSeg').querySelectorAll('button')[i].focus());
+  requestAnimationFrame(() => $('setSeg').querySelectorAll('button')[i]?.focus());
 }
 function closeSettings() { if (!$('settingsSheet').classList.contains('open')) return false; $('settingsSheet').classList.remove('open'); focusComposer(); return true; }
 /** Settings › Memory (askeden.com): memory across chats on/off, the saved memories, delete one or all. */
@@ -1016,24 +1681,42 @@ async function drawSettings() {
   body.dataset.tab = String(setTabI);
   const hosted = !!(state.meta && state.meta.hosted);
   if (setTabI === 0) {
-    body.replaceChildren(setHero('key', 'API keys', 'Which AI your chats run on, provider by provider.', 'key'), el('div', 'set-skel', el('span', 'sk'), el('span', 'sk'), el('span', 'sk')));
-    let keys;
-    try { keys = await api.keys(); } catch (e) { body.replaceChildren(setHero('key', 'API keys', 'Which AI your chats run on, provider by provider.', 'key'), el('div', 'sp-warn', el('b', '', 'Couldn’t read the keys'), e.message)); return; }
+    body.replaceChildren(
+      setHero('key', 'API Keys & Spend Control', 'Manage default & backup API keys, automatic quota failover, live API spend, and model routing in one panel.', 'key'),
+      el('div', 'set-skel', el('span', 'sk'), el('span', 'sk'), el('span', 'sk')),
+    );
+    let keys, spend;
+    try {
+      [keys, spend] = await Promise.all([api.keys(), refreshSpend().catch(() => spendStatus())]);
+    } catch (e) {
+      body.replaceChildren(
+        setHero('key', 'API Keys & Spend Control', 'Manage default & backup API keys, automatic quota failover, live API spend, and model routing in one panel.', 'key'),
+        el('div', 'sp-warn', el('b', '', 'Couldn’t read the keys'), e.message),
+      );
+      return;
+    }
     if (setTabI !== 0) return;
     const provs = (state.meta && state.meta.providers) || Object.keys(keys).map((id) => ({ id, name: id }));
-    const rows = provs.map((p) => keyRow(p, keys[p.id] || { set: false, source: null }));
+    const rows = provs.map((p) => keyRow(p, keys[p.id] || { set: false, source: null }, spend));
     const explain = hosted
       ? el('div', 'key-explain',
-        el('div', 'kx', el('span', 'kx-ic inc', ico('spark', 15)), el('div', '', el('b', '', 'Included AI'), el('p', '', 'Comes with your plan and counts toward its monthly allowance. Nothing to set up.'))),
-        el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Your own key'), el('p', '', 'Billed by the provider to you, not your allowance. Used only for your own chats.'))))
+        el('div', 'kx', el('span', 'kx-ic inc', ico('spark', 15)), el('div', '', el('b', '', 'Default + Backup Failover'), el('p', '', 'Eden uses your Default key first. If it hits its monthly quota or rate limit, Eden automatically switches to your Backup keys in order.'))),
+        el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Your Own Keys & Included AI'), el('p', '', 'Your own keys are encrypted on your account and don’t count against your plan allowance. Included AI is used whenever no custom key is set.'))))
       : el('div', 'key-explain',
-        el('div', 'kx', el('span', 'kx-ic inc', ico('lock', 15)), el('div', '', el('b', '', 'Stays on this Mac'), el('p', '', 'Keys live in ~/.config/model-router/keys.json, readable only by you.'))),
-        el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Environment wins'), el('p', '', 'A key set in the environment is used over a saved one.'))));
-    body.replaceChildren(setHero('key', 'API keys', 'Which AI your chats run on, provider by provider.', 'key'), explain,
-      el('div', 'set-sec', el('h3', '', 'Providers'), el('div', 'icard keys', ...rows),
+        el('div', 'kx', el('span', 'kx-ic inc', ico('lock', 15)), el('div', '', el('b', '', 'Default + Automatic Monthly Failover'), el('p', '', 'Eden uses your Default key until it hits its monthly limit, then automatically fails over to your Backup keys in order.'))),
+        el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Synced Across Eden Code & Ask Eden'), el('p', '', 'Keys live in ~/.config/model-router/keys.json and your Mac Keychain, readable only by you.'))));
+    body.replaceChildren(
+      setHero('key', 'API Keys & Spend Control', 'Manage default & backup API keys, automatic quota failover, live API spend, and model routing in one panel.', 'key'),
+      spendDashboardCard(spend, provs, keys),
+      el('div', 'set-sec',
+        el('h3', '', 'API Keys & Automatic Failover Queue'),
+        el('div', 'icard keys', ...rows),
         el('p', 'sp-note', hosted
-          ? 'Your keys are stored encrypted on your account and used only for your chats, never by delegates or team spaces. They’re never shown again once saved; remove one any time. Chats on your own key don’t use your included AI.'
-          : 'The page never sees a key again once it’s saved.')));
+          ? 'Your keys are stored encrypted on your account and used only for your chats. When a Default key reaches its monthly limit, Eden automatically falls back to the next Backup key.'
+          : 'Keys never leave this Mac except to their provider. When a Default key hits its monthly usage limit, Eden automatically switches to the next Backup key.')),
+      quickControlDashboardCard(),
+      explain,
+    );
   } else if (setTabI === 1) {
     drawAccounts(body);
   } else if (setTabI === 2) {
@@ -1048,15 +1731,14 @@ async function drawSettings() {
     body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
       el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
         el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')),
-      el('div', 'set-sec', el('h3', '', 'Layout'),
-        el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'Layout' }, ...[['classic', 'Classic', 'Sidebar and chat'], ['desk', 'Desktop', 'Eden as the whole screen']].map(([v, label, sub]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(layout() === v), class: `theme-tile${layout() === v ? ' on' : ''}`, onclick: () => { setLayout(v); closeSettings(); } },
-          el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub))))),
-        el('p', 'sp-note', 'Desktop shows Eden full screen, with apps, your PC and chats in one sidebar. It needs a window at least 760 px wide.')),
+      el('div', 'set-sec', el('h3', '', 'Color'), colorPickerSection()),
       el('div', 'set-sec', el('h3', '', 'Language'), langSeg,
         el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), ...[voiceSettings()].filter(Boolean), ...[appSettingsCard()].filter(Boolean));
     setSeg(langSeg, Math.max(0, LANGS.findIndex(([v]) => v === langPref)));
   } else if (setTabI === 4) {
     drawMemory(body, hosted);
+  } else if (setTabI === 6) {
+    drawEvesPane(body);
   } else if (setTabI === 3) {
     const autoSw = el('input', { type: 'checkbox', 'aria-label': 'Search the web automatically' });
     autoSw.checked = state.settings.autoSearch !== false;
@@ -1072,6 +1754,7 @@ async function drawSettings() {
     };
     const premiseSw = checkSw('premiseCheck', 'Check the question’s assumptions', 'Eden checks what a question takes for granted', 'Assumption check is off');
     const answerSw = checkSw('answerCheck', 'Double-check answers that didn’t use the web', 'Eden double-checks answers that didn’t use the web', 'Answer double-check is off');
+    const queueSw = checkSw('queueFollowUps', 'Queue follow-ups', 'Follow-ups wait in the queue until the current step ends', 'Follow-ups steer the running step right away');
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
     sw.checked = !!state.settings.subscriptionClaude;
     sw.addEventListener('change', () => { state.settings.subscriptionClaude = sw.checked; saveSettings(); schedulePreview(); toast(sw.checked ? 'Claude priced as subscription quota' : 'Claude priced at API rates'); });
@@ -1091,6 +1774,7 @@ async function drawSettings() {
           el('span', 'rc-s', ov ? 'Pinned for every message' : 'The router picks per message'))),
       el('div', 'set-sec', el('h3', '', 'Pricing'),
         el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Search the web automatically'), el('div', 'p-c', 'When a message needs current information (news, weather, prices, scores, “near me”, a link), Eden searches the web first and shows the sources. Never in temporary or private chats. Searches use your included AI.')), el('label', 'switch', autoSw, el('span', 'tr')))),
+        el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Queue follow-ups'), el('div', 'p-c', 'Messages sent while Eden is working wait until its current step ends. Off: Return steers it right away without stopping the reply (⌘↩ or Steer always steers right away).')), el('label', 'switch', queueSw, el('span', 'tr')))),
         serverChecks('premiseCheck') ? el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Check the question’s assumptions'), el('div', 'p-c', 'When a question takes a fact for granted (“why did … win …?”), Eden checks that fact on the web first and corrects it if it’s wrong. About 1¢, only on such questions.')), el('label', 'switch', premiseSw, el('span', 'tr')))) : null,
         serverChecks('answerCheck') ? el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Double-check answers that didn’t use the web'), el('div', 'p-c', 'After a factual answer from the model’s memory, Eden looks on the web for evidence against it, and answers again with sources when it finds some. About 2¢, only on such answers.')), el('label', 'switch', answerSw, el('span', 'tr')))) : null,
         el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
@@ -1172,32 +1856,315 @@ function drawHostedAccounts(body, st) {
     el('p', 'sp-note', state.jarvis.available ? 'Connected through the Eden app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${String(state.jarvis.reason || 'open the Eden app on your Mac').replace(/\.+$/, '')}.`)));
 }
 
+function spendDashboardCard(spend, provs, keys) {
+  const hosted = !!(state.meta && state.meta.hosted);
+  const s = spend || {};
+  const st = s.autopilot || {};
+  const spent = typeof s.totalUSD === 'number' ? s.totalUSD : (st.spentUSD || 0);
+  const budget = st.budgetUSD || s.budgetUSD || 0;
+  const forecast = typeof st.forecastUSD === 'number' ? st.forecastUSD : spent;
+  const sv = monthSavings();
+  const cacheSaved = typeof s.cacheSavedUSD === 'number' && s.cacheSavedUSD > 0 ? s.cacheSavedUSD : 0;
+  const totalSaved = Math.max(0, (sv && sv.usd ? sv.usd : 0)) + cacheSaved;
+  const msgs = Number(s.messages) || (sv && sv.turns) || 0;
+  const frac = budget > 0 ? Math.min(1, Math.max(0, spent / budget)) : 0;
+  const fcFrac = budget > 0 ? Math.min(1, Math.max(0, forecast / budget)) : 0;
+
+  // Compute session/browser spend per provider & model when server byModel isn't populated (e.g. hosted or fresh)
+  const localByModel = new Map();
+  for (const c of state.convs || []) {
+    for (const n of Object.values(c.nodes || {})) {
+      if (n.role !== 'assistant' || !n.usage) continue;
+      const mId = (n.route && n.route.model) || n.model || 'unknown';
+      const info = modelInfo(mId);
+      const prov = (n.route && n.route.provider) || (info && info.provider) || (mId.startsWith('claude') ? 'anthropic' : mId.startsWith('gpt') || mId.startsWith('o') ? 'openai' : mId.startsWith('gemini') ? 'gemini' : 'kimi');
+      const cur = localByModel.get(mId) || { model: mId, name: (info && info.name) || mId, provider: prov, usd: 0, calls: 0, inputTokens: 0, outputTokens: 0 };
+      cur.usd += Number(n.usage.costUSD) || 0;
+      cur.calls += 1;
+      cur.inputTokens += Number(n.usage.inputTokens) || 0;
+      cur.outputTokens += Number(n.usage.outputTokens) || 0;
+      localByModel.set(mId, cur);
+    }
+  }
+  const byModelRaw = Array.isArray(s.byModel) && s.byModel.length ? s.byModel : [...localByModel.values()];
+  const byModel = [...byModelRaw].sort((a, b) => (b.usd || 0) - (a.usd || 0));
+  const localTotal = [...localByModel.values()].reduce((acc, r) => acc + (r.usd || 0), 0);
+  const displaySpent = spent > 0 ? spent : localTotal;
+
+  // Group spend by provider
+  const byProv = new Map();
+  for (const p of provs || []) byProv.set(p.id, { id: p.id, name: p.name || p.id, usd: 0, calls: 0, tokens: 0 });
+  for (const r of byModel) {
+    const pid = r.provider || (String(r.model || '').startsWith('claude') ? 'anthropic' : String(r.model || '').startsWith('gpt') ? 'openai' : String(r.model || '').startsWith('gemini') ? 'gemini' : 'kimi');
+    const row = byProv.get(pid) || { id: pid, name: pid, usd: 0, calls: 0, tokens: 0 };
+    row.usd += Number(r.usd) || 0;
+    row.calls += Number(r.calls) || 0;
+    row.tokens += (Number(r.inputTokens) || 0) + (Number(r.outputTokens) || 0);
+    byProv.set(pid, row);
+  }
+  const provSpendRows = [...byProv.values()];
+  const maxProvUsd = Math.max(...provSpendRows.map((r) => r.usd), 1e-6);
+  const maxModelUsd = Math.max(...byModel.map((r) => r.usd || 0), 1e-6);
+
+  // Budget inline editor
+  const budgetInput = el('input', {
+    type: 'number',
+    class: 'kd-budget-in',
+    min: '0',
+    max: '100000',
+    step: '5',
+    placeholder: 'No cap',
+    'aria-label': 'Monthly API spend cap in USD',
+    value: budget > 0 ? String(budget) : '',
+  });
+  const saveBudget = async () => {
+    const v = budgetInput.value.trim();
+    try {
+      await api.setSpend({ budgetUSD: v === '' ? 0 : Number(v) });
+      await refreshSpend();
+      toast(v && Number(v) > 0 ? `Monthly API budget set to $${Number(v).toFixed(2)}` : 'Monthly budget cap cleared');
+      drawSettings();
+    } catch (e) { toast(`Couldn’t save budget: ${e.message}`); }
+  };
+  budgetInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveBudget(); } });
+
+  const meterEl = el('div', { class: `ap-meter s${st.stage || 0}`, role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(frac * 100)) },
+    el('span', 'ap-fill'), el('span', 'ap-fc'));
+  meterEl.style.setProperty('--w', `${(frac * 100).toFixed(1)}%`);
+  meterEl.style.setProperty('--f', `${(fcFrac * 100).toFixed(1)}%`);
+
+  return el('div', 'set-sec',
+    el('h3', '', 'API Spend & Monthly Budget'),
+    el('div', 'icard kd-spend-card',
+      el('div', 'kd-metrics',
+        el('div', 'kd-metric',
+          el('span', 'kd-mk', 'Monthly Spend'),
+          el('b', 'kd-mv', fmtCost(displaySpent)),
+          el('span', 'kd-ms', `${msgs} turn${msgs === 1 ? '' : 's'} this month`)),
+        el('div', 'kd-metric',
+          el('span', 'kd-mk', 'Monthly Cap'),
+          el('b', 'kd-mv', budget > 0 ? fmtCost(budget) : 'Unlimited'),
+          el('span', 'kd-ms', budget > 0 ? `${Math.max(0, Math.round((1 - frac) * 100))}% remaining` : 'Set a cap below')),
+        el('div', 'kd-metric',
+          el('span', 'kd-mk', 'Month Forecast'),
+          el('b', 'kd-mv', fmtCost(forecast > 0 ? forecast : displaySpent)),
+          el('span', 'kd-ms', st.stage ? st.label : 'On track')),
+        el('div', 'kd-metric kd-saved',
+          el('span', 'kd-mk', 'Saved vs Always-Opus'),
+          el('b', 'kd-mv', fmtCost(totalSaved)),
+          el('span', 'kd-ms', cacheSaved > 0 ? `Includes ${fmtCost(cacheSaved)} cache savings` : 'Router + caching savings'))),
+      budget > 0 ? el('div', 'kd-meter-wrap', meterEl) : null,
+      !hosted ? el('div', 'kd-budget-row',
+        el('div', 'grow',
+          el('div', 'p-n', 'Monthly Spend Cap ($)'),
+          el('div', 'p-c', 'Autopilot steps routing down at 80% & 95% of your cap so you never run out unexpectedly.')),
+        el('div', 'ap-budget', budgetInput, el('button', { type: 'button', class: 'cap primary', onclick: saveBudget }, 'Save cap'))) : null,
+      el('div', 'kd-breakdown',
+        el('div', 'kd-bk-head', el('span', '', 'Spend by Provider'), el('span', 'muted', 'Default + Backup status')),
+        ...provSpendRows.map((r) => {
+          const k = (keys && keys[r.id]) || {};
+          const g = providerGlyph(r.id, r.name);
+          const bar = el('span', 'kd-bar', el('i'));
+          bar.querySelector('i').style.width = `${r.usd > 0 ? Math.max(4, (r.usd / maxProvUsd) * 100) : 0}%`;
+          const fbCount = k.fallbackCount || (Array.isArray(k.fallbacks) ? k.fallbacks.length : 0);
+          return el('div', 'kd-bk-row',
+            el('span', { class: 'pglyph sm', style: { '--g1': g.from, '--g2': g.to }, 'aria-hidden': 'true' }, g.mark),
+            el('div', 'kd-bk-info',
+              el('div', 'kd-bk-top',
+                el('span', 'kd-bk-name', r.name),
+                k.set ? el('span', 'kpill k-own', `Default ${k.hint || (k.last4 ? `····${k.last4}` : 'set')}${fbCount ? ` + ${fbCount} backup` : ''}`) : el('span', 'kpill k-off', hosted ? 'Included AI' : 'No key'),
+                el('b', 'kd-bk-val', fmtCost(r.usd))),
+              bar,
+              el('div', 'kd-bk-sub', `${r.calls} call${r.calls === 1 ? '' : 's'} · ${(r.tokens || 0).toLocaleString(locale())} tokens`)));
+        })),
+      byModel.length ? el('div', 'kd-breakdown kd-models-bk',
+        el('div', 'kd-bk-head', el('span', '', 'Spend by Model'), el('span', 'muted', 'Calls & tokens')),
+        ...byModel.slice(0, 8).map((r) => {
+          const bar = el('span', 'kd-bar', el('i'));
+          bar.querySelector('i').style.width = `${r.usd > 0 ? Math.max(4, ((r.usd || 0) / maxModelUsd) * 100) : 0}%`;
+          const toks = (Number(r.inputTokens) || 0) + (Number(r.outputTokens) || 0);
+          return el('div', 'kd-bk-row compact',
+            el('div', 'kd-bk-info',
+              el('div', 'kd-bk-top',
+                el('span', 'kd-bk-name', r.name || r.model),
+                el('span', 'muted', `${r.calls || 0} calls · ${toks.toLocaleString(locale())} tok`),
+                el('b', 'kd-bk-val', fmtCost(r.usd || 0))),
+              bar));
+        })) : null));
+}
+
+function quickControlDashboardCard() {
+  const lv = Number(state.settings.level) || 3;
+  const ov = currentOverride();
+  const models = availableModels();
+  const levelBtns = [1, 2, 3, 4, 5].map((n) => {
+    const L = levels().find((x) => x.level === n) || { level: n, label: `L${n}` };
+    return el('button', {
+      type: 'button',
+      class: `kd-lvl-btn${lv === n ? ' on' : ''}`,
+      onclick: () => { setLevel(n); toast(`Router Level ${n}: ${L.label}`); drawSettings(); },
+    }, el('b', '', `L${n}`), el('span', '', L.label));
+  });
+
+  const modelSel = el('select', { class: 'kd-select', 'aria-label': 'Default or pinned model' },
+    el('option', { value: '' }, 'Auto (Model Router picks per message)'),
+    ...models.map((m) => el('option', { value: m.id, selected: ov && ov.model === m.id ? 'selected' : null }, `${m.name || m.id} (${m.provider})`)));
+  modelSel.value = ov ? ov.model : '';
+  modelSel.addEventListener('change', () => {
+    setOverride(modelSel.value || null);
+    toast(modelSel.value ? `Pinned to ${modelInfo(modelSel.value)?.name || modelSel.value}` : 'Switched to Automatic Model Router');
+    drawSettings();
+  });
+
+  const subSw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription quota' });
+  subSw.checked = !!state.settings.subscriptionClaude;
+  subSw.addEventListener('change', () => {
+    state.settings.subscriptionClaude = subSw.checked;
+    saveSettings();
+    schedulePreview();
+    toast(subSw.checked ? 'Claude priced as subscription quota' : 'Claude priced at API rates');
+  });
+
+  const autoSearchSw = el('input', { type: 'checkbox', 'aria-label': 'Auto web search' });
+  autoSearchSw.checked = state.settings.autoSearch !== false;
+  autoSearchSw.addEventListener('change', () => {
+    state.settings.autoSearch = autoSearchSw.checked;
+    saveSettings();
+    toast(autoSearchSw.checked ? 'Auto web search on' : 'Auto web search off');
+  });
+
+  return el('div', 'set-sec',
+    el('h3', '', 'Router & Model Controls'),
+    el('div', 'icard kd-controls-card',
+      el('div', 'prov kd-ctrl-block',
+        el('div', 'grow',
+          el('div', 'p-n', 'Optimization Level'),
+          el('div', 'p-c', 'Choose how aggressively Eden balances API cost vs maximum model capability.')),
+        el('div', 'kd-lvl-bar', ...levelBtns)),
+      el('div', 'prov',
+        el('div', 'grow',
+          el('div', 'p-n', 'Default / Pinned Model'),
+          el('div', 'p-c', ov ? `Currently pinned to ${modelInfo(ov.model)?.name || ov.model} for every turn.` : 'Automatic: Model Router selects the best model for each prompt.')),
+        modelSel),
+      el('div', 'prov',
+        el('div', 'grow',
+          el('div', 'p-n', 'Automatic Web Search'),
+          el('div', 'p-c', 'Search the web automatically when a prompt asks for live or current information.')),
+        el('label', 'switch', autoSearchSw, el('span', 'tr'))),
+      el('div', 'prov',
+        el('div', 'grow',
+          el('div', 'p-n', 'Price Claude as Subscription Quota'),
+          el('div', 'p-c', 'Off: Claude is billed and tracked in API dollars on your API key. On: treated as subscription quota.')),
+        el('label', 'switch', subSw, el('span', 'tr'))),
+      el('div', 'dlg-acts',
+        el('button', { type: 'button', class: 'btn', onclick: () => { setTabI = 3; drawSettings(); } }, ico('route', 14), 'All Routing Settings'),
+        el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Live Route Console'))));
+}
+
 function keyRow(p, k) {
   const hosted = !!(state.meta && state.meta.hosted);
-  // askeden.com keeps the key sealed in the account: only its last 4 characters and when it was added come back
   const st = keyStatus(p, k, hosted);
   const g = providerGlyph(p.id, p.name);
-  const row = el('div', 'key-row');
-  const draw = (editing) => {
-    const input = el('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: `${p.name || p.id} API key`, 'aria-label': `${p.name || p.id} API key` });
+  const row = el('div', 'key-row kd-provider-block');
+  const fallbacks = Array.isArray(k.fallbacks) ? k.fallbacks : [];
+  const enabled = state.settings.providers[p.id] !== false;
+
+  const draw = (editMode) => {
+    // editMode: false | 'replace' | 'fallback'
+    const isFallbackEdit = editMode === 'fallback';
+    const input = el('input', {
+      type: 'password',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      placeholder: isFallbackEdit ? `Paste backup ${p.name || p.id} API key (used when default runs out)` : `Paste default ${p.name || p.id} API key`,
+      'aria-label': `${p.name || p.id} API key`,
+    });
     const save = async () => {
       const v = input.value.trim();
       if (!v) { input.focus(); return; }
-      try { const r = await api.setKey(p.id, v); input.value = ''; toast(r && r.check && r.check.ok ? `${p.name || p.id}: key works, saved` : `${p.name || p.id} key saved`); await reloadMeta(); drawSettings(); }
-      catch (e) { toast(`Couldn’t save: ${e.message}`); }
+      try {
+        const r = await api.setKey(p.id, v, { mode: isFallbackEdit ? 'fallback' : 'replace' });
+        input.value = '';
+        toast(isFallbackEdit ? `${p.name || p.id}: backup key added to failover queue` : (r && r.check && r.check.ok ? `${p.name || p.id}: default key works, saved` : `${p.name || p.id} default key saved`));
+        await reloadMeta();
+        drawSettings();
+      } catch (e) { toast(`Couldn’t save: ${e.message}`); }
     };
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); draw(false); } });
-    // (replaceChildren turns a null into the text "null": the parts not shown are dropped first)
-    row.replaceChildren(...[
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); save(); }
+      if (e.key === 'Escape') { e.stopPropagation(); draw(false); }
+    });
+
+    const provToggle = el('input', { type: 'checkbox', 'aria-label': `Enable ${p.name || p.id} in router` });
+    provToggle.checked = enabled;
+    provToggle.addEventListener('change', () => {
+      state.settings.providers[p.id] = provToggle.checked;
+      saveSettings();
+      renderRouteControls();
+      schedulePreview();
+      toast(provToggle.checked ? `${p.name || p.id} enabled in router` : `${p.name || p.id} paused in router`);
+      drawSettings();
+    });
+
+    const primaryHint = k.hint || (k.last4 ? `····${k.last4}` : '');
+    const mainLine = el('div', 'kd-key-main',
       el('span', { class: 'pglyph', style: { '--g1': g.from, '--g2': g.to }, 'aria-hidden': 'true' }, g.mark),
-      el('div', 'grow', el('div', 'p-n', p.name || p.id, el('span', `kpill k-${st.tone}`, st.pill)), el('div', `p-c${st.tone === 'own' || st.tone === 'sub' ? ' ok' : ''}`, st.detail)),
-      editing ? null : el('button', { type: 'button', class: `cap${k.set ? '' : ' primary'}`, onclick: () => draw(true) }, k.set ? 'Replace' : 'Set key'),
-      editing || !k.set || k.source === 'env' ? null : el('button', { type: 'button', class: 'cap rev', onclick: async () => {
-        try { await api.setKey(p.id, ''); toast('Key removed'); await reloadMeta(); drawSettings(); } catch (e) { toast(`Couldn’t remove: ${e.message}`); }
-      } }, 'Remove'),
-      editing ? el('div', 'key-edit', input, el('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save'), el('button', { type: 'button', class: 'btn', onclick: () => draw(false) }, 'Cancel')) : null,
-    ].filter(Boolean));
-    if (editing) requestAnimationFrame(() => input.focus());
+      el('div', 'grow',
+        el('div', 'p-n',
+          p.name || p.id,
+          el('span', `kpill k-${st.tone}`, k.set ? `Default: ${primaryHint || st.pill}` : st.pill),
+          fallbacks.length ? el('span', 'kpill k-included', `${fallbacks.length} backup${fallbacks.length === 1 ? '' : 's'} ready`) : null,
+          !enabled ? el('span', 'kpill k-off', 'Paused') : null),
+        el('div', `p-c${st.tone === 'own' || st.tone === 'sub' ? ' ok' : ''}`, st.detail)),
+      editMode ? null : el('div', 'kd-key-acts',
+        el('button', { type: 'button', class: `cap${k.set ? '' : ' primary'}`, onclick: () => draw('replace') }, k.set ? 'Replace default' : 'Set default key'),
+        k.set ? el('button', { type: 'button', class: 'cap', onclick: () => draw('fallback'), title: 'Add a backup key that Eden switches to automatically if the default key hits its monthly limit' }, '+ Backup key') : null,
+        !k.set || k.source === 'env' ? null : el('button', { type: 'button', class: 'cap rev', onclick: async () => {
+          try { await api.setKey(p.id, '', { mode: 'replace' }); toast(`${p.name || p.id} key removed`); await reloadMeta(); drawSettings(); } catch (e) { toast(`Couldn’t remove: ${e.message}`); }
+        } }, 'Remove'),
+        el('label', { class: 'switch', title: enabled ? 'Active in Model Router (click to pause)' : 'Paused in Model Router (click to enable)' }, provToggle, el('span', 'tr'))));
+
+    const editBox = editMode ? el('div', 'key-edit kd-key-edit',
+      input,
+      el('button', { type: 'button', class: 'btn primary', onclick: save }, isFallbackEdit ? 'Add backup' : 'Save default'),
+      el('button', { type: 'button', class: 'btn', onclick: () => draw(false) }, 'Cancel')) : null;
+
+    const fbList = fallbacks.length ? el('div', 'kd-fallbacks',
+      el('div', 'kd-fb-title', 'Automatic Failover Queue (used in order when Default hits its monthly limit):'),
+      ...fallbacks.map((fbHint, idx) => el('div', 'kd-fb-row',
+        el('span', 'kd-fb-badge', `Backup #${idx + 1}`),
+        el('code', 'kd-fb-hint', typeof fbHint === 'string' && fbHint.length === 4 ? `····${fbHint}` : String(fbHint)),
+        el('span', 'kd-fb-note', 'Auto-activates on quota/rate limit'),
+        el('span', 'grow'),
+        el('button', {
+          type: 'button',
+          class: 'cap',
+          title: 'Promote this backup key to be the Default key (current default moves to backup)',
+          onclick: async () => {
+            try {
+              await api.setKey(p.id, '', { mode: 'promote_fallback', index: idx });
+              toast(`Promoted Backup #${idx + 1} to Default for ${p.name || p.id}`);
+              await reloadMeta();
+              drawSettings();
+            } catch (e) { toast(`Couldn’t promote key: ${e.message}`); }
+          },
+        }, 'Make default'),
+        el('button', {
+          type: 'button',
+          class: 'cap rev',
+          title: 'Remove this backup key',
+          onclick: async () => {
+            try {
+              await api.setKey(p.id, '', { mode: 'remove_fallback', index: idx });
+              toast(`Removed Backup #${idx + 1}`);
+              await reloadMeta();
+              drawSettings();
+            } catch (e) { toast(`Couldn’t remove backup key: ${e.message}`); }
+          },
+        }, 'Remove')))) : null;
+
+    row.replaceChildren(...[mainLine, editBox, fbList].filter(Boolean));
+    if (editMode) requestAnimationFrame(() => input.focus());
   };
   draw(false);
   return row;
@@ -1216,9 +2183,14 @@ function slash(name, arg) {
       setMode(name);
       if (arg) setTimeout(() => sendFromComposer(arg, [], []), 0);
       return true;
-    case 'image': // Image mode: Eden draws (image-mode.js); askeden.com only, when switched on
+    case 'image': // Image mode: Eden draws (image-mode.js)
       if ((c && c.kind === 'code') || !imagesAvailable()) return false;
       setMode('image');
+      if (arg) setTimeout(() => sendFromComposer(arg, [], []), 0);
+      return true;
+    case 'video': // Video mode: Eden makes a short video clip (image-mode.js)
+      if ((c && c.kind === 'code') || !videosAvailable()) return false;
+      setMode('video');
       if (arg) setTimeout(() => sendFromComposer(arg, [], []), 0);
       return true;
     case 'slides': // Q14: Slides mode; with no words, the chat's deck (or how to start one) in the canvas (deck.js)
@@ -1274,10 +2246,20 @@ function slash(name, arg) {
     case 'clear': clearConversation(); return true;
     case 'compact': compact(); return true;
     case 'route': openInspector('Route'); return true;
+    case 'split': return splitCmd(arg);
     case 'changes': openInspector('Changes'); return true;
     case 'todos': openInspector('Plan'); return true;
     case 'activity': toggleDrawer(true); return true;
-    case 'settings': openSettings(0); return true;
+    case 'later': case 'schedule': {
+      if (!c || c.kind !== 'code') { openTasks({ prefill: arg ? { prompt: arg } : null }); return true; }
+      const trimmed = String(arg || '').trim();
+      if (!trimmed) { scheduleTaskDialog(c); return true; }
+      const parsed = parseCodeWhenAndTask(trimmed);
+      if (!parsed) { scheduleTaskDialog(c, trimmed); return true; }
+      scheduleCodeTask(c, parsed);
+      return true;
+    }
+    case 'settings': case 'keys': case 'spend': case 'dashboard': openSettings(0); return true;
     case 'theme': if (['light', 'dark', 'system'].includes(arg)) setTheme(arg); else cycleTheme(); return true;
     case 'stop': if (!stop()) toast('Nothing to stop'); return true;
     case 'tour': startTour(); return true;
@@ -1295,23 +2277,9 @@ function clearConversation() {
 }
 async function compact() {
   const c = state.current;
-  if (!c || !path(c).length) { toast('Nothing to compact yet'); return; }
-  if (c.kind === 'code') { sendMessage('/compact', []); return; }
-  toast('Compacting: summarizing this chat…');
-  const messages = path(c).filter((n) => n.role === 'user' || nodeText(n)).map((n) => ({ role: n.role, content: n.role === 'user' ? n.content || '' : nodeText(n) }));
-  messages.push({ role: 'user', content: 'Summarize our conversation so far as compact notes: the goal, the decisions and facts established, open questions, and anything I asked you to remember. Under 300 words.' });
-  let summary = '';
-  try {
-    await api.send({ ...privacyBody(c), messages, settings: { ...(await import('./router.js')).routeSettings(), level: 1, efficiency: 80, performance: 30 }, mode: 'chat' }, {
-      onEvent: (t, d) => { if (t === 'text') summary += d.text || ''; if (t === 'error') throw new Error(d.message); },
-    });
-  } catch (e) { toast(`Couldn’t compact: ${e.message}`); return; }
-  if (!summary.trim()) { toast('Couldn’t compact: empty summary'); return; }
-  const pid = c.personaId;
-  const title = c.title;
-  newChat();
-  if (pid) setPersona(pid);
-  addContext({ title: `Earlier: ${title}`.slice(0, 70), text: summary.trim() });
+  if (!c || c.kind !== 'code') { toast('Eden Chat compacts context automatically.'); return; }
+  if (!path(c).length) { toast('Nothing to compact yet'); return; }
+  sendMessage('/compact', []);
 }
 
 /* ================= sending from the composer ================= */
@@ -1322,6 +2290,13 @@ function sendFromComposer(text, attachments, context) {
   const c = state.current;
   if (c && c.kind === 'code') {
     if (meta && meta.code && meta.code.available === false) { toast(`Code mode is unavailable: ${meta.code.reason || ''}`); return false; }
+    if (!attachments || !attachments.length) {
+      const timed = parseNaturalCodeTimedMessage(text);
+      if (timed) {
+        scheduleCodeTask(c, timed);
+        return true;
+      }
+    }
   } else if (meta && !(meta.providers || []).some((p) => p.available) && !currentOverride()) {
     toast('No model provider is available. Add an API key in Settings.', { label: 'Settings', run: () => openSettings(0) });
     return false;
@@ -1338,6 +2313,7 @@ function sendFromComposer(text, attachments, context) {
 
 /* ================= global keys + Esc order ================= */
 function onKey(e) {
+  if (handleSplitKey(e)) return;
   const mod = e.metaKey || e.ctrlKey;
   const k = e.key.toLowerCase();
   if (mod && !e.altKey && k === 'k') { e.preventDefault(); if (!closePalette()) openPalette(); return; }
@@ -1413,17 +2389,28 @@ async function init() {
     $('inspector').classList.toggle('closed', !store.get('jchat:inspector', false));
   }
   syncDock();
-  Object.assign(ui, { render: () => { renderTranscript(); renderTitle(); renderComposer(); }, renderSidebar, renderTitle, renderComposer, updateMessage, renderInspector: () => renderTurnCard(state.selectedNode), renderPlan, loadChanges: (quiet) => { if (curTab === 'Changes' && inspectorVisible()) loadChanges(quiet); }, renderActivity });
+  Object.assign(ui, { render: () => { renderTranscript(); renderTitle(); renderComposer(); }, renderSidebar, renderTitle, renderComposer, updateMessage, renderInspector: () => renderTurnCard(state.selectedNode), renderPlan, loadChanges: (quiet) => { if (curTab === 'Changes' && inspectorVisible()) loadChanges(quiet); }, renderActivity, renderPane: renderSplitPaneFor });
 
   initRouteControls();
   initChipPop();
   initComposer({
     send: sendFromComposer, stop: () => stop(), slash,
-    queue: (t) => { const c = state.current; queueFollowUp(c, t); if (c.kind !== 'code') toast('Queued: sends when Eden finishes'); },
+    queue: (t, opts) => {
+      const c = state.current;
+      const item = queueFollowUp(c, t, opts);
+      if (!item) return false;
+      if (c && c.kind !== 'code' && !(opts && opts.steer)) toast('Queued: sends when Eden finishes');
+      return true;
+    },
     steerNow: (id) => steerNow(state.current, id), dropQueued: (id) => dropQueued(state.current, id),
     setPersona, editPersona, newTemp, openSettings, openInspector, openBrain: () => openSpace('brain'),
     searchNotes, attachNote, save: (c) => { saveConversation(c); renderTitle(); renderSidebar(); }, confirm: (text, ok, run) => confirmDialog(text, ok, run, true),
     compact, clear: clearConversation,
+  });
+  initSplitView({
+    msgEl, titleOf, selectHere, toggleSidebar, renderSidebar, renderTitle, renderInspector: () => renderTurnCard(state.selectedNode),
+    setComposerText, slash, save: (c) => { saveConversation(c); renderTitle(); renderSidebar(); },
+    onPaneTranscriptClick: (e, c, box, setPaneInput) => onTranscriptClick(e, c, box, setPaneInput),
   });
   initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t, opts) => sendMessage(t, [], opts || {}) });
   // the chat open at startup gets its essay back beside it (essay-chat.js, T20e; website only, loaded after the page)
@@ -1439,6 +2426,7 @@ async function init() {
   initKnowledge({ switchTo, renderSidebar, renderComposer, clearPhoneOverlays }); // H11 (knowledge.js)
   initFolders({ openDialog, closeDialog, render: renderSidebar }); // folders and Tidy up with Eden (folders.js)
   initCode({ closeDialog, openDialog, newCodeSession, renderTitle, renderSidebar, quote: (t) => setComposerText(t, { append: true }) });
+  ensureScheduleLoop();
   initMail({
     openDialog, closeDialog, openSettings, jarvisAvailable: () => state.jarvis.available, jarvisReason: () => state.jarvis.reason,
     summarize: (m) => {
@@ -1477,13 +2465,20 @@ async function init() {
     if (gh[1] === 'connected') setTimeout(() => (toCalendar ? openCalendar() : openSpace('mail')), 300);
   }
   // a link to Settings › Models & API keys (askeden.com's "Add your Anthropic API key…")
-  if (location.hash === '#settings=keys') {
+  addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0));
+  if (location.hash === '#settings=keys' || location.hash === '#keys' || location.hash === '#spend' || location.hash === '#dashboard') {
     history.replaceState(null, '', location.pathname + location.search);
     setTimeout(() => openSettings(0), 0);
   }
   // The native iOS app opens a secondary space in a sheet: /#open=mail (calendar, tasks, brief…).
   const op = /^#open=(\w+)$/.exec(location.hash);
-  const opens = { brief: openBrief, calendar: openCalendar, files: openFiles, mail: () => openSpace('mail'), routines: () => openSpace('routines'), brain: () => openSpace('brain'), memory: () => openSpace('memory'), meetings: () => openSpace('meetings'), activity: () => openSpace('activity') };
+  // Eden Travel (travel.js, loaded when first opened): askeden.com/travel or askedentravel.com, #open=travel, and "Open in Eden Travel" on a trip card. Never in the app.
+  const travel = (id) => { if (!IN_APP) import('./travel.js').then((m) => m.openTravel(id)); };
+  addEventListener('eden:travel-open', (e) => travel(e.detail && e.detail.id));
+  document.addEventListener('eden:new-chat', () => newChat()); // Eden Travel's own address has no sidebar: its menu starts one
+  document.addEventListener('eden:trip-shown', () => { if (!path(state.current).length) renderTranscript(); }); // Eden Travel: the empty chat's suggestions are the trip's (render.js)
+  if (location.pathname === '/travel' || (/(^|\.)askedentravel\.com$|^travel\.localhost$/.test(location.hostname) && location.pathname === '/')) travel(); // its own address too (travel.js TRAVEL_HOST)
+  const opens = { travel: () => travel(), brief: openBrief, calendar: openCalendar, files: openFiles, mail: () => openSpace('mail'), routines: () => openSpace('routines'), brain: () => openSpace('brain'), memory: () => openSpace('memory'), meetings: () => openSpace('meetings'), activity: () => openSpace('activity') };
   if (op && opens[op[1]]) {
     history.replaceState(null, '', location.pathname + location.search);
     setTimeout(opens[op[1]], 300);
@@ -1575,7 +2570,7 @@ async function init() {
   firstMeta.then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); initMailkit(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
   // Meta didn't load (offline at launch, a server blip): asked again until it does, sooner back online or back on the page.
   firstMeta.then(async () => { for (let tries = 0; !state.meta && state.metaError; tries++) { await retryWait(tries); await reloadMeta(); if (state.meta) renderAll(); } });
-  initTour(); // I1: practice mode's tour, or the welcome on a first visit
+  if (!document.body.classList.contains('travel-standalone')) initTour(); // I1: practice mode's tour, or the welcome on a first visit (not on Eden Travel's own address)
   initFirstRun({ setComposerText: (t) => { setComposerText(t); focusComposer(); }, startTour: () => startTour() }); // Q4: a new person's first answer explained
   // an imported ChatGPT chat's images are kept in this browser (IndexedDB): the importer loads to bring them back
   const importedOpen = (c) => { if (c && c.source === 'chatgpt') importMod({ quiet: true }).then((m) => m.hydrateImport(c), () => {}); };
@@ -1793,9 +2788,16 @@ document.addEventListener('scroll', (e) => {
   // The keyboard opening or closing changes the chat's height. Like ChatGPT, the bottom stays put: what was just above
   // the composer stays just above it (scrolled to the end stays at the end), instead of the latest lines sliding out of view.
   let fromBottom = 0, lastH = col.clientHeight;
+  col.addEventListener('wheel', () => { if (state.current && state.streams.has(state.current.id)) userScrolledTurn = true; }, { passive: true });
+  col.addEventListener('touchmove', () => { if (state.current && state.streams.has(state.current.id)) userScrolledTurn = true; }, { passive: true });
+  col.addEventListener('pointerdown', (e) => { if (e.target === col && e.offsetX > col.clientWidth - 20 && state.current && state.streams.has(state.current.id)) userScrolledTurn = true; }, { passive: true });
   col.addEventListener('scroll', () => { if (col.clientHeight === lastH) fromBottom = col.scrollHeight - col.scrollTop - col.clientHeight; sync(); }, { passive: true });
   new ResizeObserver(() => {
-    if (col.clientHeight !== lastH) { lastH = col.clientHeight; col.scrollTop = col.scrollHeight - col.clientHeight - fromBottom; }
+    if (col.clientHeight !== lastH) {
+      lastH = col.clientHeight;
+      if (state.current && state.streams.has(state.current.id) && !userScrolledTurn) scrollTurnToTop();
+      else col.scrollTop = col.scrollHeight - col.clientHeight - fromBottom;
+    }
     sync();
   }).observe(col);
   new ResizeObserver(sync).observe($('transcript'));

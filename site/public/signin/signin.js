@@ -211,13 +211,14 @@ function say(words) {
 const IN_APP = /\bEdenApp\//.test(navigator.userAgent || '');
 
 function postStart(e, provider) {
-  if (!turnstileOn || IN_APP) return; // a plain link, as always
+  if (!turnstileOn || IN_APP || !human) return; // a plain link signs an existing account right in
   e.preventDefault();
-  if (!human) return say(ERRORS.verify);
+  const token = human.token;
+  resetTurnstile();
   const form = document.createElement('form');
   form.method = 'POST';
   form.action = `/api/web/${provider}`;
-  for (const [name, value] of [['cf-turnstile-response', human.token], ['return', back]]) {
+  for (const [name, value] of [['cf-turnstile-response', token], ['return', back]]) {
     const input = document.createElement('input');
     input.type = 'hidden';
     input.name = name;
@@ -337,6 +338,30 @@ async function main() {
     phone({ focus: false });
   }
   showLast(ways.last);
+  // The shared test account (src/accounts/test-login.js): only when the server has it on, and never in the Eden app.
+  if (ways.test_login === true && !IN_APP) testLogin();
+}
+
+function testLogin() {
+  const form = $('testLogin');
+  if (!form) return;
+  form.hidden = false;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('alert').hidden = true;
+    $('testSubmit').disabled = true;
+    try {
+      const res = await fetch('/api/web/test-login', { method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ email: $('testEmail').value, password: $('testPassword').value, return: back }) });
+      const v = await answer(res);
+      if (!res.ok) return say(v.error || 'Couldn’t sign in. Check the email and password and try again.');
+      location.replace(v.to || back);
+    } catch {
+      say('Couldn’t sign in. Check your connection and try again.');
+    } finally {
+      $('testPassword').value = '';
+      $('testSubmit').disabled = false;
+    }
+  });
 }
 
 // This browser's last way in (the server's __Host-eden-last cookie, which no script reads, given as config `last`):

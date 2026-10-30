@@ -228,6 +228,10 @@
     xterm.onData((data) => F.send({ type: 'cw_term_input', term, data }));
     xterm.onSelectionChange(() => updateSend());
     view = { xterm, fit, box, replayed: false, observer: null, opened: false, cols: 0, rows: 0 };
+    if (typeof ResizeObserver === 'function') {
+      view.observer = new ResizeObserver(() => fitView(term, view));
+      view.observer.observe(box);
+    }
     views.set(term, view);
     F.send({ type: 'cw_term_attach', term });
     return view;

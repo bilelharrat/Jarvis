@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/",
+    "build-guides": "node scripts/build-guides.mjs",
+    "setup-klaviyo": "node scripts/setup-klaviyo.mjs",
     "deploy": "npx wrangler deploy",
     "upload-release": "node scripts/upload-release.js"
   },

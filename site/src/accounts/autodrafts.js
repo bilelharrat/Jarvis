@@ -34,7 +34,7 @@ import { runGmailAction } from '../eden/vendor/google.js';
 import { voiceInstructions, pickExamples, exampleContext, expectedFrame, enforceFrame, situationOf, languageOf } from '../../public/eden/mail-voice.js';
 import { scamSignals, safeForAuto } from '../../public/eden/mail-check.js';
 
-export const AD = { everyMin: 20, perRun: 4, perDayMax: 50, perDayDefault: 10, seen: 500, made: 120, keepDays: 7, styleChars: 250_000, bodyChars: 6000, maxTokens: 900, model: 'claude-haiku-4-5' };
+export const AD = { everyMin: 20, perRun: 4, perDayMax: 50, perDayDefault: 10, seen: 500, made: 120, keepDays: 7, styleChars: 250_000, bodyChars: 6000, maxTokens: 900, model: 'gemini-3.8-flash' };
 const INFO = 'eden-autodraft-style-v1';
 const JOB = 'autodraft';
 const ROBOT = /(^|[.+_-])(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|bounces?|postmaster|news(letter)?|digest|updates?|marketing|billing|receipts?|orders?|alerts?|support|info)([.+_-]|@)/i;

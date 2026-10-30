@@ -190,7 +190,7 @@ test('/v1/route makes no provider call; /v1/models lists the levels; bad request
   assert.equal(unknown.status, 404);
   assert.equal((await unknown.json()).error.code, 'model_not_found');
   assert.equal((await chat(api_key, { messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] }] })).status, 400);
-  assert.equal((await chat(api_key, { tools: [{ type: 'function', function: { name: 'f' } }] })).status, 400);
+  assert.equal((await chat(api_key, { tools: 'not-an-array' })).status, 400);
   assert.equal((await chat(api_key, { x_eden: { efficiency: 200 } })).status, 400);
   assert.equal((await call('/v1/nope', { key: api_key })).status, 404);
   assert.equal(calls.length, 0);
@@ -306,4 +306,77 @@ test('privacy: no API key, provider key, prompt or answer in logs or storage', a
   await chat(api_key, { model: 'nope' }, headers);
   const everything = logs.join('\n') + storeText();
   for (const secret of [api_key, OPENAI_KEY, GEMINI_KEY, ANTHROPIC_KEY, PROMPT, 'says yes', 'lighthouse']) assert.ok(!everything.includes(secret), `leaked: ${secret}`);
+});
+
+test('v2 endpoints: risk_aware routing, /v1/route/failover, /v1/route/cascade, and /v1/route/batch', async () => {
+  const { api_key } = await newClient();
+  const headers = { 'x-openai-key': OPENAI_KEY, 'x-gemini-key': GEMINI_KEY, 'x-anthropic-key': ANTHROPIC_KEY };
+
+  const routed = await (await call('/v1/route', { key: api_key, headers, body: { model: 'eden-router', messages: [{ role: 'user', content: 'What is the maximum safe dosage of amoxicillin for a child with renal impairment?' }], x_eden: { risk_aware: true } } })).json();
+  assert.equal(routed.object, 'eden.route');
+  assert.equal(typeof routed.x_eden.reliability, 'number');
+  assert.ok(routed.x_eden.risk);
+  assert.equal(routed.x_eden.risk.level, 'high');
+
+  const failover = await (await call('/v1/route/failover', { key: api_key, headers, body: { prompt: PROMPT } })).json();
+  assert.equal(failover.object, 'eden.route.failover');
+  assert.ok(failover.chain.length >= 2);
+  const providers = new Set(failover.chain.map((c) => c.provider));
+  assert.equal(providers.size, failover.chain.length, 'provider-diverse failover chain');
+
+  const cascade = await (await call('/v1/route/cascade', { key: api_key, headers, body: { prompt: 'What is the maximum safe dosage of warfarin?' } })).json();
+  assert.equal(cascade.object, 'eden.route.cascade');
+  assert.equal(cascade.use_cascade, false, 'high hallucination-risk query disables speculative drafter');
+
+  const batch = await (await call('/v1/route/batch', { key: api_key, headers, body: { prompts: ['Hello there', 'Write a distributed Raft consensus engine in Rust'], max_total_cost_usd: 0.0001 } })).json();
+  assert.equal(batch.object, 'eden.route.batch');
+  assert.equal(batch.count, 2);
+  assert.equal(typeof batch.average_reliability, 'number');
+
+  // Health & OpenAPI without auth
+  const healthRes = await call('/v1/health', { method: 'GET' });
+  assert.equal(healthRes.status, 200);
+  const health = await healthRes.json();
+  assert.equal(health.status, 'ok');
+
+  const specRes = await call('/v1/openapi.json', { method: 'GET' });
+  assert.equal(specRes.status, 200);
+  assert.equal((await specRes.json()).openapi, '3.1.0');
+
+  // /v1/analyze and /v1/risk
+  const analyzed = await (await call('/v1/analyze', { key: api_key, body: { prompt: 'Prove that sqrt(2) is irrational.' } })).json();
+  assert.equal(analyzed.object, 'eden.analyze');
+  assert.ok(analyzed.risk);
+
+  const riskRes = await (await call('/v1/risk', { key: api_key, body: { prompt: 'What is the exact dosage of methotrexate?' } })).json();
+  assert.equal(riskRes.object, 'eden.risk');
+  assert.equal(riskRes.risk.level, 'high');
+  assert.ok(Array.isArray(riskRes.top_reliable_models) && riskRes.top_reliable_models.length > 0);
+
+  // Multimodal base64 image + tools + sampling params
+  const mmChat = await chat(
+    api_key,
+    {
+      temperature: 0.3,
+      tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: {} } } }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: PROMPT },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' } },
+          ],
+        },
+      ],
+    },
+    headers,
+  );
+  assert.equal(mmChat.status, 200);
+
+  // Usage logs preserve distinct kinds (failover, cascade, batch, analyze, risk, route, chat)
+  const usage = await (await call('/v1/usage', { key: api_key, method: 'GET' })).json();
+  const kinds = new Set(usage.data.map((d) => d.kind));
+  for (const k of ['route', 'failover', 'cascade', 'batch', 'analyze', 'risk', 'chat']) {
+    assert.ok(kinds.has(k), `expected usage log kind ${k}`);
+  }
 });

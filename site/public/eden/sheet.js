@@ -100,6 +100,48 @@ export async function newSheetCanvas() {
   start(M.newWorkbook('Untitled spreadsheet'), { kind: 'new' }, { label: 'New spreadsheet' });
 }
 
+/** Open a spreadsheet generated in chat (from a ```eden-sheet block) directly in the canvas, or download it as .xlsx. */
+export async function openGeneratedSheet(rawChangeSet, { download = false } = {}) {
+  await ready();
+  const hasOpen = S.versions.length > 0 && cur() && cur().wb && cur().wb.sheets && cur().wb.sheets.length > 0;
+  const title = (rawChangeSet && typeof rawChangeSet.title === 'string' && rawChangeSet.title.trim()) || (hasOpen && wb().title) || 'Spreadsheet';
+  let book = hasOpen ? wb() : M.newWorkbook(title);
+  const v = M.validateChangeSet(rawChangeSet, book);
+  if (!v.ok) {
+    // If validating against the currently open workbook failed (e.g. a brand-new workbook with Sheet1), try a blank workbook
+    if (hasOpen) {
+      const blank = M.newWorkbook(title);
+      const v2 = M.validateChangeSet(rawChangeSet, blank);
+      if (v2.ok) {
+        book = M.applyChangeSet(blank, v2.cs, { calc: M.recalc(blank, fns, {}) });
+        if (title) book = { ...book, title };
+        start(book, { kind: 'new' }, { label: v2.cs.summary || `Created ${title}` });
+        if (download) await exportXlsx();
+        return;
+      }
+    }
+    toast(v.errors[0] || 'Couldn’t build the spreadsheet');
+    return;
+  }
+  try {
+    book = M.applyChangeSet(book, v.cs, { calc: M.recalc(book, fns, {}) });
+    if (title) book = { ...book, title };
+  } catch (e) {
+    toast(e.message || 'Couldn’t build the spreadsheet');
+    return;
+  }
+  if (hasOpen) setWorkbook(book, v.cs.summary || `Updated ${title}`, 'eden');
+  else start(book, { kind: 'new' }, { label: v.cs.summary || `Created ${title}` });
+  if (download) await exportXlsx();
+}
+
+/** Current open spreadsheet context for a plain-chat turn, or null when no spreadsheet is open in the canvas. */
+export function activeSheetTurnContext(question = '') {
+  if (!sheetOpen() || !S.versions.length) return null;
+  const ctx = contextFor(question);
+  return { title: `Spreadsheet: ${wb().title}`, text: ctx.text, source: 'file' };
+}
+
 /** Bytes of a file → the canvas. */
 async function openBytes(bytes, name, source) {
   await ready();
@@ -377,14 +419,32 @@ function shownText(s, r, c) {
   return M.format(M.valueOf(s, addr, calcOf()), cell.z);
 }
 
+function evalCondStyle(s, r, c, v) {
+  if (!s.rules || !s.rules.length || v === null || v === undefined || M.isErr(v)) return null;
+  let matched = null;
+  for (const rl of s.rules) {
+    const rg = M.parseRange(rl.range);
+    if (!rg || r < rg.r1 || r > rg.r2 || c < rg.c1 || c > rg.c2) continue;
+    let ok = false;
+    if (rl.rule === 'gt') ok = typeof v === 'number' && v > Number(rl.value);
+    else if (rl.rule === 'lt') ok = typeof v === 'number' && v < Number(rl.value);
+    else if (rl.rule === 'eq') ok = String(v).toLowerCase() === String(rl.value).toLowerCase();
+    else if (rl.rule === 'between') ok = typeof v === 'number' && v >= Number(rl.value) && v <= Number(rl.value2 ?? rl.value);
+    else if (rl.rule === 'contains') ok = String(v).toLowerCase().includes(String(rl.value || '').toLowerCase());
+    if (ok) matched = { ...(matched || {}), ...(rl.fill ? { fill: rl.fill } : {}), ...(rl.color ? { color: rl.color } : {}), ...(rl.bold !== undefined ? { b: rl.bold } : {}) };
+  }
+  return matched;
+}
+
 function cellNode(s, r, c, x) {
   const addr = M.a1(r, c);
   const cell = s.cells[addr];
-  const v = cell ? M.valueOf(s, addr, calcOf()) : null;
+  const v = M.valueOf(s, addr, calcOf());
   const n = el('div', { class: 'sh-c', role: 'gridcell', 'data-r': r, 'data-c': c, style: { left: `${x}px`, width: `${widthOf(s, c)}px` } });
-  if (!cell) return n;
-  n.textContent = M.format(v, cell.z);
-  const st = cell.s || {};
+  if (!cell && (v === null || v === undefined)) return n;
+  n.textContent = M.format(v, cell && cell.z);
+  const cond = evalCondStyle(s, r, c, v);
+  const st = { ...((cell && cell.s) || {}), ...(cond || {}) };
   if (st.b) n.classList.add('b');
   if (st.i) n.classList.add('i');
   if (st.u) n.classList.add('u');
@@ -392,8 +452,8 @@ function cellNode(s, r, c, x) {
   if (st.fill) n.style.background = st.fill;
   const num = typeof v === 'number';
   n.style.textAlign = st.align || (num ? 'right' : typeof v === 'boolean' || M.isErr(v) ? 'center' : 'left');
-  if (M.isErr(v)) { n.classList.add('err'); n.title = `${cell.f} → ${v.message}`; }
-  else if (cell.f) n.title = cell.f;
+  if (M.isErr(v)) { n.classList.add('err'); n.title = `${cell && cell.f ? cell.f : addr} → ${v.message}`; }
+  else if (cell && cell.f) n.title = cell.f;
   return n;
 }
 

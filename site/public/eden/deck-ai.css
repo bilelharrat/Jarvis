@@ -1,0 +1,66 @@
+/* Eden's AI in the slide editor and EVES fact-check (web only): deck-ai.js, deck-factcheck.js. Eden Glass tokens. */
+
+/* the floating bar over selected text */
+.dai-bar{position:fixed;z-index:60;display:flex;align-items:center;gap:2px;padding:4px;border-radius:14px;background:var(--glass2,rgba(250,250,252,.72));-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);box-shadow:0 0 0 .5px var(--hairline,rgba(0,0,0,.06)),inset 0 1px 0 var(--rim,rgba(255,255,255,.5)),0 2px 6px rgba(0,0,0,.08),0 24px 64px rgba(0,0,0,.16);font:500 13px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;color:var(--text);animation:dai-in .2s cubic-bezier(.32,.72,0,1)}
+.dai-bar-ic{display:flex;padding:0 4px 0 6px;color:var(--accent)}
+.dai-bar-b{display:inline-flex;align-items:center;gap:3px;min-height:32px;padding:0 10px;border:0;border-radius:9px;background:none;color:inherit;font:inherit;cursor:pointer}
+.dai-bar-b:hover{background:color-mix(in srgb,var(--text) 7%,transparent)}
+.dai-bar-b:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+@media (pointer:coarse){.dai-bar-b{min-height:40px}}
+@keyframes dai-in{from{opacity:0;transform:translateY(4px)}}
+
+/* inspector sections */
+.dai-grid{display:flex;flex-wrap:wrap;gap:6px}
+.dai-sec,.dfc-sec{display:flex;flex-direction:column;gap:8px}
+
+/* previews */
+.dai-preview{display:flex;flex-direction:column;gap:12px;min-width:min(420px,80vw)}
+.dai-diff{display:flex;flex-direction:column;gap:8px}
+.dai-diff>div{padding:10px 12px;border-radius:14px;background:var(--content2)}
+.dai-diff p{margin:4px 0 0;white-space:pre-wrap;font-size:15px;line-height:1.4}
+.dai-was p{color:var(--text2)}
+.dai-now{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 55%,transparent)}
+.dai-tag{font:600 11px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text3,var(--text2))}
+.dai-compare{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dai-compare figure{margin:0;display:flex;flex-direction:column;gap:6px}
+.dai-compare figcaption{font:600 11px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+.dai-shot{position:relative;width:100%;aspect-ratio:16/calc(9 * var(--n,1));overflow:hidden;border-radius:9px;box-shadow:0 0 0 .5px var(--hairline),0 4px 14px rgba(0,0,0,.10);container-type:inline-size;background:#fff}
+.dai-shot-f{position:absolute;left:0;top:0;width:1280px;border:0;transform-origin:0 0;transform:scale(calc(100cqw / 1280px));pointer-events:none}
+@supports not (width:1cqw){.dai-shot-f{transform:scale(.25)}}
+@media (max-width:640px){.dai-compare{grid-template-columns:1fr}}
+.dai-warn{margin:0;padding:8px 12px;list-style:none;border-radius:9px;background:color-mix(in srgb,#ff9f0a 14%,transparent);font-size:13px;color:var(--text)}
+.dai-warn li{display:flex;gap:6px;align-items:flex-start}
+.dai-meta{margin:0;font:12px/1.3 ui-monospace,"SF Mono",Menlo,monospace;color:var(--text2)}
+.dai-err{margin:0;color:var(--text)}
+.dai-wait{display:flex;align-items:center;gap:8px;margin:0;color:var(--text2);font-size:13.5px}
+.dai-spin{width:14px;height:14px;border-radius:50%;border:2px solid color-mix(in srgb,var(--accent) 25%,transparent);border-top-color:var(--accent);animation:dai-spin .8s linear infinite}
+@keyframes dai-spin{to{transform:rotate(360deg)}}
+.dai-ask{display:flex;flex-direction:column;gap:8px;min-width:min(380px,80vw)}
+.dai-field{min-height:40px;padding:8px 10px;border:0;border-radius:9px;background:var(--content2);box-shadow:inset 0 0 0 1px var(--hairline);font:15px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;color:var(--text);resize:vertical}
+.dai-field:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+@media (prefers-reduced-motion:reduce){.dai-bar{animation:none}.dai-spin{animation-duration:2.4s}}
+
+/* EVES: verdict pills use words, a mark and colour (never colour alone) */
+.dfc-pill{display:inline-flex;align-items:center;gap:4px;flex:none;padding:3px 8px;border-radius:9px;font:600 11.5px/1.2 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;white-space:nowrap}
+.dfc-pill.t-ok{color:#1f6f4a;background:rgba(48,209,88,.16)}
+.dfc-pill.t-bad{color:#b8432f;background:rgba(255,69,58,.14)}
+.dfc-pill.t-warn{color:#9a6b12;background:rgba(255,159,10,.16)}
+.dfc-pill.t-quiet,.dfc-pill.t-muted{color:var(--text2);background:color-mix(in srgb,var(--text) 7%,transparent)}
+:root[data-theme="dark"] .dfc-pill.t-ok{color:#5be07f}:root[data-theme="dark"] .dfc-pill.t-bad{color:#ff8a80}:root[data-theme="dark"] .dfc-pill.t-warn{color:#ffc35a}
+.dfc-claim{border-radius:9px;background:var(--content2);padding:0}
+.dfc-claim summary{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;cursor:pointer;list-style:none;font-size:13px;line-height:1.35}
+.dfc-claim summary::-webkit-details-marker{display:none}
+.dfc-claim summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:9px}
+.dfc-claim>:not(summary){margin:0 10px 8px}
+.dfc-why{font-size:12.5px;color:var(--text2)}
+.dfc-srcs{padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.dfc-srcs a{color:var(--accent);text-decoration:none}.dfc-srcs a:hover{text-decoration:underline}
+.dfc-srcs q{display:block;margin-top:2px;color:var(--text2);font-style:italic}
+.dfc-badge{display:flex;align-items:center;gap:6px;margin:0;padding:8px 10px;border-radius:9px;font-size:13px;font-weight:600;background:var(--content2)}
+.dfc-badge.t-bad{color:#b8432f}.dfc-badge.t-warn{color:#9a6b12}.dfc-badge.t-ok{color:#1f6f4a}
+:root[data-theme="dark"] .dfc-badge.t-bad{color:#ff8a80}:root[data-theme="dark"] .dfc-badge.t-warn{color:#ffc35a}:root[data-theme="dark"] .dfc-badge.t-ok{color:#5be07f}
+.dfc-cost{font-weight:400;color:var(--text2)}
+.dfc-est{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:0;font-size:14px}
+.dfc-est dt{color:var(--text2)}.dfc-est dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.dfc-confirm{display:flex;flex-direction:column;gap:12px;max-width:440px}
+.dfc-confirm p{margin:0}

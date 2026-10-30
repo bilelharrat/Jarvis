@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<title>Live presentation · Eden</title>
+<link rel="stylesheet" href="/a/audience.css">
+<script type="module" src="/a/audience.js"></script>
+</head>
+<body class="aud-page">
+<a class="aud-skip" href="#aud">Skip to the presentation</a>
+<header class="aud-top">
+  <span class="aud-brand"><span class="aud-orb" aria-hidden="true"></span>Eden</span>
+  <span class="aud-pill" id="audStatus" role="status">Connecting…</span>
+</header>
+<nav class="aud-tabs" id="audTabs" aria-label="View" hidden>
+  <button type="button" id="tabLive" aria-pressed="true">Vote and ask</button>
+  <button type="button" id="tabFollow" aria-pressed="false">Follow the slides</button>
+</nav>
+<main id="aud" tabindex="-1"><p class="aud-note">Opening the presentation…</p></main>
+<div id="audLive" class="aud-sr" aria-live="polite"></div>
+<footer class="aud-foot">No account, no sign-in. Eden doesn’t ask your name; a question shows a name only if you type one. Everything here is deleted when the presentation ends.</footer>
+<noscript><p class="aud-note">This page needs JavaScript to join the presentation.</p></noscript>
+</body>
+</html>

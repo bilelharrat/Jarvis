@@ -15,6 +15,17 @@ export const WRITE_TOOLS = ['calendar_create', 'calendar_update', 'calendar_dele
 export const DRAFT_TOOLS = ['mail_draft'];
 export const MAX_CALLS = 4; // per reply
 export const MAX_ROUNDS = 3; // read-tool follow-ups per user message
+/** Read-tool rounds since the person's last own message (`path`: the chat's nodes in order). */
+export function roundsSinceAsk(path) {
+  let n = 0;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const x = path[i];
+    if (x.role !== 'user') continue;
+    if (!x.toolResult) break;
+    n++;
+  }
+  return n;
+}
 export const DEFAULT_MINUTES = 60;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const LOCAL = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/;

@@ -33,7 +33,7 @@
   let note = '';
   let armed = null;
   let paneBody = null;
-  const paneShown = () => paneBody && paneBody.isConnected && typeof currentPane !== 'undefined' && currentPane === 'acp';
+  const paneShown = () => paneBody && paneBody.isConnected && ((typeof currentPane !== 'undefined' && currentPane === 'acp') || (root.document && !root.document.getElementById('settings')?.hidden && root.document.getElementById('settings')?.contains(paneBody)));
   const project = () => (typeof deckProject !== 'undefined' && deckProject) || ((F.currentTask() || {}).folder) || '';
   const newMode = () => (typeof codeDefaults !== 'undefined' && codeDefaults.mode) || 'ask';
 

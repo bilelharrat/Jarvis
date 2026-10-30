@@ -4,11 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#fbf7ee">
-<title>EVES: fewer made-up answers</title>
-<meta name="description" content="EVES is Eden's verification and evaluation system. On 432 factual questions it made something up 9.7% of the time, against 18.3% to 24.5% for three leading AI models answering from memory. Here is how it works and what the numbers can and can't tell you.">
+<title>EVES · AI Hallucination Verification &amp; Evaluation System (9.7% vs 24.5% Benchmark)</title>
+<meta name="description" content="EVES is Eden's verification and evaluation system. On 432 factual questions it made something up 9.7% of the time, against 18.3% to 24.5% for three leading AI models answering from memory. Available in Eden and for AI agent pipelines.">
+<link rel="canonical" href="https://evesverification.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EVES">
+<meta property="og:url" content="https://evesverification.com/">
 <meta property="og:title" content="EVES: fewer made-up answers.">
 <meta property="og:description" content="Eden's verification and evaluation system: it searches the web when a question looks risky, checks assumptions, and checks answers afterwards.">
 <meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/eves-home/eden-logo.svg">
 <link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,8 +21,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/eves-home/eves-home.css">
 <script src="/home/features.js" defer></script>
+<link rel="stylesheet" href="/home/paper-refinement.css">
 </head>
-<body>
+<body data-marketing="eves-home">
 <a class="skip" href="#try">Skip to try it</a>
 <div class="wrap">
   <header>
@@ -98,6 +104,35 @@
         <div class="limit"><h3>Grading isn’t perfect</h3><p>An automatic grader and an AI judge graded the answers, and both make mistakes. The judge is also one of the models compared. The questions are a sample, and short factual questions are only one kind of question.</p></div>
       </div>
       <p class="sub after">The full method, every number and every caveat: <a href="https://askeden.com/accuracy"><u>how we measured this</u></a>.</p>
+    </section>
+
+    <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+      <div>
+        <p class="eyebrow">Benchmark brief &amp; API updates</p>
+        <h2 id="leadH">Get the 432-question EVES report &amp; API integration guide</h2>
+        <p class="sub">Receive our technical breakdown on premise checking, post-generation claim verification, and how to integrate EVES into production AI agents.</p>
+      </div>
+      <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="api">
+        <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <input type="hidden" name="source_page" value="/eves">
+        <input type="hidden" name="audience" value="api">
+        <input type="hidden" name="utm_source" value="">
+        <input type="hidden" name="utm_medium" value="">
+        <input type="hidden" name="utm_campaign" value="">
+        <label>Work email
+          <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+        </label>
+        <div class="lead-row">
+          <label>Company or team (optional)
+            <input type="text" name="organization" autocomplete="organization" placeholder="Company or fund">
+          </label>
+          <label>Optional SMS
+            <input type="tel" name="phone" autocomplete="tel" placeholder="Phone (optional)">
+          </label>
+        </div>
+        <button class="btn navy" type="submit">Send the EVES brief &amp; case study</button>
+        <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+      </form>
     </section>
 
     <section class="get" id="try" aria-labelledby="tryH">

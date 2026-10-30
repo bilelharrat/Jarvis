@@ -77,6 +77,10 @@
     'invoicing-group': 'money', 'orders-group': 'money',
     'ops-group': 'safety',
     'accounts-intro': 'accounts', 'connections-group': 'accounts', 'catalog-group': 'accounts', 'custom-group': 'accounts',
+    'jcs-sec-general': 'code', 'jcs-sec-models': 'code', 'jcs-sec-projects': 'code', 'jcs-sec-snippets': 'code',
+    'jcs-sec-limits': 'code', 'jcs-sec-machines': 'code', 'jcs-sec-session': 'code', 'jcs-sec-rules': 'code',
+    'jcs-sec-mcp': 'code', 'jcs-sec-plugins': 'code', 'jcs-sec-acp': 'code', 'jcs-sec-usage': 'code',
+    'jcs-sec-sec-pane': 'code', 'jcs-sec-copies': 'code', 'sn-code-jumps': 'code',
   };
   const BY_CLASS = [
     ['agents-group', 'ai'], ['skills-group', 'ai'], ['pictures-group', 'ai'], ['oura-group', 'briefing'],
@@ -248,9 +252,238 @@
     nav.hidden = scrim.hidden = !open;
     document.body.classList.toggle('settings-open', open);
     if (open && !document.body.dataset.settingsView) document.body.dataset.settingsView = 'list';
-    if (!open) document.body.dataset.settingsView = 'list';
-    if (open) show();
+    if (!open) {
+      document.body.dataset.settingsView = 'list';
+      if ($('jcs-key')) $('jcs-key').value = '';
+    }
+    if (open) {
+      show();
+      refreshCodeSettings();
+    }
   }).observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
+
+  // ── Eden Code settings & More panels, combined into the Eden Code pane ──
+
+  const JCS_SECTIONS = {
+    general: ['New sessions & behavior', 'new session defaults model permission mode effort ultracode queue awake bypass'],
+    models: ['Models & API keys', 'models api keys openrouter gemini openai custom provider'],
+    projects: ['Projects', 'projects folders root directory per-project defaults'],
+    snippets: ['Snippets', 'snippets saved prompts slash commands'],
+    limits: ['Spending limits', 'spending limits budget session project daily alerts cap'],
+    machines: ['SSH machines', 'ssh machines remote sessions host'],
+  };
+  const MORE_PANES = [
+    ['session', 'This session', 'keep computer awake mac screen click type xcode tools'],
+    ['rules', 'Permissions & sandbox', 'permissions rules allow ask deny sandbox network allowlist'],
+    ['mcp', 'MCP servers', 'mcp servers tools connectors sign in'],
+    ['plugins', 'Plugins, skills & instructions', 'plugins skills commands agents hooks marketplaces claude md context'],
+    ['acp', 'Other coding agents', 'other agents acp codex gemini opencode'],
+    ['usage', 'Usage & spending', 'usage spending cost tokens rate limit chart'],
+    ['sec-pane', 'Secrets', 'secrets keychain api keys passwords env vars'],
+    ['copies', 'Isolated copies', 'isolated copies worktrees git branches env node_modules'],
+  ];
+  const paneBodies = new Map();
+
+  const jumpBar = el('section', 'group sn-code-jumps');
+  jumpBar.id = 'sn-code-jumps';
+  jumpBar.dataset.settingsPane = 'code';
+  const jumpPills = el('div', 'sn-jump-list');
+  jumpBar.append(jumpPills);
+  const firstCodeGroup = sheet.querySelector(':scope > section.group');
+  if (firstCodeGroup) sheet.insertBefore(jumpBar, firstCodeGroup);
+  else sheet.append(jumpBar);
+
+  function rebuildJumps() {
+    const items = [];
+    for (const [id, [label]] of Object.entries(JCS_SECTIONS)) {
+      const sec = $(`jcs-sec-${id}`);
+      if (sec) items.push([label, sec]);
+    }
+    for (const [id, label] of MORE_PANES) {
+      const sec = $(`jcs-sec-${id}`);
+      if (sec) items.push([label, sec]);
+    }
+    if ($('cv-settings')) items.push(['Checks', $('cv-settings')]);
+    jumpPills.replaceChildren(...items.map(([label, sec]) => {
+      const b = el('button', 'sn-jump', label);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        sec.scrollIntoView({ block: 'start' });
+      });
+      return b;
+    }));
+  }
+
+  const jcsCard = document.querySelector('#jc-settings .jcs-card');
+  const jcsTabs = document.querySelector('#jc-settings .jcs-tabs');
+
+  function keepTabsSelected() {
+    if (!jcsTabs) return;
+    for (const tab of jcsTabs.querySelectorAll('[role="tab"]')) {
+      if (tab.getAttribute('aria-selected') !== 'true') tab.setAttribute('aria-selected', 'true');
+    }
+  }
+
+  function adoptJcsBodies() {
+    if (!jcsCard) return;
+    keepTabsSelected();
+    for (const body of [...jcsCard.querySelectorAll(':scope > .jcs-body')]) {
+      let key = (body.id || '').replace(/^jcs-/, '');
+      if (!key) {
+        key = !$('jcs-sec-projects') ? 'projects' : !$('jcs-sec-snippets') ? 'snippets' : `extra-${Date.now()}`;
+        body.id = `jcs-${key}`;
+      }
+      const [heading, kw] = JCS_SECTIONS[key] || [key.charAt(0).toUpperCase() + key.slice(1), key];
+      let sec = $(`jcs-sec-${key}`);
+      if (!sec) {
+        sec = el('section', 'group jcs-adopted');
+        sec.id = `jcs-sec-${key}`;
+        sec.dataset.settingsPane = 'code';
+        sec.dataset.keywords = kw;
+        sec.append(el('h3', '', heading));
+        const firstMore = $('jcs-sec-session') || $('cv-settings');
+        if (firstMore && firstMore.parentElement === sheet) sheet.insertBefore(sec, firstMore);
+        else sheet.append(sec);
+      }
+      body.hidden = false;
+      sec.append(body);
+      new MutationObserver(() => { if (body.hidden) body.hidden = false; })
+        .observe(body, { attributes: true, attributeFilter: ['hidden'] });
+    }
+    rebuildJumps();
+  }
+
+  function buildMoreSections() {
+    for (const [id, heading, kw] of MORE_PANES) {
+      if ($(`jcs-sec-${id}`)) continue;
+      const sec = el('section', 'group jcs-adopted jcs-pane-host');
+      sec.id = `jcs-sec-${id}`;
+      sec.dataset.settingsPane = 'code';
+      sec.dataset.keywords = kw;
+      sec.append(el('h3', '', heading));
+      const body = el('div', 'jcs-pane-body');
+      body.dataset.paneId = id;
+      sec.append(body);
+      paneBodies.set(id, body);
+      sheet.append(sec);
+    }
+    rebuildJumps();
+  }
+
+  function renderSessionSwitches() {
+    const body = paneBodies.get('session');
+    if (!body) return;
+    const task = typeof currentTask === 'function' ? currentTask() : null;
+    const group = el('div', 'jcs-group');
+    const awakeRow = el('div', 'jcs-row');
+    const awakeText = el('span');
+    awakeText.append(document.createTextNode('Keep computer awake'), el('small', '', 'While Eden Code works'));
+    const awakeSw = el('button', 'jcs-switch');
+    awakeSw.type = 'button';
+    awakeSw.setAttribute('role', 'switch');
+    awakeSw.setAttribute('aria-label', 'Keep computer awake');
+    awakeSw.setAttribute('aria-checked', String(typeof awake !== 'undefined' && !!awake));
+    awakeSw.addEventListener('click', () => {
+      if (typeof send === 'function') send({ type: 'awake', on: !(typeof awake !== 'undefined' && awake) });
+      setTimeout(renderSessionSwitches, 60);
+    });
+    awakeRow.append(awakeText, awakeSw);
+    group.append(awakeRow);
+    const items = (typeof featureMoreItems !== 'undefined' && Array.isArray(featureMoreItems)) ? featureMoreItems : [];
+    for (const item of items) {
+      if (!('switch' in item)) continue;
+      const avail = !item.when || (task && item.when(task));
+      if (!avail && item.label !== 'Let this session use the Mac') continue;
+      const row = el('div', 'jcs-row');
+      const text = el('span');
+      text.append(document.createTextNode(item.label));
+      if (item.note) text.append(el('small', '', item.note));
+      const sw = el('button', 'jcs-switch');
+      sw.type = 'button';
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-label', item.label);
+      const on = task ? !!item.switch : false;
+      sw.setAttribute('aria-checked', String(on));
+      sw.disabled = !task;
+      sw.addEventListener('click', () => {
+        if (!task) return;
+        const next = sw.getAttribute('aria-checked') !== 'true';
+        sw.setAttribute('aria-checked', String(next));
+        item.run(next);
+      });
+      row.append(text, sw);
+      group.append(row);
+    }
+    body.replaceChildren(group);
+  }
+
+  function renderEmbeddedPane(id) {
+    if (id === 'session') { renderSessionSwitches(); return; }
+    const body = paneBodies.get(id);
+    if (!body) return;
+    const fp = typeof featurePanes !== 'undefined' && featurePanes.get(id);
+    if (fp && typeof fp.render === 'function') {
+      fp.render(body);
+      return;
+    }
+    if (id === 'rules' && typeof renderRules === 'function' && $('jc-pane-body')) {
+      renderRules();
+      body.replaceChildren(...[...$('jc-pane-body').childNodes].map((n) => n.cloneNode(true)));
+    } else if (id === 'mcp' && typeof renderMcp === 'function' && $('jc-pane-body')) {
+      renderMcp();
+      body.replaceChildren(...[...$('jc-pane-body').childNodes].map((n) => n.cloneNode(true)));
+    }
+  }
+
+  function refreshCodeSettings() {
+    if (sheet.hidden) return;
+    adoptJcsBodies();
+    keepTabsSelected(true);
+    if (typeof renderJcGeneral === 'function') renderJcGeneral();
+    if (typeof renderProviders === 'function') renderProviders();
+    if (typeof checkGeminiOnce === 'function') checkGeminiOnce();
+    if (typeof send === 'function') send({ type: 'providers_list' });
+    for (const [id] of MORE_PANES) renderEmbeddedPane(id);
+  }
+
+  if (jcsCard) {
+    adoptJcsBodies();
+    buildMoreSections();
+    new MutationObserver(adoptJcsBodies).observe(jcsCard, { childList: true });
+    if (jcsTabs) {
+      new MutationObserver(keepTabsSelected).observe(jcsTabs, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-selected'] });
+    }
+    window.addEventListener('jarvis-features-ready', () => {
+      adoptJcsBodies();
+      buildMoreSections();
+      if (!sheet.hidden) refreshCodeSettings();
+    });
+    F.on('tasks', () => { if (!sheet.hidden) renderSessionSwitches(); });
+    F.on('cv_session', () => { if (!sheet.hidden) renderSessionSwitches(); });
+    F.on('awake', () => { if (!sheet.hidden) renderSessionSwitches(); });
+    window.selectJcsTab = (tab = 'general') => {
+      if (sheet.hidden) toggleSettings(true);
+      choose('code');
+      refreshCodeSettings();
+      const sec = $(`jcs-sec-${tab}`) || $(`jcs-${tab}`);
+      if (sec) sec.scrollIntoView({ block: 'start' });
+    };
+    window.openJcSettings = (tab = 'general') => {
+      if (typeof closeMenu === 'function') closeMenu();
+      if (typeof closeEffort === 'function') closeEffort();
+      if ($('jc-settings')) $('jc-settings').hidden = true;
+      if (sheet.hidden) toggleSettings(true);
+      choose('code');
+      refreshCodeSettings();
+      const sec = $(`jcs-sec-${tab}`) || $(`jcs-${tab}`);
+      if (sec) sec.scrollIntoView({ block: 'start' });
+      if (tab === 'models' && $('jcs-key')) $('jcs-key').focus();
+    };
+    window.closeJcSettings = () => {
+      if ($('jc-settings')) $('jc-settings').hidden = true;
+      if (!sheet.hidden) toggleSettings(false);
+    };
+  }
 
   // ── Tools & Accounts, as the Accounts pane ──
 

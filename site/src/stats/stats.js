@@ -107,6 +107,7 @@ export function productOf(host = '', path = '/') {
   if (/edendaredevil\./.test(h)) return 'daredevil';
   if (/askedenmail\./.test(h)) return 'mail';
   if (/(edenrouter|askedenrouter)\./.test(h)) return 'router';
+  if (/edenforbusiness\./.test(h)) return 'business';
   if (/^messenger\./.test(h)) return 'messenger';
   const p = String(path);
   if (/^\/(edu|edu-home)(\/|$)|^\/api\/edu|^\/lti\//.test(p)) return 'edu';
@@ -114,12 +115,13 @@ export function productOf(host = '', path = '/') {
   if (/daredevil/.test(p)) return 'daredevil';
   if (/^\/(mail|mail-home)(\/|$)/.test(p)) return 'mail';
   if (/^\/(jarvis|eden-secretary)(\/|$)|^\/api\/(chat\/)?voice$/.test(p)) return 'secretary';
+  if (/^\/(business|business-home)(\/|$)/.test(p)) return 'business';
   if (/^\/download\/mac$|^\/download\/windows$|^\/downloads\/ask-eden\//.test(p)) return 'ask-eden';
   if (/^\/(messenger)(\/|$)|^\/api\/eden\//.test(p)) return 'messenger';
   if (/^\/router(\/|$)/.test(p)) return 'router';
   if (/^\/(api\/)?news(\/|$)/.test(p)) return 'news';
   if (/^\/(api\/)?help(\/|$)/.test(p)) return 'help';
-  if (/^\/(home|privacy|terms|accuracy|signin|link|download|apps)(\/|$)/.test(p)) return 'site';
+  if (/^\/(home|privacy|terms|accuracy|eves|eves-home|guides|signin|link|download|apps)(\/|$)/.test(p)) return 'site';
   return 'eden';
 }
 
@@ -131,6 +133,49 @@ const refHost = (request, self) => {
     return null;
   }
 };
+
+/** Extract UTM parameters from a URL when present, for campaign attribution in /admin. */
+export function utmFrom(url) {
+  try {
+    const u = typeof url === 'string' ? new URL(url, 'https://askeden.com') : url;
+    const src = cut(u.searchParams.get('utm_source'), 60);
+    const med = cut(u.searchParams.get('utm_medium'), 60);
+    const cmp = cut(u.searchParams.get('utm_campaign'), 80);
+    const trm = cut(u.searchParams.get('utm_term'), 60);
+    if (!src && !med && !cmp && !trm) return null;
+    return {
+      source: src,
+      medium: med,
+      campaign: cmp,
+      term: trm,
+      summary: [src && `src=${src}`, med && `med=${med}`, cmp && `cmp=${cmp}`, trm && `term=${trm}`].filter(Boolean).join(' '),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Optional server-side Google Analytics 4 Measurement Protocol forwarder (no browser JS required). */
+async function sendGa4Event(env, clientId, name, params = {}) {
+  const measurementId = env?.GA_MEASUREMENT_ID ? String(env.GA_MEASUREMENT_ID).trim() : '';
+  const apiSecret = env?.GA_API_SECRET ? String(env.GA_API_SECRET).trim() : '';
+  if (!measurementId || !apiSecret) return;
+  try {
+    await fetch(
+      `https://www.google-analytics.com/mp/collect?measurement_id=${encodeURIComponent(measurementId)}&api_secret=${encodeURIComponent(apiSecret)}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId || 'anon.eden',
+          events: [{ name: String(name).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40), params }],
+        }),
+      },
+    );
+  } catch {
+    // never fail a request
+  }
+}
 
 /** A route with its ids taken out: /api/web/devices/0123abcd…/signout → /api/web/devices/:id/signout */
 export const routeName = (path) => path.split('/').map((s) => (/^[0-9a-f-]{8,}$/i.test(s) || /^\d+$/.test(s) || s.length > 40 ? ':id' : s)).join('/');
@@ -144,26 +189,36 @@ export function observe(env, ctx, request, response, { path, download = null, er
   const ua = request.headers.get('user-agent') || '';
   const method = request.method;
   const status = response ? response.status : 500;
-  const host = new URL(request.url).hostname;
+  const reqUrl = new URL(request.url);
+  const host = reqUrl.hostname;
   const loc = { ...where(request), product: productOf(host, path) };
   const self = host.replace(/^www\./, '');
+  const utm = utmFrom(reqUrl);
+  const ref = refHost(request, self) || (utm && utm.source) || null;
   const tasks = [];
   if (error || status >= 500) {
     tasks.push({ kind: 'error', name: routeName(path), detail: error ? String(error.stack || error.message || error).slice(0, 300) : `HTTP ${status}`, ...loc });
   }
   if (download && method === 'GET' && status < 400 && !isBot(ua)) {
     const range = request.headers.get('range');
-    if (!range || /^bytes=0-/.test(range)) tasks.push({ kind: 'download', name: download, ref: refHost(request, self), ...loc, visitorFrom: request });
+    if (!range || /^bytes=0-/.test(range)) tasks.push({ kind: 'download', name: download, ref, detail: utm ? utm.summary : null, ...loc, visitorFrom: request });
   } else if (path.startsWith('/api/')) {
     if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && status < 500) tasks.push({ kind: 'action', name: routeName(path), ...loc });
   } else if (method === 'GET' && status === 200 && !isBot(ua) && /text\/html/.test((response && response.headers.get('content-type')) || '')) {
-    tasks.push({ kind: 'visit', name: routeName(path), ref: refHost(request, self), ...loc, visitorFrom: request });
+    tasks.push({ kind: 'visit', name: routeName(path), ref, detail: utm ? utm.summary : null, ...loc, visitorFrom: request });
   }
   if (!tasks.length) return;
   ctx.waitUntil((async () => {
     for (const { visitorFrom, ...event } of tasks) {
       if (visitorFrom) event.visitor = await visitorTag(env, visitorFrom).catch(() => null);
       await record(env, event);
+      if (event.kind === 'visit' || event.kind === 'download') {
+        await sendGa4Event(env, event.visitor, event.kind === 'download' ? 'app_download' : 'page_view', {
+          page_path: event.name,
+          eden_product: event.product,
+          ...(event.ref ? { traffic_source: event.ref } : {}),
+        });
+      }
     }
   })());
 }
@@ -174,6 +229,39 @@ export async function clientError(request, env, ctx) {
   const loc = { ...where(request), product: productOf(new URL(request.url).hostname, String(body.page || '/')) };
   const message = String(body.message || '').slice(0, 300);
   if (message) ctx.waitUntil(record(env, { kind: 'client', name: routeName(String(body.page || '').slice(0, 120)), detail: message, ...loc }));
+  return new Response(null, { status: 204 });
+}
+
+const ALLOWED_EVENTS = new Set([
+  'cta_signin',
+  'cta_get_started',
+  'cta_download_mac',
+  'cta_download_windows',
+  'cta_edu_pilot',
+  'cta_case_study',
+  'cta_router_api',
+  'lead_view',
+  'lead_submit',
+  'exit_intent_shown',
+  'exit_intent_dismissed',
+  'guide_read',
+]);
+
+/** A marketing funnel / conversion event from a browser (POST /api/stats/event). Same site only. */
+export async function clientEvent(request, env, ctx) {
+  const body = await request.json().catch(() => ({}));
+  const rawName = String(body.event || body.name || '').trim().toLowerCase();
+  if (!ALLOWED_EVENTS.has(rawName)) return new Response(null, { status: 204 });
+  const pagePath = cut(body.page, 120) || '/';
+  const detail = cut(body.detail || body.label, 200);
+  const loc = { ...where(request), product: productOf(new URL(request.url).hostname, pagePath) };
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil((async () => {
+      const visitor = await visitorTag(env, request).catch(() => null);
+      await record(env, { kind: 'funnel', name: rawName, visitor, detail: [pagePath, detail].filter(Boolean).join(' · '), ...loc });
+      await sendGa4Event(env, visitor, rawName, { page_path: pagePath, eden_product: loc.product, ...(detail ? { event_label: detail } : {}) });
+    })());
+  }
   return new Response(null, { status: 204 });
 }
 

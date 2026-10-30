@@ -1,0 +1,428 @@
+/* Eden Chat's split view (split-view.js, split-view-model.js), mirrored from Eden Code
+   (code-split.css & code-split/window.css): up to ten live chats side by side in vertical
+   columns by default (or a 2×2 / 3×2 / 4×2 / 5×2 grid when switched), resizable dividers, a slim head on
+   each pane with its chat, status dot, activity mark and actions, one-pane-at-a-time tab
+   switcher on narrow screens, and drag-and-drop zones from the sidebar. */
+
+/* #sv-stage is the flex room where panes and the drag-and-drop overlay sit; #sv-own is transparent when split view is off. */
+#sv-stage {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+#sv-own { display: contents; }
+
+#center.sv-on #sv-stage {
+  display: block;
+}
+
+#center.sv-on #sv-own,
+#center.sv-on .sv-pane,
+#center.sv-on .sv-divider,
+.sv-drop-zone {
+  position: absolute;
+  right: auto;
+  bottom: auto;
+  left: var(--sv-x, 0px);
+  top: var(--sv-y, 0px);
+  width: var(--sv-w, 50%);
+  height: var(--sv-h, 100%);
+}
+
+#center.sv-on #sv-own,
+#center.sv-on .sv-pane {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  container-type: inline-size;
+  border-radius: var(--r-lg, 20px);
+  background: rgba(120, 120, 128, 0.03);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  padding: 4px;
+  gap: 6px;
+}
+
+.sv-pane[hidden], .sv-head[hidden], .sv-tabs[hidden], .sv-title[hidden], .sv-btn[hidden], .sv-pick[hidden] {
+  display: none !important;
+}
+
+/* ── the dividers ── */
+.sv-divider {
+  z-index: 3;
+  touch-action: none;
+  outline: none;
+  cursor: col-resize;
+}
+.sv-divider-row { cursor: row-resize; }
+.sv-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 36px;
+  margin: -18px 0 0 -2px;
+  border-radius: 2px;
+  background: rgba(120, 120, 128, 0.28);
+  transition: background-color 120ms ease, height 160ms ease, width 160ms ease;
+}
+.sv-divider-row::after {
+  width: 36px;
+  height: 4px;
+  margin: -2px 0 0 -18px;
+}
+.sv-divider::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--hairline);
+}
+.sv-divider-row::before {
+  top: 50%;
+  bottom: auto;
+  left: 12px;
+  right: 12px;
+  width: auto;
+  height: 1px;
+  margin: -0.5px 0 0;
+}
+.sv-divider:hover::after,
+.sv-divider:focus-visible::after,
+#center.sv-dragging-col .sv-divider-col::after {
+  background: var(--accent);
+  height: 56px;
+  margin-top: -28px;
+}
+.sv-divider-row:hover::after,
+.sv-divider-row:focus-visible::after,
+#center.sv-dragging-row .sv-divider-row::after {
+  background: var(--accent);
+  width: 56px;
+  height: 4px;
+  margin: -2px 0 0 -28px;
+}
+.sv-divider:focus-visible::before { background: var(--accent); }
+
+/* While a divider moves: no lag, no text selected. */
+#center.sv-dragging-col, #center.sv-dragging-col * { cursor: col-resize !important; user-select: none !important; }
+#center.sv-dragging-row, #center.sv-dragging-row * { cursor: row-resize !important; user-select: none !important; }
+#center.sv-dragging #sv-own,
+#center.sv-dragging .sv-divider,
+#center.sv-dragging .sv-pane { transition: none !important; }
+
+/* One pane at a time in a window too small for the grid: the focused one, over the whole room. */
+#center.sv-on.sv-one .sv-pane:not(.sv-front),
+#center.sv-on.sv-one #sv-own:not(.sv-front) {
+  visibility: hidden;
+  pointer-events: none;
+}
+#center.sv-on.sv-one .sv-pane.sv-front,
+#center.sv-on.sv-one #sv-own.sv-front {
+  z-index: 4;
+}
+
+/* ── the heads ── */
+.sv-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  margin: 0;
+  border-radius: 11px;
+  font-size: 12.5px;
+  color: var(--text2);
+  background: rgba(120, 120, 128, 0.07);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  transition: background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+  cursor: pointer;
+}
+.sv-head.sv-focused {
+  color: var(--text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 2px var(--accent-soft);
+}
+.sv-head .dot { flex: none; }
+.sv-head .dot.past { background: var(--text3); opacity: 0.45; }
+.sv-head .dot.needs { background: var(--warn); box-shadow: 0 0 0 2px rgba(255, 159, 10, 0.25); }
+.sv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.sv-head.sv-focused .sv-title { font-weight: 600; }
+
+.sv-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sv-mark.needs {
+  background: var(--warn);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 159, 10, 0.2);
+}
+.sv-mark.new {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sv-head .sv-btn {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--text3);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.sv-head .sv-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(120, 120, 128, 0.14);
+}
+.sv-head .sv-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.sv-head .sv-side { margin: 0 2px 0 -4px; }
+.sv-head .sv-side[aria-expanded="false"],
+.sv-head .sv-layout[aria-pressed="true"] {
+  color: var(--accent);
+}
+.sv-head .sv-word { display: none; }
+
+/* The switcher (one pane at a time): each pane's chat, its dot and its mark. */
+.sv-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sv-tabs::-webkit-scrollbar { display: none; }
+.sv-tab {
+  flex: 0 1 auto;
+  min-width: 72px;
+  max-width: 220px;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text2);
+  background: transparent;
+  cursor: pointer;
+}
+.sv-tab:hover { color: var(--text); background: rgba(120, 120, 128, 0.1); }
+.sv-tab[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--content);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 0 0 0.5px var(--hairline);
+}
+.sv-tab .dot { flex: none; }
+.sv-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-tab .sv-mark { width: 8px; height: 8px; padding: 0; border-radius: 50%; font-size: 0; overflow: hidden; }
+
+/* ── pane body: transcript, picker, and composer dock ── */
+.sv-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 16px;
+  scroll-padding-bottom: 16px;
+}
+.sv-transcript {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 8px;
+}
+
+/* The chats an empty pane offers, above the welcome's own. */
+.sv-pick {
+  max-width: 560px;
+  margin: 10px auto 14px;
+  padding: 10px 12px;
+  border-radius: var(--r-md, 14px);
+  background: var(--content);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 0 0 0.5px var(--hairline);
+  text-align: left;
+}
+.sv-pick-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+.sv-pick-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text3);
+}
+.sv-pick-new {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+.sv-pick-new:hover { background: var(--accent-soft); }
+.sv-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sv-pick-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 9px;
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+.sv-pick-row:hover, .sv-pick-row:focus-visible {
+  background: rgba(120, 120, 128, 0.1);
+}
+.sv-pick-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sv-pick-row small {
+  font-size: 11px;
+  color: var(--text3);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Compact composer inside split panes so multiple columns fit comfortably. */
+#center.sv-on .jc-dock { padding: 0 4px 2px; }
+#center.sv-on .jc-composer { padding: 5px 8px; border-radius: 16px; gap: 4px; }
+#center.sv-on .jc-composer:not(:focus-within):not(.expanded) .jc-composer-drawer { display: none; }
+#center.sv-on .jc-statusline { display: none; }
+#center.sv-on #deck-input,
+#center.sv-on .sv-input { min-height: 20px; font-size: 13.5px; }
+#center.sv-on #empty { margin-top: 3vh; }
+#center.sv-on #empty .orb { width: 40px; height: 40px; margin-bottom: 10px; }
+#center.sv-on #empty h1 { font-size: 20px; line-height: 26px; }
+#center.sv-on #empty p.lead { font-size: 13px; }
+#center.sv-on .sugg { grid-template-columns: 1fr; margin-top: 14px; gap: 7px; }
+
+@container (max-width: 560px) {
+  #center.sv-on #jc-mode-label,
+  #center.sv-on .sv-mode-label,
+  #center.sv-on #jc-effort-label { display: none; }
+}
+
+@container (max-width: 320px) {
+  .sv-head { gap: 3px; padding: 0 4px 0 8px; }
+  .sv-head .sv-btn { width: 22px; height: 22px; }
+}
+
+@container (max-width: 240px) {
+  .sv-head:not(:hover):not(:focus-within) .sv-layout,
+  .sv-head:not(:hover):not(:focus-within) .sv-swap,
+  .sv-head:not(:hover):not(:focus-within) .sv-alone { display: none; }
+}
+
+/* Sidebar indicator for chats open in another split pane */
+.sitem.in-pane:not(.active) {
+  background: rgba(120, 120, 128, 0.08);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Titlebar split button active state */
+#btnSplit.active, #btnSplit[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ── dragging a chat over from the sidebar ── */
+.sv-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+}
+#center.sv-drop-active #sv-own,
+#center.sv-drop-active .sv-pane,
+#center.sv-drop-active .sv-divider {
+  pointer-events: none;
+}
+.sv-drop[hidden], .sv-drop-zone[hidden] { display: none !important; }
+.sv-drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  pointer-events: none;
+  left: var(--sv-x, 0px);
+  top: var(--sv-y, 0px);
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+}
+.sv-drop-zone.add {
+  border-style: dashed;
+}
+.sv-drop-label {
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--content);
+  box-shadow: var(--sh1);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #center.sv-on #sv-own, .sv-divider, .sv-pane, .sv-head, .sv-drop-zone { transition: none !important; }
+}

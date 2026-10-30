@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#fbf7ee">
+<title>Ask Eden Travel: trips you can trust</title>
+<meta name="description" content="Ask Eden Travel is the trip planner that shows its work: every opening hour, price and travel time with its source and when it was checked. Coming soon.">
+<meta property="og:title" content="Ask Eden Travel: trips you can trust.">
+<meta property="og:description" content="The trip planner that shows its work. Coming soon.">
+<link rel="icon" type="image/svg+xml" href="/travel-home/eden-logo.svg">
+<link rel="apple-touch-icon" href="/travel-home/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/travel-home/travel-home.css">
+<script src="/travel-home/features.js" defer></script>
+<script src="/lang/site-i18n.js" data-page="travel-home"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/" aria-label="Ask Eden Travel"><img src="/travel-home/eden-logo.svg" alt="" width="36" height="36">Ask Eden Travel</a>
+    <nav aria-label="Site"><a href="#how">How it works</a><a href="#why">Why Eden</a><a href="#flights">Flights</a><a class="pill" href="/api/web/site-handoff/start">Open Eden Travel</a></nav>
+  </header>
+
+  <main id="main">
+    <div class="hero">
+      <div>
+        <p class="eyebrow">Ask Eden Travel</p>
+        <h1>Trips you can <span class="nw">trust<u aria-hidden="true"></u></span></h1>
+        <p class="lede">The trip planner that shows its work. Every opening hour, price and travel time comes with its source and when it was checked, and nothing in your plan changes until you say so.</p>
+        <div class="cta">
+          <a class="btn navy" href="/api/web/site-handoff/start">Open Eden Travel</a>
+          <a class="btn line" href="#how">How it works</a>
+        </div>
+        <p class="fine">Plan your days, check hours and routes with EVES, and keep every change under your control.</p>
+      </div>
+
+      <!-- A preview of the planner: an illustrative sample trip, drawn in HTML (no screenshot, no live data). features.js turns the day buttons into tabs; without it, Day 2 shows alone. -->
+      <section class="plan" aria-labelledby="planH">
+        <div class="plan-top">
+          <p class="plan-tag">Illustrative sample trip</p>
+          <h2 id="planH">Lisbon and Sintra, 3 days</h2>
+          <p class="plan-sub">12 to 14 June · You and Alex</p>
+        </div>
+        <div class="days" role="tablist" aria-label="Days" hidden>
+          <button type="button" role="tab" id="t1" aria-controls="d1" aria-selected="false" tabindex="-1">Day 1</button>
+          <button type="button" role="tab" id="t2" aria-controls="d2" aria-selected="true">Day 2</button>
+          <button type="button" role="tab" id="t3" aria-controls="d3" aria-selected="false" tabindex="-1">Day 3</button>
+        </div>
+        <div class="day" id="d1" role="tabpanel" aria-labelledby="t1" hidden>
+          <p class="day-h">Fri 12 June · Arrival and Chiado</p>
+          <ol class="stops">
+            <li><span class="time">15:00</span><span class="what"><b>Check in</b><small>Hotel in Chiado</small></span><span class="ok">Checked</span></li>
+            <li class="leg">12 min walk</li>
+            <li><span class="time">17:30</span><span class="what"><b>São Pedro de Alcântara viewpoint</b><small>Open-air terrace</small></span><span class="ok">Checked</span></li>
+            <li class="leg">8 min walk</li>
+            <li><span class="time">20:00</span><span class="what"><b>Dinner nearby</b><small>Three picks, all open on Fridays</small></span><span class="ok">Checked</span></li>
+          </ol>
+        </div>
+        <div class="day" id="d2" role="tabpanel" aria-labelledby="t2">
+          <p class="day-h">Sat 13 June · Tiles and riverside</p>
+          <ol class="stops">
+            <li><span class="time">09:00</span><span class="what"><b>Coffee in Príncipe Real</b><small>Garden kiosk</small></span><span class="ok">Checked</span></li>
+            <li class="leg">28 min taxi across town</li>
+            <li><span class="time">11:30</span><span class="what"><b>Ribeira das Naus walk</b><small>Tagus waterfront</small></span><span class="warn">Needs a look</span></li>
+            <li class="leg">24 min east, back the way you came</li>
+            <li><span class="time">14:30</span><span class="what"><b>National Tile Museum</b><small>Madre de Deus convent</small></span><span class="ok">Checked</span></li>
+          </ol>
+          <div class="note">
+            <p class="note-k">Route check · EVES</p>
+            <p class="note-h">Day 2 crosses Baixa twice.</p>
+            <p>Visit the Tile Museum first, then walk back along the river. Shown as a preview; your plan changes only if you apply it.</p>
+          </div>
+        </div>
+        <div class="day" id="d3" role="tabpanel" aria-labelledby="t3" hidden>
+          <p class="day-h">Sun 14 June · Sintra</p>
+          <ol class="stops">
+            <li><span class="time">09:10</span><span class="what"><b>Train from Rossio</b><small>About 40 minutes to Sintra</small></span><span class="ok">Checked</span></li>
+            <li class="leg">Bus up the hill</li>
+            <li><span class="time">10:30</span><span class="what"><b>Pena Palace</b><small>Timed tickets</small></span><span class="warn">Needs a look</span></li>
+            <li class="leg">15 min walk</li>
+            <li><span class="time">14:00</span><span class="what"><b>Quinta da Regaleira</b><small>Gardens and the well</small></span><span class="ok">Checked</span></li>
+          </ol>
+        </div>
+        <p class="plan-foot">A design preview of the planner. The places are real; the times and checks are examples, not live data.</p>
+      </section>
+    </div>
+
+    <div class="strip"><span>›</span>“Three days in Lisbon with Alex. We land Friday at two.” <em>Plan · check · approve · book · share</em></div>
+
+    <section id="problem" aria-labelledby="problemH">
+      <p class="kicker">The problem</p>
+      <h2 id="problemH">AI travel advice is often wrong.</h2>
+      <p class="sub">In a survey of 485 US travelers who use AI to plan trips, 55% had at least one bad recommendation. Some of what they got:</p>
+      <div class="stats">
+        <div class="stat"><b>27%</b><p>got wrong prices or opening hours</p></div>
+        <div class="stat"><b>16%</b><p>were sent to a place that doesn’t exist</p></div>
+        <div class="stat"><b>10%</b><p>were sent to a business that had closed for good</p></div>
+      </div>
+      <p class="source">Source: <a href="https://keyt.com/lifestyle/travel/stacker-travel/2026/09/16/survey-ai-hallucinated-travel-destinations-for-1-in-6-users/">Greetwell survey, August 2026</a>, reported by Stacker. In another survey, 16.2% of travelers said they had lost money by trusting AI (<a href="https://www.sendmybag.com/blog/send-my-bag-travel-trends-survey/">Send My Bag, October 2026</a>). Both are self-reported surveys; Eden didn’t run them.</p>
+    </section>
+
+    <section id="how" aria-labelledby="howH">
+      <p class="kicker">How it will work</p>
+      <h2 id="howH">Plan, check, approve.</h2>
+      <p class="sub">Five steps, from the first idea to the person waiting at arrivals.</p>
+      <ol class="steps">
+        <li class="step"><small>01 · PLAN</small><h3>Plan together</h3><p>Tell Eden where, when and who’s coming. It drafts the days with the travel time between stops.</p></li>
+        <li class="step"><small>02 · CHECK</small><h3>Checked by EVES</h3><p>EVES (Eden’s verification and evaluation system) checks hours, closures and prices, and shows each source and when it checked.</p></li>
+        <li class="step"><small>03 · APPROVE</small><h3>You approve</h3><p>Eden’s changes show as a preview. Nothing changes until you apply them, and booked items stay locked.</p></li>
+        <li class="step"><small>04 · BOOK</small><h3>Book with a check</h3><p>Before you pay for a flight, Eden checks the fare and details again and asks you to confirm.</p></li>
+        <li class="step"><small>05 · SHARE</small><h3>Track and share</h3><p>Follow your flight on the day, and send a link to whoever is picking you up.</p></li>
+      </ol>
+    </section>
+
+    <section id="why" aria-labelledby="whyH">
+      <p class="kicker">Why Eden</p>
+      <h2 id="whyH">Built to be right, not to sell you a room.</h2>
+      <p class="sub">What Ask Eden Travel is being built to do differently.</p>
+      <div class="cards">
+        <div class="card"><h3>Facts with sources</h3><p>Each opening hour, price and travel time says where it came from and when it was checked. When sources disagree, you see that too.</p></div>
+        <div class="card"><h3>Your plan stays yours</h3><p>Every change Eden suggests is a preview you apply or skip, and you can undo it. A log shows what changed and why.</p></div>
+        <div class="card"><h3>One place for the group</h3><p>Plan the days together, vote on the options and split the costs, without a cap on how many expenses you add.</p></div>
+      </div>
+    </section>
+
+    <section id="flights" aria-labelledby="flightsH">
+      <p class="kicker">Flights</p>
+      <h2 id="flightsH">Checked before you pay.</h2>
+      <p class="sub">These come after the planner opens. We haven’t set dates yet.</p>
+      <div class="cards two">
+        <div class="card"><p class="soon">Coming later</p><h3>Book flights in your plan</h3><p>Before you pay, Eden checks the fare again and reads back the names, dates, airports, bags and change rules. It flags anything that clashes with your plan, like landing after your hotel’s check-in closes. Nothing is booked until you confirm.</p></div>
+        <div class="card"><p class="soon">Coming later</p><h3>A link for whoever picks you up</h3><p>Send a web page with your flight’s live status and about when you’ll be out at the curb. It opens in any browser, no app needed.</p></div>
+      </div>
+    </section>
+
+    <div class="quote"><p>Every fact in your plan will say <i>where it came from and when it was checked</i>.</p></div>
+
+    <section class="get" id="get" aria-labelledby="getH">
+      <div><h2 id="getH">Plan with Eden today</h2><p>Open Ask Eden Travel in your browser to plan your days, check hours and travel times with EVES, and book when you’re ready.</p></div>
+      <div class="cta">
+        <a class="btn navy" href="/api/web/site-handoff/start">Open Eden Travel</a>
+        <a class="btn line" href="https://evesverification.com/">About EVES</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>© Harrat Global Holdings, Inc.</span>
+    <nav class="links" aria-label="Eden"><a href="https://askeden.com/">Part of Eden</a><a href="https://evesverification.com/">EVES</a><a href="https://askedencode.com/">Eden Code</a><a href="https://edensecretary.com/">Eden Secretary</a><a href="https://askeden.com/privacy">Privacy</a><a href="https://askeden.com/terms">Terms</a><span data-lang-switch></span></nav>
+  </footer>
+</div>
+</body>
+</html>

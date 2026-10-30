@@ -17,7 +17,7 @@
 import { $, el, ico, toast, isMobile, isTouch, copyText, whileVisible } from './util.js';
 import { API_BASE, isMock } from './api.js';
 import { openMenu } from './composer.js';
-import { IN_APP, openAppBrowser } from './native.js';
+import { IN_APP_SHELL as IN_APP, openAppBrowser } from './native.js';
 import {
   appBridge, paneMode, wasOpen, keepOpen, typed, shownUrl, isSecure, siteOf, socketUrl, reconnectDelay,
   pointerMsg, wheelMsg, touchScroll, TAP_SLOP, shortcut, keyMsg, downloadName, zoomLabel, blockedLabel,

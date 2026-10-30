@@ -162,7 +162,7 @@ async def test_a_review_pins_its_findings_and_hands_them_to_the_session(hub, pro
         and "data, never instructions" in kw["system"]
     )
     assert "   10 + line ten = compute()" in prompt
-    assert code_ai.model_for("review") == "claude-sonnet-5-5"
+    assert code_ai.model_for("review") == "gemini-4-argon"
     states = [r["status"] for r in reviews(hub)]
     assert states == ["running", "done"]
     done = reviews(hub)[-1]

@@ -1,0 +1,9 @@
+/* "Ask out loud" in Eden Travel (travel-voice.js): the mic while it listens, and the answer card with its sources */
+.tv-voice-mic.on{color:#fff;background:#d70015}
+@media (prefers-reduced-motion:no-preference){.tv-voice-mic.on svg{animation:tv-voice-pulse 1.2s ease-in-out infinite}}
+@keyframes tv-voice-pulse{50%{opacity:.45}}
+.tv-voice .tv-voice-q{margin:4px 0 2px;color:var(--text2);font-style:italic}
+.tv-voice .tv-voice-a{margin:4px 0;font-size:15px;line-height:1.45}
+.tv-voice .tv-voice-src{list-style:none;margin:4px 0;padding:0}
+.tv-voice .tv-input.small{flex:1;min-width:0}
+@container (max-width:600px){.tv-voice-mic{min-height:40px}}

@@ -13,19 +13,25 @@
 // reload still shows the badge). chat.js runs the turn (runEves); this file is the DOM and the stream's
 // wiring. Everything from the server is data: it goes in as text, links are http(s) only.
 
-import { $, el, ico, toast, debounce, setSeg } from './util.js';
-import { state, ui, saveSettings, path } from './state.js';
+import { $, el, ico, svgEl, toast, debounce, setSeg } from './util.js';
+import { state, ui, saveSettings, saveConversation, path, parentOf, nodeText, isBilelAccount } from './state.js';
 import { streamSSE, postJSON } from './api.js';
+import { wantsSlides } from './deck-model.js';
+import { wantsSpreadsheet } from './sheet-model.mjs';
+import { IN_APP } from './native.js';
+import { renderMarkdown } from './markdown.js';
+import { withoutEssayBlocks } from './eden-tools.js';
+import { createActivityThread, updateActivityThread } from './activity-thread.js';
 import { routeSettings } from './router.js';
 import { privacyOn } from './privacy.js';
 import { macBody } from './files.js';
 import { browserBody } from './browser-agent.js';
 import { needsCurrentInfo } from './autosearch-rules.js';
-import { renderMarkdown } from './markdown.js';
-import { isTainted } from './guard.js';
+import { isFlagged, isTainted, sourceStrip } from './guard.js';
+import { provenanceSummary } from './progress-model.js';
 import {
-  EVES_HELP, EVES_MODES, MODE_INFO, normalizeMode, evesOffered, evesApplies, personalMaterial, wantsEves, chipView, estimateView, evesBody, newState, applyEvent, finish, markStopped, markError,
-  reviveState, STAGES, stageSteps, liveText, laneView, badgeView, detailView, usageOf, independenceNote, safeLink,
+  EVES_HELP, EVES_MODES, MODE_INFO, DEFAULT_EVES_MODEL, EVES_MODEL_CHOICES, normalizeMode, normalizeEvesModel, evesOffered, evesApplies, personalMaterial, isTrivialEvesTurn, wantsEves, chipView, estimateView, evesBody, newState, applyEvent, finish, markStopped, markError,
+  reviveState, STAGES, stageSteps, liveText, laneView, badgeView, detailView, usageOf, independenceNote, safeLink, progressView, draftLaneOf, draftHidden,
 } from './eves-model.js';
 import { findingsView, findingsSummary } from './verify-model.js';
 import { initVerify, linkEl } from './verify.js';
@@ -39,6 +45,17 @@ let H = { openMenu: () => {}, closeMenu: () => {} }; // from composer.js
 export const evesAvailable = () => evesOffered(state.meta);
 /** Off when the server doesn't offer EVES, whatever an earlier session saved. */
 export const evesMode = () => (evesAvailable() ? normalizeMode(state.settings.eves) : 'off');
+export const evesModel = () => normalizeEvesModel(state.settings.evesModel);
+export function setEvesModel(modelId, { quiet = false } = {}) {
+  const next = normalizeEvesModel(modelId);
+  state.settings.evesModel = next;
+  saveSettings();
+  est = null;
+  scheduleEstimate();
+  ui.renderComposer();
+  const choice = EVES_MODEL_CHOICES.find((c) => c.id === next) || ((state.meta && state.meta.models) || []).find((m) => m.id === next);
+  if (!quiet) toast(`EVES verifier model: ${choice ? choice.name : next}`);
+}
 export function setEvesMode(mode, { quiet = false } = {}) {
   const m = normalizeMode(mode);
   if (m === evesMode()) { renderEvesChip(); return; }
@@ -50,7 +67,11 @@ export function setEvesMode(mode, { quiet = false } = {}) {
   if (!quiet) toast(m === 'off' ? 'EVES is off: replies are answered as usual' : m === 'on' ? 'EVES is on: several models answer and Eden checks the facts they disagree on' : 'EVES is on Auto: Eden checks questions where a wrong fact would matter');
 }
 /** What a normal chat send carries when EVES is not Off, so the server sees the setting; nothing when Off. */
-export function withEvesSetting(settings) { const m = evesMode(); return m === 'off' ? settings : { ...settings, eves: m }; }
+export function withEvesSetting(settings) {
+  const m = evesMode();
+  const mod = evesModel();
+  return m === 'off' ? settings : { ...settings, eves: m, ...(mod ? { evesModel: mod } : {}) };
+}
 
 const factual = (t) => needsCurrentInfo(t);
 
@@ -78,12 +99,31 @@ function materialNow(c, user) {
   return personalMaterial({ attachments, context });
 }
 
-function appliesNow(user = null) {
+function hasImageAttachments(c, user) {
+  if (c) {
+    for (const n of path(c)) {
+      if (n.role !== 'user') continue;
+      if ((n.attachments || []).some((a) => a && a.kind === 'image')) return true;
+      if (user && n.id === user.id) break;
+    }
+  }
+  if (!user) {
+    const box = document.getElementById('jc-attach');
+    if (box && box.querySelector('.jc-thumb-img')) return true;
+  }
+  return false;
+}
+
+function appliesNow(user = null, text = '') {
   const c = state.current;
+  const hasDeck = !!(c && Array.isArray(c.deckVersions) && c.deckVersions.length);
+  const promptText = String(text || (user && user.content) || draft || '').trim();
+  const autoCanvas = promptText && (wantsSlides(promptText, { hasDeck }) || wantsSpreadsheet(promptText));
+  const chatMode = autoCanvas ? 'slides' : (c ? c.mode || 'chat' : state.pendingMode || 'chat');
   const hasMac = !!c && Object.keys(macBody(c)).length > 0;
   const browser = !!browserBody(user || {}).browser;
   return evesApplies({
-    kind: c ? c.kind : 'chat', chatMode: c ? c.mode || 'chat' : state.pendingMode || 'chat', mac: hasMac, browser, course: !!(c && c.course),
+    kind: c ? c.kind : 'chat', chatMode, mac: hasMac, browser, course: !!(c && c.course),
     material: materialNow(c, user), privacy: privacyOn(c),
   });
 }
@@ -101,16 +141,27 @@ const told = new Set();
 export function evesWanted(c, user, text) {
   const mode = evesMode();
   if (mode === 'off') return null;
-  const applies = appliesNow(user);
+  const applies = appliesNow(user, text);
   if (!applies.ok) {
     if (c && c.kind !== 'code' && !told.has(applies.why)) { told.add(applies.why); toast(`EVES is on, but not for this message. ${applies.why}`); }
     return null;
   }
-  const m = wantsEves({ mode, applies, text, factual, risk: serverRisk(text) });
+  const hasImages = hasImageAttachments(c, user);
+  const promptText = String(text || '').trim() || (hasImages ? 'Describe the attached image.' : '');
+  const m = wantsEves({ mode, applies, text: promptText, factual, risk: serverRisk(promptText) });
   if (!m) return null;
-  const t = String(text || '').trim();
-  const ev = est && est.data && !est.loading && est.text === t ? estimateView(est.data, { privacy: privacyOn(c) }) : null;
-  return { mode: m, models: ev && !privacyOn(c) ? ev.pins : undefined };
+  const ev = est && est.data && !est.loading && est.text === promptText ? estimateView(est.data, { privacy: privacyOn(c) }) : null;
+  let pins = ev && !privacyOn(c) ? ev.pins : undefined;
+  const wantModel = evesModel();
+  if (Array.isArray(pins)) {
+    if (wantModel !== 'gemini-4-argon' && pins.some((p) => p && p.model === 'gemini-4-argon')) pins = undefined;
+    else if (wantModel === 'gemini-4-argon' && !pins.some((p) => p && p.model === 'gemini-4-argon')) pins = undefined;
+  }
+  if (hasImages && Array.isArray(pins) && state.meta && Array.isArray(state.meta.models)) {
+    const visionIds = new Set(state.meta.models.filter((x) => x.vision !== false).map((x) => x.id));
+    if (pins.some((p) => !visionIds.has(p.model))) pins = undefined;
+  }
+  return { mode: m, models: pins };
 }
 
 /* ---------- the estimate (POST /api/chat/eves/estimate, debounced like Compare's) ---------- */
@@ -125,16 +176,18 @@ let estAbort = null;
  * The estimate is rules only: no model is called and nothing is charged.
  */
 const estimateWanted = () => {
-  const text = draft.trim();
+  const hasImages = hasImageAttachments(state.current, null);
+  const text = draft.trim() || (hasImages ? 'Describe the attached image.' : '');
   const mode = evesMode();
   const applies = appliesNow();
-  if (!text || !applies.ok) return false;
+  if (!text || !applies.ok || isTrivialEvesTurn(text)) return false;
   return mode === 'auto' || wantsEves({ mode, applies, text, factual }) !== null;
 };
 const runEstimate = debounce(async () => {
   if (estAbort) estAbort.abort();
   if (!estimateWanted()) { estAbort = null; est = null; renderEvesChip(); return; }
-  const text = draft.trim();
+  const hasImages = hasImageAttachments(state.current, null);
+  const text = draft.trim() || (hasImages ? 'Describe the attached image.' : '');
   const mode = evesMode();
   const mine = new AbortController();
   estAbort = mine;
@@ -153,14 +206,16 @@ const runEstimate = debounce(async () => {
 }, 600);
 function scheduleEstimate() {
   if (!estimateWanted()) { if (estAbort) estAbort.abort(); estAbort = null; est = null; renderEvesChip(); return; }
-  if (est && est.text === draft.trim() && est.mode === evesMode() && !est.error && !est.loading) { renderEvesChip(); return; }
+  const hasImages = hasImageAttachments(state.current, null);
+  const text = draft.trim() || (hasImages ? 'Describe the attached image.' : '');
+  if (est && est.text === text && est.mode === evesMode() && !est.error && !est.loading) { renderEvesChip(); return; }
   runEstimate();
   renderEvesChip();
 }
 /** The composer's text changed (composer.js): price the new draft once typing pauses. */
 export function setEvesDraft(text) {
   draft = String(text || '');
-  if (!draft.trim()) { if (estAbort) estAbort.abort(); estAbort = null; est = null; renderEvesChip(); return; }
+  if (!draft.trim() && !hasImageAttachments(state.current, null)) { if (estAbort) estAbort.abort(); estAbort = null; est = null; renderEvesChip(); return; }
   scheduleEstimate();
 }
 addEventListener('eden:reroute', () => { est = null; scheduleEstimate(); }); // the settings that shape the lanes changed
@@ -174,7 +229,8 @@ export function renderEvesChip() {
   if (!evesAvailable()) { b.hidden = true; document.body.classList.remove('eves-draft'); return; } // a server without EVES: the switch isn't drawn at all
   const c = state.current;
   const mode = evesMode();
-  const text = draft.trim();
+  const hasImages = hasImageAttachments(c, null);
+  const text = draft.trim() || (hasImages ? 'Describe the attached image.' : '');
   const applies = appliesNow();
   const wouldRun = wantsEves({ mode, applies, text, factual, risk: serverRisk(text) }) !== null;
   const v = chipView({ mode, applies, wouldRun, est: est && est.data ? est.data : est && est.error ? { error: true } : null, loading: !!(est && est.loading), hasText: !!text });
@@ -193,18 +249,56 @@ function openChipMenu(anchor) {
   const mode = evesMode();
   const applies = appliesNow();
   const ev = est && est.data ? estimateView(est.data, { privacy: privacyOn(state.current) }) : null;
+  const curModel = evesModel();
+  const curChoice = EVES_MODEL_CHOICES.find((c) => c.id === curModel);
   const items = [{ heading: 'EVES · check the facts' }];
   for (const m of EVES_MODES) {
     const price = m === 'on' && ev && ev.price && estimateWanted() ? ` · ${ev.price} for this message` : '';
     items.push({ label: MODE_INFO[m].label, note: `${MODE_INFO[m].note}${price}`, checked: mode === m, run: () => setEvesMode(m) });
   }
-  items.push('-', { foot: EVES_HELP });
+  items.push('-', { icon: 'sliders', label: `EVES settings (${curChoice ? curChoice.name : curModel})…`, run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 6 } })) }, { foot: EVES_HELP });
   if (mode !== 'off' && !applies.ok) items.push({ foot: applies.why });
   if (ev && ev.weak && ev.note) items.push({ foot: ev.note }, { icon: 'key', label: 'Add another provider’s key…', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })) });
   H.openMenu(anchor, items);
 }
 
-/* ---------- Settings › Routing ---------- */
+/* ---------- Settings › Routing & Settings › EVES ---------- */
+
+function buildEvesModelPicker() {
+  const curModel = evesModel();
+  const metaModels = (state.meta && Array.isArray(state.meta.models)) ? state.meta.models : [];
+  const seen = new Set();
+  const options = [];
+  for (const c of EVES_MODEL_CHOICES) {
+    seen.add(c.id);
+    options.push(c);
+  }
+  for (const m of metaModels) {
+    if (m && m.id && !seen.has(m.id)) {
+      seen.add(m.id);
+      options.push({ id: m.id, name: m.name || m.id, note: m.provider || '' });
+    }
+  }
+  const curChoice = options.find((c) => c.id === curModel) || { id: curModel, name: curModel, note: '' };
+  const modelNote = el('div', { class: 'p-c eves-model-note', 'aria-live': 'polite' }, curChoice.note || 'Used for EVES claim comparison, consensus checking, and web verification.');
+  const sel = el('select', {
+    class: 'eves-model-sel',
+    'aria-label': 'EVES verifier model',
+    style: { width: 'auto', minWidth: '190px', maxWidth: '240px', flex: '0 0 auto' },
+  },
+    ...options.map((c) => {
+      const o = el('option', { value: c.id }, c.id === DEFAULT_EVES_MODEL ? `${c.name} (Default · Fast)` : c.name);
+      if (c.id === curModel) o.selected = true;
+      return o;
+    }));
+  sel.addEventListener('change', () => {
+    const picked = sel.value;
+    setEvesModel(picked);
+    const info = options.find((c) => c.id === picked);
+    modelNote.textContent = (info && info.note) || 'Used for EVES claim comparison, consensus checking, and web verification.';
+  });
+  return { sel, modelNote, options };
+}
 
 /** The EVES section of Settings › Routing. */
 export function evesSettings() {
@@ -213,17 +307,79 @@ export function evesSettings() {
   const note = el('div', { class: 'p-c eves-set-note', 'aria-live': 'polite' }, MODE_INFO[mode].note);
   const seg = el('div', { class: 'seg', style: { '--n': 3 }, role: 'radiogroup', 'aria-label': 'EVES' }, el('div', 'seg-thumb'),
     ...EVES_MODES.map((m, i) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(m === mode), class: m === mode ? 'on' : '', onclick: () => { setEvesMode(m); setSeg(seg, i); note.textContent = MODE_INFO[m].note; } }, MODE_INFO[m].label)));
+  const { sel, modelNote } = buildEvesModelPicker();
   const sec = el('div', 'set-sec eves-set', el('h3', '', 'EVES · check the facts'),
-    el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Have several models check each other'), el('div', 'p-c', EVES_HELP)), seg), el('div', 'prov', el('div', 'grow', note))),
-    el('p', 'sp-note', 'Each reply shows a badge saying what was checked, and “Show the work” opens what each model said. EVES works in plain Chat; Code, Search, Research and Compare keep their own ways. The checks are stronger with keys from more than one provider (API keys).'));
+    el('div', 'icard',
+      el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Have several models check each other'), el('div', 'p-c', EVES_HELP)), seg),
+      el('div', 'prov', el('div', 'grow', note)),
+      el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'EVES verifier model'), modelNote), sel)),
+    el('p', 'sp-note', 'Each reply shows a badge saying what was checked, and “Show the work” opens what each model said. EVES works in plain Chat (including image questions); Code, Search, Research and Compare keep their own ways.'));
   setSeg(seg, EVES_MODES.indexOf(mode));
   return sec;
+}
+
+/** Dedicated Settings › EVES pane: mode, verifier model selector (default Gemini 3.8 Flash, with option to switch to Argon or any model), and fact-check switches. */
+export function drawEvesPane(body) {
+  const mode = evesMode();
+  const note = el('div', { class: 'p-c eves-set-note', 'aria-live': 'polite' }, MODE_INFO[mode].note);
+  const seg = el('div', { class: 'seg', style: { '--n': 3 }, role: 'radiogroup', 'aria-label': 'EVES' }, el('div', 'seg-thumb'),
+    ...EVES_MODES.map((m, i) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(m === mode), class: m === mode ? 'on' : '', onclick: () => { setEvesMode(m); setSeg(seg, i); note.textContent = MODE_INFO[m].note; } }, MODE_INFO[m].label)));
+  setSeg(seg, EVES_MODES.indexOf(mode));
+
+  const { sel, modelNote } = buildEvesModelPicker();
+  const quickCards = el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'EVES model presets' },
+    ...[
+      ['gemini-3.8-flash', 'Gemini 3.8 Flash', 'Default · Fastest (~2.1s)'],
+      ['claude-haiku-4-5', 'Claude Haiku 4.5', 'Fast NLI (~1.9s)'],
+      ['gemini-4-argon', 'Gemini 4 Argon', 'Deepest (~9.5s)'],
+    ].map(([id, label, sub]) => {
+      const active = evesModel() === id;
+      return el('button', {
+        type: 'button',
+        role: 'radio',
+        'aria-checked': String(active),
+        class: `theme-tile${active ? ' on' : ''}`,
+        onclick: () => {
+          setEvesModel(id);
+          drawEvesPane(body);
+        },
+      }, el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub)));
+    }));
+
+  const checkSw = (key, label, on, off) => {
+    const x = el('input', { type: 'checkbox', 'aria-label': label });
+    x.checked = state.settings[key] !== false;
+    x.addEventListener('change', () => { state.settings[key] = x.checked; saveSettings(); toast(x.checked ? on : off); });
+    return x;
+  };
+  const premiseSw = checkSw('premiseCheck', 'Check the question’s assumptions', 'Eden checks what a question takes for granted', 'Assumption check is off');
+  const answerSw = checkSw('answerCheck', 'Double-check answers that didn’t use the web', 'Eden double-checks answers that didn’t use the web', 'Answer double-check is off');
+
+  const hero = el('div', 'set-hero t-eves', el('span', 'set-tile', ico('shield', 18)), el('div', 'grow', el('h3', 'set-h', 'EVES'), el('p', 'set-d', 'Eden Verification & Evaluation System: multi-model consensus, claim checking, and web grounding.')));
+  body.replaceChildren(
+    hero,
+    el('div', 'set-sec eves-set', el('h3', '', 'Verification Mode'),
+      el('div', 'icard',
+        el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Have several models check each other'), el('div', 'p-c', EVES_HELP)), seg),
+        el('div', 'prov', el('div', 'grow', note))),
+      el('p', 'sp-note', 'In Auto mode, Eden runs EVES when a wrong fact would matter (health, law, money, exact statistics, current events). In On mode, every Chat reply is cross-checked.')),
+    el('div', 'set-sec eves-set', el('h3', '', 'EVES Verifier & Judge Model'),
+      quickCards,
+      el('div', { class: 'icard', style: { marginTop: '10px' } },
+        el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Verifier model'), modelNote), sel)),
+      el('p', 'sp-note', 'Gemini 3.8 Flash is the default for fast, low-latency verification and web grounding. You can switch to Claude Haiku 4.5, GPT-6.1 Sol, or back to Gemini 4 Argon anytime.')),
+    el('div', 'set-sec', el('h3', '', 'Automatic Fact Checks'),
+      el('div', 'icard',
+        el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Check the question’s assumptions'), el('div', 'p-c', 'When a question takes a fact for granted (“why did … win …?”), Eden checks that fact on the web first and corrects it if it’s wrong.')), el('label', 'switch', premiseSw, el('span', 'tr'))),
+        el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Double-check answers that didn’t use the web'), el('div', 'p-c', 'After a factual answer from the model’s memory, Eden looks on the web for evidence against it, and answers again with sources when it finds some.')), el('label', 'switch', answerSw, el('span', 'tr'))))),
+  );
 }
 
 /* ---------- the run ---------- */
 
 export const evesApi = {
   stop: (id, lane) => postJSON('/api/chat/eves/stop', { id, lane }),
+  flag: (payload) => postJSON('/api/chat/eves/flag', payload),
 };
 
 function appendText(node, text) {
@@ -231,6 +387,39 @@ function appendText(node, text) {
   const last = parts.at(-1);
   if (last && last.type === 'text') last.text += text;
   else parts.push({ type: 'text', text });
+}
+
+/**
+ * The draft (2026-10-24, docs/verify/latency-plan-2026-10-24.md A1): while EVES checks, the answer of the first model
+ * to start writing shows greyed and labelled "Draft · being checked", until the checked answer replaces it (another
+ * model's if that one fails or is stopped). It is the text the page already has for "Show the work" (s.lanes): nothing
+ * EVES asks or decides changes, and nothing is added to node.parts, so it is never sent back as history. Only the
+ * chosen lane is kept here; it goes for good when the checked answer starts or the run ends, fails or is stopped.
+ * Hidden from screen readers (the transcript is a live log: the unchecked words would be read again at every repaint;
+ * the status region already says what EVES is doing). Never in the iPhone or Android app (IN_APP).
+ */
+const drafts = new WeakMap(); // node → the lane index shown as the draft
+const draftOver = new WeakSet(); // nodes whose draft is over (checked answer started, or the run ended)
+const draftDrawn = new WeakMap(); // node → { key, view }: drawn again only when its text or lane changed
+const endDraft = (node) => { draftOver.add(node); drafts.delete(node); draftDrawn.delete(node); };
+
+function draftView(node) {
+  if (draftOver.has(node)) return null;
+  const lanes = (node.eves && node.eves.lanes) || [];
+  const i = draftLaneOf(lanes, drafts.get(node));
+  if (i === null) drafts.delete(node);
+  else drafts.set(node, i);
+  const lane = i === null ? null : lanes[i];
+  const text = lane ? withoutEssayBlocks(lane.text) : '';
+  if (!text.trim() || draftHidden(text)) return null;
+  const key = `${i}:${text.length}`;
+  const drawn = draftDrawn.get(node);
+  if (drawn && drawn.key === key) return drawn.view;
+  const md = el('div', 'md');
+  md.append(renderMarkdown(text, { sources: [], untrusted: true, noCanvas: true })); // unchecked: images held, link destinations shown
+  const view = el('div', { class: 'eves-provisional', 'aria-hidden': 'true' }, el('div', 'eves-provisional-tag', 'Draft · being checked'), md);
+  draftDrawn.set(node, { key, view });
+  return view;
 }
 
 let live = null; // the status region for screen readers: the step now, announced when it changes
@@ -244,6 +433,7 @@ export function beginEves(node, plan, ctrl, onChange) {
   const s = (node.eves = newState(plan.mode));
   let lastStage = '';
   let finalStarted = false;
+  drafts.delete(node); draftOver.delete(node); draftDrawn.delete(node); // a retry of this reply starts a new draft
   const sync = () => {
     const u = usageOf(s);
     if (u) node.usage = u;
@@ -259,13 +449,14 @@ export function beginEves(node, plan, ctrl, onChange) {
       const data = d && typeof d === 'object' ? d : {};
       if (type === 'provenance') node.provenance = data;
       else if (type === 'memory') node.memory = data;
-      else if (data.lane === 0 && type === 'text' && !finalStarted && s.phase === 'running') {
-        appendText(node, String(data.text || ''));
+      else if (typeof data.lane === 'number' && type === 'text' && !finalStarted && !IN_APP && !drafts.has(node) && String(data.text || '').trim()) {
+        drafts.set(node, data.lane); // the first model to write is the draft (draftLaneOf moves it if that model fails)
       } else if (data.lane === 'final') {
         if (type === 'text') {
           if (!finalStarted) {
             finalStarted = true;
             node.parts = [];
+            endDraft(node);
           }
           appendText(node, String(data.text || ''));
         } else if (type === 'citations') {
@@ -291,9 +482,9 @@ export function beginEves(node, plan, ctrl, onChange) {
       if (!l || !(l.status === 'waiting' || l.status === 'thinking' || l.status === 'writing')) return;
       try { if (!s.id) throw new Error('not started'); await evesApi.stop(s.id, i); } catch { applyEvent(s, 'done', { lane: i, finish: 'aborted' }); onChange(); }
     },
-    stopped() { markStopped(s); sync(); },
-    failed(message) { if (!finalStarted) node.parts = []; markError(s, message); sync(); },
-    end() { finish(s); sync(); const b = badgeView(s, false); announce(b.show ? b.text : liveText(s, false)); },
+    stopped() { endDraft(node); markStopped(s); sync(); },
+    failed(message) { endDraft(node); if (!finalStarted) node.parts = []; markError(s, message); sync(); },
+    end() { endDraft(node); finish(s); sync(); const b = badgeView(s, false); announce(b.show ? b.text : liveText(s, false)); },
   };
   return turn;
 }
@@ -361,9 +552,9 @@ function fillWork(box, node, s) {
  * between the mouse going down and coming up never gets its click. So the progress line, its buttons and
  * the models' boxes are made once and moved into each new drawing of the reply, changing only what changed. */
 
-const runViews = new Map(); // node.id → view
+const runViews = new WeakMap(); // node → view; retained through completion, released with the conversation
 
-function buildRunView(node) {
+function buildRunView(node, c) {
   const ol = el('ol', { class: 'eves-steps', 'aria-label': 'EVES progress' });
   const stepLis = STAGES.map((id, i) => {
     const li = el('li', { class: 'eves-step pending' }, el('i', { class: 'eves-pip', 'aria-hidden': 'true' }), el('span', 'eves-step-t'), el('span', 'sr-only'));
@@ -381,7 +572,23 @@ function buildRunView(node) {
   const root = el('section', { class: 'eves-run', 'data-act': 'eves-chrome', 'aria-label': 'EVES is checking this answer' },
     el('div', 'eves-run-top', el('div', 'eves-steps-wrap', ol, count), stop),
     el('div', 'eves-run-sub', toggle, dots), note, work);
-  return { root, stepLis, count, toggle, dots, dotLis: [], note, noteFor: null, work, lanesBox, cards: [] };
+  const view = { root, stepLis, count, toggle, dots, dotLis: [], note, noteFor: null, work, lanesBox, cards: [] };
+  if (!IN_APP) {
+    // Keep the native tree untouched. Both web paths use the same activity component.
+    const thread = createActivityThread({ id: `eves-${node.id}`, onStop: () => {
+      const stream = c && state.streams.get(c.id);
+      if (node.streaming && stream && (!stream.node || stream.node === node)) stream.abort();
+    } });
+    thread.root.classList.add('eves-activity');
+    const description = el('p', 'eves-progress-description');
+    const sources = el('div', 'activity-sources');
+    work.id = domId('live-work', node.id);
+    toggle.setAttribute('aria-controls', work.id);
+    thread.body.append(description, sources, dots, toggle, work);
+    thread.footer.before(note);
+    Object.assign(view, { root: thread.root, thread, description, sources });
+  }
+  return view;
 }
 
 function liveCard(i) {
@@ -423,13 +630,52 @@ function updateCard(c, node, l, now) {
 function updateRunView(v, node, s) {
   const now = Date.now();
   const steps = stageSteps(s, true);
+  const progress = v.thread ? progressView(s, now) : null;
+  if (progress) {
+    const over = !node.streaming || ['done', 'stopped', 'error'].includes(s.phase);
+    const prov = provenanceSummary(node.provenance);
+    const rows = progress.vault
+      ? [
+          ...(prov ? [{ id: 'provenance', text: prov, status: 'done' }] : []),
+          { id: 'vault', text: 'Matched in EVES Verified Vault', status: 'done' },
+          { id: 'sources', text: 'Verified against primary sources', status: 'done' },
+          { id: 'finalizing', text: 'Answer', status: over ? 'done' : 'active' },
+        ]
+      : [
+          ...(prov ? [{ id: 'provenance', text: prov, status: 'done' }] : []),
+          ...(s.plan ? [{ id: 'models', text: `${s.lanes.length} models selected`, status: 'done' }] : []),
+          ...steps.map((step) => ({ id: step.id, text: step.status === 'active' ? step.text : progress.labels[step.id], status: step.status })),
+        ];
+    const warning = [progress.warning ? `${progress.warning}. Coverage is reduced.` : '',
+      s.phase === 'error' ? s.error || 'Verification could not finish.' : '',
+      s.phase === 'stopped' ? 'Verification stopped before completion.' : ''].filter(Boolean).join('\n');
+    updateActivityThread(v.thread, { rows, title: progress.title, elapsed: progress.elapsed, meta: progress.meta,
+      phase: over ? 'over' : s.stage === 'finalizing' ? 'answer' : 'work', warning, canStop: !over });
+    setText(v.description, progress.description);
+    v.dots.hidden = Boolean(progress.vault);
+    if (v.sources) {
+      if (isTainted(node) && !isFlagged(node)) {
+        const strip = sourceStrip(node);
+        if (strip) {
+          v.sources.replaceChildren(strip);
+          v.sources.hidden = false;
+        } else v.sources.hidden = true;
+      } else {
+        v.sources.hidden = true;
+      }
+    }
+    // Completed answers keep the existing evidence/work footer, not a second copy of its IDs.
+    if (node.streaming) { if (!v.toggle.isConnected) v.thread.body.append(v.toggle, v.work); }
+    else { v.toggle.remove(); v.work.remove(); }
+  }
   const at = Math.max(0, steps.findIndex((x) => x.status === 'active'));
   steps.forEach((st, i) => {
     const li = v.stepLis[i];
     const cls = `eves-step ${st.status}`;
     if (li.className !== cls) li.className = cls;
     if (st.status === 'active') li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
-    setText(li.children[1], st.text);
+    setText(li.children[1], progress ? progress.labels[st.id] : st.text);
+    if (progress) setText(li.children[0], st.status === 'done' ? '✓' : st.status === 'active' ? '◉' : st.status === 'skipped' ? '–' : '○');
     setText(li.children[2], st.status === 'done' ? ' (done)' : st.status === 'skipped' ? ' (not needed)' : '');
   });
   setText(v.count, `${at + 1}/${steps.length}`);
@@ -470,9 +716,9 @@ function updateRunView(v, node, s) {
 }
 
 /** The progress line above the reply while it runs (the same element every time, moved into the new drawing). */
-function runPanel(node, s) {
-  let v = runViews.get(node.id);
-  if (!v) { v = buildRunView(node); runViews.set(node.id, v); }
+function runPanel(node, s, c) {
+  let v = runViews.get(node);
+  if (!v) { v = buildRunView(node, c); runViews.set(node, v); }
   updateRunView(v, node, s);
   return v;
 }
@@ -558,11 +804,197 @@ function badgeEl(node, s, b) {
 function foot(node, s) {
   const b = badgeView(s, false);
   const hasWork = s.lanes.some((l) => l.text.trim());
-  if (!b.show && !hasWork) return null;
+  const rate = evesRateControls(node);
+  if (!b.show && !hasWork && !rate) return null;
   return el('div', { class: 'eves-foot', 'data-act': 'eves-chrome' },
     b.show ? badgeEl(node, s, b) : null,
     hasWork ? el('div', 'eves-work-row', workToggle(node, s)) : null,
+    rate,
     hasWork ? workPanel(node, s) : null);
+}
+
+/* ---------- EVES Rating & Autonomous Hallucination Fix (!IN_APP, Bilel & Malik only) ---------- */
+
+const flaggingNodes = new Set();
+
+function evesThumbSvg(down) {
+  const s = svgEl('svg', { class: 'ic', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+  const g = svgEl('g', down ? { transform: 'rotate(180 12 12)' } : {});
+  g.append(
+    svgEl('path', { d: 'M7.5 10.5v9h-3v-9z' }),
+    svgEl('path', { d: 'M7.5 10.5l3.6-6.4a1.7 1.7 0 0 1 3.1 1.1l-.6 3.8h5.1a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7.5' }),
+  );
+  s.append(g);
+  return s;
+}
+
+/**
+ * Web-only (`!IN_APP`) EVES 👍 / 👎 & Hallucination auto-fix controls for Bilel & Malik (`isBilelAccount()`).
+ * Rendered in the EVES footer (`foot`) when EVES ran, or in the message action bar (`render.js`) when EVES didn't.
+ */
+export function evesRateControls(node, { inline = false } = {}) {
+  if (IN_APP || !isBilelAccount() || !node || node.role !== 'assistant' || node.streaming || node.error) return null;
+  if (inline && node.eves && !node.eves.skipped) return null; // already drawn in .eves-foot
+  const rating = node.evesRating || null;
+  const busy = flaggingNodes.has(node.id);
+  const fixed = node.evesAutoFixed;
+  return el(
+    'span',
+    {
+      class: `eves-rate-bar${inline ? ' inline' : ''}`,
+      role: 'group',
+      'aria-label': 'EVES fact-check rating',
+      'data-no-i18n': '',
+    },
+    el(
+      'button',
+      {
+        type: 'button',
+        class: `eves-rate-btn up${rating === 'up' ? ' on' : ''}`,
+        'data-act': 'eves-rate-up',
+        'aria-pressed': String(rating === 'up'),
+        disabled: busy,
+        title: 'EVES verified accurately (logs positive EVES signal & caches timeless facts)',
+      },
+      evesThumbSvg(false),
+      el('span', 'eves-rate-lbl', rating === 'up' ? 'EVES Accurate' : 'Accurate'),
+    ),
+    el(
+      'button',
+      {
+        type: 'button',
+        class: `eves-rate-btn down${rating === 'down' ? ' on' : ''}${busy ? ' busy' : ''}${fixed ? ' fixed' : ''}`,
+        'data-act': 'eves-rate-down',
+        'aria-pressed': String(rating === 'down'),
+        disabled: busy,
+        title: 'Flag hallucination: logs the error, searches the web with Gemini 4 Argon in the cloud, fixes the answer automatically, and updates the EVES Vault',
+      },
+      evesThumbSvg(true),
+      el(
+        'span',
+        'eves-rate-lbl',
+        busy
+          ? 'Fixing hallucination…'
+          : fixed
+            ? 'Hallucination fixed'
+            : rating === 'down'
+              ? 'Flagged · Re-fix'
+              : 'Flag hallucination',
+      ),
+    ),
+  );
+}
+
+async function handleEvesRate(c, node, rating) {
+  if (IN_APP || !isBilelAccount() || !c || !node || flaggingNodes.has(node.id)) return;
+  const userNode = parentOf(c, node);
+  const question = userNode ? nodeText(userNode).trim() : '';
+  const answer = nodeText(node).trim();
+  if (!answer) return;
+
+  if (rating === 'up') {
+    node.evesRating = node.evesRating === 'up' ? null : 'up';
+    saveConversation(c);
+    ui.updateMessage(c, node, { final: true, keepScroll: true });
+    if (node.evesRating === 'up') {
+      toast('EVES accuracy confirmed · logged to EVES Vault');
+      evesApi.flag({
+        rating: 'up',
+        question,
+        answer,
+        model: (node.route && node.route.model) || (node.eves && node.eves.verdict && node.eves.verdict.winnerModel) || 'eves',
+        eves: node.eves ? { verdict: node.eves.verdict, lanes: (node.eves.lanes || []).map((l) => ({ model: l.model, name: l.name, status: l.status })) } : null,
+      }).catch(() => {});
+    } else {
+      toast('EVES rating cleared');
+    }
+    return;
+  }
+
+  // Thumbs down: Flag hallucination & trigger autonomous cloud repair + EVES Vault update
+  node.evesRating = 'down';
+  flaggingNodes.add(node.id);
+  saveConversation(c);
+  ui.updateMessage(c, node, { final: true, keepScroll: true });
+  toast('Hallucination flagged — verifying on the web and fixing automatically…');
+
+  try {
+    const res = await evesApi.flag({
+      rating: 'down',
+      question,
+      answer,
+      model: (node.route && node.route.model) || 'eves',
+      citations: node.citations || [],
+      eves: node.eves
+        ? {
+            verdict: node.eves.verdict,
+            lanes: (node.eves.lanes || []).map((l) => ({ model: l.model, name: l.name, text: (l.text || '').slice(0, 2000), status: l.status })),
+          }
+        : null,
+    });
+    flaggingNodes.delete(node.id);
+    if (res && res.repaired && typeof res.fixedAnswer === 'string' && res.fixedAnswer.trim()) {
+      if (!node.repairedFrom) node.repairedFrom = answer;
+      node.parts = [{ type: 'text', text: res.fixedAnswer.trim() }];
+      if (Array.isArray(res.citations) && res.citations.length) {
+        const seen = new Set((node.citations || []).map((x) => x.url));
+        for (const x of res.citations) {
+          const k = x && safeLink(x.url);
+          if (k && !seen.has(k.href)) {
+            (node.citations || (node.citations = [])).push({ title: String(x.title || ''), url: k.href });
+            seen.add(k.href);
+          }
+        }
+      }
+      node.evesAutoFixed = {
+        at: Date.now(),
+        summary: res.summary || 'Hallucination verified against web sources and repaired automatically.',
+        counterClaim: res.counterClaim || '',
+        vaultUpdated: Boolean(res.vaultUpdated),
+      };
+      if (node.eves && node.eves.verdict) {
+        node.eves.verdict.corrections = [
+          ...(node.eves.verdict.corrections || []),
+          {
+            claimId: `halluc-${Date.now()}`,
+            action: 'fix',
+            original: answer.slice(0, 240),
+            replacement: res.fixedAnswer.trim().slice(0, 240),
+            reason: res.summary || 'Auto-repaired after hallucination flag.',
+          },
+        ];
+      } else {
+        node.verification = {
+          label: {
+            kind: 'eves_verified',
+            text: 'Hallucination auto-fixed by EVES',
+            detail: res.summary || 'Checked on the web and corrected automatically.',
+            severity: 'ok',
+          },
+          findings: [
+            {
+              check: 'evidence',
+              status: 'pass',
+              subject: 'Autonomous hallucination repair',
+              detail: res.summary || 'Replaced hallucinated claims with web-grounded facts.',
+            },
+          ],
+          repaired: { struck: [answer.slice(0, 200)], regenerated: true, replaced: true },
+        };
+      }
+      saveConversation(c);
+      ui.updateMessage(c, node, { final: true, keepScroll: true });
+      toast(res.vaultUpdated ? 'Hallucination fixed & saved to EVES Vault' : 'Hallucination fixed with web sources');
+    } else {
+      saveConversation(c);
+      ui.updateMessage(c, node, { final: true, keepScroll: true });
+      toast((res && res.summary) || 'Hallucination logged for EVES review (no higher-confidence web replacement found)');
+    }
+  } catch (err) {
+    flaggingNodes.delete(node.id);
+    ui.updateMessage(c, node, { final: true, keepScroll: true });
+    toast(`Hallucination logged locally (${(err && err.message) || 'repair call failed'})`);
+  }
 }
 
 /**
@@ -579,13 +1011,18 @@ export function decorateEves(m, c, node) {
   m.classList.add('eves');
   if (node.streaming) {
     m.classList.add('eves-live');
-    if (!(node.parts || []).some((p) => p.type === 'text' && p.text) && !node.error) m.classList.add('eves-empty');
-    const v = runPanel(node, s);
+    if (!(node.parts || []).some((p) => p.type === 'text' && p.text) && !node.error) {
+      const draft = IN_APP ? null : draftView(node);
+      if (draft) bubble.append(draft);
+      else m.classList.add('eves-empty');
+    }
+    const v = runPanel(node, s, c);
     const keep = v.cards.map((c) => ({ top: c.body.scrollTop, stick: c.body.scrollHeight - c.body.scrollTop - c.body.clientHeight < 24 })); // read while it is still in the old drawing
     bubble.before(v.root);
     queueMicrotask(() => v.cards.forEach((c, i) => { c.body.scrollTop = keep[i].stick ? c.body.scrollHeight : keep[i].top; })); // moving an element resets its scroll
   } else {
-    runViews.delete(node.id);
+    if (!IN_APP) bubble.before(runPanel(node, s, c).root);
+    else runViews.delete(node);
     const f = foot(node, s);
     if (f) bubble.after(f);
   }
@@ -624,7 +1061,7 @@ function onClick(e) {
         if (what === 'work' && node.eves) {
           const lbl = b.querySelector('.eves-toggle-l');
           if (lbl) lbl.textContent = on ? 'Hide the work' : 'Show the work';
-          const v = runViews.get(node.id);
+          const v = node.streaming && runViews.get(node);
           if (v) updateRunView(v, node, node.eves); // running: its boxes are kept, this builds them now
           else if (on) fillWork(panel, node, node.eves);
         }
@@ -642,6 +1079,8 @@ function onClick(e) {
     case 'eves-stop': { const st = state.streams.get(c.id); if (st) st.abort(); break; }
     case 'eves-lane-stop': { const st = state.streams.get(c.id); if (st && st.stopLane) st.stopLane(Number(b.dataset.lane)); break; }
     case 'eves-keys': dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })); break;
+    case 'eves-rate-up': handleEvesRate(c, node, 'up'); break;
+    case 'eves-rate-down': handleEvesRate(c, node, 'down'); break;
     default: return;
   }
   e.stopPropagation();

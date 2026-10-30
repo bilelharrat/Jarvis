@@ -34,6 +34,9 @@ export { PROVIDER_NAMES, computedWhere, hasVision };
 
 export const PROVIDER_IDS = ['anthropic', 'openai', 'gemini', 'kimi', 'meta', 'mistral', 'deepseek'];
 export const KEY_VARS = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', kimi: 'MOONSHOT_API_KEY', meta: 'META_API_KEY', mistral: 'MISTRAL_API_KEY', deepseek: 'DEEPSEEK_API_KEY' };
+export const FALLBACK_KEY_VARS = { anthropic: 'ANTHROPIC_FALLBACK_KEYS', openai: 'OPENAI_FALLBACK_KEYS', gemini: 'GEMINI_FALLBACK_KEYS', kimi: 'MOONSHOT_FALLBACK_KEYS' };
+export const DEFAULT_VERTEX_PROJECT = 'gen-lang-client-0068133515'; // GCP project "Jarvis" (billing account 014189-2B1010-766487)
+export const DEFAULT_VERTEX_LOCATION = 'global';
 export const SWITCH_VARS = { anthropic: 'EDEN_ANTHROPIC', openai: 'EDEN_OPENAI', gemini: 'EDEN_GEMINI', kimi: 'EDEN_KIMI', meta: 'EDEN_META', mistral: 'EDEN_MISTRAL', deepseek: 'EDEN_DEEPSEEK' };
 /**
  * Providers used only when the person picks one of their models by name: never by automatic routing, the checks, a
@@ -69,8 +72,41 @@ export const testOnlyServiceClaude = (on) => {
 
 const switchedOff = (env, p) => /^(off|0|false|no)$/i.test(String(env[SWITCH_VARS[p]] ?? '').trim());
 
+export function vertexCredentialKey(env) {
+  if (!env || /^(off|0|false|no)$/i.test(String(env.EDEN_VERTEX ?? '').trim())) return '';
+  const cred = String(env.VERTEX_CREDENTIALS || env.VERTEX_ACCESS_TOKEN || '').trim();
+  if (!cred) return '';
+  const project = String(env.VERTEX_PROJECT || DEFAULT_VERTEX_PROJECT).trim() || DEFAULT_VERTEX_PROJECT;
+  const location = String(env.VERTEX_LOCATION || DEFAULT_VERTEX_LOCATION).trim() || DEFAULT_VERTEX_LOCATION;
+  return `vertex://${project}/${location}#${cred}`;
+}
+
+export const isVertexKey = (k) => typeof k === 'string' && k.startsWith('vertex://');
+
+export function serviceKeyList(env, provider) {
+  const seen = new Set(['']);
+  const out = [];
+  const vKey = provider === 'gemini' ? vertexCredentialKey(env) : '';
+  const vertexFirst = !/^(off|0|false|no)$/i.test(String((env && env.VERTEX_FIRST) ?? 'on').trim());
+  if (vKey && vertexFirst) {
+    seen.add(vKey);
+    out.push(vKey);
+  }
+  for (const raw of [env[KEY_VARS[provider]], env[FALLBACK_KEY_VARS[provider]]]) {
+    for (const part of String(raw || '').split(',')) {
+      const k = part.trim();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        out.push(k);
+      }
+    }
+  }
+  if (vKey && !seen.has(vKey)) out.push(vKey);
+  return out;
+}
+
 /** Claude for everyone on the included AI: an ANTHROPIC_API_KEY is set (and ANTHROPIC not switched off). Without it, Claude stays bring-your-own-key. */
-export const serviceClaude = (env) => Boolean(String(env.ANTHROPIC_API_KEY || '').trim()) && !switchedOff(env, 'anthropic');
+export const serviceClaude = (env) => serviceKeyList(env, 'anthropic').length > 0 && !switchedOff(env, 'anthropic');
 
 /** The key a provider's calls use for this asker, and whose it is; null: none. Stable contract (top of file). */
 export async function providerKey(env, who, provider) {
@@ -78,8 +114,10 @@ export async function providerKey(env, who, provider) {
   const own = await userKeyFor(env, who, provider); // the owner's own key first (accounts/user-keys.js)
   if (own) return own;
   if (BYOK_ONLY.includes(provider) && !serviceClaudeForTests && !serviceClaude(env)) return null; // Claude: own key only, unless the service has an Anthropic key (serviceClaude)
-  const key = String(env[KEY_VARS[provider]] || '').trim();
-  return key ? { key, source: 'service' } : null;
+  const list = serviceKeyList(env, provider);
+  if (!list.length) return null;
+  const [key, ...fallbackKeys] = list;
+  return { key, source: 'service', ...(fallbackKeys.length ? { fallbackKeys } : {}) };
 }
 
 /** Whether a provider's calls count on the included AI (the service's key), as opposed to the asker's own. */
@@ -183,9 +221,14 @@ export function searchUSD(model, n) {
   return 0;
 }
 
-/** A call's cost at list price: { inputTokens, outputTokens, reasoningTokens, webSearches }. */
+/** A call's cost at list price: { inputTokens, outputTokens, reasoningTokens, cachedInputTokens, webSearches }. */
 export function usageUSD(model, u) {
-  const tokens = { inputTokens: u.inputTokens || 0, outputTokens: u.outputTokens || 0, reasoningTokens: u.reasoningTokens || 0 };
+  const tokens = {
+    inputTokens: u.inputTokens || 0,
+    outputTokens: u.outputTokens || 0,
+    reasoningTokens: u.reasoningTokens || 0,
+    ...(u.cachedInputTokens ? { cachedInputTokens: u.cachedInputTokens } : {}),
+  };
   return round6(usageCost(model, tokens) + searchUSD(model, u.webSearches || 0));
 }
 
@@ -249,7 +292,7 @@ export function searchTool(modelId, uses) {
 
 // ── dev and tests: fake providers on loopback ──
 
-const PROVIDER_HOSTS = /^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com|api\.moonshot\.ai|api\.meta\.ai|api\.mistral\.ai|api\.deepseek\.com)\//;
+const PROVIDER_HOSTS = /^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com|(?:[a-z0-9-]+-)?aiplatform\.googleapis\.com|oauth2\.googleapis\.com|api\.moonshot\.ai|api\.meta\.ai|api\.mistral\.ai|api\.deepseek\.com)\//;
 const local = (h) => h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
 
 /**
@@ -279,10 +322,12 @@ export const viaBase = (base, url) => (base ? url.replace(PROVIDER_HOSTS, (_, h)
 export function ratingRouter(cfg, keys, efforts, base = null) {
   const k = keys.gemini;
   if (!k || !cfg.models.length) return null;
+  const all = [k.key, ...(Array.isArray(k.fallbackKeys) ? k.fallbackKeys : [])];
+  const aiStudioKey = all.find((x) => x && !isVertexKey(x)) || k.key;
   const router = createLocalRouter({
     models: cfg.models.map((m) => m.id),
     efforts,
-    apiKey: k.key,
+    apiKey: aiStudioKey,
     fetch: (url, init) => fetch(viaBase(base, String(url)), init),
     timeoutMs: 8_000,
   });
@@ -306,13 +351,151 @@ async function* chunks(reader) {
  * costUSD, citations }. A stopped or failed stream's usage is what was reported, else estimated
  * (top of file).
  */
-export async function streamCall({ model, request, messages, system, search = false, uses = 0, key, base = null, inputTokens = 0, videos = [] }, { signal, emit }) {
+const QUOTA_FAILOVER_RE = /usage limit|rate_limit|rate limit|credit balance|out of credit|quota|exceeded|billing|regain access/i;
+
+function applyAnthropicWorkspaceHeader(provider, rawKey, headers) {
+  if (provider !== 'anthropic') return headers;
+  const s = String(rawKey || '').trim();
+  const idx = s.indexOf('#');
+  if (idx > 0 && s.startsWith('sk-ant-')) {
+    const apiKey = s.slice(0, idx).trim();
+    const workspaceId = s.slice(idx + 1).trim();
+    return {
+      ...headers,
+      'x-api-key': apiKey,
+      ...(workspaceId ? { 'anthropic-workspace-id': workspaceId } : {}),
+    };
+  }
+  return headers;
+}
+
+const vertexTokenCache = new Map();
+
+function b64url(bytes) {
+  let bin = '';
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function pemToDer(pem) {
+  const clean = String(pem || '').replace(/-----BEGIN [^-]+-----|-----END [^-]+-----|\s+/g, '');
+  const bin = atob(clean);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+
+async function resolveVertexKey(rawKey, base, signal) {
+  const m = /^vertex:\/\/([^/]+)\/([^#]+)#([\s\S]+)$/.exec(String(rawKey || ''));
+  if (!m) return null;
+  const [, project, location, secretRaw] = m;
+  const secret = secretRaw.trim();
+  const cached = vertexTokenCache.get(secret);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return { project, location, token: cached.token };
+
+  let parsed = null;
+  if (secret.startsWith('{')) {
+    try {
+      parsed = JSON.parse(secret);
+    } catch {
+      parsed = null;
+    }
+  } else if (!secret.startsWith('ya29.')) {
+    try {
+      const dec = atob(secret);
+      if (dec.trim().startsWith('{')) parsed = JSON.parse(dec);
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!parsed) return { project, location, token: secret };
+
+  const tokenUrl = viaBase(base, 'https://oauth2.googleapis.com/token');
+  let body;
+  if (parsed.type === 'authorized_user' || (parsed.client_id && parsed.client_secret && parsed.refresh_token)) {
+    body = new URLSearchParams({
+      client_id: String(parsed.client_id),
+      client_secret: String(parsed.client_secret),
+      refresh_token: String(parsed.refresh_token),
+      grant_type: 'refresh_token',
+    }).toString();
+  } else if (parsed.type === 'service_account' && parsed.client_email && parsed.private_key) {
+    const now = Math.floor(Date.now() / 1000);
+    const enc = new TextEncoder();
+    const header = b64url(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+    const claim = b64url(
+      enc.encode(
+        JSON.stringify({
+          iss: parsed.client_email,
+          scope: 'https://www.googleapis.com/auth/cloud-platform',
+          aud: 'https://oauth2.googleapis.com/token',
+          iat: now,
+          exp: now + 3600,
+        })
+      )
+    );
+    const signingInput = `${header}.${claim}`;
+    const cryptoKey = await crypto.subtle.importKey('pkcs8', pemToDer(parsed.private_key), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, enc.encode(signingInput));
+    body = new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: `${signingInput}.${b64url(sig)}`,
+    }).toString();
+  } else {
+    return null;
+  }
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+    signal,
+  });
+  if (!res.ok) return null;
+  const tok = await res.json().catch(() => null);
+  if (!tok || typeof tok.access_token !== 'string' || !tok.access_token) return null;
+  const ttlMs = (Number(tok.expires_in) > 120 ? Number(tok.expires_in) : 3600) * 1000;
+  vertexTokenCache.set(secret, { token: tok.access_token, expiresAt: Date.now() + ttlMs });
+  return { project: parsed.project_id || project, location, token: tok.access_token };
+}
+
+export async function streamCall({ model, request, messages, system, search = false, uses = 0, key, fallbackKeys = [], base = null, inputTokens = 0, videos = [] }, { signal, emit }) {
   const provider = model.provider;
-  const http = buildStreamRequest({ request, model, messages, system, search: (provider === 'gemini' || provider === 'openai') && search }, key);
-  if (provider === 'gemini') withVideoParts(http.body, videos); // video.js: file_data parts
-  if (provider === 'anthropic' && uses > 0) http.body.tools = [searchTool(model.apiId || model.id, uses)];
-  if (provider === 'openai' && search && uses > 0) http.body.max_tool_calls = uses; // the Responses API's cap on searches
-  const clean = (s) => redact(String(s), key);
+  const candidates = [key, ...(Array.isArray(fallbackKeys) ? fallbackKeys : [])].filter((k, i, a) => k && a.indexOf(k) === i);
+  const buildForKey = async (k) => {
+    const h = buildStreamRequest({ request, model, messages, system, search: (provider === 'gemini' || provider === 'openai') && search }, k);
+    h.headers = applyAnthropicWorkspaceHeader(provider, k, h.headers);
+    if (provider === 'gemini') withVideoParts(h.body, videos); // video.js: file_data parts
+    if (provider === 'gemini' && isVertexKey(k)) {
+      const v = await resolveVertexKey(k, base, signal);
+      if (!v) return null;
+      const modelId = String((request && request.params && request.params.model) || model.apiId || model.id);
+      const host = v.location === 'global' ? 'aiplatform.googleapis.com' : `${v.location}-aiplatform.googleapis.com`;
+      h.url = `https://${host}/v1beta1/projects/${encodeURIComponent(v.project)}/locations/${encodeURIComponent(v.location)}/publishers/google/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+      h.headers = { 'content-type': 'application/json', authorization: `Bearer ${v.token}`, 'x-goog-user-project': v.project };
+      if (h.body.systemInstruction && !h.body.systemInstruction.role) {
+        h.body.systemInstruction = { role: 'system', ...h.body.systemInstruction };
+      }
+      if (Array.isArray(h.body.tools)) {
+        h.body.tools = h.body.tools.map((t) => (t && 'google_search' in t ? { googleSearch: t.google_search || {} } : t));
+      }
+    }
+    if (provider === 'anthropic' && uses > 0) h.body.tools = [searchTool(model.apiId || model.id, uses)];
+    if (provider === 'openai' && search && uses > 0) h.body.max_tool_calls = uses; // the Responses API's cap on searches
+    return h;
+  };
+  const clean = (s) => {
+    let out = String(s);
+    for (const k of candidates) {
+      const raw = String(k || '').split('#', 1)[0].trim();
+      const tail = String(k || '').includes('#') ? String(k || '').split('#').slice(1).join('#').trim() : '';
+      out = redact(out, k);
+      if (raw && raw !== k) out = redact(out, raw);
+      if (tail && tail.length >= 8) out = redact(out, tail);
+    }
+    return out;
+  };
   const started = Date.now();
   let firstText = 0;
   let text = '';
@@ -338,14 +521,42 @@ export async function streamCall({ model, request, messages, system, search = fa
     return { text, citations, usage, costUSD: usageUSD(model, usage), stopped: false, failure: null, finish: null, status: null, ...extra };
   };
   let upstream;
-  try {
-    upstream = await fetch(viaBase(base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal });
-  } catch (error) {
-    if (signal.aborted) return result({ stopped: true });
-    return { ...result({ failure: clean(`Couldn't reach ${PROVIDER_NAMES[provider]}: ${error.message}`) }), usage: null, costUSD: 0 };
+  let lastErrorBody = '';
+  for (let idx = 0; idx < candidates.length; idx++) {
+    const hasNext = idx + 1 < candidates.length;
+    const isVertex = isVertexKey(candidates[idx]);
+    let http;
+    try {
+      http = await buildForKey(candidates[idx]);
+    } catch (error) {
+      if (signal.aborted) return result({ stopped: true });
+      if (hasNext) continue;
+      return { ...result({ failure: clean(`Couldn't reach ${PROVIDER_NAMES[provider]}: ${error.message}`) }), usage: null, costUSD: 0 };
+    }
+    if (!http) {
+      if (hasNext) continue;
+      return { ...result({ failure: `${PROVIDER_NAMES[provider]} credentials could not be resolved.` }), usage: null, costUSD: 0 };
+    }
+    try {
+      upstream = await fetch(viaBase(base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal });
+    } catch (error) {
+      if (signal.aborted) return result({ stopped: true });
+      if (isVertex && hasNext) continue;
+      return { ...result({ failure: clean(`Couldn't reach ${PROVIDER_NAMES[provider]}: ${error.message}`) }), usage: null, costUSD: 0 };
+    }
+    if (upstream.ok && upstream.body) break;
+    lastErrorBody = await upstream.text().catch(() => '');
+    const shouldFailover =
+      hasNext &&
+      (isVertex ||
+        upstream.status === 402 ||
+        upstream.status === 429 ||
+        upstream.status === 529 ||
+        ((upstream.status === 400 || upstream.status === 401 || upstream.status === 403) && QUOTA_FAILOVER_RE.test(lastErrorBody)));
+    if (!shouldFailover) break;
   }
-  if (!upstream.ok || !upstream.body) {
-    const body = await upstream.text().catch(() => '');
+  if (!upstream || !upstream.ok || !upstream.body) {
+    const body = lastErrorBody;
     let detail = body.trim();
     try {
       const j = JSON.parse(body);
@@ -354,9 +565,10 @@ export async function streamCall({ model, request, messages, system, search = fa
       // the raw text
     }
     detail = clean(String(detail).replace(/\s+/g, ' ')).slice(0, 300);
-    const busy = upstream.status === 429 || upstream.status === 529 || upstream.status === 503;
-    const failure = busy ? `${PROVIDER_NAMES[provider]} is busy right now (HTTP ${upstream.status}). Try again in a moment.` : `${PROVIDER_NAMES[provider]} HTTP ${upstream.status}${detail ? `: ${detail}` : ''}`;
-    return { ...result({ failure, status: upstream.status }), usage: null, costUSD: 0 };
+    const status = upstream ? upstream.status : 502;
+    const busy = status === 429 || status === 529 || status === 503;
+    const failure = busy ? `${PROVIDER_NAMES[provider]} is busy right now (HTTP ${status}). Try again in a moment.` : `${PROVIDER_NAMES[provider]} HTTP ${status}${detail ? `: ${detail}` : ''}`;
+    return { ...result({ failure, status }), usage: null, costUSD: 0 };
   }
   const reader = upstream.body.getReader();
   const onAbort = () => reader.cancel().catch(() => {});
@@ -374,7 +586,12 @@ export async function streamCall({ model, request, messages, system, search = fa
       } else if (e.type === 'citations') {
         for (const c of e.sources) if (!citations.some((x) => x.url === c.url)) citations.push(c);
       } else if (e.type === 'usage') {
-        reported = { inputTokens: e.inputTokens, outputTokens: e.outputTokens, reasoningTokens: e.reasoningTokens };
+        reported = {
+          inputTokens: e.inputTokens,
+          outputTokens: e.outputTokens,
+          reasoningTokens: e.reasoningTokens,
+          ...(e.cachedInputTokens ? { cachedInputTokens: e.cachedInputTokens } : {}),
+        };
       } else if (e.type === 'finish') return e.finish;
     }
     return null;

@@ -46,7 +46,7 @@ from ..session_store import (
 )
 from ..tasks import MAX_ENDED, ClaudeTask, auto_capable, session_history
 
-log = logging.getLogger("jarvis")
+log = logging.getLogger("eden_code")
 
 prefs.register_feature_pref(
     "code_project_roots", [], code_projects.clean_folders(code_projects.ROOTS_MAX)
@@ -60,6 +60,7 @@ prefs.register_feature_pref("code_groups", [], code_projects.clean_groups)
 
 SAVE_DELAY = 1.0  # a burst of changes is saved once, this long after it starts
 PARKED_DAYS = 14  # a session whose folder isn't there is kept this long, in case it's back
+GOAL_START_WAIT = 30.0  # seconds /goal's new session may take to start (a held task_new)
 # The board's line counts for a session, reused this long: past the open board's own poll
 # (every 15 s, web/features/code-board.js), so git runs at most every other one.
 BOARD_TTL = 25.0
@@ -118,7 +119,9 @@ class CodeSessions:
         hub.code_sessions = self  # for other features (the voice supervisor, say)
         tm.more_projects = self.projects.more
         tm.start_defaults = self.start_defaults
-        tm.turn_note = self.turn_note
+        # One of the notes, beside the others' (REL-3: set as turn_note, it replaced the
+        # wrapper code_bugfix had put there, and Exterminator Mode's rules went unsent).
+        tm.turn_notes.append(self.turn_note)
         tm.revive = self.revive
         tm.more_history = self.more_history
         hub.add_task_sink(self.heard)  # every event of the sessions, as the windows get it
@@ -238,6 +241,11 @@ class CodeSessions:
         self._remembered_saved = dict(self.remembered)
         restored = 0
         self._ids_past(records)
+        # Every kept locked-down session's id, the ones left in the history too: a resume of
+        # one by its id alone (start(resume=…)) is locked down as well (S3-5).
+        self.tm.untrusted_sessions.update(
+            r["session_id"] for r in records if r["untrusted"] and r["session_id"]
+        )
         # The open ones come back, and the newest MAX_ENDED ended ones the list shows; the
         # rest stay kept, in the history, until one is reopened (revive).
         ended = [r for r in records if r["ended"]]
@@ -396,14 +404,22 @@ class CodeSessions:
             else "Resting",
             result=record["result"],
             plan=record["plan"],
-            todos=list(record["todos"]),
+            todos=(
+                []
+                if record["todos"] and all(t.get("status") == "completed" for t in record["todos"])
+                else list(record["todos"])
+            ),
             cost_usd=record["cost_usd"],
+            cost_inherited=record["cost_inherited"],
             files_changed=set(record["files_changed"]),
             commands=record["commands"],
             fork=record["fork"] and bool(record["session_id"]),
             resume_at=record["resume_at"],
             audit=list(record["audit"]),
+            untrusted=record["untrusted"],
         )
+        if record["untrusted"] and record["session_id"]:
+            tm.untrusted_sessions.add(record["session_id"])
         try:
             task.started = datetime.fromisoformat(record["created"])
         except ValueError:
@@ -435,7 +451,7 @@ class CodeSessions:
         held = record["hold_until"] > 0 and not ended and waiting is not None
         if record["was_working"] and not ended and not held:
             notes.append(
-                "JARVIS restarted while this session was working. Send a message to carry on."
+                "Eden restarted while this session was working. Send a message to carry on."
             )
         elif not ended and not held:
             notes.append(
@@ -568,8 +584,12 @@ class CodeSessions:
 
     def _worth_keeping(self, task: ClaudeTask) -> bool:
         meta = self.meta.get(self.keys.get(task.id, ""), {})
+        # A session on another machine that started there has no Claude Code session here,
+        # but its hand-off finds it again after a restart (by its isolated copy): kept.
+        handoffs = getattr(self.hub, "code_handoff", None)
         return bool(
             task.session_id
+            or (handoffs is not None and handoffs.of_task(task) is not None)
             or not task.inbox.empty()
             or task.in_flight is not None
             or meta.get("draft")
@@ -622,6 +642,7 @@ class CodeSessions:
             id(task.in_flight),
             len(task.steered_items),
             task.cost_usd,
+            task.cost_inherited,
             len(task.files_changed),
             task.commands,
             task.fork,
@@ -669,9 +690,11 @@ class CodeSessions:
             "plan": task.plan[:4000],
             "todos": list(task.todos),
             "cost_usd": task.cost_usd,
+            "cost_inherited": task.cost_inherited,  # (a fork's: never counted as its own again)
             "files_changed": sorted(task.files_changed)[:FILES_KEEP],
             "commands": task.commands,
             "fork": task.fork,
+            "untrusted": task.untrusted,  # (S3-5: a locked-down session stays locked down)
             "resume_at": task.resume_at,
             **self._held(task, ended),
             "created": meta["created"],
@@ -716,7 +739,13 @@ class CodeSessions:
         """A new session in this project: the project's own defaults; resumed from the
         history, as that session last ran."""
         found = self.projects.defaults(path)
-        found.update(self.remembered.get(session_id, {}) if session_id else {})
+        remembered = dict(self.remembered.get(session_id, {})) if session_id else {}
+        # Bypass is never remembered (_remember keeps it as ""): a remembered "auto" was
+        # written by something else into remembered.json, and Bypass from it would skip the
+        # gate's proof (S3-7). The project's own default stands instead.
+        if remembered.get("mode") == "auto":
+            remembered.pop("mode")
+        found.update(remembered)
         return found
 
     def turn_note(self, task: ClaudeTask) -> str:
@@ -906,9 +935,14 @@ class CodeSessions:
         task.plan = next(
             (e["text"] for e in reversed(task.transcript) if e.get("role") == "plan"), ""
         )
-        task.todos = next(
+        raw_todos = next(
             (e.get("todos", []) for e in reversed(task.transcript) if e.get("role") == "todos"),
             [],
+        )
+        task.todos = (
+            []
+            if raw_todos and all(t.get("status") == "completed" for t in raw_todos)
+            else raw_todos
         )
         if not point:  # before the very first message: this session starts afresh
             task.session_id, task.resume_at, task.fork = "", "", False
@@ -1033,7 +1067,7 @@ class CodeSessions:
 
     async def native_goal_for(self, task: ClaudeTask) -> bool:
         """Whether this Claude Code has a /goal of its own (from its init answer, which lists
-        its commands). Unknown until a session is connected: then Jarvis keeps the goal."""
+        its commands). Unknown until a session is connected: then Eden Code keeps the goal."""
         if self.native_goal is not None:
             return self.native_goal
         client = task.client
@@ -1099,15 +1133,24 @@ class CodeSessions:
         text = str(msg.get("text") or "").strip()
         if not text:
             return
-        known = set(self.tm.tasks)
+        from .. import launches
+
+        # Its session by its launch token, never "the new one": another started meanwhile
+        # was given the goal (REL3-10).
+        token = launches.token()
         await self.hub._handle(
-            {"type": "task_new", "directory": str(msg.get("directory") or ""), "prompt": ""}
+            {
+                "type": "task_new",
+                "directory": str(msg.get("directory") or ""),
+                "prompt": "",
+                launches.KEY: token,
+            }
         )
-        fresh = [t for i, t in self.tm.tasks.items() if i not in known and t.kind == "code"]
-        if not fresh:
+        task = await launches.started(self.tm, token, GOAL_START_WAIT)
+        if task is None:
             return  # (task_new said why)
-        await self._cmd_goal({"id": fresh[0].id, "action": "set", "text": text})
-        self.hub.emit("show_session", id=fresh[0].id)
+        await self._cmd_goal({"id": task.id, "action": "set", "text": text})
+        self.hub.emit("show_session", id=task.id)
 
     def _turn_ended(self, data: dict[str, Any]) -> None:
         """A session's turn is over: its goal is met, or goes on, or pauses."""
@@ -1128,10 +1171,10 @@ class CodeSessions:
             return
         elif goal["native"]:
             if str(data.get("result") or "").lstrip().startswith("/goal"):
-                # Claude Code wouldn't keep it (a workspace it doesn't trust, hooks off): Jarvis does.
+                # Claude Code wouldn't keep it (a workspace it doesn't trust, hooks off): Eden Code does.
                 goal.update(
                     native=False,
-                    note="Eden Code couldn't keep this goal itself here, so JARVIS checks it.",
+                    note="Eden Code couldn't keep this goal itself here, so Eden checks it.",
                 )
                 self.tm.send(task.id, goal["text"])
             else:  # its check let the turn end only once the goal held

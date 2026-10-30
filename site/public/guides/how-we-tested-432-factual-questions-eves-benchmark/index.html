@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
+<title>Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5 · Eden</title>
+<meta name="description" content="A transparent look at how we evaluated 300 SimpleQA Verified factual questions and 132 false-premise questions, why confidence intervals and abstention rates matter, and where verification helps most.">
+<link rel="canonical" href="https://askeden.com/guides/how-we-tested-432-factual-questions-eves-benchmark">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Eden">
+<meta property="og:url" content="https://askeden.com/guides/how-we-tested-432-factual-questions-eves-benchmark">
+<meta property="og:title" content="Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5">
+<meta property="og:description" content="A transparent look at how we evaluated 300 SimpleQA Verified factual questions and 132 false-premise questions, why confidence intervals and abstention rates matter, and where verification helps most.">
+<meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://askeden.com/jarvis/eden-share.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/guides/guides.css">
+<script src="/home/features.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
+  <nav aria-label="Site"><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a class="pill" href="/signin">Sign in</a></nav>
+</header>
+
+<main id="main" itemscope itemtype="https://schema.org/TechArticle">
+  <meta itemprop="headline" content="Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5">
+  <meta itemprop="datePublished" content="2026-10-21">
+  <meta itemprop="author" content="Harrat Global Holdings, Inc.">
+  <header class="article-header">
+    <p class="breadcrumb"><a href="/">Eden</a> · <a href="/guides">Guides</a> · Guide · Benchmark Methodology</p>
+    <p class="kicker">GUIDE · BENCHMARK METHODOLOGY</p>
+    <h1>Inside the 432-Question Hallucination Benchmark: EVES vs. Gemini 3.1 Pro, Gemini 3.8 Flash &amp; Claude Sonnet 5.5<u aria-hidden="true"></u></h1>
+    <p class="lede" itemprop="description">A transparent look at how we evaluated 300 SimpleQA Verified factual questions and 132 false-premise questions, why confidence intervals and abstention rates matter, and where verification helps most.</p>
+    <div class="meta-line">
+      <span>Published 2026-10-21</span>
+      <span>·</span>
+      <span>9 min read</span>
+      <span>·</span>
+      <span>By Eden (Harrat Global Holdings, Inc.)</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="/accuracy">View the Full Interactive Chart</a>
+      <a class="btn" href="/eves">Explore EVES</a>
+    </div>
+  </header>
+
+  <div class="article-wrap">
+    <article class="prose" itemprop="articleBody">
+      <p>Marketing benchmarks in AI often cherry-pick tasks where a vendor’s system wins and hide the caveats in footnotes. When we built <b>EVES</b> (Eden’s verification and evaluation system), we wanted a benchmark that tested two things critical to real-world professional and academic work: <b>hard factual recall</b> and <b>resistance to false premises</b>.</p>
+
+      <h2>The 432-question evaluation suite</h2>
+      <ul>
+        <li><b>300 short factual questions from SimpleQA Verified</b> (Google DeepMind &amp; Google Research, MIT licence): unambiguous, fact-seeking questions where parametric memory often fails.</li>
+        <li><b>132 false-premise questions</b> (100 from <b>MultiHoax / MHFPQ</b>, CC BY 4.0, plus 32 written by us): questions containing a fabricated premise designed to test whether the system points out the false assumption or plays along.</li>
+      </ul>
+
+      <h2>Results across all 432 questions (9 October 2026)</h2>
+      <div class="tablebox">
+        <table>
+          <caption class="sr">Complete results across 432 questions with Wilson 95% confidence intervals</caption>
+          <thead>
+            <tr><th scope="col">System / Model</th><th scope="col">Made Up</th><th scope="col">95% CI</th><th scope="col">Right</th><th scope="col">Said It Didn’t Know</th></tr>
+          </thead>
+          <tbody>
+            <tr class="highlight"><th scope="row">EVES</th><td>9.7% (42/432)</td><td>7.3%–12.9%</td><td>69.7%</td><td>20.6%</td></tr>
+            <tr><th scope="row">Gemini 3.1 Pro (preview)</th><td>18.3% (79/432)</td><td>14.9%–22.2%</td><td>80.8%</td><td>0.9%</td></tr>
+            <tr><th scope="row">Gemini 3.8 Flash</th><td>21.8% (94/432)</td><td>18.1%–25.9%</td><td>78.0%</td><td>0.2%</td></tr>
+            <tr><th scope="row">Claude Sonnet 5.5</th><td>24.5% (106/432)</td><td>20.7%–28.8%</td><td>59.0%</td><td>16.4%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Four caveats we publish alongside every chart</h2>
+      <ol>
+        <li><b>EVES declines more often:</b> EVES abstained on 20.6% of questions (vs. &lt;1% for the Gemini models). Both Gemini models answered more questions right overall than EVES did, because they guessed on almost every question—getting many right, but also fabricating nearly twice as often.</li>
+        <li><b>Web search accounts for ~60% of the gain over Claude Sonnet 5.5:</b> The three baseline models answered from memory without web search.</li>
+        <li><b>Single run on a fixed date:</b> Measured on 9 October 2026 without OpenAI models enabled in that EVES configuration.</li>
+        <li><b>Automated &amp; judge grading limits:</b> Graded by rule and an AI judge; see <a href="/accuracy">askeden.com/accuracy</a> for the full protocol.</li>
+      </ol>
+
+      <section itemscope itemtype="https://schema.org/FAQPage" aria-labelledby="faqH">
+        <h2 id="faqH">Frequently asked questions</h2>
+        <div class="faq-list">
+        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <h3 itemprop="name">Why is &quot;Made something up&quot; separated from &quot;Said it didn’t know&quot;?</h3>
+          <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <p itemprop="text">Because in high-stakes work—medicine, law, finance, and university coursework—an honest &quot;I cannot verify this&quot; is safe, whereas a confident fabrication causes real damage.</p>
+          </div>
+        </div>
+        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <h3 itemprop="name">Where can I inspect the exact grading rules and datasets?</h3>
+          <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <p itemprop="text">Visit askeden.com/accuracy#method for the full dataset citations (SimpleQA Verified and MHFPQ), confidence interval formulas, and judge rubrics.</p>
+          </div>
+        </div></div>
+      </section>
+    </article>
+
+    <aside class="rail" aria-label="Related resources">
+      <div class="rail-card navy">
+        <h3>Try Eden in your browser</h3>
+        <p>One chat that routes each question to the best model for the lowest cost, with EVES hallucination verification built in.</p>
+        <a class="btn" href="/signin">Start free at askeden.com</a>
+      </div>
+      <div class="rail-card">
+        <h3>More guides</h3>
+        <ul class="rail-links">
+          <li><a href="/guides/stop-ai-hallucinations-investment-memos">How to Stop AI Hallucinations in Financial &amp; Enterprise Analysis</a></li>
+          <li><a href="/guides/ai-model-router-cut-llm-costs">AI Model Router vs. Single-Model Subscriptions: Cutting LLM Costs in Half Without Losing Quality</a></li>
+          <li><a href="/guides/ai-tutor-for-university-courses-syllabus-slides">AI-Assisted Workflows for Educators: Building a Course Tutor Grounded Only in Your Syllabus &amp; Slides</a></li>
+          <li><a href="/guides/plugging-hallucination-verification-api-into-ai-agents">Adding a Hallucination Verification Layer &amp; Risk-Aware Router to Existing AI Agents</a></li>
+          <li><a href="/accuracy">The 432-question EVES hallucination benchmark</a></li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+    <div>
+      <p class="kicker">Technical brief &amp; updates</p>
+      <h2 id="leadH">Get the Full 432-Question Evaluation Report</h2>
+      <p class="sub">Receive our complete methodology notes, confidence-interval math, and updates as new frontier models are tested.</p>
+      <ul class="lead-perks">
+        <li>Full 432-question EVES benchmark breakdown &amp; methodology</li>
+        <li>Architecture notes on model routing and claim verification</li>
+        <li>Zero spam; unsubscribe in one click</li>
+      </ul>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="power-user">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/guides/how-we-tested-432-factual-questions-eves-benchmark">
+      <input type="hidden" name="audience" value="power-user">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>Email address
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="lead-row">
+        <label>Organization or course (optional)
+          <input type="text" name="organization" autocomplete="organization" placeholder="Company or university">
+        </label>
+        <label>Optional SMS updates
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Send me the technical brief</button>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+</footer>
+</body>
+</html>

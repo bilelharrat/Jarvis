@@ -1,4 +1,4 @@
-// The iPhone and iPad apps (Eden and Eden Edu) are apps, not web pages: no pinch or double-tap zoom, no zoom-in
+// The iPhone and iPad apps (Eden, Eden Edu and Ask Eden Travel) are apps, not web pages: no pinch or double-tap zoom, no zoom-in
 // when a field gets focus, and no sideways drift. This is a classic script, first in <head> of every page the apps
 // load (index.html, edu.html, share.html), so it runs before paint and doesn't wait for app.js or the app's bridge.
 // The app announces itself in the user agent ("EdenApp/…", WebController.swift), so it needs no native build.
@@ -11,7 +11,7 @@
   // The share page is a real scrolling document and leaves it off.
   var snapOn = !!(d.currentScript && d.currentScript.hasAttribute('data-snap'));
   var root = d.documentElement;
-  if (!/EdenApp|EdenEdu/.test(navigator.userAgent || '') && !root.classList.contains('eden-app')) return;
+  if (!/EdenApp|EdenEdu|EdenTravelApp/.test(navigator.userAgent || '') && !root.classList.contains('eden-app')) return;
   root.classList.add('eden-app');
 
   var VIEWPORT = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';

@@ -635,9 +635,14 @@ class EdenBrowser:
         from .prefs import MODELS
 
         chosen = self.hub.prefs.feature("background_model")
+        resolved_model = (
+            chosen
+            if isinstance(chosen, str) and chosen.startswith("gemini-")
+            else MODELS.get(chosen, "gemini-3.8-flash")
+        )
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
-            model=MODELS.get(chosen, MODELS["sonnet"]),
+            model=resolved_model,
             cwd=str(self.hub.feature_path("eden_browser")),
             system_prompt=PROMPT,
             tools=[],

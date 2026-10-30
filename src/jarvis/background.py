@@ -183,7 +183,9 @@ class BackgroundDesk:
 
     def model(self) -> str:
         chosen = self.hub.prefs.feature("background_model")
-        return MODELS.get(chosen, MODELS["sonnet"])
+        if isinstance(chosen, str) and chosen.startswith("gemini-"):
+            return chosen
+        return MODELS.get(chosen, "gemini-3.8-flash")
 
     def running(self) -> list[Any]:
         return [

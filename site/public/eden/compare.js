@@ -329,8 +329,6 @@ export function compareView(c, user) {
 /* ---------- updates while answers stream (wraps ui.updateMessage) ---------- */
 
 const scrollcol = () => $('scrollcol');
-const nearBottom = () => { const s = scrollcol(); return !!s && s.scrollHeight - s.scrollTop - s.clientHeight < 120; };
-const toBottom = () => { const s = scrollcol(); if (s) s.scrollTop = s.scrollHeight; };
 
 function replaceKeepingFocus(old, fresh) {
   const act = document.activeElement && old.contains(document.activeElement) ? document.activeElement.dataset.act : null;
@@ -341,7 +339,8 @@ function replaceKeepingFocus(old, fresh) {
 /** Redraw one lane (or the summary) in place; false when `node` isn't part of a drawn comparison. */
 function updateLane(c, node, opts = {}) {
   if (!node || c !== state.current) return false;
-  const stick = nearBottom();
+  const s = scrollcol();
+  const keepTop = s ? s.scrollTop : 0;
   if (node.synthOf) {
     const user = c.nodes[node.synthOf];
     const old = $('transcript').querySelector(`.cmp-synth[data-synth="${node.synthOf}"]`);
@@ -355,7 +354,7 @@ function updateLane(c, node, opts = {}) {
     if (!old) return false;
     replaceKeepingFocus(old, laneEl(c, node, old.classList.contains('on'), x.group.kind || 'compare'));
   }
-  if (stick) toBottom();
+  if (s) s.scrollTop = keepTop;
   if (opts.final) { ui.renderComposer(); ui.renderTitle(); }
   return true;
 }

@@ -428,7 +428,7 @@ class Heartbeat:
 
         options = ClaudeAgentOptions(
             max_buffer_size=MAX_BUFFER,
-            model=MODEL_IDS["haiku"],
+            model="gemini-3.8-flash",
             system_prompt=SYSTEM + lang.reply_instruction(self.hub.prefs.language),
             tools=[],
             allowed_tools=names,

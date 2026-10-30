@@ -89,8 +89,8 @@
 .es-tp .es-fm-l { line-height: calc(1.15 * 2); }
 .es-hdr { position: absolute; right: 96px; top: 0; height: 96px; display: flex; align-items: center; font-size: var(--es-size); line-height: 1; color: #111; pointer-events: none; }
 .es-guides { position: absolute; inset: 0; pointer-events: none; }
-.es-pgline { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed rgba(10, 132, 255, .35); }
-.es-pgline span { position: absolute; left: 8px; top: 2px; font: 600 10px/1.4 -apple-system, system-ui, sans-serif; color: rgba(10, 132, 255, .7); letter-spacing: .2px; }
+.es-pgline { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--accent-soft, rgba(10, 132, 255, .35)); }
+.es-pgline span { position: absolute; left: 8px; top: 2px; font: 600 10px/1.4 -apple-system, system-ui, sans-serif; color: var(--accent, rgba(10, 132, 255, .7)); letter-spacing: .2px; }
 .es-pgline span.r { left: auto; right: 96px; top: -16px; font: var(--es-size)/1 var(--es-font); color: #555; letter-spacing: 0; }
 .es-fm { cursor: pointer; }
 .es-fm-l { line-height: calc(1.15 * 2); }
@@ -111,22 +111,22 @@
 .es-prose p[style*="text-align: center"], .es-prose p[style*="text-align:center"] { text-indent: 0; }
 .es-prose p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #a0a0a6; float: left; height: 0; pointer-events: none; text-indent: var(--es-indent); }
 .es-prose { counter-reset: es-fn; }
-.es-fn { cursor: pointer; color: #0a64d6; font-size: .7em; line-height: 0; padding: 0 1px; }
+.es-fn { cursor: pointer; color: var(--accent, #0a64d6); font-size: .7em; line-height: 0; padding: 0 1px; }
 .es-fn::after { counter-increment: es-fn; content: counter(es-fn); }
 .es-cite { border-radius: 3px; }
-.es-cite:not(.es-fn):hover, .es-cite.ProseMirror-selectednode:not(.es-fn) { background: rgba(10, 132, 255, .1); }
+.es-cite:not(.es-fn):hover, .es-cite.ProseMirror-selectednode:not(.es-fn) { background: var(--accent-soft, rgba(10, 132, 255, .1)); }
 .es-cite.es-fn { vertical-align: super; }
 .es-cite.gone { color: #c0392b; }
 .es-note-cite { display: block; padding: 2px 0; color: #333; }
 .es-prose:focus, .es-prose:focus-visible { outline: none; box-shadow: none; }
-.es-fn.ProseMirror-selectednode { outline: 2px solid rgba(10, 132, 255, .5); border-radius: 3px; }
+.es-fn.ProseMirror-selectednode { outline: 2px solid var(--accent, rgba(10, 132, 255, .5)); border-radius: 3px; }
 
 .es-notes { margin-top: 2em; padding-top: .5em; border-top: 1px solid #ccc; font-size: .85em; line-height: 1.3; }
 .es-notes-t { font-weight: 700; margin-bottom: .3em; }
 .es-notes ol { margin: 0; padding-left: 1.6em; }
 .es-notes li { margin: 2px 0; }
 .es-notes input { width: 100%; font: inherit; color: #111; border: 0; border-bottom: 1px dashed #ccc; background: transparent; padding: 2px 0; outline: none; }
-.es-notes input:focus { border-bottom-color: #0a84ff; }
+.es-notes input:focus { border-bottom-color: var(--accent, #0a84ff); }
 
 .es-refs-t { line-height: var(--es-line); }
 .es-ref { margin: 0; }
@@ -228,8 +228,8 @@
 .es-ghost h1, .es-ghost h2, .es-ghost h3 { font-size: 1em; margin: 0 0 var(--es-gap); text-align: var(--es-h1-align); font-weight: var(--es-h1-weight); }
 .es-caret { display: inline-block; width: .5em; height: 1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent, #0a84ff); opacity: .7; animation: es-blink 1s steps(2) infinite; }
 @keyframes es-blink { 50% { opacity: 0; } }
-.es-ghost-mark { position: absolute; left: 0.75in; right: 0.75in; border-radius: 6px; box-shadow: 0 0 0 2px var(--accent, #0a84ff); background: rgba(10, 132, 255, .06); pointer-events: none; }
-.es-ghost-mark span { position: absolute; top: -22px; right: 0; font: 600 11px/18px -apple-system, system-ui, sans-serif; color: #fff; background: var(--accent, #0a84ff); border-radius: 5px; padding: 0 7px; }
+.es-ghost-mark { position: absolute; left: 0.75in; right: 0.75in; border-radius: 6px; box-shadow: 0 0 0 2px var(--accent, #0a84ff); background: var(--accent-soft, rgba(10, 132, 255, .06)); pointer-events: none; }
+.es-ghost-mark span { position: absolute; top: -22px; right: 0; font: 600 11px/18px -apple-system, system-ui, sans-serif; color: var(--accent-contrast, #fff); background: var(--accent, #0a84ff); border-radius: 5px; padding: 0 7px; }
 @media (prefers-reduced-motion: reduce) { .es-caret { animation: none; } }
 /* an empty essay that Eden is writing: its words, not "Start writing your essay…" */
 .es-sheet:has(.es-ghost.alone) .es-body .is-editor-empty::before, .es-sheet:has(.es-ghost.alone) .es-body p.is-empty::before { content: none; }

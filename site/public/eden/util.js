@@ -236,6 +236,23 @@ export function relDay(ts) {
   return d.getFullYear() === now.getFullYear() ? 'Earlier' : String(d.getFullYear());
 }
 
+export function fmtTimestamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return d.toLocaleString();
+  }
+}
+
 export const isMobile = () => matchMedia('(max-width:640px)').matches;
 /** A touch screen (no hover, or a finger as the main pointer): keyboard hints mean nothing there.
  *  Not while Eden's iPad app has a hardware keyboard attached (the app marks the page .eden-kbd). */

@@ -27,6 +27,7 @@ import json
 import logging
 import re
 import secrets
+import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from typing import Any
@@ -36,7 +37,14 @@ import httpx
 log = logging.getLogger(__name__)
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_CACHES = "https://generativelanguage.googleapis.com/v1beta/cachedContents"
 VERTEX_EXPRESS = "https://aiplatform.googleapis.com/v1/publishers/google/models"
+CACHE_MIN_CHARS = 16_000  # ~4,000 tokens (Gemini's minimum for explicit context caching)
+HISTORY_CHECKPOINT_STRIDE = 4  # checkpoint conversation history every 4 content messages (~2 turns)
+HISTORY_CHECKPOINT_MIN_CHARS = 12_000  # ~3,000 tokens of history before checkpointing contents
+CACHE_TTL_SECONDS = 3600
+CACHE_REFRESH_SECONDS = 3000
+CACHES_KEPT = 64
 # Google's "-latest" names follow each family's newest model; numbered ones get retired
 # (gemini-2.5-flash was, for new keys, in 2026).
 SUGGESTED = (
@@ -235,18 +243,18 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
 
 
 def thinking_level(body: dict[str, Any]) -> str | None:
-    """How hard Gemini 3 Flash thinks, from what the request asked of Claude: a session that
-    thinks (Eden Code at high effort and up) gets Gemini's full thinking, one that thinks
-    at low or medium effort (the session's effort, Model Router's pick) that level; one with
-    thinking off (JARVIS's voice turns) thinks lightly, about three times faster to the first
-    word.
+    """How hard Gemini 3 Flash and Gemini 4 Argon think, from what the request asked of
+    Claude: a session that thinks (Eden Code at high effort and up) gets Gemini's full
+    thinking, one that thinks at low or medium effort (the session's effort, Model Router's
+    pick) that level; one with thinking off (JARVIS's voice turns) thinks lightly, about
+    three times faster to the first word.
     None leaves Gemini's default: Pro (thinking lightly, it leaks stray words into its reply
     and writes tool calls out as text instead of making them) and older models, which take
     no level."""
     model = str(body.get("model") or "").removeprefix("google/")
     if not model.startswith("gemini-") or re.match(r"gemini-[12]\b|gemini-[12]\.", model):
         return None
-    if "flash" not in model:
+    if "flash" not in model and not re.match(r"gemini-4(?:[.-]|$)", model):
         return None
     thinking = body.get("thinking") if isinstance(body.get("thinking"), dict) else {}
     effort = str((body.get("output_config") or {}).get("effort") or "").lower()
@@ -276,11 +284,21 @@ class Stream:
         self.used_tools = False
         self.finish = ""
         self.input_tokens = input_tokens
+        self.cache_read_tokens = 0
         self.output_tokens = 0
         self.blocks: list[dict[str, Any]] = []  # the whole message, for a non-streamed reply
         # The open text block's pieces, its text once it closes (added to a string piece by
         # piece, a long reply copied all of itself again for each piece: 1.5 s for a MB).
         self._words: list[str] = []
+
+    def _usage(self, output: int = 0) -> dict[str, int]:
+        out = {
+            "input_tokens": max(0, self.input_tokens - self.cache_read_tokens),
+            "output_tokens": output,
+        }
+        if self.cache_read_tokens > 0:
+            out["cache_read_input_tokens"] = self.cache_read_tokens
+        return out
 
     @staticmethod
     def event(kind: str, data: dict[str, Any]) -> str:
@@ -295,7 +313,7 @@ class Stream:
             "content": [],
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {"input_tokens": self.input_tokens, "output_tokens": 0},
+            "usage": self._usage(0),
         }
         return self.event("message_start", {"message": message})
 
@@ -312,6 +330,7 @@ class Stream:
         usage = data.get("usageMetadata") or {}
         if usage:
             self.input_tokens = usage.get("promptTokenCount", self.input_tokens)
+            self.cache_read_tokens = usage.get("cachedContentTokenCount", self.cache_read_tokens)
             self.output_tokens = usage.get("candidatesTokenCount", self.output_tokens) + usage.get(
                 "thoughtsTokenCount", 0
             )
@@ -407,7 +426,7 @@ class Stream:
                 "message_delta",
                 {
                     "delta": {"stop_reason": self.stop_reason(), "stop_sequence": None},
-                    "usage": {"output_tokens": self.output_tokens},
+                    "usage": self._usage(self.output_tokens),
                 },
             )
             + self.event("message_stop", {})
@@ -424,7 +443,7 @@ class Stream:
             "content": self.blocks,
             "stop_reason": self.stop_reason(),
             "stop_sequence": None,
-            "usage": {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens},
+            "usage": self._usage(self.output_tokens),
         }
 
 
@@ -444,10 +463,142 @@ def anthropic_error(status: int, message: str) -> tuple[int, dict[str, Any]]:
 class GeminiRelay:
     """The translation and the calls to Google; the HTTP server around it is below."""
 
-    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self, client: httpx.AsyncClient | None = None, *, cost_saver: bool = True
+    ) -> None:
         self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(300, connect=15))
         self.signatures = Signatures()
         self.endpoints: dict[str, str] = {}  # sha256(key)[:16] -> "gemini" | "vertex"
+        self.caches: OrderedDict[str, tuple[str | None, int, float]] = OrderedDict()
+        self.cost_saver = cost_saver
+
+    @staticmethod
+    def _inline_image_weight(contents: list[dict[str, Any]]) -> int:
+        """Each inlineData image part counts for ~1,600 tokens (~6,400 chars equivalent)."""
+        images = sum(
+            1
+            for c in contents
+            for p in (c.get("parts") or [])
+            if isinstance(p, dict) and ("inlineData" in p or "inline_data" in p)
+        )
+        return images * 6400
+
+    @classmethod
+    def _history_cutoff(cls, contents: list[dict[str, Any]]) -> int:
+        """Largest multiple of HISTORY_CHECKPOINT_STRIDE that leaves at least one live message
+        and ends on a 'model' turn (or even index) with >= HISTORY_CHECKPOINT_MIN_CHARS."""
+        if len(contents) <= HISTORY_CHECKPOINT_STRIDE:
+            return 0
+        max_cut = ((len(contents) - 1) // HISTORY_CHECKPOINT_STRIDE) * HISTORY_CHECKPOINT_STRIDE
+        while max_cut > 0 and contents[max_cut - 1].get("role") != "model":
+            max_cut -= 1
+        if max_cut <= 0:
+            return 0
+        prefix = contents[:max_cut]
+        raw_hist = json.dumps(prefix, sort_keys=True, separators=(",", ":"))
+        return (
+            max_cut
+            if len(raw_hist) + cls._inline_image_weight(prefix) >= HISTORY_CHECKPOINT_MIN_CHARS
+            else 0
+        )
+
+    @classmethod
+    def _cache_candidates(
+        cls, key: str, model: str, payload: dict[str, Any]
+    ) -> list[tuple[str, int, dict[str, Any]]]:
+        """Candidate cache payloads, most specific first:
+        1) Rolling history checkpoint (systemInstruction + tools + toolConfig + contents[:cutoff])
+        2) Static prefix (systemInstruction + tools + toolConfig)
+        """
+        if key.startswith("AQ."):
+            return []  # Vertex express uses implicit caching only
+        base = {
+            k: payload[k]
+            for k in ("systemInstruction", "tools", "toolConfig")
+            if k in payload
+        }
+        contents = payload.get("contents")
+        key_id = hashlib.sha256(key.encode()).hexdigest()[:16]
+        out: list[tuple[str, int, dict[str, Any]]] = []
+        if isinstance(contents, list):
+            cutoff = cls._history_cutoff(contents)
+            if cutoff > 0:
+                prefix = contents[:cutoff]
+                hist_spec = {**base, "contents": prefix}
+                raw_hist = json.dumps(hist_spec, sort_keys=True, separators=(",", ":"))
+                if len(raw_hist) + cls._inline_image_weight(prefix) >= CACHE_MIN_CHARS:
+                    digest = hashlib.sha256(
+                        f"{key_id}:{model}:h{cutoff}:{raw_hist}".encode()
+                    ).hexdigest()[:24]
+                    out.append((digest, cutoff, hist_spec))
+        if base:
+            raw_base = json.dumps(base, sort_keys=True, separators=(",", ":"))
+            if len(raw_base) >= CACHE_MIN_CHARS:
+                digest = hashlib.sha256(f"{key_id}:{model}:{raw_base}".encode()).hexdigest()[:24]
+                out.append((digest, 0, base))
+        return out
+
+    async def _ensure_cache(
+        self, key: str, model: str, payload: dict[str, Any]
+    ) -> tuple[str | None, int, str | None]:
+        if not self.cost_saver:
+            return None, 0, None
+        candidates = self._cache_candidates(key, model, payload)
+        if not candidates:
+            return None, 0, None
+        now = time.monotonic()
+        for digest, cutoff, spec in candidates:
+            cached = self.caches.get(digest)
+            if cached is not None:
+                name, cached_cutoff, expires = cached
+                if now < expires:
+                    self.caches.move_to_end(digest)
+                    if name is not None:
+                        return name, cached_cutoff, digest
+                    continue  # This candidate failed earlier; try fallback candidate
+            body: dict[str, Any] = {
+                "model": f"models/{model}",
+                "ttl": f"{CACHE_TTL_SECONDS}s",
+                **spec,
+            }
+            try:
+                response = await self.client.post(
+                    GEMINI_CACHES,
+                    json=body,
+                    headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    name = data.get("name") if isinstance(data, dict) else None
+                    if isinstance(name, str) and name.startswith("cachedContents/"):
+                        self.caches[digest] = (name, cutoff, now + CACHE_REFRESH_SECONDS)
+                        self.caches.move_to_end(digest)
+                        while len(self.caches) > CACHES_KEPT:
+                            self.caches.popitem(last=False)
+                        return name, cutoff, digest
+            except (httpx.HTTPError, ValueError):
+                pass
+            # Remember if this candidate failed so we don't retry it every turn.
+            self.caches[digest] = (None, cutoff, now + 600)
+            while len(self.caches) > CACHES_KEPT:
+                self.caches.popitem(last=False)
+        return None, 0, None
+
+    @staticmethod
+    def _with_cache(
+        payload: dict[str, Any], cache_name: str | None, cutoff: int = 0
+    ) -> dict[str, Any]:
+        if not cache_name:
+            return payload
+        out = {
+            k: v
+            for k, v in payload.items()
+            if k not in ("systemInstruction", "tools", "toolConfig")
+        }
+        if cutoff > 0 and isinstance(out.get("contents"), list):
+            out["contents"] = out["contents"][cutoff:]
+        out["cachedContent"] = cache_name
+        return out
 
     def _urls(self, key: str, model: str, stream: bool) -> list[tuple[str, str, dict[str, str]]]:
         method = "streamGenerateContent?alt=sse" if stream else "generateContent"
@@ -501,11 +652,25 @@ class GeminiRelay:
         self, key: str, body: dict[str, Any]
     ) -> tuple[int, dict[str, Any] | None, AsyncIterator[str] | None]:
         """(status, json, None) for an error or a whole reply; (200, None, events) to stream."""
-        model = str(body.get("model") or SUGGESTED[0]).removeprefix("google/")
+        raw_model = str(body.get("model") or SUGGESTED[0]).removeprefix("google/")
+        # If a Claude model ID was passed into the Gemini relay (e.g. from an unmapped or fallback session),
+        # use the default Gemini model instead of asking Google for models/claude-...
+        if not raw_model.startswith("gemini-") and not raw_model.startswith("gemma-"):
+            model = SUGGESTED[0]
+        else:
+            model = raw_model
         payload = to_gemini(body, self.signatures)
         stream = bool(body.get("stream"))
         try:
-            response = await self._open(key, model, payload, stream)
+            cache_name, cutoff, cache_digest = await self._ensure_cache(key, model, payload)
+            sent_payload = self._with_cache(payload, cache_name, cutoff)
+            response = await self._open(key, model, sent_payload, stream)
+            if cache_name and response.status_code in (400, 404):
+                # Cache expired or rejected: retry once with inline systemInstruction & tools.
+                if cache_digest:
+                    self.caches.pop(cache_digest, None)
+                await response.aclose()
+                response = await self._open(key, model, payload, stream)
             newer = successor(model) if response.status_code == 404 else None
             if newer:
                 text = await self._error_text(response)
@@ -626,10 +791,23 @@ def build_app(relay: GeminiRelay):
             body = {}
         return JSONResponse({"input_tokens": count_tokens(body)})
 
+    async def mode(request: Request):
+        if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
+            return JSONResponse(anthropic_error(403, "Only this Mac.")[1], status_code=403)
+        if request.method == "POST":
+            try:
+                body = await request.json()
+            except ValueError:
+                body = {}
+            if isinstance(body, dict) and isinstance(body.get("cost_saver"), bool):
+                relay.cost_saver = body["cost_saver"]
+        return JSONResponse({"cost_saver": relay.cost_saver, "caches": len(relay.caches)})
+
     return Starlette(
         routes=[
             Route("/v1/messages", messages, methods=["POST"]),
             Route("/v1/messages/count_tokens", tokens, methods=["POST"]),
+            Route("/v1/mode", mode, methods=["GET", "POST"]),
         ]
     )
 
@@ -640,9 +818,15 @@ class GeminiProxy:
     def __init__(self) -> None:
         self.relay: GeminiRelay | None = None
         self.port = 0
+        self.cost_saver = True
         self._server: Any = None
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+
+    def set_cost_saver(self, enabled: bool) -> None:
+        self.cost_saver = bool(enabled)
+        if self.relay is not None:
+            self.relay.cost_saver = self.cost_saver
 
     @property
     def address(self) -> str:
@@ -654,7 +838,7 @@ class GeminiProxy:
                 return self.address
             import uvicorn
 
-            self.relay = GeminiRelay()
+            self.relay = GeminiRelay(cost_saver=self.cost_saver)
             config = uvicorn.Config(
                 build_app(self.relay), host="127.0.0.1", port=0, log_level="warning", lifespan="off"
             )

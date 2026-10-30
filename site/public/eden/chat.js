@@ -4,14 +4,14 @@
 // (POST /api/chat/compare): one question to up to three models, each answer a draft.
 
 import { toast, effortLabel, store, uid } from './util.js';
-import { imageEvent, imagesText } from './image-mode.js'; // Eden's pictures (GPT Image on askeden.com)
+import { imageEvent, imagesText, videoEvent, videosText } from './image-mode.js'; // Eden's pictures and videos (Imagen 4, Gemini Flash Image, Veo 3)
 import { state, ui, addNode, path, parentOf, saveConversation, nodeText, attachmentData, persona, addConversation, newConversation } from './state.js';
 import { api, LOCAL_SERVER } from './api.js';
 import { routeSettings, settingsSig, currentOverride, modelInfo } from './router.js';
 import { endTurnOverride, resolveOpenGroups, setCompareTurns } from './compare.js';
 import { privacyBody, privacyOn } from './privacy.js';
 import { recallBlock } from './recall-model.js';
-import { autoSearchMode, factCheckSettings } from './autosearch-rules.js';
+import { autoSearchMode, factCheckSettings, citedSourcesNote } from './autosearch-rules.js';
 import { macBody, macEvent } from './files.js';
 import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
@@ -23,8 +23,25 @@ import { turnStreamStep } from './eves-model.js'; // what a normal reply's strea
 import { noteVerification } from './verify.js'; // the label under a reply, and a repaired answer swapped in
 import { applyReport, applyStep, capOf, verifiedResearch } from './research-model.js'; // Q2: research's progress steps and its budget cap
 import { replyLanguageNote } from './i18n.js'; // "reply in French" when the page is in French
-import { aiConsentBlocks } from './native.js'; // the iPhone app's AI consent: no cloud send without it
+import { aiConsentBlocks, IN_APP } from './native.js'; // the iPhone app's AI consent: no cloud send without it
 import { untilStopped } from './resilience.js'; // the checks before a send: Stop ends them at once, a slow one is skipped (B2)
+import { buildBookIndex, queryBookIndex, HUGE_DOC_CHARS } from './book-index.mjs';
+
+const bookIndexCache = new Map(); // messageId:name -> BookIndex
+function getOrBuildBook(msgId, att) {
+  const key = `${msgId}:${att.name || 'doc'}`;
+  if (att.bookIndex && att.bookIndex.chunks) {
+    bookIndexCache.set(key, att.bookIndex);
+    return att.bookIndex;
+  }
+  let cached = bookIndexCache.get(key);
+  if (!cached && typeof att.text === 'string' && att.text.length > HUGE_DOC_CHARS) {
+    cached = buildBookIndex(att.text, { name: att.name || 'Document' });
+    if (bookIndexCache.size > 24) bookIndexCache.delete(bookIndexCache.keys().next().value);
+    bookIndexCache.set(key, cached);
+  }
+  return cached || null;
+}
 
 /** `{ system }`: the persona's, plus the reply-language note when French is on; `{}` when both are empty. */
 function withLang(system) {
@@ -70,6 +87,8 @@ export function nowNote(d = new Date()) {
       '(the transit agency\u2019s trip planner, Google Maps for traffic, the weather service). The user\u2019s location is only what they say in the conversation.\n' +
       'Your training data ends before today: phones, products, people, events and releases newer than it exist. Never say something doesn\u2019t exist, ' +
       'wasn\u2019t released or isn\u2019t real only because you don\u2019t know it; use the web results when you have them, otherwise say you aren\u2019t sure it\u2019s out yet.';
+    // No extra "prices and newest are live facts" line (2026-10-25 hosted test, docs/verify/stale-price-hallucination-2026-10-25.md):
+    // both wordings tried turned right prices into refusals or stale ones, and neither helped the stale-price replay.
   } catch { return ''; }
 }
 
@@ -112,6 +131,9 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
     ...browse,
     ...(browser ? { browserAnswer: browser } : {}),
   });
+  for (const a of attachments) {
+    if (a.kind === 'text' && a.bookIndex) bookIndexCache.set(`${user.id}:${a.name || 'doc'}`, a.bookIndex);
+  }
   if (attachments.some((a) => a.kind === 'image')) attachmentData.set(user.id, attachments.filter((a) => a.kind === 'image'));
   autoTitle(c, text || (attachments[0] && attachments[0].name));
   if (c.kind === 'code') return codeTurn(c, user, text, attachments, context);
@@ -119,7 +141,7 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
     if (!privacyOn(c)) return compareTurn(c, user, text);
     toast('Compare asks cloud models; in this private chat your Mac answers alone'); // G9
   }
-  const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text });
+  const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text, streaming: true, startedAt: Date.now() });
   touch(c);
   ui.render();
   // H2: a model picked for this message instead of the router's pick teaches the router (learned.js)
@@ -130,9 +152,10 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
   return true;
 }
 
-function historyFor(c, upTo) {
+function historyFor(c, upTo, activeQuery = '') {
   const out = [];
-  for (const n of path(c)) {
+  const nodes = path(c);
+  for (const n of nodes) {
     if (n.id === upTo.id) break;
     if (n.role === 'user') {
       const live = attachmentData.get(n.id) || [];
@@ -141,15 +164,50 @@ function historyFor(c, upTo) {
         if (a.kind === 'image') {
           const d = live.find((x) => x.name === a.name);
           if (d && d.data) atts.push({ kind: 'image', name: a.name, mime: a.mime, data: d.data });
-        } else if (a.kind === 'text') atts.push({ kind: 'text', name: a.name, text: a.text || '' });
+        } else if (a.kind === 'text') {
+          const book = getOrBuildBook(n.id, a);
+          if (book) {
+            const retrieved = queryBookIndex(book, activeQuery || upTo.content || n.content || '', { k: 5, maxChars: 14_000 });
+            atts.push({ kind: 'text', name: a.name, text: retrieved.block || (a.text || '').slice(0, 14_000) });
+          } else {
+            const raw = a.text || '';
+            atts.push({ kind: 'text', name: a.name, text: raw.length > HUGE_DOC_CHARS ? `${raw.slice(0, 12_000)}\n\n[…earlier attachment compacted (${raw.length.toLocaleString('en-US')} chars total)…]` : raw });
+          }
+        }
         else if (a.kind === 'video' && a.uri) atts.push(videoPayload(a)); // read in its own turn; askeden.com notes it after
       }
       out.push({ role: 'user', content: n.content || '', ...(atts.length ? { attachments: atts } : {}) });
     } else {
-      const t = nodeText(n) || imagesText(n); // a picture's reply: what was drawn (image-mode.js)
+      let t = nodeText(n) || imagesText(n) || videosText(n); // a picture or video reply: what was drawn or animated (image-mode.js)
+      // the links a reply cited go back with it, so the model can see its earlier figures were sourced (2026-10-25 replay:
+      // without them it read its own cited prices as unverified and took them back)
+      if (t && !IN_APP) t += citedSourcesNote(n.citations);
       // a reply written after reading untrusted content is itself untrusted (prompt-injection guard, H8)
       if (t) out.push({ role: 'assistant', content: t, ...(n.provenance && n.provenance.tainted ? { untrusted: true } : {}) });
       else if (out.length && out.at(-1).role === 'user') out.pop(); // a failed turn: its question goes again below
+    }
+  }
+  // Auto-compaction in Eden Chat: keep total conversation history under ~120,000 tokens (~480,000 chars)
+  // by summarizing/compacting oldest turns into a rolling conversation digest so it NEVER hits context limits.
+  const MAX_HISTORY_CHARS = 420_000;
+  const msgChars = (m) => (m.content || '').length + (m.attachments || []).reduce((s, a) => s + (a.text ? a.text.length : 1600), 0);
+  let totalChars = out.reduce((s, m) => s + msgChars(m), 0);
+  if (totalChars > MAX_HISTORY_CHARS && out.length > 4) {
+    const compactedNotes = [];
+    while (totalChars > MAX_HISTORY_CHARS && out.length > 4) {
+      const oldUser = out.shift();
+      const oldAsst = out[0] && out[0].role === 'assistant' ? out.shift() : null;
+      if (oldUser) {
+        totalChars -= msgChars(oldUser);
+        const uSnippet = String(oldUser.content || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+        const aSnippet = oldAsst ? String(oldAsst.content || '').replace(/\s+/g, ' ').trim().slice(0, 320) : '';
+        if (oldAsst) totalChars -= msgChars(oldAsst);
+        if (uSnippet || aSnippet) compactedNotes.push(`- Asked: ${uSnippet}${aSnippet ? ` → Answered: ${aSnippet}` : ''}`);
+      }
+    }
+    if (compactedNotes.length) {
+      const digest = `[Earlier conversation summary (${compactedNotes.length} older turns auto-compacted by Eden):\n${compactedNotes.slice(-25).join('\n')}]`;
+      out.unshift({ role: 'user', content: digest }, { role: 'assistant', content: 'Understood — I have the context from our earlier turns.' });
     }
   }
   return out;
@@ -262,7 +320,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const body = {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
     ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
-    messages: [...historyFor(c, user), userPayload(user)],
+    messages: [...historyFor(c, user, user.content || ''), userPayload(user)],
     // memory across chats: a temporary chat neither reads nor writes it; the chat's id is a memory's source
     ...(c.temp ? { temporary: true } : { chatId: c.id }),
     // the EVES setting rides along when it isn't Off; autoSearch: false tells the server's risk rules not to turn this into a search
@@ -295,7 +353,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     if (node.thinkingLive && thinkStart) node.thinkMs = Date.now() - thinkStart;
     if (evesRun) evesRun.end();
     if (!node.finish && !node.error) node.finish = 'stop';
-    if (!nodeText(node) && !node.error && node.finish === 'stop') node.error = evesRun ? 'EVES did not write an answer. Try again, or turn EVES off.' : 'The model sent an empty reply.';
+    if (!nodeText(node) && !imagesText(node) && !videosText(node) && !node.error && node.finish === 'stop') node.error = evesRun ? 'EVES did not write an answer. Try again, or turn EVES off.' : 'The model sent an empty reply.';
     endStream(c, node);
     if (phase === 'after' && !ctrl.signal.aborted) postTurn.set(c.id, ctrl); // Stop now stops only the checks after the reply
     // A benign refusal: once, a new draft on another provider's model ("2 of 2"); the queue goes on after it.
@@ -333,7 +391,8 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
           case 'route':
             node.route = { ...d, override: !!ov };
             if (d.turnId) node.turnId = d.turnId; // names this turn to the action gate (guard.js proposeAction)
-            if (!ov) c.lastRoute = { model: d.model, effort: d.effort, sig };
+            // kept for the next turn: the router's effort, not this turn's own raise (stickyEffort), so a raise never ratchets
+            if (!ov) c.lastRoute = { model: d.model, effort: (!IN_APP && d.stickyEffort) || d.effort, sig };
             if (state.selectedNode === null || state.selectedNode === undefined || state.selectedNode.parent === node.parent) { state.selectedNode = node; ui.renderInspector(); }
             break;
           case 'thinking':
@@ -376,6 +435,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
             else if (d.kind === 'approval' || d.kind === 'takeover' || d.kind === 'paused') node.browserCard = d;
             break;
           case 'image': imageEvent(c, node, d); break; // a picture Eden made (image-mode.js)
+          case 'video': videoEvent(c, node, d); break; // a video Eden made (image-mode.js)
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }
@@ -423,7 +483,15 @@ function userPayload(user) {
   const atts = [];
   for (const a of user.attachments || []) {
     if (a.kind === 'image') { const d = live.find((x) => x.name === a.name); if (d && d.data) atts.push({ kind: 'image', name: a.name, mime: a.mime, data: d.data }); }
-    else if (a.kind === 'text') atts.push({ kind: 'text', name: a.name, text: a.text || '' });
+    else if (a.kind === 'text') {
+      const book = getOrBuildBook(user.id, a);
+      if (book) {
+        const retrieved = queryBookIndex(book, user.content || '', { k: 8, maxChars: 22_000 });
+        atts.push({ kind: 'text', name: a.name, text: retrieved.block || (a.text || '').slice(0, 22_000) });
+      } else {
+        atts.push({ kind: 'text', name: a.name, text: a.text || '' });
+      }
+    }
     else if (a.kind === 'video' && a.uri) atts.push(videoPayload(a));
   }
   return { role: 'user', content: user.content || '', ...(atts.length ? { attachments: atts } : {}) };
@@ -454,7 +522,7 @@ export function retry(c, node) {
 export function regenerate(c, node, override, { compare = false } = {}) {
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return; }
   const user = parentOf(c, node);
-  const fresh = addNode(c, user.id, { role: 'assistant', parts: [], mode: node.mode || c.mode, topic: node.topic });
+  const fresh = addNode(c, user.id, { role: 'assistant', parts: [], mode: node.mode || c.mode, topic: node.topic, streaming: true, startedAt: Date.now() });
   if (compare && user.role === 'user') user.compare = { kind: 'stronger', ids: [node.id, fresh.id], kept: null };
   ui.render();
   startReply(c, fresh, user, user.content || '', { override });
@@ -466,7 +534,7 @@ export function editResend(c, node, text) {
   const user = addNode(c, node.parent, { role: 'user', content: text, attachments: node.attachments || [], context: node.context || [] });
   if (attachmentData.has(node.id)) attachmentData.set(user.id, attachmentData.get(node.id));
   if (c.mode === 'compare') { compareTurn(c, user, text); return; }
-  const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text });
+  const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text, streaming: true, startedAt: Date.now() });
   touch(c);
   ui.render();
   startReply(c, asst, user, text);
@@ -503,7 +571,7 @@ export async function runEves(c, node, plan) {
     const ctx = contextFor(c, user);
     await turn.send({
       ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac
-      messages: [...historyFor(c, user), userPayload(user)],
+      messages: [...historyFor(c, user, user.content || ''), userPayload(user)],
       settings,
       ...withLang(p && p.system),
       ...(ctx.length ? { context: ctx } : {}),
@@ -580,7 +648,7 @@ export async function runCompare(c, user, models) {
   const p = persona(c.personaId);
   const ctx = contextFor(c, user);
   const body = {
-    messages: [...historyFor(c, user), userPayload(user)],
+    messages: [...historyFor(c, user, user.content || ''), userPayload(user)],
     settings: routeSettings(),
     mode: 'chat',
     ...(models ? { models } : {}),
@@ -740,6 +808,7 @@ export async function runCode(c, node, prompt, { images = [], texts = [], allowT
           case 'usage': node.usage = { ...(node.usage || {}), ...d, costUSD: (append && node.usage && typeof node.usage.costUSD === 'number' ? node.usage.costUSD : 0) + (d.costUSD || 0) }; break;
           case 'error': node.error = d.message || 'The Code turn failed.'; break;
           case 'image': imageEvent(c, node, d); break; // a picture Eden made (image-mode.js)
+          case 'video': videoEvent(c, node, d); break; // a video Eden made (image-mode.js)
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }

@@ -20,4 +20,12 @@ test('embed: Gemini batch with the key in a header, 256-d, rounded; OpenAI put b
   assert.throws(() => checkTexts('x'), /texts/);
   assert.equal(checkTexts(['z'.repeat(3000)])[0].length, 2000);
   assert.ok(Math.abs(embedUSD('gemini', ['x'.repeat(3_000_000)]) - 0.15) < 1e-9, '1M tokens of Gemini embeddings: $0.15');
+  // Scoped deduplication: identical email examples in the same session aren't embedded or billed twice.
+  seen.length = 0;
+  assert.deepEqual(await embedTexts('gemini', 'gk', ['email-1', 'email-2'], f, { scope: 's1' }), [[0, 0.3333], [1, 0.3333]]);
+  assert.equal(seen.length, 1);
+  assert.equal(embedUSD('gemini', ['email-1', 'email-3'], { scope: 's1' }), embedUSD('gemini', ['email-3']));
+  assert.deepEqual(await embedTexts('gemini', 'gk', ['email-1', 'email-3'], f, { scope: 's1' }), [[0, 0.3333], [0, 0.3333]]);
+  assert.equal(seen.length, 2);
+  assert.equal(JSON.parse(seen[1].init.body).requests.length, 1, 'only the uncached text was sent to Gemini');
 });

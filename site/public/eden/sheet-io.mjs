@@ -196,6 +196,23 @@ function writeSheet(ws, s, calc) {
   for (const [c, px] of Object.entries(s.widths || {})) ws.getColumn(Number(c)).width = Math.max(2, Math.round(((px - 5) / PX_PER_CHAR) * 100) / 100);
   if (s.freeze) ws.views = [{ state: 'frozen', ySplit: s.freeze, xSplit: 0, topLeftCell: a1(s.freeze + 1, 1) }];
   else if ((ws.views || []).some((v) => v.state === 'frozen')) ws.views = [{ state: 'normal' }];
+  if (Array.isArray(s.rules) && s.rules.length && typeof ws.addConditionalFormatting === 'function') {
+    for (const rl of s.rules) {
+      try {
+        const opMap = { gt: 'greaterThan', lt: 'lessThan', eq: 'equal', between: 'between' };
+        const style = {
+          ...(rl.fill ? { fill: { type: 'pattern', pattern: 'solid', bgColor: toArgb(rl.fill), fgColor: toArgb(rl.fill) } } : {}),
+          ...(rl.color || rl.bold ? { font: { ...(rl.color ? { color: toArgb(rl.color) } : {}), ...(rl.bold ? { bold: true } : {}) } } : {}),
+        };
+        if (rl.rule === 'contains') {
+          ws.addConditionalFormatting({ ref: rl.range, rules: [{ type: 'containsText', operator: 'containsText', text: String(rl.value || ''), style }] });
+        } else if (opMap[rl.rule]) {
+          const formulae = rl.rule === 'between' ? [rl.value, rl.value2 ?? rl.value] : [rl.value];
+          ws.addConditionalFormatting({ ref: rl.range, rules: [{ type: 'cellIs', operator: opMap[rl.rule], formulae, style }] });
+        }
+      } catch { /* ignore unsupported rule on old ExcelJS */ }
+    }
+  }
 }
 
 /** The active sheet as CSV bytes. */

@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#fbf7ee">
-<title>Eden · askeden.com</title>
-<meta name="description" content="Eden: one chat that sends each question to the model best at it, and reaches your computer through Eden Secretary. Apps for Mac and Windows.">
+<title>Eden · One AI Chat for Every Model, Verified Against Hallucinations · askeden.com</title>
+<meta name="description" content="Eden routes each prompt to the best-performing AI model for the lowest cost (Claude, GPT, Gemini, Kimi), verifies factual claims with EVES to cut hallucinations, and connects to your Mac with Eden Secretary.">
+<link rel="canonical" href="https://askeden.com/">
 <!-- Link previews (Instagram, iMessage, WhatsApp, X…): without these, apps picked the first picture on the page (Eden Code's icon). -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Eden">
 <meta property="og:url" content="https://askeden.com/">
-<meta property="og:title" content="Eden · askeden.com">
-<meta property="og:description" content="One chat for every model: each question goes to the AI best at it.">
+<meta property="og:title" content="Eden · One AI Chat for Every Model, Verified by EVES · askeden.com">
+<meta property="og:description" content="One chat for every model: routes each query to the AI best at it for half the subscription cost, with EVES hallucination verification.">
 <meta property="og:image" content="https://askeden.com/jarvis/eden-share.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -27,25 +28,29 @@
 <link rel="stylesheet" href="/home/home.css">
 <script src="/lang/site-i18n.js" data-page="home"></script>
 <script src="/home/features.js" defer></script>
+<link rel="stylesheet" href="/home/paper-refinement.css">
 </head>
-<body>
+<body data-marketing="home">
 <a class="skip" href="#main">Skip to the main content</a>
-<header class="top">
-  <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
-  <nav aria-label="Site"><a href="#features">Features</a><a href="#get">Download</a><a href="#pricing">Pricing</a><a class="pill" href="/signin">Sign in</a></nav>
-</header>
+  <header class="top">
+    <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
+    <nav aria-label="Site"><a href="#features">Features</a><a href="https://edenforbusiness.com">For Business</a><a href="/edu">Education</a><a href="/guides">Guides</a><a href="#pricing">Pricing</a><a href="#get">Download</a><a class="pill" href="/signin">Sign in</a></nav>
+  </header>
 
-<main id="main">
+<main id="main" itemscope itemtype="https://schema.org/SoftwareApplication">
+  <meta itemprop="name" content="Eden">
+  <meta itemprop="applicationCategory" content="BusinessApplication">
+  <meta itemprop="operatingSystem" content="Web, macOS, Windows, iOS, Android">
   <section class="hero" aria-labelledby="heroH">
     <div class="hero-text">
       <p class="domain">askeden.com</p>
       <h1 id="heroH">One chat for every model<u aria-hidden="true"></u></h1>
-      <p class="lede">Eden sends each question to the model best at it&nbsp;— GPT, Gemini, Kimi, or Claude with your own key&nbsp;— and, with Eden Secretary on your Mac, works with your files, calendar and memory.</p>
+      <p class="lede" itemprop="description">Eden sends each question to the model best at it&nbsp;— GPT, Gemini, Kimi, or Claude with your own key&nbsp;— checks factual answers with EVES, and, with Eden Secretary on your Mac, works with your files, calendar and memory.</p>
       <div class="cta">
-        <a class="btn primary" href="/signin">Get started</a>
-        <a class="btn" href="/signin">Sign in</a>
+        <a class="btn primary" href="/signin">Start in your browser — free</a>
+        <a class="btn" href="#newsletter">Get the EVES benchmark brief</a>
       </div>
-      <p class="fine">Sign in with Apple, Google or a passkey. One account for the web and the apps.</p>
+      <p class="fine">Runs right in your browser. Sign in with Apple, Google or a passkey. One account for the web and the apps.</p>
     </div>
     <nav class="chapters" aria-labelledby="chapH">
       <p class="chap-title" id="chapH">Eden in seven films</p>
@@ -129,7 +134,7 @@
   <!-- Downloads. The addresses are the Worker's own (src/worker.js: /download/mac, /download/windows); no inline script and no inline style here (the page's policy allows neither). -->
   <section class="get" id="get" aria-labelledby="getH">
     <h2 id="getH">Get Ask Eden</h2>
-    <p class="sub">Eden in a window of its own on your computer, with the tray icon and the quick chat.</p>
+    <p class="sub">Eden works immediately in your browser at askeden.com. Prefer a dedicated desktop app? Put Eden in a window of its own on your computer, with the tray icon and the quick chat.</p>
     <div class="dl">
       <a class="dlbtn" href="/download/mac" download>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.24 2.73 2.2 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.41 1.2-2.47-.03-.01-2.3-.88-2.33-3.52zM14.2 6.12c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.64-1.05 1.67-.92 2.66.97.08 1.96-.49 2.56-1.21z"/></svg>
@@ -149,6 +154,12 @@
     <span class="icons" aria-hidden="true"><img src="/jarvis/eden-code.png" alt="" width="44" height="44"><img src="/jarvis/icon.png" alt="" width="44" height="44"></span>
     <span class="txt"><b>Download apps</b><span>Eden Code and Eden Secretary for Mac and Windows</span></span>
     <span class="chev" aria-hidden="true">›</span>
+  </a>
+
+  <a class="apps business-card" href="https://edenforbusiness.com">
+    <span class="icons" aria-hidden="true"><img src="/jarvis/eden-logo.svg" alt="" width="44" height="44"></span>
+    <span class="txt"><b>Eden for Business · edenforbusiness.com</b><span>Shared team spaces, one AI budget, model routing, EVES verification, Eden Code and Eden Secretary for your whole organisation</span></span>
+    <span class="chev" aria-hidden="true">↗</span>
   </a>
 
   <ul class="points">
@@ -204,11 +215,100 @@
     </div>
     <p class="fine">Plus is billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the <a href="/terms">Terms</a>).</p>
   </section>
+
+  <section class="guides-preview" id="guides-section" aria-labelledby="guidesH">
+    <p class="kicker">Guides</p>
+    <h2 id="guidesH">How routing, verification and course grounding work</h2>
+    <p class="sub">Deep-dive technical guides on cutting LLM costs with model routing, mitigating hallucinations in critical workflows, and running syllabus-verified AI tutors.</p>
+    <div class="guides-grid">
+      <a class="guide-card" href="/guides/stop-ai-hallucinations-investment-memos">
+        <div>
+          <small>Hallucination mitigation · 7 min</small>
+          <h3>How to stop AI hallucinations in financial &amp; enterprise analysis</h3>
+          <p>Why frontier models fabricate citations under synthesis pressure, and how a 4-stage verification layer catches false claims before publication.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+      <a class="guide-card" href="/guides/ai-model-router-cut-llm-costs">
+        <div>
+          <small>Model routing · 8 min</small>
+          <h3>AI model router vs. single-model subscriptions: cutting LLM costs in half</h3>
+          <p>How routing each prompt by complexity and factual risk delivers flagship performance for $10/month instead of $20+ single-provider plans.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+      <a class="guide-card" href="/guides/ai-tutor-for-university-courses-syllabus-slides">
+        <div>
+          <small>Higher education · 7 min</small>
+          <h3>AI-assisted workflows for educators grounded only in your syllabus &amp; slides</h3>
+          <p>How professors give students a 24/7 study assistant that cites the exact slide or textbook page word for word.</p>
+        </div>
+        <span class="more">Read guide →</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="lead-band" id="newsletter" aria-labelledby="leadH">
+    <div>
+      <p class="kicker">Stay in the loop · Free 4-part brief</p>
+      <h2 id="leadH">Get the EVES benchmark brief &amp; routing notes</h2>
+      <p class="sub">Not ready to switch your daily workflow yet? Get our four-part technical brief on multi-model routing, hallucination verification, and syllabus-grounded study workflows.</p>
+      <ul class="lead-perks">
+        <li>The full 432-question hallucination evaluation breakdown</li>
+        <li>How multi-stage verification catches false premises and unverified claims</li>
+        <li>Cost-vs-quality benchmarks across Claude, GPT, Gemini and Kimi</li>
+      </ul>
+    </div>
+    <form class="lead-form" method="post" action="/api/leads" data-lead-form data-audience="power-user">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/">
+      <input type="hidden" name="utm_source" value="">
+      <input type="hidden" name="utm_medium" value="">
+      <input type="hidden" name="utm_campaign" value="">
+      <label>Work or personal email
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="lead-row">
+        <label>Optional SMS updates
+          <input type="tel" name="phone" autocomplete="tel" placeholder="+1 (555) 000-0000">
+        </label>
+        <label>What describes you best?
+          <select name="audience">
+            <option value="power-user">AI Power User / Professional</option>
+            <option value="api">Developer / API &amp; Agents</option>
+            <option value="educator">Professor / Educator</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Send me the benchmark &amp; guides</button>
+      <p class="fine">No spam, ever. Unsubscribe in one click. By adding a phone number you agree to occasional product SMS.</p>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
 </main>
+
+<aside class="exit-bar" id="exit-lead" aria-label="Get the EVES benchmark brief before you leave" hidden>
+  <div class="exit-inner">
+    <div class="exit-copy">
+      <b>Before you go: get the 432-question AI accuracy brief</b>
+      <span>See how EVES and multi-model routing cut hallucinations and subscription cost in half.</span>
+    </div>
+    <form class="exit-form" method="post" action="/api/leads" data-lead-form data-audience="power-user">
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source_page" value="/">
+      <input type="hidden" name="audience" value="power-user">
+      <input type="email" name="email" required autocomplete="email" placeholder="Enter your email" aria-label="Email address">
+      <input type="tel" name="phone" autocomplete="tel" placeholder="Phone (optional SMS)" aria-label="Optional phone number for SMS">
+      <button type="submit">Send brief</button>
+      <p class="lead-status" data-lead-status role="status" aria-live="polite" hidden></p>
+    </form>
+    <button type="button" class="exit-close" data-close-lead aria-label="Dismiss">×</button>
+  </div>
+</aside>
 
 <footer>
   <span>© 2026 Harrat Global Holdings, Inc.</span>
-  <nav aria-label="Legal and help"><a href="/accuracy">Accuracy</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
+  <nav aria-label="Legal and help"><a href="https://edenforbusiness.com">Eden for Business</a><a href="/guides">Guides</a><a href="/accuracy">Accuracy</a><a href="/edu">Education</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
 </footer>
 </body>
 </html>

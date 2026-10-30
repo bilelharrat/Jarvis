@@ -135,5 +135,58 @@ body[data-look="orb"] #settings-nav { padding: 18px 12px 16px; border-left: 0; }
 
 /* Tools & Accounts is the Accounts pane: General's old button to it goes */
 #settings.with-nav #open-accounts { display: none; }
+#settings.with-nav #mcp-group { display: none; }
 #settings.with-nav .accounts-intro .sheet-intro { margin: 0; padding: 14px 1px; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
 #settings.with-nav .accounts-intro #accounts-error { padding: 0 1px 12px; }
+
+/* ── Eden Code's combined settings sections inside #settings ── */
+#settings.with-nav {
+  --c-canvas: 244 244 246; --c-surface: 255 255 255; --c-surface-muted: 248 248 250; --c-raised: 255 255 255;
+  --c-border: 228 228 233; --c-border-strong: 208 208 214;
+  --c-ink: 29 29 31; --c-ink-2: 88 88 94; --c-muted: 122 122 128; --c-subtle: 162 162 168;
+  --c-fill: 229 229 234; --c-fill-2: 235 235 239; --c-fill-3: 242 242 245;
+  --c-accent: 11 135 214; --c-accent-hover: 6 118 192; --c-accent-soft: 229 243 253; --c-accent-ink: 4 104 174; --c-glow: 56 168 232;
+  --c-success: 36 164 78; --c-success-soft: 230 246 235; --c-success-ink: 22 128 58;
+  --c-danger: 240 56 46; --c-danger-soft: 254 236 234; --c-danger-ink: 200 30 30;
+  --c-warning: 255 149 0; --c-warning-soft: 255 243 224; --c-warning-ink: 190 86 0;
+  --c-purple: 175 82 222; --c-purple-soft: 245 236 252; --c-purple-ink: 124 46 164;
+  --shadow-card: 0 0 0 0.5px rgba(0, 0, 0, 0.075), 0 1px 2px rgba(0, 0, 0, 0.035);
+  --shadow-control: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 1.5px rgba(0, 0, 0, 0.06);
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  #settings.with-nav {
+    --c-canvas: 17 17 19; --c-surface: 28 28 31; --c-surface-muted: 34 34 37; --c-raised: 40 40 44;
+    --c-border: 52 52 57; --c-border-strong: 70 70 76;
+    --c-ink: 245 245 247; --c-ink-2: 178 178 184; --c-muted: 140 140 147; --c-subtle: 102 102 108;
+    --c-fill: 56 56 61; --c-fill-2: 48 48 53; --c-fill-3: 40 40 44;
+    --c-accent: 38 150 234; --c-accent-hover: 64 166 240; --c-accent-soft: 15 44 68; --c-accent-ink: 112 190 248; --c-glow: 64 176 240;
+    --c-success: 48 209 88; --c-success-soft: 16 51 28; --c-success-ink: 124 232 148;
+    --c-danger: 255 69 58; --c-danger-soft: 59 21 19; --c-danger-ink: 255 179 174;
+    --c-warning: 255 159 10; --c-warning-soft: 58 42 8; --c-warning-ink: 255 215 154;
+    --c-purple: 191 90 242; --c-purple-soft: 48 24 64; --c-purple-ink: 220 170 255;
+    --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.075), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-control: 0 0 0 0.5px rgba(255, 255, 255, 0.13), 0 1px 1.5px rgba(0, 0, 0, 0.5);
+  }
+}
+#settings.with-nav > section.group.sn-code-jumps {
+  margin: 0 0 16px; padding: 10px 12px;
+}
+#settings.with-nav.searching > section.group.sn-code-jumps { display: none; }
+.sn-jump-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.sn-jump {
+  padding: 4px 10px; border-radius: 999px;
+  border: 0.5px solid var(--s-line); background: var(--s-tile);
+  color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.sn-jump:hover { background: var(--s-tile-hover); color: var(--ink); }
+#settings.with-nav .jcs-adopted > .jcs-body,
+#settings.with-nav .jcs-adopted > .jcs-pane-body {
+  padding: 4px 0 0; overflow: visible; max-height: none;
+}
+#settings.with-nav .jcs-adopted .jcs-label:first-child { margin-top: 4px; }
+

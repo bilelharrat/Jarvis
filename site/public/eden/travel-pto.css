@@ -1,0 +1,34 @@
+/* "Best time to go" in Eden Travel (travel-pto.js): the form, and each break as a calm strip of its days */
+.tv-pto{display:grid;gap:10px}
+.tv-pto-form{display:grid;gap:10px}
+.tv-pto-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end}
+.tv-pto-field{display:grid;gap:4px;font-size:12.5px;color:var(--text2)}
+.tv-pto-field.grow{flex:1 1 180px;min-width:0}
+.tv-pto-field .tv-input.small{min-height:40px;width:7.5em}
+.tv-pto-field :is(input[type="date"],select).tv-input.small{width:auto}
+.tv-pto-dates{border:0;margin:0;padding:0;min-width:0}
+.tv-pto-dates legend{padding:0;font-size:13px;font-weight:600;color:var(--text)}
+.tv-pto-chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:8px 0 0;padding:0}
+.tv-pto-chips .tv-x{min-width:28px;min-height:28px}
+.tv-pto-results{display:grid;gap:8px;border-top:.5px solid var(--hairline);padding-top:12px}
+.tv-pto-sum{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.tv-pto-sum h3{margin:0;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.tv-pto-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.tv-pto-break{display:grid;gap:6px;padding:12px;border-radius:14px;background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tv-pto-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.tv-pto-strip{display:flex;flex-wrap:wrap;gap:3px}
+.tv-pto-d{box-sizing:border-box;display:inline-grid;place-items:center;width:30px;height:38px;border-radius:8px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--text2);background:rgba(120,120,128,.12)}
+.tv-pto-d small{font-size:9.5px;line-height:1;opacity:.8}
+.tv-pto-d b{font-weight:600;line-height:1}
+.tv-pto-d.pto{color:#fff;background:var(--accent)}
+.tv-pto-d.holiday{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.tv-pto-d.company{color:var(--text);background:transparent;border:1px dashed var(--text3)}
+.tv-pto-legend{display:flex;flex-wrap:wrap;gap:6px 14px;list-style:none;margin:2px 0 0;padding:0;font-size:12px;color:var(--text2)}
+.tv-pto-legend li{display:inline-flex;align-items:center;gap:6px}
+.tv-pto-legend .tv-pto-d{width:14px;height:14px;border-radius:4px}
+.tv-pto-src{color:var(--text3)}
+.tv-pto-singles summary,.tv-pto-how summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);min-height:32px;display:flex;align-items:center}
+.tv-pto-singles summary:focus-visible,.tv-pto-how summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.tv-pto-plan{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+@media (prefers-reduced-motion:reduce){.tv-pto *{transition:none!important;animation:none!important}}
+@container (max-width:420px){.tv-pto-d{width:26px;height:34px}.tv-pto-field.grow{flex-basis:100%}}

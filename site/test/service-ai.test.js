@@ -134,6 +134,16 @@ test('a background task’s structured answer comes from the stand-in, with its 
   assert.equal(out.model, 'gemini-3.8-flash');
   assert.ok(out.costUSD > 0);
   assert.equal(calls[0].body.generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(calls[0].body.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+  // Cached Gemini tokens bill at the 10% cache-read rate instead of full input price.
+  const cachedCalls = recorder({
+    candidates: [{ content: { role: 'model', parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }],
+    usageMetadata: { promptTokenCount: 1000, cachedContentTokenCount: 800, candidatesTokenCount: 20, thoughtsTokenCount: 5 },
+  });
+  const cachedOut = await askModel({ GEMINI_API_KEY: 'g' }, { system: 's', user: 'u', schema: { type: 'object' }, maxTokens: 200, model: 'gemini-3.8-flash', fetch: cachedCalls.f });
+  assert.equal(cachedOut.ok, true);
+  // 200 uncached + 80 cached-equivalent = 280 input tokens at $0.75/M + 25 output at $3.75/M = $0.000304 (vs $0.000844 without cache credit)
+  assert.equal(cachedOut.costUSD, 0.000304);
   const none = await askModel({}, { system: 's', user: 'u', schema: {}, maxTokens: 1, model: 'm', fetch: f });
   assert.equal(none.ok, false);
 });

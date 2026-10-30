@@ -3,13 +3,16 @@
 
 import { store, uid, toast } from './util.js';
 import * as Convs from './convstore.js';
+import { forgetTravelDevice, travelOwner } from './travel-privacy.js';
 
 export const DEFAULT_SETTINGS = {
   level: 3, efficiency: 50, performance: 50, linked: true,
   providers: {}, // id -> false when switched off (missing = on)
   classifier: 'always', subscriptionClaude: true,
   override: null, // { model, effort }
+  evesModel: 'gemini-3.8-flash',
   theme: 'system',
+  queueFollowUps: true, // true: Return queues while busy; false: Return steers into the running step right away (⌘↩ / Steer always steers)
 };
 
 export const state = {
@@ -33,6 +36,7 @@ export const state = {
 export const ui = {
   render: () => {}, renderSidebar: () => {}, renderTitle: () => {}, renderComposer: () => {},
   updateMessage: () => {}, renderInspector: () => {}, renderPlan: () => {}, loadChanges: () => {},
+  renderPane: () => {},
 };
 
 export function saveSettings() { store.set('jchat:settings', state.settings); }
@@ -63,8 +67,27 @@ export const ACCOUNT_HOST = typeof location !== 'undefined' && /(^|\.)(askeden\.
 // other account's chats (its stubs too) are kept here but not listed, so no sync ever sees them, and they're back
 // when it signs in again. A chat saved before this (no `account`) belongs to the first account that signs in.
 const OWNER_KEY = 'jchat:account';
+const BILEL_KEY = 'jchat:bilel';
 let owner = null; // the account askeden.com said this page is signed in to (claimChats)
 let hint = store.get(OWNER_KEY, null); // the one the last page was, for the first paint until askeden.com answers
+let bilelAccount = store.get(BILEL_KEY, false) === true;
+
+export function setBilelAccount(me) {
+  // The server decides (account.js view: plan.unlimited, only for the exact owner-emails.js addresses and
+  // UNLIMITED_EMAILS); no address or pattern here, where any sign-in could match it.
+  const next = Boolean(me && me.plan && (me.plan.unlimited || me.plan.source === 'unlimited'));
+  const changed = next !== bilelAccount;
+  bilelAccount = next;
+  if (next) store.set(BILEL_KEY, true);
+  else store.del(BILEL_KEY);
+  return changed;
+}
+
+export function isBilelAccount() {
+  if (bilelAccount) return true;
+  if (typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname || '')) return true;
+  return false;
+}
 let others = []; // chats saved here under another account
 const ours = (c) => ((owner || hint) ? !c.account || c.account === (owner || hint) : !c.account);
 const tag = (c) => { if (owner && !c.account && !c.temp) c.account = owner; };
@@ -101,6 +124,7 @@ function syncedElsewhere(id) {
 export function claimChats(id) {
   if (!id || typeof id !== 'string') return false;
   owner = id;
+  travelOwner(id); // what Eden Travel kept for another account on this device goes (travel-privacy.js)
   if (hint !== id) store.set(OWNER_KEY, id);
   hint = id;
   // (an untagged chat another account synced here is that account's: put away with its account written in)
@@ -118,7 +142,14 @@ export function claimChats(id) {
   return away.length > 0 || back.length > 0;
 }
 /** Signed out (account.js, sync.js forgetAllKeys): the next page doesn't show this account's chats before askeden.com says who signed in. */
-export function forgetOwner() { store.del(OWNER_KEY); hint = null; }
+export function forgetOwner() {
+  store.del(OWNER_KEY);
+  store.del(BILEL_KEY);
+  hint = null;
+  bilelAccount = false;
+  try { dispatchEvent(new CustomEvent('eden:owner-cleared')); } catch { /* no window */ }
+  return forgetTravelDevice(); // Eden Travel's trips, eSIMs and documents kept here go too (travel-privacy.js)
+}
 /**
  * A chat id this browser holds for another account (put away by claimChats). This account's sync leaves it alone:
  * storage keeps one record a chat id, and this account's copy written over it lost the other account's (its private
@@ -208,10 +239,14 @@ async function fromOtherTab(m) {
     if (at < 0) state.convs.push(stored); else state.convs.splice(at, 0, stored);
   } else {
     // Both tabs' messages (by id), the newer side's title and pins (sync-model.js merge); the object stays the same.
-    const { merge } = await import('./sync-model.js'); // (loaded only when another tab is open)
+    const { merge, commentsKey } = await import('./sync-model.js'); // (loaded only when another tab is open)
     const merged = merge(now, stored);
     for (const k of Object.keys(now)) if (!(k in merged) && k !== 'queue' && k !== 'status') delete now[k];
     Object.assign(now, merged, { queue: now.queue || [], status: now.status || 'idle' });
+    // Q14: both tabs edited the deck at once: storage holds only the last writer's copy, so the merge (with this
+    // tab's versions and pictures too) is written back. The other tab then gets a copy with nothing new: no echo.
+    const count = (x) => (Array.isArray(x.deckVersions) ? x.deckVersions.length : 0) + Object.keys(x.deckImages || {}).length;
+    if (count(now) > count(stored) || commentsKey(now) !== commentsKey(stored)) saveConversation(now); // (or comments only this tab had)
     if (state.current === now) ui.render();
   }
   ui.renderSidebar();

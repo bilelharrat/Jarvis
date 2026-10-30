@@ -1,18 +1,19 @@
-// Pictures Eden makes (askeden.com: GPT Image, site src/eden/image.js). The composer's Image mode
-// sends `image: true`; a plain "draw me…" in Chat is caught by the server too. A reply's picture
-// arrives as an `image` event: its bytes go to this device's IndexedDB (`eden-images`), and the
-// reply keeps only { id, mime, size, prompt } (node.images), so a chat with pictures still syncs
-// (sync-model.js wire). On another device the reply says where the picture is.
+// Pictures and videos Eden makes (askeden.com & Mac: Google Imagen 4, Gemini Flash Image, Veo 3,
+// FLUX.2 klein, GPT Image; site src/eden/image.js & src/chat/media.ts). The composer's Image and
+// Video modes send `image: true` / `video: true`; plain "draw me…" or "make a video of…" in Chat
+// is caught by the server too. Bytes go to this device's IndexedDB (`eden-images`), and the reply
+// keeps only lightweight metadata (node.images / node.videos), so chats still sync (sync-model.js wire).
 //
-// A follow-up in the same chat ("now make it blue") sends Eden's last picture along
-// (`imageBase`), and the server changes it instead of drawing a new one.
+// A follow-up in the same chat ("now make it blue", or "now animate it") sends Eden's last picture
+// along (`imageBase`), and the server edits or animates it in place.
 
 import { el, uid, toast } from './util.js';
 import { state } from './state.js';
 import { addSendExtra } from './api.js';
+import { IN_APP } from './native.js';
 
-const urls = new Map(); // picture id → object URL (this page's life)
-const lastPic = new Map(); // chat id → { data (base64), mime } of its newest picture, for a follow-up
+const urls = new Map(); // media id → object URL (this page's life)
+const lastPic = new Map(); // chat id → { data (base64), mime } of its newest picture, for a follow-up edit or animation
 
 let dbp = null;
 function db() {
@@ -37,10 +38,18 @@ async function get(id) {
   } catch { return null; }
 }
 
-const b64ToBlob = (b64, mime) => new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], { type: mime });
+function b64ToBlob(b64, mime) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
 
-/** Whether this site makes pictures (askeden.com with it switched on; never Eden on the Mac). */
-export const imagesAvailable = () => Boolean(state.meta && state.meta.images && state.meta.images.available);
+/** Whether this site makes pictures (never inside the iPhone app during App Review). */
+export const imagesAvailable = () => !IN_APP && Boolean(state.meta && state.meta.images && state.meta.images.available);
+
+/** Whether this site makes videos (Veo 3 on Gemini; never inside the iPhone app during App Review). */
+export const videosAvailable = () => !IN_APP && Boolean(state.meta && state.meta.videos && state.meta.videos.available);
 
 /** The server's `image` event: kept on the device, named on the reply. */
 export function imageEvent(c, node, d) {
@@ -50,28 +59,56 @@ export function imageEvent(c, node, d) {
   urls.set(id, URL.createObjectURL(blob));
   lastPic.set(c.id, { data: d.data, mime: d.mime });
   put(id, blob).catch(() => toast('The picture couldn’t be saved on this device; download it to keep it.'));
-  (node.images ||= []).push({ id, mime: d.mime, size: String(d.size || ''), prompt: String(d.prompt || '').slice(0, 1000), edit: d.edit === true });
+  (node.images ||= []).push({
+    id,
+    mime: d.mime,
+    size: String(d.size || ''),
+    prompt: String(d.prompt || '').slice(0, 1000),
+    edit: d.edit === true,
+    modelName: String(d.modelName || ''),
+  });
+}
+
+/** The server's `video` event: kept on the device, named on the reply. */
+export function videoEvent(c, node, d) {
+  if (!d || typeof d.data !== 'string' || !/^video\/(mp4|webm)$/.test(d.mime || '')) return;
+  const id = uid('vid');
+  const blob = b64ToBlob(d.data, d.mime);
+  urls.set(id, URL.createObjectURL(blob));
+  put(id, blob).catch(() => toast('The video couldn’t be saved on this device; download it to keep it.'));
+  (node.videos ||= []).push({
+    id,
+    mime: d.mime,
+    size: String(d.size || '1280x720'),
+    seconds: Number(d.seconds) || 5,
+    prompt: String(d.prompt || '').slice(0, 1000),
+    fromImage: d.fromImage === true,
+    modelName: String(d.modelName || ''),
+  });
 }
 
 /** A reply with pictures, as the next turn reads it (chat.js historyFor): what was drawn, not the bytes. */
 export const imagesText = (n) => (n && n.images && n.images.length ? n.images.map((p) => `[Eden ${p.edit ? 'changed the picture' : 'made a picture'}: “${p.prompt}”]`).join('\n') : '');
 
-function download(id, prompt) {
+/** A reply with videos, as the next turn reads it: what was animated, not the bytes. */
+export const videosText = (n) => (n && n.videos && n.videos.length ? n.videos.map((v) => `[Eden ${v.fromImage ? 'animated the picture' : 'made a video'}: “${v.prompt}”]`).join('\n') : '');
+
+function download(id, prompt, ext = 'webp') {
   const go = (url) => {
-    const a = el('a', { href: url, download: `eden-${(prompt || 'picture').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'picture'}.webp` });
+    const a = el('a', { href: url, download: `eden-${(prompt || (ext === 'mp4' ? 'video' : 'picture')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'media'}.${ext}` });
     document.body.append(a);
     a.click();
     a.remove();
   };
   if (urls.has(id)) go(urls.get(id));
-  else get(id).then((b) => (b ? go(URL.createObjectURL(b)) : toast('That picture isn’t on this device.')));
+  else get(id).then((b) => (b ? go(URL.createObjectURL(b)) : toast(`That ${ext === 'mp4' ? 'video' : 'picture'} isn’t on this device.`)));
 }
 
 /** The pictures under a reply (render.js), or the "drawing" placeholder while it's made. */
 export function imageFigures(node) {
   const pics = node.images || [];
   if (!pics.length) {
-    if (node.streaming && node.route && node.route.image) return el('div', { class: 'eden-pic-wait', role: 'status' }, el('div', 'eden-pic-shimmer'), el('span', { text: 'Drawing your picture… this takes about 20 seconds.' }));
+    if (node.streaming && node.route && node.route.image) return el('div', { class: 'eden-pic-wait', role: 'status' }, el('div', 'eden-pic-shimmer'), el('span', { text: 'Drawing your picture… this takes a few seconds.' }));
     return null;
   }
   const wrap = el('div', 'eden-pics');
@@ -83,21 +120,48 @@ export function imageFigures(node) {
     if (urls.has(p.id)) img.src = urls.get(p.id);
     else get(p.id).then((b) => { if (!b) return missing(); const u = URL.createObjectURL(b); urls.set(p.id, u); img.src = u; });
     img.addEventListener('click', () => { const u = urls.get(p.id); if (u) window.open(u, '_blank', 'noopener'); });
+    const via = p.modelName || (node.route && node.route.modelName) || 'Imagen 4';
     fig.append(el('figcaption', 'eden-pic-bar',
-      el('span', { class: 'eden-pic-note', text: `${p.edit ? 'Changed' : 'Made'} with GPT Image` }),
-      el('button', { type: 'button', class: 'eden-pic-btn', text: 'Download', onclick: () => download(p.id, p.prompt) })));
+      el('span', { class: 'eden-pic-note', text: `${p.edit ? 'Changed' : 'Made'} with ${via}` }),
+      el('button', { type: 'button', class: 'eden-pic-btn', text: 'Download', onclick: () => download(p.id, p.prompt, 'webp') })));
     wrap.append(fig);
   }
   return wrap;
 }
 
-// Image mode: every message asks for a picture; a follow-up carries the chat's last one to change.
+/** The videos under a reply (render.js), or the "making video" placeholder while Veo renders it. */
+export function videoFigures(node) {
+  const vids = node.videos || [];
+  if (!vids.length) {
+    if (node.streaming && node.route && node.route.video) return el('div', { class: 'eden-pic-wait eden-vid-wait', role: 'status' }, el('div', 'eden-pic-shimmer eden-vid-shimmer'), el('span', { text: 'Making your video… this takes about 30 seconds.' }));
+    return null;
+  }
+  const wrap = el('div', 'eden-pics eden-vids');
+  for (const v of vids) {
+    const [w, h] = String(v.size || '1280x720').split('x').map(Number);
+    const vid = el('video', { class: 'eden-pic eden-vid', width: w || 1280, height: h || 720, controls: true, playsinline: true, loop: true, preload: 'metadata' });
+    const fig = el('figure', 'eden-pic-fig eden-vid-fig', vid);
+    const missing = () => fig.replaceChildren(el('div', { class: 'eden-pic-missing', text: 'This video was made on another device; it’s kept there.' }));
+    if (urls.has(v.id)) vid.src = urls.get(v.id);
+    else get(v.id).then((b) => { if (!b) return missing(); const u = URL.createObjectURL(b); urls.set(v.id, u); vid.src = u; });
+    const via = v.modelName || (node.route && node.route.modelName) || 'Veo 3';
+    fig.append(el('figcaption', 'eden-pic-bar',
+      el('span', { class: 'eden-pic-note', text: `${v.fromImage ? 'Animated' : 'Made'} with ${via} (${v.seconds || 5}s)` }),
+      el('button', { type: 'button', class: 'eden-pic-btn', text: 'Download', onclick: () => download(v.id, v.prompt, 'mp4') })));
+    wrap.append(fig);
+  }
+  return wrap;
+}
+
+// Image & Video modes: every message asks for a picture or video; a follow-up carries the chat's last picture to edit or animate.
 addSendExtra((body) => {
   const c = state.convs.find((x) => x.id === body.chatId) || state.current;
-  if (!c || c.kind === 'code' || body.privacy || !imagesAvailable()) return null;
+  if (!c || c.kind === 'code' || body.privacy) return null;
   const last = lastPic.get(c.id);
-  if (c.mode === 'image') return { image: true, ...(last ? { imageBase: last.data, imageBaseMime: last.mime } : {}) };
-  return last ? { imageBase: last.data, imageBaseMime: last.mime } : null; // "now make it blue" in Chat, right after a picture
+  if (c.mode === 'video' && videosAvailable()) return { video: true, ...(last ? { imageBase: last.data, imageBaseMime: last.mime } : {}) };
+  if (!imagesAvailable() && !videosAvailable()) return null;
+  if (c.mode === 'image' && imagesAvailable()) return { image: true, ...(last ? { imageBase: last.data, imageBaseMime: last.mime } : {}) };
+  return last ? { imageBase: last.data, imageBaseMime: last.mime } : null; // "now make it blue" or "now animate it" in Chat, right after a picture
 });
 
 // Only right after a picture: a reply without one ends the follow-up (no picture rides along with every message).

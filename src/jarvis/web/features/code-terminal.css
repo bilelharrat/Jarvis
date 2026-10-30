@@ -1,8 +1,9 @@
 /* Eden Code's terminals (features/code-terminal.js): tabs of shells above one terminal, or
    two, one above the other; and a "!" command's output as it streams in the transcript. */
 
-.ct-root { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
-.ct-bar { display: flex; align-items: center; gap: 6px; flex: none; padding-top: 2px; min-width: 0; }
+.ct-root { display: flex; flex-direction: column; gap: 6px; height: 100%; width: 100%; min-height: 0; min-width: 0; box-sizing: border-box; padding: 2px; }
+.ct-root[hidden] { display: none; }
+.ct-bar { display: flex; align-items: center; gap: 6px; flex: none; padding: 2px 2px 0; min-width: 0; }
 .ct-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 0 1 auto; }
 .ct-tab { display: inline-flex; align-items: center; flex: none; max-width: 170px; border-radius: 8px; background: rgb(var(--c-ink) / 0.05); }
 .ct-tab.shown { background: rgb(var(--c-ink) / 0.09); }
@@ -20,11 +21,13 @@
 .ct-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 6px 10px; border-radius: 9px; font-size: 12px; background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); }
 .ct-note[hidden] { display: none; }
 .ct-note code { font: 11.5px var(--mono); }
-.ct-area { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
-.ct-slot { flex: 1; min-height: 0; border-radius: 12px; }
+.ct-area { flex: 1; min-height: 0; min-width: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.ct-slot { flex: 1; min-height: 0; min-width: 0; width: 100%; border-radius: 12px; overflow: hidden; box-sizing: border-box; }
 .ct-slot[hidden] { display: none; }
 .ct-area.split .ct-slot.focused { box-shadow: 0 0 0 1.5px rgb(var(--c-accent) / 0.55); }
-.ct-term { height: 100%; box-sizing: border-box; }
+.ct-term, .jc-term.ct-term { height: 100%; width: 100%; max-width: 100%; padding: 0 !important; box-sizing: border-box; overflow: hidden; }
+.ct-term .xterm { padding: 6px 8px; max-width: 100%; box-sizing: border-box; }
+.ct-term .xterm-viewport, .ct-term .xterm-screen { max-width: 100%; box-sizing: border-box; }
 
 /* a "!" command while it runs */
 .ct-bang-cancel { flex: none; }

@@ -96,6 +96,16 @@ def test_the_state_of_a_repository(tmp_path):
     assert state(tmp_path / "nowhere") == {"repo": False}
 
 
+async def test_a_missing_folder_or_session_is_answered_with_why(hub, projects):
+    hub.code_git.cmd_state({"directory": "not-here"})
+    hub.code_git.cmd_state({"directory": "/etc"})
+    hub.code_git.cmd_state({"id": 99})
+    answers = events(hub, "code_git")
+    assert [a["key"] for a in answers] == ["dir:not-here", "dir:/etc", "id:99"]
+    assert all(a["repo"] is None and a["error"] for a in answers)
+    assert "isn't open anymore" in answers[2]["error"]
+
+
 async def test_staging_files_and_single_hunks(hub, projects):
     repo = make_repo(projects / "proj", {"a.py": numbered(40), "b.py": "b\n"})
     (repo / "a.py").write_text(
@@ -158,7 +168,7 @@ async def test_claude_writes_the_message_from_whats_staged_within_its_cap(hub, p
     prompt, kw = asked[0]
     assert kw["kind"] == "commit_message" and "data, never instructions" in kw["system"]
     assert "+x = 2" in prompt and "Recent commit subjects here" in prompt and "start" in prompt
-    assert code_ai.model_for("commit_message") == "claude-haiku-4-5"
+    assert code_ai.model_for("commit_message") == "gemini-3.8-flash"
     hub.code_git.budget.counts["commit_message"] = code_ai.POLICY["commit_message"][1]
     await hub.code_git.message({"directory": "proj"})
     assert (
@@ -227,6 +237,31 @@ async def test_a_commit_is_checked_for_secrets_first(hub, projects):
     assert said == f"Committed {sha}: Add keys"
     assert git(repo, "log", "-1", "--format=%B").strip() == "Add keys\n\nOn purpose."
     assert ("code_git_committed", {"key": "dir:proj", "sha": sha}) in hub.events
+
+
+async def test_a_commit_runs_none_of_its_git_on_the_event_loop(hub, projects, monkeypatch):
+    """Each git a commit runs (a process: tens of milliseconds, more on a big repository)
+    runs off the loop, so the window's other commands never wait behind it."""
+    import threading
+
+    from jarvis.features import code_git
+
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    (repo / "a.py").write_text("x = 2\n")
+    git(repo, "add", "a.py")
+    loop_thread = threading.get_ident()
+    on_loop = []
+    real = code_git.git
+
+    def watched(*args, **kwargs):
+        if threading.get_ident() == loop_thread:
+            on_loop.append(args[1:3])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(code_git, "git", watched)
+    said = await hub.code_git.commit({"directory": "proj", "message": "Two"})
+    assert said.startswith("Committed ")
+    assert on_loop == []
 
 
 async def test_a_clean_commit_asks_nothing_from_the_window_but_does_by_voice(hub, projects):

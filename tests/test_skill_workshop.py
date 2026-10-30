@@ -165,8 +165,8 @@ async def test_a_long_request_becomes_a_draft_that_waits(settings, quiet_speaker
     )
     assert [s["kind"] for s in model.seen] == ["triage", "draft"]
     assert (
-        model.seen[0]["model"] == "claude-haiku-4-5"
-        and model.seen[1]["model"] == "claude-sonnet-5-5"
+        model.seen[0]["model"] == "gemini-3.8-flash"
+        and model.seen[1]["model"] == "gemini-4-argon"
     )
     assert desk.store.find("weekly-report") is None  # a proposal, not a skill
     assert [a.kind for a in alerts] == ["skill"] and "weekly-report" in alerts[0].text

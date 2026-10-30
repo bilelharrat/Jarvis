@@ -1125,7 +1125,7 @@ function tx(s) {
 }
 // The risk reasons as the chip says them (src/verify/labels.ts RISK_REASON_WORDS): "checking: medical, recent events".
 const RISK = {
-  medical: 'médical', legal: 'juridique', financial: 'financier', safety: 'sécurité', 'recent events': 'actualité récente',
+  medical: 'médical', legal: 'juridique', financial: 'financier', safety: 'sécurité', 'recent events': 'actualité récente', 'current prices and specs': 'prix et caractéristiques actuels',
   'exact figures': 'chiffres exacts', 'a quotation': 'une citation', citations: 'des références', links: 'des liens',
   'technical names': 'des noms techniques', 'a person or organisation': 'une personne ou une organisation', 'an obscure topic': 'un sujet pointu',
   'your own data': 'vos propres données', 'a fact check': 'une vérification des faits',

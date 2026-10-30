@@ -18,6 +18,7 @@ import { api, apiUrl } from './api.js';
 import { artifactsIn } from './render.js';
 import { CANVAS_LANGS, renderMarkdown } from './markdown.js';
 import { openPublish } from './publish.js';
+import { IN_APP } from './native.js';
 
 let H = {};
 const art = { versions: [], i: 0, view: 0, urls: new Map() };
@@ -223,17 +224,30 @@ async function renderPreview(v) {
   if (v.report) { box.replaceChildren(el('div', 'art-report md', renderMarkdown(v.code))); art.url = null; return; } // a research report: plain Markdown, drawn here (no scripts)
   const html = htmlFor(v);
   let url = art.urls.get(html);
+  let useSrcdoc = false;
   if (!url) {
     box.replaceChildren(el('div', 'art-loading', 'Preparing preview…'));
     try {
       url = apiUrl((await api.artifact(html)).url);
-      if (art.urls.size > 30) art.urls.delete(art.urls.keys().next().value); // keyed by whole pages: the oldest go (as deck.js does)
+      if (art.urls.size > 30) {
+        const oldKey = art.urls.keys().next().value;
+        const oldUrl = art.urls.get(oldKey);
+        if (oldUrl && oldUrl.startsWith('blob:')) { try { URL.revokeObjectURL(oldUrl); } catch { /* ignore */ } }
+        art.urls.delete(oldKey);
+      }
       art.urls.set(html, url);
+    } catch {
+      try {
+        url = URL.createObjectURL(new Blob([html], { type: 'text/html; charset=utf-8' }));
+        art.urls.set(html, url);
+      } catch {
+        useSrcdoc = true;
+      }
     }
-    catch (e) { box.replaceChildren(el('div', 'art-loading', `Couldn’t prepare the preview: ${e.message}`)); return; }
     if (art.versions[art.i] !== v || art.view !== 0) return;
   }
-  const frame = el('iframe', { sandbox: 'allow-scripts', src: url, title: `Preview: ${v.title || 'artifact'}`, referrerpolicy: 'no-referrer' });
+  const frame = el('iframe', { sandbox: 'allow-scripts', ...(useSrcdoc ? {} : { src: url }), title: `Preview: ${v.title || 'artifact'}`, referrerpolicy: 'no-referrer' });
+  if (useSrcdoc) frame.srcdoc = html;
   box.replaceChildren(frame);
   art.url = url;
 }
@@ -271,8 +285,31 @@ function selectionInCode() {
   return ta.value.slice(ta.selectionStart, ta.selectionEnd);
 }
 
+/** Browser canvases share the full app height, not the transcript's leftover height.
+ * Keep the native sheet and Desk's parked chat DOM untouched. */
+export function placeCanvas() {
+  if (IN_APP) return;
+  const pane = $('artifact'), split = $('split'), center = $('center'), divider = $('divider');
+  if (!pane || !split || !center || !divider) return;
+  const out = split.classList.contains('art-open') && !isMobile() && document.documentElement.dataset.layout !== 'desk';
+  if (out) {
+    if (divider.parentElement !== center.parentElement) center.after(divider);
+    if (pane.parentElement !== center.parentElement) divider.after(pane);
+  } else {
+    if (divider.parentElement !== split) split.append(divider);
+    if (pane.parentElement !== split) split.append(pane);
+  }
+  document.documentElement.classList.toggle('canvas-column', out);
+}
+
 export function initArtifact(handlers) {
   H = handlers;
+  if (!IN_APP) {
+    new MutationObserver(placeCanvas).observe($('split'), { attributes: true, attributeFilter: ['class'] });
+    new MutationObserver(placeCanvas).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    addEventListener('resize', placeCanvas);
+    placeCanvas();
+  }
   $('artSeg').addEventListener('click', (e) => { const b = e.target.closest('button[data-i]'); if (!b || b.disabled) return; art.view = Number(b.dataset.i); show(); });
   $('artPrev').addEventListener('click', () => { if (art.i > 0) { art.i--; show(); } });
   $('artNext').addEventListener('click', () => { if (art.i < art.versions.length - 1) { art.i++; show(); } });
@@ -308,7 +345,15 @@ export function initArtifact(handlers) {
   $('btnArtRun').addEventListener('click', runCode);
   $('btnConStop').addEventListener('click', () => runner.stop());
   $('btnConClear').addEventListener('click', () => { $('conOut').replaceChildren(); con.total = 0; conStatus(''); });
-  $('btnArtDl').addEventListener('click', () => { const v = art.versions[art.i]; if (v) download(fileName(v.title, v.edLang), $('artTa').value, 'text/plain'); });
+  $('btnArtDl').addEventListener('click', async () => {
+    const v = art.versions[art.i];
+    if (!v) return;
+    if (v.lang === 'deck') {
+      dispatchEvent(new CustomEvent('eden:export-deck-pptx', { detail: { node: v.nodeId ? { id: v.nodeId } : null } }));
+      return;
+    }
+    download(fileName(v.title, v.edLang), $('artTa').value, 'text/plain');
+  });
   $('edTabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-i]'); if (b) setEdTab(Number(b.dataset.i)); });
   // the console's grip
   const grip = $('conGrip'), conBox = $('artCon');

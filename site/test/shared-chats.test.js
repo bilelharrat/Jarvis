@@ -204,3 +204,47 @@ test('an account keeps at most SHARED.max links; a refused one leaves no index b
   const indexes = [...env.ACCOUNTS.objects.entries()].filter(([k, o]) => k.startsWith('shr:') && o.storage.map.has('shrindex'));
   assert.equal(indexes.length, SHARED.max);
 });
+
+test('collaborators: personal seat tokens, roles, replies on /s/<id>/reply, and updating seats', async () => {
+  const owner = await phone();
+  const me = await browserOf(owner);
+  const collabToken = 'A'.repeat(24);
+  const viewerToken = 'B'.repeat(24);
+  const made = await (await share(me, {
+    blob: BLOB,
+    expires: null,
+    collaborators: [
+      { id: 'seat_col1', role: 'collaborator', token: collabToken },
+      { id: 'seat_view1', role: 'viewer', token: viewerToken },
+    ],
+  })).json();
+
+  // Unsigned-in viewer cannot post without a collaborator token when mode !== 'collaborate'
+  assert.equal((await hit(`${made.url}/reply`, { method: 'POST', body: { blob: BLOB } })).status, 403);
+  // Viewer token cannot post
+  assert.equal((await hit(`${made.url}/reply`, { method: 'POST', body: { blob: BLOB, token: viewerToken } })).status, 403);
+  // Collaborator token can post encrypted reply
+  const rep = await hit(`${made.url}/reply`, { method: 'POST', body: { blob: BLOB, token: collabToken } });
+  assert.equal(rep.status, 200, await rep.clone().text());
+  const repJson = await rep.json();
+  assert.equal(repJson.reply.seat, 'seat_col1');
+  assert.equal(repJson.reply.blob, BLOB);
+
+  // /s/<id>/data includes seats and replies
+  const data = await (await hit(`${made.url}/data`)).json();
+  assert.equal(data.seats.length, 2);
+  assert.equal(data.replies.length, 1);
+  assert.equal(data.replies[0].blob, BLOB);
+
+  // Owner updates share to revoke seat_col1 and turn on open collaborative mode
+  const upd = await chat('/api/chat/shares/update', me, {
+    method: 'POST',
+    body: { id: made.id, mode: 'collaborate', collaborators: [] },
+  });
+  assert.equal(upd.status, 200, await upd.clone().text());
+  assert.equal((await upd.json()).mode, 'collaborate');
+
+  // Revoked token is rejected, while open collaborative mode accepts replies
+  assert.equal((await hit(`${made.url}/reply`, { method: 'POST', body: { blob: BLOB, token: collabToken } })).status, 403);
+  assert.equal((await hit(`${made.url}/reply`, { method: 'POST', body: { blob: BLOB } })).status, 200);
+});

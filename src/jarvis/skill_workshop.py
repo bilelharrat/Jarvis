@@ -311,7 +311,7 @@ class Workshop:
             + describe_turn(turn, DRAFT_CHARS)
         )
         answer = await utility_model.complete(
-            self.hub, prompt, system=DRAFT_SYSTEM, purpose="skill_draft", model="sonnet"
+            self.hub, prompt, system=DRAFT_SYSTEM, purpose="skill_draft", model="gemini-4-argon"
         )
         text, final, description = clean_draft(answer, name)
         if self.skills.find(final) is not None:
