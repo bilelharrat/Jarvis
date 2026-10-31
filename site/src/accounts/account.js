@@ -232,6 +232,7 @@ export class Account {
       if (op === 'release-ai') return json(this.release(body));
       if (op === 'push-gone') return json(await this.pushGone(body));
       if (op === 'exists') return json({ exists: Boolean(await this.storage.get('account')) });
+      if (op === 'calendar-email') return json({ email: await this.calendarEmail() }); // Eden Calendar's sign-in (eden/calendar-handoff.js)
       if (op === 'identity-link') return json(await this.linkIdentity(body));
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
@@ -482,6 +483,13 @@ export class Account {
 
   // An account the iPhone app made before identities were kept lists its Apple ID, whose
   // sub_hash is filled in at its next sign-in. (No raw sub is ever stored here.)
+  // The address Eden Calendar (askedencalendar.com) knows this account by: the email of its first sign-in that has one,
+  // in the order the sign-ins were added, so it stays the same (eden/calendar-handoff.js). Null when none has one.
+  async calendarEmail() {
+    const first = (await this.identities()).find((i) => i.email);
+    return first ? String(first.email).trim().toLowerCase() : null;
+  }
+
   async identities() {
     const stored = await this.storage.get('identities');
     if (stored) return stored;

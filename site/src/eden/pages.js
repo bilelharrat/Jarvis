@@ -40,6 +40,7 @@ import { tripLinkPage } from '../travel/triplink.js';
 import { calFeedPage } from '../travel/calsync.js';
 import { tripToIcs } from '../travel/ics.js';
 import { handPage, note as handNote, onTravelHost } from './site-handoff.js';
+import { calendarHandPage } from './calendar-handoff.js';
 import { EDEN_FILES, EDEN_HASHES } from './manifest.js';
 import { EDEN_FILES as EDEN_IOS_FILES, EDEN_HASHES as EDEN_IOS_HASHES } from './manifest-ios.js';
 import { isCaseStudySlug, isGuideSlug } from './seo.js';
@@ -146,6 +147,8 @@ export async function edenPage(request, env, path) {
   // Ask Eden Travel's site (public/travel-home/): held until TRAVEL_HOST is set; then askedentravel.com serves it at its front (worker.js)
   // askeden.com's half of the travel address's sign-in (site-handoff.js); there, /signin is that sign-in
   if (path === '/hand') return handPage(request, env);
+  // askeden.com's half of Eden Calendar's sign-in (askedencalendar.com, its own Worker; calendar-handoff.js)
+  if (path === '/hand/calendar') return calendarHandPage(request, env);
   if (path === '/signin' && onTravelHost(request, env)) {
     // signed in here already (Ask Eden Travel's iPhone app opens /signin first): the app, not a second sign-in
     const { session } = await currentSession(request, env);
