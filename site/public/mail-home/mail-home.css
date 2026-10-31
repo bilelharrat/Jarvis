@@ -1,67 +1,82 @@
-:root{--paper:#fbf7ee;--paper2:#f3ecdc;--card:#fffdf8;--ink:#0E2747;--ink2:#46556b;--line:#ddd3bd;--coral:#d9604f;--coral-bright:#ef7b6c;--serif:'Fraunces',Georgia,serif;--sans:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+/* askedenmail.com (2026-10-30 redesign): the Paper look, DESIGN.md §5 (eden-code-home is the reference). Eden Mail's
+   own screens with sample mail; small coral text uses --label (paper-refinement.css's #a94336, AA on paper). */
+:root{--paper:#fbf7ee;--paper2:#f3ecdc;--card:#fffdf8;--ink:#0E2747;--ink2:#46556b;--line:#ddd3bd;--coral:#d9604f;--coral-bright:#ef7b6c;--label:#a94336;--serif:'Fraunces',Georgia,serif;--sans:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 body{margin:0;background:var(--paper);color:var(--ink);font:400 17px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
-a:focus-visible,label:focus-within{outline:2px solid var(--ink);outline-offset:3px}
+a:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
 .skip{position:absolute;left:12px;top:-64px;z-index:10;padding:10px 16px;border-radius:10px;background:var(--ink);color:var(--paper);font-weight:600}.skip:focus{top:12px}
-.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-header{display:flex;align-items:center;justify-content:space-between;padding:24px 0;border-bottom:1px solid var(--line)}
-.brand{display:flex;align-items:center;gap:10px;font:500 20px var(--serif)}
-.brand img{width:36px;height:36px;border-radius:10px;box-shadow:0 2px 8px rgba(14,39,71,.15)}
+
+/* 1. header */
+header{display:flex;align-items:center;justify-content:space-between;padding:22px 0;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font:500 22px var(--serif)}
+.brand img{width:36px;height:36px;border-radius:22.5%;box-shadow:0 0 0 1px rgba(14,39,71,.08),0 2px 8px rgba(14,39,71,.12)}
 header nav{display:flex;align-items:center;gap:26px;font-size:15px;color:var(--ink2)}
 header nav a:hover{color:var(--ink)}
 .pill{padding:9px 18px;border-radius:999px;background:var(--ink);color:var(--paper)!important;font-weight:600;font-size:14px}
-.hero{display:grid;grid-template-columns:1fr 1.15fr;gap:56px;align-items:center;padding:72px 0 56px}
-.eyebrow{margin:0 0 16px;font:500 13px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--coral)}
-h1{margin:0;font:300 clamp(42px,6.2vw,76px)/1.02 var(--serif);letter-spacing:0;font-kerning:normal;padding-right:.08em;font-variation-settings:"opsz" 72}
-h1 u{text-decoration:none;display:inline-block;width:.5em;height:.09em;background:var(--coral-bright);border-radius:3px;margin-left:.08em;animation:blink 1.1s steps(1) 1 forwards}
+
+/* 2. hero: the words, and Eden Mail on a navy card */
+.hero{display:grid;grid-template-columns:1fr 1.25fr;gap:52px;align-items:center;padding:64px 0 52px}
+.eyebrow{margin:0 0 18px;font:500 13px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--label)}
+h1{margin:0;font:300 clamp(42px,6.2vw,76px)/1.02 var(--serif);letter-spacing:-.01em;padding-right:.08em;font-variation-settings:"opsz" 72}
+h1 u{text-decoration:none;display:inline-block;width:.5em;height:.09em;background:var(--coral-bright);border-radius:3px;margin-left:.08em;animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
-.lede{margin:22px 0 0;color:var(--ink2);font-size:20px;max-width:480px}
+.lede{margin:22px 0 0;color:var(--ink2);font-size:20px;max-width:500px}
 .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
 .btn{display:inline-flex;align-items:center;gap:10px;padding:15px 26px;border-radius:14px;font-weight:600;transition:transform .16s ease}
 .btn:hover{transform:translateY(-2px)}.btn:active{transform:scale(.98)}
-.btn svg{width:19px;height:19px;flex:none}
 .btn.navy{background:var(--ink);color:var(--paper);box-shadow:0 14px 30px -14px rgba(14,39,71,.7)}
 .btn.line{border:1.5px solid var(--ink)}
 .fine{margin:14px 0 0;font:13px var(--mono);color:var(--ink2)}
+.stage{margin:0;padding:22px 22px 16px;border-radius:20px;background:linear-gradient(160deg,#13325a,var(--ink) 55%,#0a1d36);box-shadow:0 40px 80px -30px rgba(14,39,71,.65)}
+.shot{display:block;width:100%;height:auto;border-radius:12px;box-shadow:0 0 0 1px rgba(255,255,255,.14),0 24px 50px -24px rgba(0,0,0,.6);background:#f5f5f7}
+.stage .cap{margin:14px 2px 0;display:flex;justify-content:space-between;gap:12px;font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#c9d5e8}
+.stage .cap b{font-weight:500;color:var(--coral-bright)}
 
+/* 3. strip */
+.strip{margin:8px 0 80px;padding:18px 24px;border-radius:16px;background:var(--paper2);border:1px solid var(--line);font:15px/1.6 var(--mono);display:flex;gap:6px 14px;align-items:baseline;flex-wrap:wrap}
+.strip .p{color:var(--label)}.strip em{font-style:normal;color:var(--ink2)}
 
-/* the list card beside the headline */
-.list{border-radius:20px;background:var(--ink);color:#dbe6f7;padding:26px 28px;box-shadow:0 40px 80px -30px rgba(14,39,71,.65);counter-reset:ch}
-.list-title{margin:0 0 12px;font:500 13px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--coral-bright)}
-.list li{display:flex;align-items:baseline;gap:14px;padding:11px 0;border-top:1px solid rgba(255,255,255,.1);font:400 19px var(--serif);color:#fff;counter-increment:ch;list-style:none}
-.list ul{margin:0;padding:0}
-.list li:before{content:"0" counter(ch);font:12px var(--mono);color:var(--coral-bright)}
-.strip{margin:8px 0 72px;padding:20px 26px;border-radius:16px;background:var(--paper2);border:1px solid var(--line);font:15px/1.6 var(--mono);display:flex;gap:6px 16px;align-items:baseline;flex-wrap:wrap}
-.strip span{color:var(--coral)}.strip em{font-style:normal;color:var(--ink2)}
-.btn.ghost{border:1.5px solid var(--ink)}
-.get .btn.ghost{border-color:var(--paper)}
-h2{margin:0 0 12px;font:400 clamp(30px,4vw,44px)/1.1 var(--serif);letter-spacing:0;font-kerning:normal}
+/* 4. sections */
+section{scroll-margin-top:24px}
+.kick{margin:0 0 10px;font:500 13px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--label)}
+h2{margin:0 0 12px;font:400 clamp(30px,4vw,44px)/1.1 var(--serif);letter-spacing:-.01em}
 .sub{margin:0 0 28px;color:var(--ink2);max-width:620px}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;border:1px solid var(--line);border-radius:22px;overflow:hidden;background:var(--line)}
-.card{padding:30px;background:var(--card)}
-.card small{font:12px var(--mono);color:var(--coral);letter-spacing:.08em}
-.card h3{margin:8px 0;font:500 24px var(--serif)}
-.card p{margin:0;color:var(--ink2);font-size:15px}
-.quote{padding:84px 0;text-align:center}
-.quote p{margin:0 auto;max-width:820px;font:300 clamp(26px,3.6vw,40px)/1.25 var(--serif)}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;border:1px solid var(--line);border-radius:22px;overflow:hidden;background:var(--line)}
+.step{padding:28px 26px 30px;background:var(--card)}
+.step small{font:12px var(--mono);color:var(--label);letter-spacing:.08em}
+.step h3{margin:8px 0;font:500 24px/1.2 var(--serif)}
+.step p{margin:0;color:var(--ink2);font-size:15px}
+.see{padding:88px 0 0}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:28px;border-radius:22px;background:var(--paper2);border:1px solid var(--line)}
+.shots figure{margin:0}
+.shots .shot{box-shadow:0 0 0 1px rgba(14,39,71,.1),0 24px 44px -26px rgba(14,39,71,.5)}
+.shots figcaption{margin-top:14px;font-size:15px;color:var(--ink2)}
+.shots figcaption small{display:block;margin-bottom:4px;font:12px var(--mono);letter-spacing:.08em;color:var(--label)}
+.trust{padding:88px 0 0}
+.table{max-width:820px;border:1px solid var(--line);border-radius:22px;overflow:hidden;background:var(--card)}
+.table table{width:100%;border-collapse:collapse;font-size:16px}
+.table th,.table td{text-align:left;padding:16px 24px;border-top:1px solid var(--line)}
+.table thead th{border-top:0;font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);background:var(--paper2)}
+.table tbody th{font-weight:500;color:var(--ink2);width:46%}
+.table td{font-weight:600}
+
+/* 5. quote, 6. band, 7. footer */
+.quote{padding:96px 0 88px;text-align:center}
+.quote p{margin:0 auto;max-width:820px;font:300 clamp(26px,3.6vw,40px)/1.25 var(--serif);letter-spacing:-.01em}
 .quote i{color:var(--coral)}
 .get{display:flex;justify-content:space-between;align-items:center;gap:28px;flex-wrap:wrap;margin-bottom:56px;padding:56px;border-radius:28px;background:var(--ink);color:var(--paper)}
 .get h2{margin:0 0 6px}.get p{margin:0;color:#b9c6dc;max-width:460px}
 .get .cta{margin:0}.get .btn.navy{background:var(--paper);color:var(--ink);box-shadow:none}.get .btn.line{border-color:var(--paper)}
-.fineprint{margin:-32px 0 56px;color:var(--ink2);font-size:14px;max-width:760px}
+.fineprint{margin:-32px 0 56px;color:var(--ink2);font-size:14px;max-width:780px}
+.fineprint a{text-decoration:underline;text-underline-offset:2px}
 footer{border-top:1px solid var(--line);padding:24px 0 40px;font-size:14px;color:var(--ink2);display:flex;flex-wrap:wrap;gap:12px 24px;justify-content:space-between}
 footer a:hover{color:var(--ink)}
 footer .links{display:flex;flex-wrap:wrap;gap:8px 20px}
-@media(max-width:860px){.hero,.grid{grid-template-columns:1fr}.chap{grid-template-columns:repeat(2,1fr)}.chap label{border-bottom:1px solid rgba(255,255,255,.08)}header nav a:not(.pill){display:none}.get{padding:36px 28px}.hero{padding-top:48px;gap:36px}}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}h1 u{animation:none}.btn{transition:none}}
 
-/* Eden Mail: the film, the fine print's link */
-section{scroll-margin-top:24px}
-.film{padding:72px 0 0}
-.film video{display:block;width:100%;height:auto;aspect-ratio:16/9;border-radius:22px;background:var(--ink);box-shadow:0 40px 80px -30px rgba(14,39,71,.55)}
-.fineprint a{text-decoration:underline;text-underline-offset:2px}
-@media(min-width:861px) and (max-width:1040px){.grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:520px){.wrap{padding:0 16px}.get{padding:28px 20px}.card{padding:24px}.btn{padding:14px 22px}.list{padding:22px}}
+@media(min-width:861px) and (max-width:1040px){.steps{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:860px){.hero,.steps,.shots{grid-template-columns:1fr}header nav a:not(.pill){display:none}.get{padding:36px 28px}.hero{padding-top:44px;gap:36px}.shots{padding:18px}}
+@media(max-width:520px){.wrap{padding:0 16px}.get{padding:28px 20px}.step{padding:24px}.btn{padding:14px 22px}.stage{padding:14px 14px 12px}.stage .cap{flex-direction:column;gap:2px}.strip{padding:16px 18px;font-size:14px}.table th,.table td{padding:14px 16px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}h1 u{animation:none}.btn{transition:none}}
