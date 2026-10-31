@@ -194,7 +194,8 @@ export async function edenPage(request, env, path) {
     return byCookie(appPage(page(await asset(env, request, `${edenDir(request)}/`), EDEN_CSP, { permissions: EDEN_PERMISSIONS }), ios), false);
   }
   if (path === '/mail-home/mail-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
-  if (path === '/mail-home/icon.png' || path === '/mail-home/mail-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+  // its icon, and the page's pictures of Eden Mail (sample mail)
+  if (path === '/mail-home/icon.png' || path === '/mail-home/mail-logo.svg' || /^\/mail-home\/web-(inbox|brief|review)\.jpg$/.test(path)) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   // Eden Secretary's site (public/eden-secretary-home/): everyone; with SECRETARY_HOST set, edensecretary.com serves it at its front (worker.js)
   if (path === '/eden-secretary') return page(await asset(env, request, '/eden-secretary-home/'), CODE_CSP, { cache: 'public, max-age=300' });
   if (path === '/eden-secretary-home/eden-secretary-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });

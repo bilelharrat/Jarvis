@@ -632,7 +632,9 @@ test('Eden Mail: /mail is its page signed out and the app signed in; MAIL_HOST p
   const cookie = await signedIn();
   const app = await worker.fetch(new Request(`${ORIGIN}/mail`, { headers: { cookie: `__Host-eden=${cookie}` } }), env, {});
   assert.equal(await app.text(), 'asset /eden/');
-  for (const f of ['mail-home.css', 'icon.png', 'mail-logo.svg']) assert.equal((await worker.fetch(new Request(`${ORIGIN}/mail-home/${f}`), env, {})).status, 200, f);
+  for (const f of ['mail-home.css', 'icon.png', 'mail-logo.svg', 'web-inbox.jpg', 'web-brief.jpg', 'web-review.jpg']) assert.equal((await worker.fetch(new Request(`${ORIGIN}/mail-home/${f}`), env, {})).status, 200, f);
+  // every picture the page shows is one of those (a missing route answers with a redirect: a broken image)
+  for (const m of read('public/mail-home/index.html').matchAll(/src="(\/mail-home\/[^"]+)"/g)) assert.equal((await worker.fetch(new Request(`${ORIGIN}${m[1]}`), env, {})).status, 200, m[1]);
   // unset: askedenmail.com is a doorway to askeden.com/mail
   const door = await worker.fetch(new Request('https://www.askedenmail.com/anything'), env, {});
   assert.equal(door.status, 301);
