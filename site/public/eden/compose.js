@@ -19,7 +19,7 @@ import { state } from './state.js';
 import { carryMarks, close as markClose, leadingMarks, MARKS_NOTE, open as markOpen, parseInline, stripMarks } from './compose-marks.js';
 import { voiceFor, voiceOn, recordEdit, addNote, prefs as mailPrefs, getKit, addFollowUp, openMailSettings, askCheap, addOffer, mailAI, privateMail } from './mailkit.js';
 import { freeSlots, slotText } from './mail-plan.js';
-import { checkDraft, datesIn, DRAFT_CHECK_SYSTEM, parseDraftIssues, toneCheck } from './mail-check.js';
+import { checkDraft, datesIn, DRAFT_CHECK_SYSTEM, parseDraftIssues, toneCheck, newToThread } from './mail-check.js';
 import { parseIcs, icsToDraft } from './calendar-rules.js';
 import { fillSnippet, findSnippets, FOLLOW_UP_CHOICES, enforceFrame, NOT_ME, languageOf } from './mail-voice.js';
 import { t, locale, speechLang, replyLanguageNote } from './i18n.js';
@@ -2076,6 +2076,10 @@ class Compose {
     this.view = 'review';
     const b = this.collect();
     const macTooLong = this.source === 'mac' && b.text.length > MAC_SEND_CHARS;
+    // v2: a reply names anyone who wasn't on the email it answers (a mistyped or autocompleted address)
+    const reply = (this.mode === 'reply' || this.mode === 'replyAll') && !!this.origMsg;
+    const strangers = reply ? newToThread([...this.recip.to, ...this.recip.cc, ...this.recip.bcc].filter((a) => a.valid), this.origMsg, this.source === 'gmail' ? (this.account || (src.google && src.google.email) || '') : '') : [];
+    if (strangers.length) warns.push(`Not on this thread before: ${strangers.join(', ')}. Check the address${strangers.length === 1 ? '' : 'es'}.`);
     const row = (k, v, own = true) => (v ? el('div', 'cw-rv-r', el('span', 'k', k), el('span', own ? { class: 'v', 'data-no-i18n': '' } : 'v', v)) : null);
     const names = (k) => this.recip[k].map(fmtAddr).join(', ');
     const from = this.source === 'gmail' ? (this.fromSel.selectedOptions[0] && this.fromSel.value === `gmail:${this.account}` ? this.fromSel.selectedOptions[0].textContent.replace(/ · .*$/, '') : this.account || (src.google && src.google.email) || t('your Gmail')) : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : t('Mail on your Mac')}`;
@@ -2095,7 +2099,7 @@ class Compose {
     this.goBtn = go;
     go.addEventListener('click', () => { if (this.countdown) this.cancelCountdown(); else if (!go.disabled) { if (macTooLong) this.openInMail().then((ok) => { if (ok) this.destroy(); }); else this.startCountdown(); } });
     this.rv.replaceChildren(...[
-      el('div', 'cw-rv-h', el('h3', { tabindex: '-1' }, when ? 'Review and schedule' : 'Review before sending'), el('button', { type: 'button', class: 'cw-hb', 'aria-label': 'Back to edit', title: 'Back to edit (Esc)', onclick: () => this.backToEdit() }, ic('x'))),
+      el('div', 'cw-rv-h', el('div', 'cw-rv-ht', el('p', 'cw-rv-k', 'Check before sending'), el('h3', { tabindex: '-1' }, when ? 'Schedule this email?' : reply ? 'Send this reply?' : 'Send this email?')), el('button', { type: 'button', class: 'cw-hb', 'aria-label': 'Back to edit', title: 'Back to edit (Esc)', onclick: () => this.backToEdit() }, ic('x'))),
       el('div', 'cw-rv-meta',
         row('From', from),
         row('To', macTo ? macTo.to.join(', ') : names('to')), row('Cc', macTo ? macTo.cc.join(', ') : names('cc')), row('Bcc', names('bcc')),
@@ -2106,12 +2110,13 @@ class Compose {
         this.source === 'gmail' && hostedSend() && !when ? el('div', 'cw-rv-r', el('span', 'k', 'Receipt'), el('span', 'v', this.receiptBox())) : null),
       preview,
       warns.length ? el('ul', 'cw-rv-warn', ...warns.map((w) => el('li', '', w))) : null,
+      reply && !strangers.length ? el('p', 'cw-rv-ok', 'Everyone here was already on this thread.') : null,
       this.checksBox(b.text),
       when ? (hostedSend()
         ? el('p', 'cw-hold', el('b', '', 'Your askeden.com account sends it at that time, even with your Mac off. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If it can’t go within 12 hours, it waits for you instead.')
         : el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If the Mac is asleep or Eden is off at that time, it goes when Eden next runs — more than 12 hours late, it waits for you instead.')) : null,
       this.source === 'mac' ? el('p', 'cw-hold', macTooLong ? `Eden sends at most ${MAC_SEND_CHARS} characters (this is ${b.text.length}). Eden opens it as a draft in Mail on your Mac instead, for you to send there.` : 'Eden shows its own confirmation on your Mac; the email goes only when you approve it there too. Formatting is sent as plain text.') : null,
-      el('div', 'cw-rv-acts', el('button', { type: 'button', class: 'btn', onclick: () => this.backToEdit() }, 'Back to edit'), el('span', 'grow'), go)].filter(Boolean));
+      el('div', 'cw-rv-acts', el('button', { type: 'button', class: 'btn', title: 'Back to edit (Esc)', onclick: () => this.backToEdit() }, 'Keep editing', el('kbd', { class: 'cw-kbd', 'aria-hidden': 'true' }, 'Esc')), el('span', 'grow'), go)].filter(Boolean));
     this.rv.hidden = false;
     this.root.classList.add('reviewing');
     requestAnimationFrame(() => go.focus());

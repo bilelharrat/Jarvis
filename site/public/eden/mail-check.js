@@ -334,3 +334,14 @@ export function toneCheck(draft, { person = null, usual = null, name = '' } = {}
   }
   return out;
 }
+
+/**
+ * Who a reply goes to that wasn't on the email it answers (From, Reply-To, To, Cc), so a mistyped or autocompleted
+ * address shows in the review before it goes. `me` is the owner's own address. Addresses as "Name <a@b>" or bare.
+ */
+export function newToThread(recipients, original, me = '') {
+  const addr = (s) => { const m = /<([^<>]+)>\s*$/.exec(String(s || '')); return (m ? m[1] : String(s || '')).trim().toLowerCase(); };
+  if (!original) return [];
+  const on = new Set([original.from, original.replyTo, ...(original.to || []), ...(original.cc || []), me].filter(Boolean).map(addr));
+  return [...new Set((recipients || []).map((r) => addr(r && typeof r === 'object' ? r.email : r)).filter((a) => a && !on.has(a)))];
+}

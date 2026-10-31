@@ -109,6 +109,51 @@ const ERR_RE = new RegExp(`^(${Object.keys(ERR_PREFIX).map((k) => k.replace(/[.*
 
 export default {
   exact: {
+    /* v2 (2026-10-30): the Eden Mail redesign (mail.js) */
+    'Search or Ask Eden': 'Rechercher ou demander à Eden',
+    'Search mail, or ask Eden a question about it': 'Rechercher dans vos e-mails, ou poser une question à Eden',
+    'Mailboxes': 'Boîtes aux lettres',
+    'Bundled by Eden': 'Regroupés par Eden',
+    'From people': 'De vos contacts',
+    'Newsletters': 'Lettres d’information',
+    'The rest, bundled': 'Le reste, regroupé',
+    'Nothing needs you right now.': 'Rien ne vous attend pour l’instant.',
+    'Eden is still sorting…': 'Eden trie encore…',
+    'Newest first': 'Les plus récents d’abord',
+    'Newest first until Eden sorts them': 'Les plus récents d’abord, en attendant le tri d’Eden',
+    'Sort by what needs me': 'Trier selon ce qui m’attend',
+    'Sort by date instead': 'Trier plutôt par date',
+    'Why this order': 'Pourquoi cet ordre',
+    'Eden reads the sender, subject and preview of each new email (not the whole message) and puts first what is urgent or asks for your reply, with the reason. Everything else is bundled by kind. Nothing is sent, moved or deleted.':
+      'Eden lit l’expéditeur, l’objet et l’aperçu de chaque nouvel e-mail (pas le message entier) et met en premier ce qui est urgent ou attend votre réponse, avec la raison. Le reste est regroupé par type. Rien n’est envoyé, déplacé ni supprimé.',
+    'Why it’s here': 'Pourquoi c’est là',
+    'Reply to': 'Répondre à',
+    'Draft with Eden': 'Rédiger avec Eden',
+    'Draft reply': 'Rédiger une réponse',
+    'This email': 'Cet e-mail',
+    'All mail': 'Tout le courrier',
+    'What to ask about': 'Sur quoi porte la question',
+    'Ask about this email': 'Une question sur cet e-mail',
+    'Ask about all your mail': 'Une question sur tous vos e-mails',
+    'Ask Eden about this email': 'Demander à Eden à propos de cet e-mail',
+    'Ask Eden about all your mail': 'Demander à Eden à propos de tous vos e-mails',
+    'Ask about this email: what they want, the dates, the amounts, what to say back. Eden answers from the email and shows what it used.':
+      'Posez une question sur cet e-mail : ce qu’on vous demande, les dates, les montants, quoi répondre. Eden répond à partir de l’e-mail et montre ce qu’il a utilisé.'.replace(' :', `${NB}:`),
+    'Close Ask Eden': 'Fermer Demander à Eden',
+    'Ask': 'Demander',
+    'Ask (Enter)': 'Demander (Entrée)',
+    'Reply (R)': 'Répondre (R)',
+    'Reply all (A)': 'Répondre à tous (A)',
+    'Forward (F)': 'Transférer (F)',
+    'Remind me (H)': 'Me le rappeler (H)',
+    'Star (S)': 'Suivre (S)',
+    'Unstar (S)': 'Ne plus suivre (S)',
+    'Flag (S)': 'Signaler (S)',
+    'Unflag (S)': 'Ne plus signaler (S)',
+    'Ask Eden (Q)': 'Demander à Eden (Q)',
+    'Your daily brief': 'Votre briefing du jour',
+    'Ask Eden about the open email': 'Demander à Eden à propos de l’e-mail ouvert',
+    'Read my inbox out loud': 'Lire ma boîte à voix haute',
     /* --- mail.js: the panel --- */
     'Mail source': 'Source du courrier',
     'Mail on your Mac': 'Mail sur votre Mac',
@@ -582,6 +627,12 @@ export default {
   },
 
   patterns: [
+    /* v2 (2026-10-30): the Eden Mail redesign (mail.js) */
+    [/^Eden sorted (\d+) emails? by what needs you$/, (_, n) => `Eden a trié ${n} e-mail${n === '1' ? '' : 's'} selon ce qui vous attend`],
+    [/^and (\d+) more$/, (_, n) => `et ${n} autre${n === '1' ? '' : 's'}`],
+    [/^Sorted by (.+)$/, 'Trié par $1'],
+    [/^Couldn’t sort: ([\s\S]*)$/, (_, m) => `Tri impossible${NB}: ${msg(m)}`],
+    [/^read (\d+) emails?$/, (_, n) => `${n} e-mail${n === '1' ? '' : 's'} lu${n === '1' ? '' : 's'}`],
     /* errors: "Couldn’t …: <message>" */
     [ERR_RE, (_, p, m) => `${ERR_PREFIX[p]}${NB}: ${msg(m)}`],
 

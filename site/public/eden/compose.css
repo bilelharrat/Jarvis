@@ -317,3 +317,21 @@ u.cw-glyph{text-underline-offset:2px}
 .cw-times{display:flex;flex-direction:column;gap:8px;max-width:320px}
 .cw-ask-mic{flex:none;width:28px;height:28px;border-radius:50%;font-size:14px;line-height:28px;text-align:center}
 .cw-ask-mic.on{background:var(--danger, #ff3b30);color:#fff;animation:mxspin 0s}
+
+/* v2 (2026-10-30, the Eden Mail redesign): Send and the review card in the accent ink (white on it is 5.8:1; on
+   #0a84ff 3.6:1, under AA); the review reads as a question with a kicker, Keep editing (Esc), and a ✓ line when
+   everyone was already on the thread. */
+.cw{--cw-fill:rgb(4,104,174)}
+.cw-sendg{background:var(--cw-fill);box-shadow:0 1px 3px rgba(4,70,130,.35),inset 0 .5px 0 rgba(255,255,255,.3)}
+.cw-rv .btn.primary{background:var(--cw-fill);color:#fff}
+.cw-rv-ht{flex:1;min-width:0}
+.cw-rv-k{margin:0 0 1px;font:600 10.5px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgb(4,104,174)}
+[data-theme="dark"] .cw-rv-k{color:rgb(112,190,248)}
+.cw-rv-h h3{font-size:18px;font-weight:700;letter-spacing:-.2px}
+.cw-rv-r .k{color:var(--text2)}
+.cw-rv-ok{margin:0;display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text)}
+.cw-rv-ok::before{content:"✓";display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:11px;font-weight:700;color:#16803a;background:rgba(48,209,88,.14)}
+[data-theme="dark"] .cw-rv-ok::before{color:#5be07f;background:rgba(48,209,88,.16)}
+.cw-rv-acts .btn{min-height:40px;border-radius:20px;padding:0 16px}
+.cw-kbd{margin-left:8px;font:500 10.5px/1 ui-monospace,"SF Mono",Menlo,monospace;padding:2px 5px;border-radius:5px;border:.5px solid currentColor;opacity:.7}
+.cw-go{min-height:40px;border-radius:20px;padding:0 18px}

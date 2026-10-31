@@ -70,7 +70,7 @@ export function openSpace(key, opts = {}) {
   openKey = key;
   returnFocus = document.activeElement;
   $('spTitle').textContent = mailOnly && key === 'mail' ? 'Eden Mail' : s.t;
-  $('spIco').firstElementChild.setAttribute('href', `#i-${s.i}`);
+  $('spIco').firstElementChild.setAttribute('href', `#i-${mailOnly && key === 'mail' ? 'eden' : s.i}`); // Eden Mail on its own: Eden's mark
   $('spacePanel').classList.add('open');
   $('spacePanel').classList.toggle('wide', key === 'mail' || !!s.load);
   $('spacePanel').classList.toggle('crsp', key === 'courses'); // Eden for Education: a big sheet (courses.css)

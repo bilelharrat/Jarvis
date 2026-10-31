@@ -306,6 +306,7 @@ const SHORTCUTS = [
   ['j / ↓', 'Next email'], ['k / ↑', 'Previous email'], ['Enter / o', 'Open'], ['u / Esc', 'Back to the list'],
   ['e', 'Done (archive)'], ['h', 'Remind me (snooze)'], ['s', 'Star'], ['⇧U / ⇧I', 'Mark unread / read'],
   ['r', 'Reply'], ['a', 'Reply all'], ['f', 'Forward'], ['c', 'New email'], ['/', 'Search'],
+  ['q', 'Ask Eden about the open email'], ['v', 'Read my inbox out loud'],
   ['1–4', 'Important, Other, News, Calendar'], ['z', 'Undo'], ['?', 'These shortcuts'],
 ];
 export function shortcutsNode() {

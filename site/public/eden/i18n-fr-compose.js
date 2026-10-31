@@ -82,6 +82,13 @@ const ACCESS = { 'only me': 'moi uniquement', 'anyone with the link': 'toute per
 
 export default {
   exact: {
+    /* v2 (2026-10-30): the review card (compose.js) */
+    'Check before sending': 'Vérifier avant l’envoi',
+    'Send this reply?': `Envoyer cette réponse${NBSP}?`,
+    'Send this email?': `Envoyer cet e-mail${NBSP}?`,
+    'Schedule this email?': `Programmer cet e-mail${NBSP}?`,
+    'Keep editing': 'Continuer la rédaction',
+    'Everyone here was already on this thread.': 'Tous ces destinataires étaient déjà dans la conversation.',
     /* ---------- compose.js: window ---------- */
     'Gmail alias': 'Alias Gmail',
     'Mail on your Mac': 'Mail sur votre Mac',
@@ -475,6 +482,7 @@ export default {
   },
 
   patterns: [
+    [/^Not on this thread before: (.+)\. Check the address(es)?\.$/, (_, a, es) => `Pas encore dans la conversation${NBSP}: ${a}. Vérifiez ${es ? 'les adresses' : 'l’adresse'}.`],
     /* ---------- compose.js ---------- */
     [TB_RE, (m, a, k) => `${TB[a]} (${k})`],
     [/^Open “(.+)”$/, `Ouvrir «${NBSP}$1${NBSP}»`],

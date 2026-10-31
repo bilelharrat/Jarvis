@@ -125,11 +125,14 @@ function normMsg(m) {
     calendar: m.calendar && typeof m.calendar.ics === 'string' ? { ics: m.calendar.ics, method: m.calendar.method || null } : null,
   };
 }
-const mail = { accounts: [], account: '', mailbox: 'inbox', query: '', source: 'gmail', google: null, rows: [], open: null, ranked: false, filter: 'all', counts: {}, digest: null,
-  split: null, sel: -1, canModify: null, known: null, reminders: [], nudges: [], undo: null };
+const mail = { accounts: [], account: '', mailbox: 'inbox', query: '', source: 'gmail', google: null, rows: [], open: null, ranked: true, filter: 'all', counts: {}, digest: null,
+  split: null, sel: -1, canModify: null, known: null, reminders: [], nudges: [], undo: null,
+  bundle: null, openBundles: new Set(), askOpen: true, whyOpen: false, rankModel: '' };
 let panelBody = null;
 const LS = (() => { try { return localStorage; } catch { return null; } })();
-try { mail.ranked = LS && LS.getItem('eden:mail:ranked') === '1'; } catch { /* storage blocked */ }
+// v2: sorted by what needs you unless the owner chose "by date" ('0'); Ask Eden docked beside the email unless closed.
+try { mail.ranked = !LS || LS.getItem('eden:mail:ranked') !== '0'; } catch { /* storage blocked */ }
+try { mail.askOpen = !LS || LS.getItem('eden:mail:askpane') !== '0'; } catch { /* storage blocked */ }
 // Eden's answers, per message id (and per set of messages for the digest): reopening never bills again.
 const rankCache = makeCache(LS, 'eden:mail:ranks', 400);
 const sumCache = makeCache(LS, 'eden:mail:sums', 120);
@@ -158,6 +161,11 @@ function avatar(from, big = false) {
 }
 const iconBtn = (name, label, onclick, cls = '') => el('button', { type: 'button', class: `mx-ib ${cls}`.trim(), 'aria-label': label, title: label, onclick }, ico(name, 15));
 const rankPill = (r) => (r ? el('span', { class: `rk rk-${r.level}`, title: r.reason || RANK_LABEL[r.level] }, RANK_LABEL[r.level]) : null);
+/** Eden's logo tile (the chevrons on the light tile, white on navy in dark mode): Eden Mail's mark, never an orb. */
+const edenTile = (size = 28) => el('span', { class: 'mx-tile', style: { width: `${size}px`, height: `${size}px` }, 'aria-hidden': 'true' }, ico('eden'));
+const kbd = (k) => el('kbd', { class: 'mx-kbd', 'aria-hidden': 'true' }, k);
+// v2: what the rest of the inbox is bundled into (mail-voice.js SPLITS), with an icon each.
+const BUNDLES = { important: ['From people', 'user'], other: ['Other', 'inbox'], news: ['Newsletters', 'news'], calendar: ['Calendar', 'cal'] };
 
 /**
  * Keyboard focus into the panel: the selected source tab. It's drawn at once, before Gmail or
@@ -165,7 +173,8 @@ const rankPill = (r) => (r ? el('span', { class: `rk rk-${r.level}`, title: r.re
  * the network; re-rendering (another source, ‹ Back) would otherwise drop it on the page.
  */
 export function focusMail(body = panelBody) {
-  const t = body && (body.querySelector('[data-src][aria-selected="true"]') || body.querySelector('button, input, select, textarea'));
+  // v2: the sidebar's New email on a wide window (its source switch sits at the foot), else the head's source tab
+  const t = body && ([...body.querySelectorAll('.mx-side-new, [data-src][aria-selected="true"]')].find((x) => x.offsetParent !== null) || body.querySelector('button, input, select, textarea'));
   if (t) t.focus();
   return !!t;
 }
@@ -182,27 +191,49 @@ export async function mailPanel(body) {
   body.classList.add('mailx');
   body.replaceChildren();
   mail.open = null;
-  const srcSeg = el('div', { class: 'seg mx-src', style: { '--n': 2 }, role: 'tablist', 'aria-label': 'Mail source' }, el('div', 'seg-thumb'),
-    el('button', { type: 'button', role: 'tab', 'data-src': 'gmail' }, 'Gmail'), el('button', { type: 'button', role: 'tab', 'data-src': 'mac' }, 'Mail on your Mac'));
-  const si = mail.source === 'gmail' ? 0 : 1;
-  srcSeg.querySelector('.seg-thumb').style.setProperty('--i', si);
-  srcSeg.querySelectorAll('button').forEach((x, j) => { x.classList.toggle('on', j === si); x.setAttribute('aria-selected', String(j === si)); });
-  srcSeg.addEventListener('click', (e) => { const x = e.target.closest('[data-src]'); if (x && x.dataset.src !== mail.source) { mail.source = x.dataset.src; mail.account = ''; mail.digest = null; if (!SOURCES[mail.source].boxes.some(([b]) => b === mail.mailbox)) mail.mailbox = 'inbox'; mailPanel(body); focusMail(body); } });
+  mail.openMsg = null;
+  // Gmail or Mail on your Mac: in the head on a narrow panel, at the foot of the sidebar on a wide one (v2).
+  const sourceSeg = () => {
+    const seg = el('div', { class: 'seg mx-src', style: { '--n': 2 }, role: 'tablist', 'aria-label': 'Mail source' }, el('div', 'seg-thumb'),
+      el('button', { type: 'button', role: 'tab', 'data-src': 'gmail' }, 'Gmail'), el('button', { type: 'button', role: 'tab', 'data-src': 'mac' }, 'Mail on your Mac'));
+    const si = mail.source === 'gmail' ? 0 : 1;
+    seg.querySelector('.seg-thumb').style.setProperty('--i', si);
+    seg.querySelectorAll('button').forEach((x, j) => { x.classList.toggle('on', j === si); x.setAttribute('aria-selected', String(j === si)); });
+    seg.addEventListener('click', (e) => { const x = e.target.closest('[data-src]'); if (x && x.dataset.src !== mail.source) { mail.source = x.dataset.src; mail.account = ''; mail.digest = null; mail.bundle = null; if (!SOURCES[mail.source].boxes.some(([b]) => b === mail.mailbox)) mail.mailbox = 'inbox'; mailPanel(body); focusMail(body); } });
+    return seg;
+  };
+  const srcSeg = sourceSeg();
 
   const acct = el('select', { class: 'mx-acct', 'aria-label': 'Mail account' });
   const who = el('span', { class: 'mail-who' });
-  const newBtn = el('button', { type: 'button', class: 'btn primary mx-new', onclick: () => openCompose({ source: mail.source, account: mail.account }) }, ico('edit', 14), el('span', '', 'New email'));
-  const gear = iconBtn('gear', 'Mail settings: your writing style, snippets, shortcuts', () => openMailSettings({ fetchSamples: samplesFrom(mail.source), source: mail.source, previewRows: () => { const ctx = { known: mail.known || new Set(), vips: vips() }; return visibleRows().map((m) => ({ ...m, split: splitOf(m, ctx), fromName: nameOf(m.from) })); } }), 'mx-gear');
+  const compose = () => openCompose({ source: mail.source, account: mail.account });
+  const newBtn = el('button', { type: 'button', class: 'btn primary mx-new', onclick: compose }, ico('edit', 14), el('span', '', 'New email'));
+  const settings = () => openMailSettings({ fetchSamples: samplesFrom(mail.source), source: mail.source, previewRows: () => { const ctx = { known: mail.known || new Set(), vips: vips() }; return visibleRows().map((m) => ({ ...m, split: splitOf(m, ctx), fromName: nameOf(m.from) })); } });
+  const gear = iconBtn('gear', 'Mail settings: your writing style, snippets, shortcuts', settings, 'mx-gear');
   const top = el('div', { class: 'mail-top mx-bar' }, srcSeg, who, acct, gear, newBtn);
   const head = el('div', 'mx-head', top);
+  // v2 sidebar (a wide window): New email, the mailboxes, what Eden bundled, then the source and the account.
+  const sideNav = el('ul', { class: 'mx-nav', role: 'list' });
+  const sideBund = el('div', 'mx-side-bund');
+  const sideWho = el('div', 'mx-side-who');
+  const side = el('nav', { class: 'mx-side', 'aria-label': 'Mailboxes' },
+    MAIL_ONLY ? el('div', 'mx-brand', edenTile(28), el('span', '', 'Eden Mail')) : null,
+    el('button', { type: 'button', class: 'btn primary mx-side-new', onclick: compose }, ico('edit', 15), el('span', '', 'New email'), kbd('C')),
+    sideNav, sideBund,
+    el('div', 'mx-side-foot', sourceSeg(), el('div', 'mx-side-acct', sideWho, iconBtn('gear', 'Mail settings: your writing style, snippets, shortcuts', settings, 'mx-gear'))));
+  const lhead = el('div', 'mx-lhead');
   const list = el('div', { class: 'mx-list', 'aria-live': 'polite' }, skeleton());
+  const lcol = el('div', 'mx-lcol', lhead, list);
   const read = el('div', { class: 'mx-read' }, emptyState('mail', 'No message selected', 'Pick an email to read it here. Eden can summarize it or draft your reply.'));
+  const askp = el('aside', { class: 'mx-askp', 'aria-label': 'Ask Eden', hidden: true });
   const split = el('div', { class: 'mx-split', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the message list', title: 'Drag to resize · double-click to reset' });
-  const main = el('div', 'mx-main', list, read, split);
-  const root = el('div', 'mx', head, main);
-  splitter(root, main, list, split);
+  const main = el('div', 'mx-main', lcol, read, askp, split);
+  const root = el('div', 'mx', side, el('div', 'mx-col', head, main));
+  splitter(root, main, lcol, split);
   body.append(root);
   acct.hidden = true;
+  mail.askp = askp;
+  mail.main = main;
 
   const gate = (node) => { list.replaceChildren(node); read.hidden = true; root.classList.add('gated'); };
   if (mail.source === 'gmail') {
@@ -220,6 +251,7 @@ export async function mailPanel(body) {
       return;
     }
     who.replaceChildren(avatar(st.email || 'Gmail'), el('span', { class: 'mw-t', title: 'Signed in to Gmail' }, st.email || 'Gmail'));
+    sideWho.replaceChildren(avatar(st.email || 'Gmail'), el('span', { class: 'mw-t', title: 'Signed in to Gmail' }, st.email || 'Gmail'));
     if (!mail.known) gmail('contacts').then((r) => { mail.contacts = (r && r.contacts) || []; mail.known = new Set(mail.contacts.filter((c) => c.count >= 2).map((c) => String(c.email).toLowerCase())); if (mail.redraw) mail.redraw(); }, () => { mail.known = new Set(); });
     maybeAutoLearn(samplesFrom('gmail'), 'gmail');
   } else if (!H.jarvisAvailable()) {
@@ -232,15 +264,36 @@ export async function mailPanel(body) {
   const counts = (mail.counts[mail.source] ||= {});
   const folders = el('div', { class: 'mx-folders', role: 'tablist', 'aria-label': 'Mailbox' },
     ...boxes.map(([id, label]) => el('button', { type: 'button', role: 'tab', 'data-box': id }, ico(FOLDER_ICO[id] || 'mail', 14), el('span', 'fl', label), el('span', { class: 'fc', 'data-count': id }))));
-  const q = el('input', { class: 'mx-q', type: 'search', placeholder: 'Search mail', 'aria-label': 'Search mail' });
+  const q = el('input', { class: 'mx-q', type: 'search', placeholder: 'Search or Ask Eden', 'aria-label': 'Search mail, or ask Eden a question about it' });
   q.value = mail.query;
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  const search = el('label', 'mx-search', ico('search', 14), q, el('kbd', { 'aria-hidden': 'true' }, isMac ? '⌘F' : 'Ctrl F'));
-  head.append(el('div', 'mx-bar2', folders, search));
-  const paintCounts = () => folders.querySelectorAll('[data-count]').forEach((c) => { const n = counts[c.dataset.count]; c.textContent = n ? String(n) : ''; c.hidden = !n; });
+  const search = el('label', 'mx-search', ico('eden', 15, 'mx-search-mk'), q, el('kbd', { 'aria-hidden': 'true' }, isMac ? '⌘F' : 'Ctrl F'));
+  head.append(el('div', 'mx-bar2', folders));
+  // v2: the sidebar's mailboxes (the same [data-box] and [data-count] as the head's tabs), with the Brief after the Inbox.
+  const navItem = (id, label, icon) => el('li', '', el('button', { type: 'button', class: 'mx-nv', 'data-box': id }, ico(icon, 17), el('span', 'fl', label), el('span', { class: 'fc', 'data-count': id })));
+  sideNav.replaceChildren(navItem('inbox', 'Inbox', 'inbox'),
+    el('li', '', el('button', { type: 'button', class: 'mx-nv', 'data-brief': '', onclick: () => openBrief(false) }, ico('sun', 17), el('span', 'fl', 'Brief'))),
+    ...boxes.filter(([id]) => id !== 'inbox').map(([id, label]) => navItem(id, label, FOLDER_ICO[id] || 'mail')));
+  // v2: the list's own head: search or ask, the mailbox's name, and what Eden did to the order (drawList fills it).
+  const ltitle = el('h2', 'mx-ltitle');
+  const did = el('div', 'mx-did');
+  const lacts = el('div', 'mx-lacts',
+    el('button', { type: 'button', class: 'mx-chip mx-brief-chip', title: 'Your daily brief', onclick: () => openBrief(false) }, ico('sun', 14), el('span', '', 'Brief')),
+    iconBtn('speaker', 'Read my inbox out loud (V)', () => readInbox()));
+  lhead.replaceChildren(search, el('div', 'mx-lrow', ltitle, lacts), did);
+  const boxLabel = () => (mail.bundle ? BUNDLES[mail.bundle][0] : boxes.find(([b]) => b === mail.mailbox)?.[1] || 'Inbox');
+  const paintCounts = () => root.querySelectorAll('[data-count]').forEach((c) => { const n = counts[c.dataset.count]; c.textContent = n ? String(n) : ''; c.hidden = !n; });
   const paintSeg = () => {
-    folders.querySelectorAll('[data-box]').forEach((b) => { const on = b.dataset.box === mail.mailbox; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
+    root.querySelectorAll('[data-box]').forEach((b) => {
+      const on = b.dataset.box === mail.mailbox && !(mail.bundle && b.classList.contains('mx-nv'));
+      b.classList.toggle('on', on);
+      if (b.getAttribute('role') === 'tab') b.setAttribute('aria-selected', String(on)); else if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
+    root.querySelectorAll('[data-bundle]').forEach((b) => { const on = mail.mailbox === 'inbox' && b.dataset.bundle === mail.bundle; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     search.hidden = mail.mailbox === 'scheduled' || mail.mailbox === 'team';
+    ltitle.textContent = boxLabel();
+    lacts.hidden = mail.mailbox !== 'inbox';
+    if (mail.mailbox !== 'inbox') did.replaceChildren();
     paintCounts();
   };
   paintSeg();
@@ -300,6 +353,9 @@ export async function mailPanel(body) {
   const drawList = () => {
     const inbox = mail.mailbox === 'inbox';
     const all = inbox ? visibleRows() : mail.rows;
+    if (inbox && mail.ranked && !mail.query) { drawSorted(all); return; }
+    paintDid(null);
+    if (inbox) sideBund.replaceChildren();
     const splitOn = inbox && !mail.query && prefs().split;
     const bySplit = splitOn ? splitRows(all) : null;
     if (splitOn && (!mail.split || !bySplit[mail.split])) mail.split = SPLITS.map(([id]) => id).find((id) => bySplit[id].length) || 'important';
@@ -330,18 +386,106 @@ export async function mailPanel(body) {
   };
   const rankMap = () => { const m = new Map(); for (const r of mail.rows) { const v = rankCache.get(ck(r.id)); if (v) m.set(String(r.id), v); } return m; };
 
+  /**
+   * v2, Eden's order: what needs you first (urgent, then what asks for your reply, and unread mail the scam check
+   * flags), each row with its reason; the rest bundled by kind (mail-voice.js SPLITS), each bundle opening in place
+   * and listed in the sidebar.
+   */
+  const drawSorted = (all) => {
+    const ranks = rankMap();
+    const ctx = { known: mail.known || new Set(), vips: vips() };
+    const needs = [], rest = [];
+    for (const m of newestFirst(all)) {
+      const r = ranks.get(String(m.id));
+      if ((r && (r.level === 'urgent' || r.level === 'reply')) || (m.unread && !safeForAuto(shieldOf(m)))) needs.push(m); else rest.push(m);
+    }
+    const bundles = SPLITS.map(([id]) => [id, rest.filter((m) => splitOf(m, ctx) === id)]).filter(([, ms]) => ms.length);
+    if (mail.bundle && !bundles.some(([id]) => id === mail.bundle)) mail.bundle = null;
+    paintSideBundles(bundles);
+    paintDid(ranks);
+    ltitle.textContent = boxLabel();
+    const parts = [];
+    if (mail.bundle) {
+      parts.push(el('button', { type: 'button', class: 'cap mx-bund-back', onclick: () => { mail.bundle = null; paintSeg(); drawList(); } }, ico('chevl', 12), el('span', '', 'Inbox')));
+      for (const g of groupByDay(bundles.find(([id]) => id === mail.bundle)[1])) parts.push(el('section', { class: 'mx-group', 'aria-label': g.label }, el('h4', 'mx-day', el('span', '', g.label), el('span', 'n', String(g.items.length))), ...g.items.map((m) => row(m, ranks.get(String(m.id))))));
+    } else {
+      parts.push(...attentionGroups(), promiseStrip());
+      if (mail.digest) parts.push(digestCard());
+      if (!all.length) parts.push(emptyState('inbox', 'You’re all caught up', 'New mail lands here. Eden can draft and schedule replies for you.'));
+      else {
+        parts.push(el('section', { class: 'mx-group mx-needs', 'aria-label': 'Needs you' },
+          el('h4', 'mx-kick', el('span', { 'data-no-i18n': '' }, isFr ? 'À traiter' : 'Needs you'), el('span', 'n', String(needs.length))),
+          ...(needs.length ? sortByRank(needs, ranks).map((m) => row(m, ranks.get(String(m.id)))) : [el('p', 'mx-none', mail.rankState?.busy ? 'Eden is still sorting…' : 'Nothing needs you right now.')])));
+        if (bundles.length) parts.push(el('section', { class: 'mx-group mx-rest', 'aria-label': 'The rest, bundled' },
+          el('h4', 'mx-kick', el('span', '', 'The rest, bundled'), el('span', 'n', String(rest.length))),
+          ...bundles.map(([id, ms]) => bundleRow(id, ms, ranks))));
+      }
+    }
+    list.replaceChildren(...parts.filter(Boolean));
+    paintSel();
+  };
+  /** A bundle: its kind, who it's from and how many; it opens in place (and its rows join j/k). */
+  const bundleRow = (id, ms, ranks) => {
+    const open = mail.openBundles.has(id);
+    const [label, icon] = BUNDLES[id];
+    const names = [...new Set(ms.map((m) => nameOf(m.from)).filter(Boolean))];
+    const unread = ms.filter((m) => m.unread).length;
+    return el('div', { class: `mx-bundle${open ? ' open' : ''}` },
+      el('button', { type: 'button', class: 'mx-bund', 'aria-expanded': String(open), onclick: () => { if (open) mail.openBundles.delete(id); else mail.openBundles.add(id); drawList(); } },
+        el('span', 'mx-bund-ic', ico(icon, 19)),
+        el('span', 'mx-bund-t', el('b', '', label), el('span', 'mx-bund-who', own('span', '', names.slice(0, 2).join(', ')), names.length > 2 ? el('span', 'mx-bund-more', `and ${names.length - 2} more`) : null)),
+        el('span', `mx-bund-n${unread ? ' unread' : ''}`, String(ms.length)), ico('chevr', 12, 'mx-bund-chev')),
+      open ? el('div', 'mx-bund-rows', ...ms.map((m) => row(m, ranks.get(String(m.id))))) : null);
+  };
+  const openBundle = (id) => {
+    const was = mail.mailbox;
+    mail.mailbox = 'inbox'; mail.bundle = id; mail.sel = -1;
+    closeReader(); paintSeg();
+    if (was !== 'inbox') run(); else drawList();
+  };
+  const paintSideBundles = (bundles) => sideBund.replaceChildren(...(bundles.length ? [el('p', 'mx-side-k', 'Bundled by Eden'),
+    el('ul', { class: 'mx-nav', role: 'list' }, ...bundles.map(([id, ms]) => el('li', '', el('button', { type: 'button', class: `mx-nv${mail.bundle === id ? ' on' : ''}`, 'data-bundle': id, ...(mail.bundle === id ? { 'aria-current': 'page' } : {}), onclick: () => openBundle(id) },
+      ico(BUNDLES[id][1], 17), el('span', 'fl', BUNDLES[id][0]), el('span', 'fc', String(ms.length))))))] : []));
+  /** What Eden did to the order, and why (Why this order opens the explanation and the switch back to newest first). */
+  const paintDid = (ranks) => {
+    if (mail.mailbox !== 'inbox' || mail.query) { did.replaceChildren(); return; }
+    const toggleOrder = () => {
+      mail.ranked = !mail.ranked; mail.filter = 'all'; mail.bundle = null;
+      try { LS && LS.setItem('eden:mail:ranked', mail.ranked ? '1' : '0'); } catch { /* blocked */ }
+      paintSeg(); drawList();
+      if (mail.ranked) rankInbox();
+    };
+    if (!ranks) { did.replaceChildren(el('span', 'mx-did-t', el('span', '', 'Newest first')), el('button', { type: 'button', class: 'mx-did-why', onclick: toggleOrder }, 'Sort by what needs me')); return; }
+    const st = mail.rankState;
+    const n = visibleRows().filter((m) => ranks.has(String(m.id))).length;
+    const line = st?.busy ? st.text : st?.error ? `Couldn’t sort: ${st.error}` : n ? `Eden sorted ${n} email${n === 1 ? '' : 's'} by what needs you` : 'Newest first until Eden sorts them';
+    did.replaceChildren(...[
+      el('span', `mx-did-t${st?.error ? ' bad' : ''}`, ico('eden', 13, 'mx-did-mk'), el('span', '', line)),
+      st?.error ? el('button', { type: 'button', class: 'mx-did-why', onclick: () => { mail.rankState = null; rankInbox(); } }, 'Try again')
+        : el('button', { type: 'button', class: 'mx-did-why', 'aria-expanded': String(mail.whyOpen), 'aria-controls': 'mx-why', onclick: () => { mail.whyOpen = !mail.whyOpen; paintDid(rankMap()); } }, 'Why this order'),
+      mail.whyOpen && !st?.error ? el('div', { class: 'mx-why', id: 'mx-why' },
+        el('p', '', 'Eden reads the sender, subject and preview of each new email (not the whole message) and puts first what is urgent or asks for your reply, with the reason. Everything else is bundled by kind. Nothing is sent, moved or deleted.'),
+        mail.rankModel ? el('p', 'mx-why-m', `Sorted by ${mail.rankModel}`) : null,
+        el('button', { type: 'button', class: 'cap', onclick: toggleOrder }, ico('sort', 12), el('span', '', 'Sort by date instead'))) : null].filter(Boolean));
+  };
+
   const row = (m, rank) => {
     const out = mail.mailbox === 'drafts' || mail.mailbox === 'sent';
     const peer = out ? (m.to[0] || '') : m.from;
     const name = out ? (m.to.length ? `${tx('To')} ${m.to.map(nameOf).join(', ')}` : '(no recipient)') : nameOf(m.from) || '(unknown sender)';
     const open = () => (m.draftId ? openCompose({ source: 'gmail', draftId: m.draftId }) : openMessage(body, m));
+    const sus = !out && !safeForAuto(shieldOf(m));
+    const sorted = mail.ranked && mail.mailbox === 'inbox' && !mail.query; // v2: the reason as a chip, the scam check's words in a red one
+    const reason = !sorted ? (rank && rank.reason ? el('span', 'mr-p mr-why', rankPill(rank), own('span', '', rank.reason)) : null)
+      : sus ? el('span', { class: 'mr-chip bad', title: shieldOf(m).map((x) => x.text).join(' ') }, ico('shield', 13), own('span', '', shieldOf(m)[0]?.text || tx('Be careful with this email')))
+        : rank && rank.reason && (rank.level === 'urgent' || rank.level === 'reply') ? el('span', { class: `mr-chip rk-${rank.level}`, title: RANK_LABEL[rank.level] }, ico(rank.level === 'urgent' ? 'clock' : 'reply', 13), own('span', '', rank.reason)) : null;
     const r = el('div', { class: `mail-row${m.unread ? ' unread' : ''}${mail.open === m.id ? ' sel' : ''}`, 'data-id': m.id },
       el('button', { type: 'button', class: 'mr-main', onclick: open, 'aria-label': `${m.unread ? 'Unread. ' : ''}${name}: ${m.subject}` },
         avatar(peer || name),
         el('span', 'mr-txt',
-          el('span', 'mr-top', el('b', { class: 'mr-n', title: out ? m.to.join(', ') : m.from, 'data-no-i18n': '' }, PLACEHOLDER.has(name) ? tx(name) : name), !out && !safeForAuto(shieldOf(m)) ? el('span', { class: 'mail-badge sus', title: shieldOf(m).map((x) => x.text).join(' ') }, '⚠ Suspicious') : null, m.labels.includes('STARRED') ? ico('star', 12, 'mr-star') : null, m.attachments.length ? ico('clip', 12, 'mr-clip') : null, el('span', 'mr-d', rowDate(m.date))),
+          el('span', 'mr-top', el('b', { class: 'mr-n', title: out ? m.to.join(', ') : m.from, 'data-no-i18n': '' }, PLACEHOLDER.has(name) ? tx(name) : name), sus && !sorted ? el('span', { class: 'mail-badge sus', title: shieldOf(m).map((x) => x.text).join(' ') }, '⚠ Suspicious') : null, m.labels.includes('STARRED') ? ico('star', 12, 'mr-star') : null, m.attachments.length ? ico('clip', 12, 'mr-clip') : null, el('span', 'mr-d', rowDate(m.date))),
           el('span', 'mr-s', own('span', '', m.subject), m.scheduledAt ? el('span', 'mail-badge', `Scheduled · ${when(m.scheduledAt)}`) : null, out ? receiptBadge(m) : null, !out && (autoCache.get(ck(m.id))?.text || bgDraft(m)) ? el('span', { class: 'mail-badge ad', title: 'Eden wrote a reply in your style: open the email to review it' }, '✦ Draft ready') : null),
-          rank && rank.reason ? el('span', 'mr-p mr-why', rankPill(rank), own('span', '', rank.reason)) : m.snippet ? own('span', 'mr-p', m.snippet) : null)),
+          reason || (m.snippet ? own('span', 'mr-p', m.snippet) : null))),
       m.draftId || out ? null : el('div', 'mr-acts',
         mail.mailbox === 'inbox' ? iconBtn('done', 'Done (E)', () => doneRows([m])) : null,
         mail.mailbox === 'inbox' ? iconBtn('clock', 'Remind me (H)', (e) => snoozeMenu([m], e.currentTarget)) : null,
@@ -380,7 +524,7 @@ export async function mailPanel(body) {
       ...['all', ...RANKS].map((lv) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(mail.filter === lv), class: `mx-f${mail.filter === lv ? ' on' : ''}${lv !== 'all' ? ` rk-${lv}` : ''}`, onclick: () => { mail.filter = lv; drawList(); } },
         lv === 'all' ? 'All' : RANK_LABEL[lv], lv !== 'all' && c[lv] ? el('span', 'n', String(c[lv])) : null))) : null;
     return el('div', 'mx-eden',
-      el('div', 'mx-eden-top', el('span', 'mx-eden-orb', ico('spark', 15)),
+      el('div', 'mx-eden-top', el('span', 'mx-eden-orb mx-tile', ico('eden')),
         el('div', 'mx-stats', ...stats.map(([n, l, cls]) => el('span', `st ${cls}`, el('b', '', n), el('span', '', l)))),
         el('div', 'mx-eden-acts', sumBtn, rankBtn, readBtn)),
       mail.rankState ? el('div', `mx-eden-note${mail.rankState.error ? ' bad' : ''}`, mail.rankState.error ? `Couldn’t rank: ${mail.rankState.error}` : mail.rankState.text) : null,
@@ -396,9 +540,11 @@ export async function mailPanel(body) {
     drawList();
     try {
       const ids = todo.map((m) => String(m.id));
-      let ranks = parseRanks((await askEden(withContentLang(RANK_SYSTEM), 'Inbox: emails to rank', mailLines(todo))).out, ids);
-      if (!ranks.size) ranks = parseRanks((await askEden(`${withContentLang(RANK_SYSTEM)}\nYour last answer wasn’t that JSON object. Reply with the JSON object only.`, 'Inbox: emails to rank', mailLines(todo))).out, ids);
+      let ans = await askEden(withContentLang(RANK_SYSTEM), 'Inbox: emails to rank', mailLines(todo));
+      let ranks = parseRanks(ans.out, ids);
+      if (!ranks.size) { ans = await askEden(`${withContentLang(RANK_SYSTEM)}\nYour last answer wasn’t that JSON object. Reply with the JSON object only.`, 'Inbox: emails to rank', mailLines(todo)); ranks = parseRanks(ans.out, ids); }
       if (!ranks.size) throw new Error('Eden’s answer had no ranks in it.');
+      if (ans.model) mail.rankModel = ans.model;
       for (const [id, v] of ranks) rankCache.set(ck(id), v);
       mail.rankState = null;
     } catch (e) { mail.rankState = { error: e.message }; }
@@ -457,7 +603,9 @@ export async function mailPanel(body) {
   mail.readPane = read;
   mail.root = root;
   mail.search = q;
-  folders.addEventListener('click', (e) => { const b = e.target.closest('[data-box]'); if (!b) return; mail.mailbox = b.dataset.box; paintSeg(); run(); });
+  const pickBox = (e) => { const b = e.target.closest('[data-box]'); if (!b) return; mail.mailbox = b.dataset.box; mail.bundle = null; closeReader(); paintSeg(); run(); };
+  folders.addEventListener('click', pickBox);
+  sideNav.addEventListener('click', pickBox);
   folders.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     const bs = [...folders.querySelectorAll('[data-box]')];
@@ -562,13 +710,15 @@ async function scheduledList(res, again) {
 async function openMessage(body, m) {
   const pane = mail.readPane, root = mail.root;
   if (!pane || !document.contains(pane)) return;
+  unbrief();
   mail.open = m.id;
   root.querySelectorAll('.mail-row').forEach((r) => r.classList.toggle('sel', r.dataset.id === String(m.id)));
   root.classList.add('reading');
   pane.hidden = false;
   const back = el('button', { type: 'button', class: 'cap mx-back', onclick: () => { root.classList.remove('reading'); mail.open = null; root.querySelectorAll('.mail-row.sel').forEach((r) => r.classList.remove('sel')); const r = root.querySelector(`.mail-row[data-id="${CSS.escape(String(m.id))}"] .mr-main`); if (r) r.focus(); else focusMail(body); } }, ico('chevl', 14), 'Back');
   const view = el('div', { class: 'mail-view', 'aria-live': 'polite' }, el('div', 'mv-skel', el('span', 'sk l1'), el('span', 'sk l2'), el('span', 'sk l3'), el('span', 'sk l2')));
-  pane.replaceChildren(el('div', 'mail-top mv-top', back), view);
+  const tools = el('div', { class: 'mv-tools', role: 'toolbar', 'aria-label': 'This email' });
+  pane.replaceChildren(el('div', 'mail-top mv-top', back, tools), view);
   pane.scrollTop = 0;
   if (getComputedStyle(back).display !== 'none') back.focus();
   let msg = m;
@@ -617,9 +767,25 @@ async function openMessage(body, m) {
     } catch (e) { sumBox.replaceChildren(el('div', 'dg-head', ico('spark', 15), el('b', '', 'Summary'), el('span', 'dg-scope', ''), iconBtn('x', 'Close', () => { sumBox.hidden = true; })), el('p', { class: 'dg-err', role: 'alert' }, `The summary couldn’t be made: ${e.message}`)); }
   };
   const btn = (icon, label, onclick, cls = 'btn') => el('button', { type: 'button', class: cls, onclick }, ico(icon, 14), el('span', '', label));
+  // v2: the email's actions in a toolbar above it, each with its key; Ask Eden (Q) docks beside it on a wide window.
+  const tb = (icon, label, key, onclick, cls = '') => el('button', { type: 'button', class: `mv-tb ${cls}`.trim(), 'aria-label': label, title: key ? `${label} (${key.toUpperCase()})` : label, ...(key ? { 'aria-keyshortcuts': key.toUpperCase() } : {}), onclick }, ico(icon, 16), el('span', 'mv-tb-l', label), key ? kbd(key.toUpperCase()) : null);
+  const starred = m.labels.includes('STARRED');
+  tools.replaceChildren(...[
+    isMacDraft ? el('button', { type: 'button', class: 'btn primary', onclick: () => openCompose({ source: 'mac', account: msg.account, to: msg.to, cc: msg.cc, subject: msg.subject === '(no subject)' ? '' : msg.subject, body: msg.body }) }, 'Edit draft') : tb('reply', 'Reply', 'r', () => compose('reply'), 'mv-tb-main'),
+    isMacDraft || allCount < 2 ? null : tb('replyall', 'Reply all', 'a', () => compose('replyAll')),
+    isMacDraft ? null : tb('fwd', 'Forward', 'f', () => compose('forward')),
+    mail.mailbox === 'inbox' ? tb('done', DONE, 'e', () => doneRows([m])) : null,
+    mail.mailbox === 'inbox' ? tb('clock', 'Remind me', 'h', (e) => snoozeMenu([m], e.currentTarget)) : null,
+    tb('star', starred ? (mail.source === 'gmail' ? 'Unstar' : 'Unflag') : (mail.source === 'gmail' ? 'Star' : 'Flag'), 's', () => toggleStar(m), 'mv-tb-icon'),
+    mail.source === 'gmail' && teamMail.available() && msg.threadId ? tb('user', 'Share with team', '', () => shareThread(msg), 'mv-tb-icon') : null,
+    el('span', 'grow'),
+    (() => { const b = tb('eden', 'Ask Eden', 'q', () => toggleAsk(), 'mv-tb-ask'); b.setAttribute('aria-pressed', String(mail.askOpen)); return b; })()].filter(Boolean));
+  mail.openMsg = msg;
+  paintAsk(msg);
+  const firstName = (nameOf(msg.from) || '').split(/\s+/)[0];
   view.replaceChildren(...[
     el('div', 'mv-subj-row', own('h3', 'mail-subj', msg.subject), rankPill(rank)),
-    rank && rank.reason ? own('p', 'mv-why', rank.reason) : null,
+    rank && rank.reason ? el('section', { class: 'mv-short', 'aria-label': 'Why it’s here' }, el('p', 'mv-short-k', ico('eden', 12), el('span', '', 'Why it’s here')), own('p', 'mv-short-t', rank.reason)) : null,
     meta,
     shieldBanner(msg),
     bookCard(msg),
@@ -628,10 +794,8 @@ async function openMessage(body, m) {
     teamNote(msg),
     senderCard(msg),
     el('div', 'mv-eden',
-      el('span', 'mv-eden-l', ico('spark', 13), 'Eden'),
-      isMacDraft || !safeForAuto(shieldOf(msg)) ? null : btn('spark', 'Draft reply with Eden', () => compose('reply', { ai: 'reply' }), 'mx-chip accent'),
+      el('span', 'mv-eden-l', ico('eden', 13), 'Eden'),
       btn('doc', 'Summarize', () => summarize(false), 'mx-chip'),
-      btn('chat', 'Ask Eden', () => H.askEden(msg), 'mx-chip'),
       isMacDraft ? null : btn('cal', 'Add to calendar', () => addToCalendar(msg), 'mx-chip')),
     inviteCard(msg),
     sumBox,
@@ -639,16 +803,10 @@ async function openMessage(body, m) {
     msg.attachments.length ? el('div', 'mv-atts', ...msg.attachments.map((a) => el('span', { class: 'mv-att', 'data-no-i18n': '' }, ico('clip', 13), a))) : null,
     isMacDraft ? null : autoDraftCard(msg),
     isMacDraft || autoCache.get(ck(msg.id))?.text || bgDraft(msg) || !safeForAuto(shieldOf(msg)) ? null : instantBox(msg),
-    el('div', 'mail-acts-row',
-      isMacDraft ? el('button', { type: 'button', class: 'btn primary', onclick: () => openCompose({ source: 'mac', account: msg.account, to: msg.to, cc: msg.cc, subject: msg.subject === '(no subject)' ? '' : msg.subject, body: msg.body }) }, 'Edit draft') : null,
-      isMacDraft ? null : btn('reply', 'Reply', () => compose('reply'), 'btn primary'),
-      isMacDraft || allCount < 2 ? null : btn('replyall', 'Reply all', () => compose('replyAll')),
-      isMacDraft ? null : btn('fwd', 'Forward', () => compose('forward')),
-      el('span', 'grow'),
-      mail.mailbox === 'inbox' ? btn('done', DONE, () => doneRows([m])) : null,
-      mail.mailbox === 'inbox' ? btn('clock', 'Remind me', (e) => snoozeMenu([m], e.currentTarget)) : null,
-      btn('star', m.labels.includes('STARRED') ? (mail.source === 'gmail' ? 'Unstar' : 'Unflag') : (mail.source === 'gmail' ? 'Star' : 'Flag'), () => toggleStar(m)),
-      mail.source === 'gmail' && teamMail.available() && msg.threadId ? btn('user', 'Share with team', () => shareThread(msg)) : null),
+    // v2: a reply bar at the foot of the email; Draft with Eden only when the scam check is happy.
+    isMacDraft ? null : el('div', 'mv-replybar',
+      el('button', { type: 'button', class: 'mv-rb-in', onclick: () => compose('reply') }, ico('reply', 15), el('span', '', 'Reply to'), firstName ? own('span', 'mv-rb-n', firstName) : null),
+      safeForAuto(shieldOf(msg)) ? el('button', { type: 'button', class: 'btn primary', onclick: () => compose('reply', { ai: 'reply' }) }, ico('eden', 14), el('span', '', 'Draft with Eden')) : null),
     isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Eden can’t edit this one in place.') : null].filter(Boolean));
   stopOpen();
   if (sumCache.get(ck(msg.id))) summarize(false); // already summarized: shown again, not billed again
@@ -1036,8 +1194,107 @@ async function setUnread(m, unread, { quiet = false } = {}) {
 function closeReader() {
   if (!mail.root) return;
   mail.root.classList.remove('reading');
+  unbrief();
   mail.open = null;
+  mail.openMsg = null;
   if (mail.readPane) mail.readPane.replaceChildren(emptyState('mail', 'No message selected', 'Pick an email to read it here. Eden can summarize it or draft your reply.'));
+  paintAsk(null);
+}
+
+/** The brief gave the list's room back: the sidebar's mailbox is current again. */
+function unbrief() {
+  const root = mail.root;
+  if (!root || !root.classList.contains('briefing')) return;
+  root.classList.remove('briefing');
+  root.querySelectorAll('[data-brief]').forEach((b) => { b.classList.remove('on'); b.removeAttribute('aria-current'); });
+  root.querySelectorAll('.mx-nv[data-box]').forEach((b) => { if (b.dataset.box === mail.mailbox && !mail.bundle) { b.classList.add('on'); b.setAttribute('aria-current', 'page'); } });
+}
+
+/* ---------- v2: Ask Eden, docked beside the email on a wide window (Q) ---------- */
+
+/** Opens or closes Ask Eden beside the email; without room for it, the question goes to Eden's chat instead. */
+function toggleAsk() {
+  const msg = mail.openMsg;
+  if (!msg) return;
+  if (!mail.root || mail.root.clientWidth < 1180) { H.askEden(msg); return; }
+  mail.askOpen = !mail.askOpen;
+  try { LS && LS.setItem('eden:mail:askpane', mail.askOpen ? '1' : '0'); } catch { /* blocked */ }
+  paintAsk(msg);
+  if (mail.askOpen) mail.askp.querySelector('.mxa-in')?.focus();
+}
+/** The pane for this email: a question about it, or (All mail) across the mailbox as Ask your mail does. Kept per email. */
+function paintAsk(msg) {
+  const p = mail.askp;
+  if (!p || !mail.main) return;
+  const on = !!msg && mail.askOpen;
+  p.hidden = !on;
+  mail.main.classList.toggle('asking', on);
+  const room = !!mail.root && mail.root.clientWidth >= 1180; // narrower, Ask Eden is Eden's chat (toggleAsk)
+  mail.root?.querySelectorAll('.mv-tb-ask').forEach((b) => b.setAttribute('aria-pressed', String(on && room)));
+  if (!on || p.dataset.id === ck(msg.id)) return;
+  p.dataset.id = ck(msg.id);
+  let scope = 'this';
+  const conv = el('div', { class: 'mxa-conv', 'aria-live': 'polite' },
+    el('p', 'mxa-hint', 'Ask about this email: what they want, the dates, the amounts, what to say back. Eden answers from the email and shows what it used.'));
+  const input = el('input', { type: 'text', class: 'mxa-in', placeholder: tx('Ask about this email'), 'aria-label': tx('Ask Eden about this email'), maxlength: '500', enterkeyhint: 'send' });
+  const segB = (id, label) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(id === scope), class: id === scope ? 'on' : '', 'data-scope': id }, label);
+  const seg = el('div', { class: 'mxa-seg', role: 'radiogroup', 'aria-label': 'What to ask about' }, segB('this', 'This email'), segB('all', 'All mail'));
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-scope]');
+    if (!b) return;
+    scope = b.dataset.scope;
+    seg.querySelectorAll('[data-scope]').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
+    input.placeholder = tx(scope === 'all' ? 'Ask about all your mail' : 'Ask about this email');
+    input.setAttribute('aria-label', tx(scope === 'all' ? 'Ask Eden about all your mail' : 'Ask Eden about this email'));
+    input.focus();
+  });
+  const go = () => {
+    const q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    conv.querySelector('.mxa-hint')?.remove();
+    if (scope === 'all') askMail(q, conv); else askThis(msg, q, conv);
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  p.replaceChildren(
+    el('div', 'mxa-head', edenTile(30), el('div', 'mxa-ht', el('b', '', 'Ask Eden'), own('span', '', msg.subject)), iconBtn('x', 'Close Ask Eden', toggleAsk)),
+    seg, conv,
+    el('div', 'mxa-form', input, el('button', { type: 'button', class: 'mxa-send', 'aria-label': 'Ask', title: 'Ask (Enter)', onclick: go }, ico('send', 15))));
+}
+/** One question about one email: the answer, what it came from, the model and how long it took. */
+async function askThis(msg, question, conv) {
+  const status = el('div', { class: 'dg-load', role: 'status' }, 'Reading the email…', el('span', 'sk l1'), el('span', 'sk l2'));
+  const box = el('div', 'mxa-a', status);
+  conv.append(own('p', 'mxa-q', question), box);
+  box.scrollIntoView({ block: 'nearest' });
+  try {
+    const { context } = sourcesContext([msg], 20_000);
+    const answer = el('div', { class: 'mx-sum-t', 'data-no-i18n': '' });
+    const t0 = performance.now();
+    let out = '', model = '', frame = 0;
+    // one email, one source: its chip says so, so the [1] markers go
+    const paint = () => { frame = 0; answer.replaceChildren(renderMarkdown(out.replace(/\s*\[\d{1,2}\]/g, ''))); };
+    await api.send({ messages: [{ role: 'user', content: question }], context: context.map((c) => ({ ...c, source: 'mail' })), system: [ANSWER_SYSTEM, replyLanguageNote()].filter(Boolean).join('\n'), settings: routeSettings(), mode: 'chat', ...mailAI() }, {
+      onEvent: (t, d) => {
+        if (t === 'route') model = d.modelName || d.model || '';
+        else if (t === 'text') { if (!out) status.replaceWith(answer); out += d.text || ''; if (!frame) frame = requestAnimationFrame(paint); }
+        else if (t === 'error') throw new Error(d.message || 'Eden couldn’t answer.');
+      },
+    });
+    if (frame) cancelAnimationFrame(frame);
+    if (!out.trim()) throw new Error('Eden sent back nothing.');
+    paint();
+    const secs = ((performance.now() - t0) / 1000).toLocaleString(locale(), { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+    box.append(
+      el('div', 'mxa-src', el('span', 'k', 'From'), el('span', 'mxa-chip', ico('mail', 13), own('span', '', `${nameOf(msg.from) || tx('(unknown sender)')} · ${rowDate(msg.date)}`))),
+      el('p', 'mxa-cost', `${model ? `${model} · ` : ''}${secs} s`),
+      el('div', 'mxa-acts',
+        safeForAuto(shieldOf(msg)) ? el('button', { type: 'button', class: 'btn primary', onclick: () => openCompose({ source: mail.source, account: msg.account || mail.account, mode: 'reply', message: msg, ai: 'reply', aiPrompt: `Use what Eden found when asked “${question}”: ${stripMd(out).slice(0, 700)}` }) }, ico('eden', 14), el('span', '', 'Draft reply')) : null,
+        el('button', { type: 'button', class: 'btn', onclick: () => H.askEden(msg) }, ico('chat', 14), el('span', '', 'Continue in chat'))));
+  } catch (e) {
+    if (document.contains(status)) status.replaceWith(el('p', { class: 'dg-err', role: 'alert' }, `Eden couldn’t answer: ${e.message}`));
+    else box.append(el('p', { class: 'dg-err', role: 'alert' }, `Eden couldn’t finish: ${e.message}`));
+  }
 }
 
 /* ---------- keyboard (Superhuman's): j k Enter u e h s r a f c / 1–4 z ? ---------- */
@@ -1085,6 +1342,7 @@ function onMailKey(e) {
     case 'z': if (mail.undo) run(() => { const u = mail.undo; mail.undo = null; u(); toast('Undone'); }); return;
     case '?': return run(() => H.openDialog('Mail shortcuts', shortcutsNode()));
     case 'v': return run(() => readInbox());
+    case 'q': if (mail.openMsg) run(() => toggleAsk()); return;
     case '1': case '2': case '3': case '4': if (inbox && prefs().split) run(() => { mail.split = SPLITS[Number(k) - 1][0]; mail.sel = -1; closeReader(); mail.redraw(); }); return;
     default:
   }
@@ -1196,7 +1454,8 @@ function instantBox(msg) {
 
 let askRun = 0;
 /** The answer card on top of the list: Eden searches the mailbox for the question, reads what it finds, answers with sources. */
-async function askMail(question) {
+/** Ask your mail: an answer across the mailbox, as a card at the top of the list (or in the Ask Eden pane, `mount`). */
+async function askMail(question, mount = null) {
   if (!question || !mail.list) return;
   const my = ++askRun;
   const list = mail.list;
@@ -1204,8 +1463,8 @@ async function askMail(question) {
   const head = el('div', 'dg-head', ico('spark', 15), el('b', '', 'Ask your mail'), own('span', 'dg-scope', question.slice(0, 80)), iconBtn('x', 'Close the answer', () => { card.remove(); }));
   const status = el('div', { class: 'dg-load', role: 'status' }, 'Looking through your mail…', el('span', 'sk l1'), el('span', 'sk l2'));
   card.append(head, status);
-  list.querySelector('.mx-ask')?.remove();
-  list.prepend(card);
+  if (mount) mount.append(card);
+  else { list.querySelector('.mx-ask')?.remove(); list.prepend(card); }
   card.scrollIntoView({ block: 'nearest' });
   const say = (t) => { status.firstChild.textContent = t; };
   try {
@@ -1302,6 +1561,8 @@ async function openTeam(spaceId, id) {
   const back = el('button', { type: 'button', class: 'cap mx-back', onclick: () => closeReader() }, ico('chevl', 14), 'Back');
   const view = el('div', { class: 'mail-view', 'aria-live': 'polite' }, el('div', 'mv-skel', el('span', 'sk l1'), el('span', 'sk l2'), el('span', 'sk l3')));
   pane.replaceChildren(el('div', 'mail-top mv-top', back), view);
+  mail.openMsg = null;
+  paintAsk(null);
   let got;
   try { got = await teamMail.get(spaceId, id); } catch (e) { view.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t open it'), e.message)); return; }
   const paint = (value) => {
@@ -1769,13 +2030,17 @@ async function openBrief(force) {
   if (!pane || !document.contains(pane)) return;
   const my = ++briefRun;
   mail.open = null;
-  root.classList.add('reading');
+  root.classList.add('reading', 'briefing');
+  root.querySelectorAll('[data-brief]').forEach((b) => { b.classList.add('on'); b.setAttribute('aria-current', 'page'); });
+  root.querySelectorAll('.mx-nv[data-box].on').forEach((b) => { b.classList.remove('on'); b.removeAttribute('aria-current'); });
   pane.hidden = false;
   const back = el('button', { type: 'button', class: 'cap mx-back', onclick: () => closeReader() }, ico('chevl', 14), 'Back');
   const view = el('div', { class: 'mail-view mx-brief', 'aria-live': 'polite' });
   const status = el('div', { class: 'dg-load', role: 'status' }, 'Getting your emails…', el('span', 'sk l1'), el('span', 'sk l2'), el('span', 'sk l3'));
   view.replaceChildren(el('h3', 'mail-subj', 'Your daily brief'), status);
   pane.replaceChildren(el('div', 'mail-top mv-top', back), view);
+  mail.openMsg = null;
+  paintAsk(null);
   pane.scrollTop = 0;
   const pick = briefPick(visibleRows());
   if (!pick.length) { status.replaceWith(emptyState('mail', 'Nothing to brief you on', 'No unread or recent email in your inbox.')); return; }
@@ -1807,13 +2072,17 @@ function paintBrief(view, brief, pick) {
         m && x.needsReply && safeForAuto(shieldOf(m)) ? el('button', { type: 'button', class: 'cap primary', onclick: async () => { try { const full = merge(m, await readCached(m.id)); openCompose({ source: mail.source, account: full.account || mail.account, mode: 'reply', message: full, ai: 'reply', aiPrompt: x.next || '' }); } catch (e) { toast(e.message); } } }, ico('spark', 12), ' Draft reply') : null,
         m && mail.mailbox === 'inbox' ? el('button', { type: 'button', class: 'cap', onclick: (e) => { doneRows([m]); e.currentTarget.closest('.bf-item').classList.add('bf-done'); } }, 'Done') : null));
   };
+  const speak = () => { const s = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null; const t = briefSpeech(brief); if (s) { if (s.speaking) { s.cancel(); return; } s.speak(new SpeechSynthesisUtterance(t)); } else toast(t.slice(0, 200)); };
+  // v2: the summary with what Eden read, the counts as tiles, then the groups (two columns on a wide window)
   view.replaceChildren(...[
-    el('div', 'bf-top', el('h3', 'mail-subj', 'Your daily brief'), el('span', 'muted', when)),
-    el('div', 'bf-stats', ...BRIEF_LEVELS.map((lv) => el('span', `bf-stat bf-${lv}`, el('b', '', String(counts[lv])), BRIEF_LABEL[lv]))),
-    brief.headline ? el('p', 'bf-headline', brief.headline) : null,
-    ...BRIEF_LEVELS.filter((lv) => counts[lv]).map((lv) => el('section', { class: 'bf-group', 'aria-label': BRIEF_LABEL[lv] }, el('h4', `bf-h bf-${lv}`, BRIEF_LABEL[lv], el('span', 'n', String(counts[lv]))), ...brief.items.filter((x) => x.level === lv).map(item))),
+    el('div', 'bf-top', el('div', 'bf-tt', el('h3', 'mail-subj', 'Your daily brief'), el('span', 'muted', when)),
+      el('button', { type: 'button', class: 'btn bf-read', onclick: speak }, ico('speaker', 14), el('span', '', 'Read it to me'))),
+    el('div', 'bf-hero',
+      el('section', { class: 'bf-sum', 'aria-label': 'Summary' }, brief.headline ? el('p', 'bf-headline', brief.headline) : null,
+        el('p', 'bf-cost', brief.model ? own('span', '', `${brief.model} · `) : null, el('span', '', `read ${brief.count} email${brief.count === 1 ? '' : 's'}`))),
+      el('div', 'bf-stats', ...BRIEF_LEVELS.map((lv) => el('span', `bf-stat bf-${lv}`, el('b', '', String(counts[lv])), BRIEF_LABEL[lv])))),
+    el('div', 'bf-cols', ...BRIEF_LEVELS.filter((lv) => counts[lv]).map((lv) => el('section', { class: 'bf-group', 'aria-label': BRIEF_LABEL[lv] }, el('h4', `bf-h bf-${lv}`, BRIEF_LABEL[lv], el('span', 'n', String(counts[lv]))), ...brief.items.filter((x) => x.level === lv).map(item)))),
     el('div', 'dg-foot', el('span', '', `Made by AI from ${brief.count} email${brief.count === 1 ? '' : 's'} (unread and the last day’s)${brief.model ? ` · ${brief.model}` : ''}. Check anything important in the email itself.`),
-      el('button', { type: 'button', class: 'cap', onclick: () => { const s = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null; const t = briefSpeech(brief); if (s) { if (s.speaking) { s.cancel(); return; } s.speak(new SpeechSynthesisUtterance(t)); } else toast(t.slice(0, 200)); } }, ico('speaker', 12), ' Read it to me'),
       el('button', { type: 'button', class: 'cap', onclick: () => openBrief(true) }, ico('retry', 12), ' Make it again')),
   ].filter(Boolean));
 }

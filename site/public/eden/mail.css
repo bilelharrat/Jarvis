@@ -500,3 +500,207 @@
 html.mail-only #app,html.mail-only .jc,html.mail-only #palette,html.mail-only #scrim{display:none!important}
 html.mail-only #spacePanel.mailp{left:0;top:0;right:0;bottom:0;width:auto;height:auto;max-height:none;transform:none;border-radius:0;padding-top:env(safe-area-inset-top)}
 html.mail-only #spacePanel.mailp #btnSpClose,html.mail-only #spacePanel.mailp #btnSpFull{display:none!important}
+
+/* ================= v2 (2026-10-30): the Eden Mail redesign (mockups: ios/EdenMail/mockups/v2/web) =================
+   A sidebar on a wide window; the inbox sorted by what needs you, the reason on each row, the rest bundled; a toolbar
+   over the email with its keys; Ask Eden docked beside it. Eden Glass (DESIGN.md §4). Small accent text and filled
+   buttons use the accent ink (white on #0a84ff is 3.6:1, under AA; on the ink 5.8:1). */
+:root{--mx-ink:rgb(4,104,174);--mx-fill:rgb(4,104,174)}
+[data-theme="dark"]{--mx-ink:rgb(112,190,248)}
+.mx .btn.primary,.mx .mx-new,.mx-side-new{background:var(--mx-fill);color:#fff}
+.mx .mr-d,.mx .mr-p,.mx .mx-day,.mx .mx-day .n,.mx .mv-e{color:var(--text2)}
+.mx .mail-row.unread .mr-d{color:var(--mx-ink)}
+
+/* Eden's tile: the chevrons on the light tile, white on navy in dark mode (never an orb) */
+.mx-tile,.mx-eden-orb.mx-tile{display:inline-grid;place-items:center;flex:none;border-radius:22.5%;background:linear-gradient(#fff,#eef1f5);color:#0e2747;box-shadow:0 0 0 .5px rgba(14,39,71,.12),0 1px 2px rgba(14,39,71,.1)}
+.mx-tile .ic,.mx-eden-orb.mx-tile .ic{width:48%;height:48%}
+.mx-eden-orb.mx-tile{width:30px;height:30px}
+[data-theme="dark"] .mx-tile,[data-theme="dark"] .mx-eden-orb.mx-tile{background:#0e2747;color:#fff;box-shadow:0 0 0 .5px rgba(255,255,255,.16)}
+.mx-kbd{font:500 10.5px/1 ui-monospace,"SF Mono",Menlo,monospace;padding:2px 5px;border-radius:5px;border:.5px solid currentColor;opacity:.7}
+
+/* layout: the sidebar is the first column, the head and the panes the second */
+.mx{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+.mx-col{display:flex;flex-direction:column;min-width:0;min-height:0}
+.mx-side,.mx-askp{display:none}
+.mx-lcol{display:flex;flex-direction:column;min-width:0;min-height:0}
+.mx-lcol>.mx-list{flex:1}
+.mx.reading .mx-lcol{display:none}
+.mx.gated .mx-lhead{display:none}
+.mx.gated .mx-lcol{justify-content:center}
+@container (min-width:760px){
+  .mx .mx-lcol,.mx.reading .mx-lcol{display:flex;border-right:.5px solid var(--sep)}
+  .mx .mx-list,.mx.reading .mx-list{border-right:0}
+  .mx.gated .mx-lcol{border-right:0}
+  .mv-top{display:flex}
+  .mv-top:not(:has(.mv-tools)){display:none}
+}
+@container (min-width:1000px){
+  .mx-side{display:flex;flex-direction:column;width:228px;min-height:0;overflow-y:auto;padding:10px 12px 12px;border-right:.5px solid var(--sep);background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}
+  .mx-head{display:none}
+  .mx-head:has(.mx-acct:not([hidden])){display:flex}
+  .mx-head:has(.mx-acct:not([hidden])) .mx-bar>:not(.mx-acct),.mx-head:has(.mx-acct:not([hidden])) .mx-bar2{display:none}
+  .mx-brief-chip{display:none}
+}
+
+/* sidebar */
+.mx-brand{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 6px;font-size:17px;font-weight:600;letter-spacing:-.2px;color:var(--text)}
+.mx-side-new{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;margin:8px 0 12px;padding:0 12px;border-radius:20px;font-size:14px;font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 6px 16px -8px rgba(4,70,130,.6)}
+.mx-side-new .ic{width:15px;height:15px}
+.mx-side-new .mx-kbd{margin-left:auto}
+.mx-nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+.mx-nv{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:0 10px;border-radius:9px;font-size:14px;color:var(--text);text-align:left;transition:background .15s}
+.mx-nv .ic{flex:none;color:var(--text2)}
+.mx-nv .fl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-nv .fc{font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums}
+.mx-nv:hover{background:rgba(120,120,128,.1)}
+.mx-nv.on{background:var(--accent-soft);color:var(--mx-ink);font-weight:600}
+.mx-nv.on .ic,.mx-nv.on .fc{color:var(--mx-ink)}
+.mx-side-k{margin:16px 10px 4px;font:600 10.5px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+.mx-side-foot{margin-top:auto;padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.mx-side-foot .mx-src{width:100%}
+.mx-side-acct{display:flex;align-items:center;gap:6px;padding-top:10px;border-top:.5px solid var(--sep);min-width:0}
+.mx-side-who{display:flex;align-items:center;gap:8px;flex:1;min-width:0;font-size:12.5px;color:var(--text2)}
+.mx-side-who .av{width:26px;height:26px;font-size:10px}
+.mx-side-who .mw-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-side-acct .mx-ib{width:36px;height:36px}
+
+/* the list's head: search or ask, the mailbox, what Eden did to the order */
+.mx-lhead{flex:none;display:flex;flex-direction:column;gap:6px;padding:12px calc(var(--mx-pad) - 4px) 6px;border-bottom:.5px solid var(--hairline)}
+.mx-lhead .mx-search{flex:none;width:auto;min-width:0;height:40px;border-radius:20px;padding:0 10px 0 14px;color:var(--text2)}
+.mx-search-mk{width:15px!important;height:15px!important;color:var(--accent)}
+.mx-lhead .mx-q{font-size:14.5px}
+.mx-lhead .mx-askhint{align-self:flex-start}
+.mx-lrow{display:flex;align-items:center;gap:6px;margin-top:4px}
+.mx-ltitle{flex:1;min-width:0;margin:0;font-size:22px;font-weight:700;letter-spacing:-.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-lacts{display:flex;align-items:center;gap:2px}
+.mx-lacts .mx-ib{width:36px;height:36px}
+.mx-did{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;min-height:22px;font-size:12.5px;color:var(--text2)}
+.mx-did:empty{display:none}
+.mx-did-t{display:inline-flex;align-items:center;gap:6px;flex:1;min-width:0}
+.mx-did-t.bad{color:var(--text)}
+.mx-did-mk{width:13px!important;height:13px!important;flex:none;color:var(--text2)}
+.mx-did-why{padding:10px 0;margin:-10px 0;font-size:12.5px;font-weight:600;color:var(--mx-ink)}
+.mx-why{flex-basis:100%;margin:4px 0 6px;padding:10px 12px;border-radius:12px;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline);font-size:12.5px;line-height:1.45;color:var(--text)}
+.mx-why p{margin:0 0 6px}
+.mx-why-m{font:500 10.5px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--text2)}
+
+/* the sorted inbox: kickers, the reason chips, the bundles */
+.mx-kick{display:flex;align-items:center;gap:8px;margin:12px 6px 6px;font:600 11px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+.mx-needs .mx-kick{margin-top:6px}
+.mx-none{margin:2px 10px 8px;font-size:13px;color:var(--text2)}
+.mx .mr-n{font-size:14px}
+.mx .mr-s{font-size:13px}
+.mr-chip{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;max-width:100%;min-height:22px;margin-top:4px;padding:0 8px 0 6px;border-radius:11px;background:var(--accent-soft);color:var(--mx-ink);font-size:12px;font-weight:600;line-height:1.2;overflow:hidden}
+.mr-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mr-chip .ic{width:13px;height:13px;flex:none}
+.mr-chip.bad{background:rgba(255,69,58,.1);color:var(--text)}
+.mr-chip.bad .ic{color:var(--danger)}
+[data-theme="dark"] .mr-chip.bad{background:rgba(255,69,58,.16)}
+.mail-row.sel .mr-chip{background:var(--content)}
+.mx-bund{display:flex;align-items:center;gap:11px;width:100%;min-height:52px;padding:7px 10px 7px 12px;border-radius:12px;text-align:left;color:var(--text);transition:background .15s}
+.mx-bund:hover{background:rgba(120,120,128,.09)}
+.mx-bund-ic{width:34px;height:34px;flex:none;display:grid;place-items:center;color:var(--text2)}
+.mx-bund-t{flex:1;min-width:0;display:flex;flex-direction:column}
+.mx-bund-t b{font-size:14px;font-weight:600}
+.mx-bund-who{font-size:12.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-bund-more{margin-left:.3em}
+.mx-bund-n{font-size:13px;color:var(--text2);font-variant-numeric:tabular-nums}
+.mx-bund-n.unread{color:var(--mx-ink);font-weight:700}
+.mx-bund-chev{width:12px!important;height:12px!important;color:var(--text3);transition:transform .2s var(--spring)}
+.mx-bundle.open>.mx-bund .mx-bund-chev{transform:rotate(90deg)}
+.mx-bund-rows{margin:0 0 6px 22px;padding-left:6px;border-left:2px solid var(--accent-soft)}
+.mx-bund-back{margin:4px 2px 4px}
+@media (prefers-reduced-motion:reduce){.mx-bund-chev{transition:none}}
+
+/* the email: a toolbar with its keys, Eden's note, a reply bar at the foot */
+.mx .mv-top{position:sticky;top:-16px;z-index:4;align-items:center;gap:6px;margin:-16px -22px 14px;padding:8px 14px;background:var(--glass2);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border-bottom:.5px solid var(--sep)}
+.mv-tools{display:flex;align-items:center;gap:2px;flex:1;min-width:0;flex-wrap:nowrap;overflow:hidden}
+.mv-tools .grow{flex:1}
+.mv-tb{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 10px;border-radius:9px;font-size:13.5px;font-weight:500;color:var(--text);white-space:nowrap;transition:background .15s}
+.mv-tb .ic{width:16px;height:16px;color:var(--text2)}
+.mv-tb:hover{background:rgba(120,120,128,.1)}
+.mv-tb[aria-pressed="true"]{background:var(--accent-soft);color:var(--mx-ink)}
+.mv-tb[aria-pressed="true"] .ic{color:var(--mx-ink)}
+/* Reply and Ask Eden keep their words; the rest are icons (named for screen readers) until a wide window without
+   Ask Eden open has room for every word and key; a phone shows icons only */
+.mv-tb .mx-kbd,.mv-tb:not(.mv-tb-main):not(.mv-tb-ask) .mv-tb-l{display:none}
+@container (min-width:1180px){
+  .mx-main:not(.asking) .mv-tb:not(.mv-tb-icon) .mv-tb-l{display:inline}
+  .mx-main:not(.asking) .mv-tb .mx-kbd{display:inline}
+}
+@container (max-width:759px){.mv-tb .mv-tb-l{display:none!important}.mv-tb{min-height:40px;padding:0 10px}}
+.mv-short{margin:4px 0 12px;padding:10px 14px 11px;border-radius:14px;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.mv-short-k{display:flex;align-items:center;gap:6px;margin:0 0 3px;font:600 10.5px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--mx-ink)}
+.mv-short-k .ic{width:12px;height:12px}
+.mv-short-t{margin:0;font-size:14px;line-height:1.45;color:var(--text)}
+.mv-replybar{position:sticky;bottom:-22px;z-index:3;display:flex;align-items:center;gap:8px;margin:18px -8px 0;padding:6px 6px 6px 14px;border-radius:26px;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline),var(--sh1)}
+.mv-rb-in{flex:1;min-width:0;display:flex;align-items:center;gap:6px;min-height:40px;font-size:14px;color:var(--text2);text-align:left}
+.mv-rb-in .ic{flex:none}
+.mv-replybar .btn.primary{min-height:38px;padding:0 16px;border-radius:19px;font-weight:600;gap:7px}
+
+/* Ask Eden, docked beside the email (a wide window, Q) */
+@container (min-width:1180px){
+  .mx-main.asking{grid-template-columns:var(--mx-list-w,minmax(300px,32%)) minmax(0,1fr) 340px}
+  .mx-main.asking .mx-askp:not([hidden]){display:flex}
+}
+.mx-askp{flex-direction:column;min-width:0;min-height:0;padding:0 14px 14px;border-left:.5px solid var(--sep);background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}
+.mxa-head{display:flex;align-items:center;gap:10px;min-height:58px;flex:none}
+.mxa-ht{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.mxa-ht b{font-size:15px;font-weight:600}
+.mxa-ht span{font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mxa-head .mx-ib{width:36px;height:36px}
+.mxa-seg{display:flex;flex:none;height:34px;padding:3px;border-radius:17px;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.mxa-seg button{flex:1;border-radius:14px;font-size:12.5px;font-weight:600;color:var(--text2)}
+.mxa-seg button.on{background:var(--content);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.mxa-conv{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:10px 2px 12px;overscroll-behavior:contain}
+.mxa-hint{margin:4px 2px;font-size:13px;line-height:1.45;color:var(--text2)}
+.mxa-q{align-self:flex-end;max-width:88%;margin:6px 0 0;padding:8px 12px;border-radius:16px 16px 5px 16px;background:var(--accent-soft);font-size:14px;line-height:1.4;color:var(--text);overflow-wrap:anywhere}
+.mxa-a{font-size:14px;line-height:1.5}
+.mxa-src{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.mxa-src .k{font-size:11.5px;color:var(--text2)}
+.mxa-chip{display:inline-flex;align-items:center;gap:6px;min-height:32px;max-width:100%;padding:0 10px;border-radius:16px;background:var(--content);box-shadow:0 0 0 .5px var(--hairline);font-size:12.5px;font-weight:600}
+.mxa-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mxa-chip .ic{flex:none;color:var(--text2)}
+.mxa-cost{margin:8px 0 0;font:500 10.5px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--text2)}
+.mxa-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.mxa-acts .btn{min-height:36px;border-radius:18px;padding:0 14px;font-weight:600}
+.mxa-form{flex:none;display:flex;align-items:center;gap:6px;min-height:46px;padding:0 4px 0 14px;border-radius:23px;background:var(--content);box-shadow:0 0 0 .5px var(--hairline),var(--sh1)}
+.mxa-form:focus-within{box-shadow:0 0 0 2px var(--accent),var(--sh1)}
+.mxa-in{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:14px;color:var(--text);outline:none}
+.mxa-in:focus-visible{outline:none}
+.mxa-send{width:38px;height:38px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--mx-fill);color:#fff}
+.mx-askp .mx-ask{margin:0}
+
+/* Eden Mail on its own, wide: the sidebar carries the name, so the panel's own head goes */
+@media (min-width:1000px){html.mail-only #spacePanel.mailp .sp-head{display:none}}
+
+/* v2 brief: the summary with what Eden read, the counts as tiles, the groups in two columns on a wide window */
+.mx-brief .bf-top{align-items:center;gap:12px;margin-bottom:12px}
+.bf-tt{flex:1;min-width:0;display:flex;flex-direction:column}
+.bf-tt .mail-subj{margin:0;font-size:26px;font-weight:700;letter-spacing:-.3px}
+.bf-tt .muted{color:var(--text2)}
+.bf-read{min-height:40px;border-radius:20px;padding:0 14px;font-weight:600;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.bf-hero{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-bottom:4px}
+.bf-sum{padding:14px 16px 12px;border-radius:20px;background:var(--content);box-shadow:0 0 0 .5px var(--hairline),var(--sh1)}
+.bf-sum .bf-headline{margin:0;padding:0;background:none;box-shadow:none;font-size:16px;line-height:1.5;color:var(--text)}
+.bf-cost{margin:8px 0 0;font:500 10.5px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--text2)}
+.mx-brief .bf-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}
+.mx-brief .bf-stat{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:2px;padding:10px 12px;border-radius:14px;font-size:12.5px;line-height:1.25;color:var(--text2);background:var(--glass);box-shadow:inset 0 1px 0 var(--rim),0 0 0 .5px var(--hairline)}
+.mx-brief .bf-stat b,.mx-brief .bf-stat.bf-today b,.mx-brief .bf-stat.bf-reply b{font-size:26px;line-height:1.1;font-weight:700;color:var(--text)}
+.mx-brief .bf-h,.mx-brief .bf-h.bf-today,.mx-brief .bf-h.bf-reply{margin:16px 4px 8px;font:600 11px/1.4 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;color:var(--text2)}
+.mx-brief .bf-group{margin:0}
+.mx-brief .bf-item,.mx-brief .bf-item.bf-today,.mx-brief .bf-item.bf-reply{padding:14px 16px;border-radius:20px;background:var(--content);box-shadow:0 0 0 .5px var(--hairline),var(--sh1)}
+.mx-brief .bf-due{background:var(--accent-soft);color:var(--mx-ink)}
+.mx-brief .bf-acts .cap{min-height:36px;padding:0 14px;border-radius:18px}
+.mx-brief .bf-acts .cap.primary{background:var(--mx-fill);color:#fff}
+.mx-brief .bf-scam{background:rgba(255,69,58,.1);color:var(--text);font-weight:500}
+[data-theme="dark"] .mx-brief .bf-scam{background:rgba(255,69,58,.16)}
+.mx-brief .bf-scam::first-letter{color:var(--danger)}
+@container (min-width:1000px){
+  .mx.briefing .mx-lcol,.mx.briefing .mx-split,.mx.briefing .mx-askp{display:none!important}
+  .mx.briefing .mx-main{grid-template-columns:minmax(0,1fr)!important}
+  .mx.briefing .mx-read{padding:24px 40px 28px}
+  .mx.briefing .mv-top{margin:-24px -40px 14px;top:-24px}
+  .mx.briefing .bf-hero{grid-template-columns:minmax(0,1.5fr) minmax(0,2fr)}
+  .mx.briefing .bf-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 24px;align-items:start}
+}
