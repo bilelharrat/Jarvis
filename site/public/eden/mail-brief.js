@@ -26,7 +26,7 @@ export function briefSystem(now = new Date(), owner = '') {
     + '"needs_reply":true|false}]}\n'
     + 'Levels: today = a deadline today or tomorrow, money at stake, a security issue, or someone important blocked on the owner; reply = a person asks the owner something or is waiting for an answer; fyi = worth knowing, nothing to do; low = newsletters, promotions, automated notices. '
     + 'An email Eden\'s scam check warns about: level low, title starting "Likely scam:", about says why, next is "Don\'t reply, click or pay; delete it". '
-    + 'One item per email, most important first within each level. Be specific and complete: use the real names, amounts, dates and figures from the emails; never invent anything that is not in them. Several emails in one thread: one item for the thread, about its latest state.';
+    + 'One item per email, most important first within each level. Be specific and complete: use the real names, amounts, dates and figures from the emails; never invent anything that is not in them. Several emails in one thread: one item for the thread, about its latest state. Speak to the owner as "you"; call other people by name and never guess anyone\'s gender (use their name, or they/them).';
 }
 
 /** The emails as context blocks for the brief (newest first), each cut to BRIEF.bodyChars. */
