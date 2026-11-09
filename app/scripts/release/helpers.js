@@ -58,8 +58,9 @@ function compile(source, output, version, flags, swiftc) {
   return run(command, [...pre, '-O', '-target', targetFor(version), ...flags, '-o', output, source], { allowFail: true });
 }
 
-// Builds every helper into `out`; returns the manifest written to out/helpers.json.
-function buildHelpers({ out, minimum, sources = findSources(), swiftc = ['xcrun', 'swiftc'] }) {
+// Builds every helper into `out`; returns the manifest written to out/helpers.json, which names
+// each source relative to `base` (the repo; Ask Eden: the engine's site-packages).
+function buildHelpers({ out, minimum, sources = findSources(), swiftc = ['xcrun', 'swiftc'], base = path.resolve(SRC, '..', '..') }) {
   if (!sources.length) throw new BuildError(`no jarvis-*.swift helpers under ${SRC}`);
   fs.rmSync(out, { recursive: true, force: true });
   fs.mkdirSync(out, { recursive: true });
@@ -86,7 +87,7 @@ function buildHelpers({ out, minimum, sources = findSources(), swiftc = ['xcrun'
     const digest = sha256File(source);
     fs.writeFileSync(`${output}.sha256`, `${digest}\n`);
     manifest.helpers[name] = {
-      source: path.relative(path.resolve(SRC, '..', '..'), source),
+      source: path.relative(base, source),
       sha256: digest,
       target,
       flags,

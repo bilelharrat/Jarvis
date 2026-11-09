@@ -21,7 +21,10 @@ const BUNDLE_ID = 'com.askeden.eden.mac';
 const TEAM = '8CV4X23Y2T';
 const { buildBackend } = require('../scripts/release/backend');
 const { appDirIn, checkAppDir, fillAppDir } = require('../scripts/release/backend-app-dir');
-const { electronZipDir } = require('../scripts/release/dist');
+const { helpersDirIn, fillHelpers, checkHelpers, signatureProblems } = require('../scripts/release/backend-helpers');
+const { electronZipDir, minimumFor } = require('../scripts/release/dist');
+const macho = require('../scripts/release/macho');
+const { ENTITLEMENTS: HELPER_ENTITLEMENTS, entitlementsFor: helperEntitlementsFor } = require('../scripts/release/sign');
 const EDEN_SRC = process.env.ASKEDEN_HOME || path.join(os.homedir(), 'askeden');
 const ENGINE_CACHE = process.env.ASK_EDEN_BACKEND || path.join(APP_DIR, 'dist', '.engine-cache');
 const DEFAULT_FEED = 'https://askeden.com/downloads/ask-eden/release.json';
@@ -74,9 +77,58 @@ function checkApp(app) {
   checkAppDir(appDirIn(path.join(app, 'Contents', 'Resources')), APP_DIR, `${NAME}.app`);
 }
 
+const plistFile = (app) => path.join(app, 'Contents', 'Info.plist');
+function plistValue(app, key) {
+  try {
+    return execFileSync('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plistFile(app)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
+// The app's minimum macOS: what its Electron and its engine need (dist.js minimumFor), never
+// below what Info.plist declares (eden/extend-info.plist), which is raised to it if the engine
+// needs more, so the app never claims a macOS its code doesn't run on.
+function minimumMacos(app) {
+  const python = path.join(app, 'Contents', 'Resources', 'backend', 'python');
+  const declared = plistValue(app, 'LSMinimumSystemVersion');
+  const minimum = macho.maxVersion([minimumFor({ minos: macho.maxVersion(macho.scan(python).map((m) => m.minos)) }), declared]);
+  if (!declared || macho.compareVersions(minimum, declared) > 0) {
+    const command = declared ? `Set :LSMinimumSystemVersion ${minimum}` : `Add :LSMinimumSystemVersion string ${minimum}`;
+    execFileSync('/usr/libexec/PlistBuddy', ['-c', command, plistFile(app)]);
+    console.log(`LSMinimumSystemVersion ${declared || '(none)'} -> ${minimum}: what the engine and Electron need`);
+  }
+  return minimum;
+}
+
+// The Swift helpers the engine runs (JARVIS_HELPERS_DIR, Resources/helpers: text recognition,
+// call audio, embeddings, the Accessibility reader, …), prebuilt as J.A.R.V.I.S.'s release
+// carries them (dist.js), so a Mac without developer tools has them too and swiftc is never
+// asked for. Built for the app's minimum macOS from the sources the engine carries, the ones
+// its prebuilt() hashes (scripts/release/backend-helpers.js). Returns helpers.json's manifest.
+// (`options.swiftc`: the compiler, for the tests.)
+function addHelpers(app, options = {}) {
+  const resources = path.join(app, 'Contents', 'Resources');
+  return fillHelpers(path.join(resources, 'backend', 'python'), helpersDirIn(resources), minimumMacos(app), options);
+}
+
+// The build stops when the app carries the engine without a helper its prebuilt() would take
+// (the program and `<name>.sha256` of the source the engine carries; helpers.json), and, once
+// signed with the team's certificate, when one isn't signed with exactly its own entitlements.
+function checkHelpersIn(app, { signed = false } = {}) {
+  const resources = path.join(app, 'Contents', 'Resources');
+  const dir = helpersDirIn(resources);
+  checkHelpers(dir, path.join(resources, 'backend', 'python'), `${NAME}.app`);
+  const problems = signed ? signatureProblems(dir, TEAM) : [];
+  if (problems.length) throw new Error(`${NAME}.app's Swift helpers aren't signed as they need:\n  ${problems.join('\n  ')}`);
+}
+
 // Developer ID signing for notarization: hardened runtime + secure timestamp on every Mach-O,
 // signed inside-out (no --deep): loose binaries/libraries first, then nested bundles deepest
-// first (frameworks, helper apps), then the app itself.
+// first (frameworks, helper apps), then the app itself. Programs get the app's entitlements,
+// libraries none, and each prebuilt Swift helper only its own, as J.A.R.V.I.S.'s release signs
+// them (scripts/release/sign.js): the microphone for the one that opens it (helpers.json says
+// which: helpers.js entitlementsFor), nothing for the others.
 const ENTITLEMENTS = path.join(__dirname, 'build', 'entitlements.plist');
 function isMachO(file) {
   const fd = fs.openSync(file, 'r');
@@ -98,15 +150,29 @@ function walk(dir, files, bundles) {
     } else if (e.isFile() && isMachO(p)) files.push(p);
   }
 }
-function signApp(app, identity) {
-  const sign = (target, ents) => execFileSync('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity,
-    ...(ents ? ['--entitlements', ENTITLEMENTS] : []), target], { stdio: 'inherit' });
+// [target, its entitlements file or null] for each codesign, in order.
+function signPlan(app) {
   const files = []; const bundles = [];
   walk(path.join(app, 'Contents'), files, bundles);
-  for (const f of files) sign(f, !/\.(dylib|so)$/.test(f));
+  const manifest = path.join(helpersDirIn(path.join(app, 'Contents', 'Resources')), 'helpers.json');
+  const { helpers = {} } = fs.existsSync(manifest) ? JSON.parse(fs.readFileSync(manifest, 'utf8')) : {};
+  const helperEntitlements = Object.fromEntries(Object.entries(helpers).map(([name, h]) => [name, h.entitlements || null]));
+  const entitlementsOf = (file) => {
+    const rel = path.relative(app, file).split(path.sep).join('/');
+    if (rel.startsWith('Contents/Resources/helpers/')) {
+      const kind = helperEntitlementsFor(rel, helperEntitlements);
+      return kind ? path.join(HELPER_ENTITLEMENTS, `${kind}.plist`) : null;
+    }
+    return /\.(dylib|so)$/.test(file) ? null : ENTITLEMENTS;
+  };
   bundles.sort((a, b) => b.split('/').length - a.split('/').length);
-  for (const b of bundles) sign(b, true);
-  sign(app, true);
+  return [...files.map((f) => [f, entitlementsOf(f)]), ...bundles.map((b) => [b, ENTITLEMENTS]), [app, ENTITLEMENTS]];
+}
+function signApp(app, identity) {
+  for (const [target, entitlements] of signPlan(app)) {
+    execFileSync('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity,
+      ...(entitlements ? ['--entitlements', entitlements] : []), target], { stdio: 'inherit' });
+  }
 }
 
 async function main() {
@@ -134,7 +200,10 @@ async function main() {
   });
   fs.rmSync(stage, { recursive: true, force: true });
   const app = path.join(folder, `${NAME}.app`);
-  if (withEngine) addEngine(path.join(app, 'Contents', 'Resources'));
+  if (withEngine) {
+    addEngine(path.join(app, 'Contents', 'Resources'));
+    addHelpers(app);
+  }
   fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'update.json'), `${JSON.stringify({ feed: process.env.ASK_EDEN_UPDATE_URL || DEFAULT_FEED })}\n`);
   const identity = teamIdentity();
   if (identity) signApp(app, identity);
@@ -146,9 +215,12 @@ async function main() {
   } else {
     console.log(`No team ${TEAM} Developer ID certificate in the keychain: signed ad hoc (local testing only; not notarized)`);
   }
-  if (withEngine) checkApp(app); // the finished, signed app
+  if (withEngine) { // the finished, signed app
+    checkApp(app);
+    checkHelpersIn(app, { signed: Boolean(identity) });
+  }
   return app;
 }
 
-module.exports = { main, addEngine, addAppDir, checkApp, NAME, BUNDLE_ID, TEAM, DEFAULT_FEED };
+module.exports = { main, addEngine, addAppDir, checkApp, addHelpers, checkHelpersIn, minimumMacos, signPlan, NAME, BUNDLE_ID, TEAM, DEFAULT_FEED };
 if (require.main === module) main().then((a) => console.log(`Built ${a}`)).catch((e) => { console.error(e); process.exit(1); });
