@@ -20,6 +20,8 @@ const NAME = 'Ask Eden';
 const BUNDLE_ID = 'com.askeden.eden.mac';
 const TEAM = '8CV4X23Y2T';
 const { buildBackend } = require('../scripts/release/backend');
+const { appDirIn, checkAppDir, fillAppDir } = require('../scripts/release/backend-app-dir');
+const { electronZipDir } = require('../scripts/release/dist');
 const EDEN_SRC = process.env.ASKEDEN_HOME || path.join(os.homedir(), 'askeden');
 const ENGINE_CACHE = process.env.ASK_EDEN_BACKEND || path.join(APP_DIR, 'dist', '.engine-cache');
 const DEFAULT_FEED = 'https://askeden.com/downloads/ask-eden/release.json';
@@ -36,10 +38,16 @@ function teamIdentity() {
 // The engine inside the app, the way J.A.R.V.I.S.'s release carries its backend: uv's CPython,
 // the locked dependencies and the jarvis package (scripts/release/backend.js), built once and
 // cached (ASK_EDEN_REBUILD_ENGINE=1 builds it afresh), plus Eden's own server (no dependencies).
+// buildBackend writes build.json last: a cache without it is an engine build cut short (offline
+// uv lacking a package, a ^C), Python without its packages, built again rather than shipped. A
+// folder ASK_EDEN_BACKEND names is never built over unasked.
 function addEngine(resources) {
-  if (process.env.ASK_EDEN_REBUILD_ENGINE === '1' || !fs.existsSync(path.join(ENGINE_CACHE, 'python', 'bin', 'python3'))) {
-    buildBackend({ out: ENGINE_CACHE });
+  const built = fs.existsSync(path.join(ENGINE_CACHE, 'build.json'));
+  const rebuild = process.env.ASK_EDEN_REBUILD_ENGINE === '1';
+  if (!built && !rebuild && process.env.ASK_EDEN_BACKEND) {
+    throw new Error(`ASK_EDEN_BACKEND (${ENGINE_CACHE}) holds no finished engine (no build.json); ASK_EDEN_REBUILD_ENGINE=1 builds one there`);
   }
+  if (rebuild || !built) buildBackend({ out: ENGINE_CACHE });
   const backend = path.join(resources, 'backend');
   fs.mkdirSync(backend, { recursive: true });
   execFileSync('/usr/bin/ditto', [path.join(ENGINE_CACHE, 'python'), path.join(backend, 'python')]);
@@ -49,6 +57,21 @@ function addEngine(resources) {
     if (fs.existsSync(path.join(EDEN_SRC, f))) fs.cpSync(path.join(EDEN_SRC, f), path.join(server, f), { recursive: true });
   }
   fs.rmSync(path.join(server, 'dist', '__tests__'), { recursive: true, force: true });
+  addAppDir(resources);
+}
+
+// What the engine serves the window from outside app.asar, where the launcher points it
+// (JARVIS_APP_DIR, Resources/app.asar.unpacked): hand tracking's and the terminal's scripts,
+// the companion's icon (scripts/release/backend-app-dir.js). Copied from app/, as
+// J.A.R.V.I.S.'s release unpacks them from its app.asar.
+function addAppDir(resources) {
+  fillAppDir(APP_DIR, appDirIn(resources));
+}
+
+// The build stops when the app carries the engine without all of that: hand control
+// ("couldn't start") and the terminal would break in every Eden app sharing that engine.
+function checkApp(app) {
+  checkAppDir(appDirIn(path.join(app, 'Contents', 'Resources')), APP_DIR, `${NAME}.app`);
 }
 
 // Developer ID signing for notarization: hardened runtime + secure timestamp on every Mach-O,
@@ -87,6 +110,9 @@ function signApp(app, identity) {
 }
 
 async function main() {
+  const withEngine = process.env.ASK_EDEN_NO_ENGINE_BUNDLE !== '1';
+  // First, before anything is built: app/ has them (npm ci in app/ installs the packages).
+  if (withEngine) checkAppDir(APP_DIR, APP_DIR, 'app/ (npm ci in app/ installs the packages)');
   const { packager } = await import('@electron/packager');
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-eden-'));
@@ -102,10 +128,13 @@ async function main() {
     dir: stage, name: NAME, platform: 'darwin', arch: 'arm64', out: path.join(APP_DIR, 'dist'), overwrite: true,
     icon: path.join(APP_DIR, 'eden', 'build', 'icon.icns'), extendInfo: path.join(APP_DIR, 'eden', 'extend-info.plist'),
     appBundleId: BUNDLE_ID, electronVersion: electron, quiet: true,
+    // The Electron zip npm already cached (else one made from node_modules/electron), as
+    // J.A.R.V.I.S.'s release takes it: never downloaded, so GitHub being down can't stop a build.
+    electronZipDir: electronZipDir(electron),
   });
   fs.rmSync(stage, { recursive: true, force: true });
   const app = path.join(folder, `${NAME}.app`);
-  if (process.env.ASK_EDEN_NO_ENGINE_BUNDLE !== '1') addEngine(path.join(app, 'Contents', 'Resources'));
+  if (withEngine) addEngine(path.join(app, 'Contents', 'Resources'));
   fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'update.json'), `${JSON.stringify({ feed: process.env.ASK_EDEN_UPDATE_URL || DEFAULT_FEED })}\n`);
   const identity = teamIdentity();
   if (identity) signApp(app, identity);
@@ -117,8 +146,9 @@ async function main() {
   } else {
     console.log(`No team ${TEAM} Developer ID certificate in the keychain: signed ad hoc (local testing only; not notarized)`);
   }
+  if (withEngine) checkApp(app); // the finished, signed app
   return app;
 }
 
-module.exports = { main, NAME, BUNDLE_ID, TEAM, DEFAULT_FEED };
+module.exports = { main, addEngine, addAppDir, checkApp, NAME, BUNDLE_ID, TEAM, DEFAULT_FEED };
 if (require.main === module) main().then((a) => console.log(`Built ${a}`)).catch((e) => { console.error(e); process.exit(1); });
