@@ -42,6 +42,8 @@ import { ApiError, b64ToBytes, b64url, randomBytes } from '../accounts/util.js';
 import { buildAuthUrl, exchangeCode, googleReady, pkcePair } from './google.js';
 import { SIGNIN_CSP, cookie, cookies, json, page, problem } from './web.js';
 import { UPLOAD_ACTIONS, outgoingUploads, uploadAction } from './gmail-uploads.js';
+import { loadMailbox, mailboxRoute, mailboxTokenSource, mailMultiOn, pickMailbox, runImapAction, runOutlookAction, saveAddedMailbox, saveOutlookMailbox } from './mailboxes.js';
+import { graphMe, hasOutlookScopes, msAuthUrl, msClient, msExchange, msFetch, msIdClaims, msReady } from './mail-graph.js';
 import {
   CALENDAR_SCOPES,
   DRIVE_FILE_SCOPE,
@@ -62,6 +64,9 @@ import {
 
 export const GDATA_COOKIE = '__Host-eden-gdata';
 export const GDATA_CALLBACK = '/api/chat/google/callback';
+// Outlook mailboxes in Eden Mail (mailboxes.js, mail-graph.js): Microsoft's sign-in, its own state cookie
+export const MS_CALLBACK = '/api/chat/microsoft/callback';
+const MS_COOKIE = '__Host-eden-ms';
 const STATE_SECONDS = 600;
 const EXPIRY_MARGIN_MS = 60_000;
 const GMAIL_READ = 'https://www.googleapis.com/auth/gmail.readonly';
@@ -86,6 +91,10 @@ export const GOOGLE_DATA_ROUTES = new Set([
   'GET /api/chat/gcal/status',
   'POST /api/chat/gcal',
   'POST /api/chat/sheets', // Q15: Google Sheets / Drive with drive.file (askeden src/chat/sheets.ts, vendored)
+  'GET /api/chat/mail/accounts', // Eden Mail's several accounts (mailboxes.js; 404 unless MAIL_MULTI = "on")
+  'POST /api/chat/mail/accounts',
+  'GET /api/chat/microsoft/connect', // "Add an account" › Outlook (404 unless MAIL_MULTI and the Microsoft client are set)
+  `GET ${MS_CALLBACK}`,
 ]);
 
 /** Gmail is usable: read, and drafts + send (compose covers send; modify or full mail cover both). */
@@ -327,6 +336,8 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
   try {
     if (route === `GET ${GDATA_CALLBACK}`) return await callback(request, env, ctx);
     if (route === 'GET /api/chat/google/connect') return await connectStart(request, env, await gate(request, env, { header: false }));
+    if (route === `GET ${MS_CALLBACK}`) return await msCallback(request, env);
+    if (route === 'GET /api/chat/microsoft/connect') return await msConnectStart(request, env, await gate(request, env, { header: false }));
     const who = await gate(request, env);
     await limited(env, 'API_RATE', who.account);
     const f = googleFetch(env, request);
@@ -359,18 +370,32 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
         if (typeof body.hash !== 'string') throw new ApiError(400, 'bad_request', 'hash must be a string');
         return json(await call(env, who.account, 'approve-mint', { hash: body.hash }, who.token));
       }
+      case 'GET /api/chat/mail/accounts':
+      case 'POST /api/chat/mail/accounts': {
+        const body = request.method === 'POST' ? await readBody(request, 8192) : null;
+        if (!mailMultiOn(env)) throw new ApiError(404, 'not_found', 'Not found');
+        const found = await load(env, who);
+        const primary = found && hasGmailScopes(found.tokens.scopes) ? found.tokens : null;
+        return json(await mailboxRoute(request, env, who, { primary, body, f }));
+      }
       case 'POST /api/chat/gmail': {
-        const { action, args } = actionBody(await readBody(request, maxBody));
-        if (GMAIL_WRITES.has(action)) await takeApproval(env, who, request, 'gmail', action, args);
+        const { action, args, mailbox: asked } = actionBody(await readBody(request, maxBody));
+        // Eden Mail's extra mailboxes (mailboxes.js): `mailbox` names one; none is the first Gmail, as before.
+        const mailbox = pickMailbox(env, asked);
+        if (GMAIL_WRITES.has(action)) await takeApproval(env, who, request, 'gmail', action, args, mailbox);
+        if (mailbox && action === 'schedule') throw new GoogleError('Scheduled send works from your first Gmail account for now. Send it now, or send it from that account.', 'bad_request', 400);
         // Scheduled sends (accounts/schedule.js): the list and cancelling need no Gmail call.
         if (action === 'scheduled') return json(await call(env, who.account, 'mail-jobs', {}, who.token));
         if (action === 'cancelScheduled') {
           if (typeof args.id !== 'string' || !JOB_ID.test(args.id)) throw new GoogleError('id must be a scheduled send’s id.', 'bad_request', 400);
           return json(await call(env, who.account, 'mail-cancel', { id: args.id }, who.token));
         }
-        const found = await load(env, who);
-        if (!found || !hasGmailScopes(found.tokens.scopes)) throw new GoogleError('Gmail is not connected.', 'not_connected', 409);
-        const token = tokenSource(env, ctx, who, found, f);
+        const found = mailbox ? await loadMailbox(env, who, mailbox) : await load(env, who);
+        if (mailbox && found && !found.tokens) throw new GoogleError(`${found.box.email || 'That mailbox'} needs signing in again: open Mail and press Reconnect.`, 'reconnect', 409);
+        if (mailbox && found && found.box && found.box.provider === 'imap') return json(await runImapAction(env, ctx, who, mailbox, found, action, args)); // iCloud, Yahoo, … (mail-imap.js)
+        if (mailbox && found && found.box && found.box.provider === 'outlook') return json(await runOutlookAction(env, ctx, who, mailbox, found, action, args)); // Outlook, Microsoft 365 (mail-graph.js)
+        if (!found || !hasGmailScopes(found.tokens.scopes)) throw new GoogleError(mailbox ? 'That mailbox isn’t in Mail any more.' : 'Gmail is not connected.', 'not_connected', 409);
+        const token = mailbox ? mailboxTokenSource(env, ctx, who, mailbox, found, client(env), f) : tokenSource(env, ctx, who, found, f);
         // Attachments uploaded ahead (gmail-uploads.js): kept in the account object; drafts and sends name them.
         if (UPLOAD_ACTIONS.has(action)) return json(await uploadAction(env, who, action, args, { token, fetch: f }));
         const up = await outgoingUploads(env, who, action, args);
@@ -379,7 +404,8 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
         const key = `${who.account}:${from || ''}`;
         const hit = contactsCache.get(key);
         if (action === 'contacts' && hit && Date.now() - hit.at < 10 * 60_000 && args.fresh !== true) return json(hit.value);
-        const sched = SCHEDULER_ACTIONS.has(action) ? await webScheduler(env, who, request) : null;
+        // Scheduled sends live in the first Gmail's Drafts (accounts/schedule.js): another mailbox's drafts never touch its jobs.
+        const sched = SCHEDULER_ACTIONS.has(action) && !mailbox ? await webScheduler(env, who, request) : null;
         const out = await runGmailAction(api, action, args, { from, scheduler: sched ? sched.scheduler : undefined, uploads: up ? up.store : webUploads }).catch((e) => {
           throw (up && up.error) || e; // e.g. 410: an upload went meanwhile
         });
@@ -434,24 +460,27 @@ export const CAL_WRITES = new Set(['create', 'update', 'delete', 'respond']);
 
 const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v));
 
-/** SHA-256 hex of the exact action: the page (web/chat/api.js) computes the same before it asks for a token. */
-export async function approvalHash(kind, action, args) {
-  const bytes = new TextEncoder().encode(`${kind}\n${canon({ action, args })}`);
+/**
+ * SHA-256 hex of the exact action: the page (web/chat/api.js) computes the same before it asks for a token.
+ * An extra mailbox (Eden Mail, MAIL_MULTI) is part of it, so an approval to send from one can't send from another.
+ */
+export async function approvalHash(kind, action, args, mailbox = null) {
+  const bytes = new TextEncoder().encode(`${kind}\n${canon({ action, args, ...(mailbox ? { mailbox } : {}) })}`);
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function takeApproval(env, who, request, kind, action, args) {
+async function takeApproval(env, who, request, kind, action, args, mailbox = null) {
   const token = request.headers.get('x-eden-approval') || '';
   // No header at all: a page loaded before approvals shipped. Pressing again can't help; reloading does.
   if (!token) throw new ApiError(403, 'approval_required', 'Eden was updated. Reload the page (⌘R), then try again.');
-  await call(env, who.account, 'approve-take', { token, hash: await approvalHash(kind, action, args) }, who.token);
+  await call(env, who.account, 'approve-take', { token, hash: await approvalHash(kind, action, args, mailbox) }, who.token);
 }
 
 function actionBody(body) {
   if (typeof body.action !== 'string') throw new ApiError(400, 'bad_request', 'action must be a string');
   const args = body.args === undefined ? {} : body.args;
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new ApiError(400, 'bad_request', 'args must be an object');
-  return { action: body.action, args };
+  return { action: body.action, args, mailbox: body.mailbox };
 }
 
 // ── consent ──
@@ -462,12 +491,15 @@ const openState = (env, value) => openWith(env, 'gdata-cookie', 'gdata-state', v
 
 async function connectStart(request, env, who) {
   await limited(env, 'API_RATE', who.account);
-  const scope = new URL(request.url).searchParams.get('scope') || 'all';
+  const params = new URL(request.url).searchParams;
+  const scope = params.get('scope') || 'all';
   if (!Object.hasOwn(CAPABILITIES, scope)) throw new ApiError(400, 'bad_request', 'scope must be gmail, calendar or sheets.');
+  // "Add an account" in Eden Mail (mailboxes.js): Google's account chooser and consent every time, stored as a new mailbox.
+  const adding = params.get('add') === '1' && scope === 'gmail' && mailMultiOn(env);
   const found = await load(env, who);
   const state = b64url(randomBytes(32));
   const { verifier, challenge } = await pkcePair();
-  const sealed = await sealState(env, { a: who.account, d: who.token.device, s: state, v: verifier, c: scope, x: Date.now() + STATE_SECONDS * 1000 });
+  const sealed = await sealState(env, { a: who.account, d: who.token.device, s: state, v: verifier, c: scope, x: Date.now() + STATE_SECONDS * 1000, ...(adding ? { m: 1 } : {}) });
   // No refresh token yet: prompt=consent makes Google issue one; else login_hint picks the same Google account.
   const url = buildAuthUrl(env, {
     redirectUri: redirectUri(request),
@@ -475,10 +507,10 @@ async function connectStart(request, env, who) {
     nonce: b64url(randomBytes(16)),
     challenge,
     scopes: ['openid', 'email', ...CAPABILITIES[scope]],
-    prompt: found ? '' : 'consent',
+    prompt: adding ? 'select_account consent' : found ? '' : 'consent',
     includeGrantedScopes: true,
     accessType: 'offline',
-    loginHint: (found && found.tokens.email) || '',
+    loginHint: adding ? '' : (found && found.tokens.email) || '',
   });
   return new Response(null, {
     status: 302,
@@ -513,20 +545,23 @@ async function exchange(env, f, request, code, verifier) {
   }
 }
 
-async function callback(request, env, ctx) {
-  const url = new URL(request.url);
-  // Back to Eden through a small page of ours (a meta refresh): a redirect from Google's
-  // navigation would load Eden without its SameSite=Strict session cookie (as session.js does).
-  const done = (ok) => {
-    const href = `/#gmail=${ok ? 'connected' : 'error'}`;
-    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+/**
+ * Back to Eden through a small page of ours (a meta refresh): a redirect from Google's (or Microsoft's)
+ * navigation would load Eden without its SameSite=Strict session cookie (as session.js does).
+ */
+function backToEden(href, stateCookie) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="0; url=${href}"><title>Eden</title><link rel="stylesheet" href="/signin/signin.css"></head>
 <body><main class="card"><h1>Opening Eden…</h1><p><a class="button" href="${href}">Continue to Eden</a></p></main></body></html>`;
-    const response = page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), SIGNIN_CSP);
-    response.headers.set('set-cookie', cookie(GDATA_COOKIE, '', { maxAge: 0, sameSite: 'Lax' }));
-    response.headers.set('referrer-policy', 'no-referrer'); // this URL held the code
-    return response;
-  };
+  const response = page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), SIGNIN_CSP);
+  response.headers.set('set-cookie', cookie(stateCookie, '', { maxAge: 0, sameSite: 'Lax' }));
+  response.headers.set('referrer-policy', 'no-referrer'); // this URL held the code
+  return response;
+}
+
+async function callback(request, env, ctx) {
+  const url = new URL(request.url);
+  const done = (ok) => backToEden(`/#gmail=${ok ? 'connected' : 'error'}`, GDATA_COOKIE);
   const [iv = '', ct = ''] = String(cookies(request)[GDATA_COOKIE] || '').split('.');
   const pending = iv && ct ? await openState(env, { iv, ct }) : null;
   const state = url.searchParams.get('state') || '';
@@ -547,6 +582,25 @@ async function callback(request, env, ctx) {
     return done(false); // that browser was signed out meanwhile
   }
   const same = old && old.sub === who.sub;
+  if (pending.m === 1 && old && !same) {
+    // "Add an account": a Google account other than the first Gmail becomes (or refreshes) an extra mailbox; the first stays.
+    if (!got.refresh_token || !hasGmailScopes(scopes) || !mailMultiOn(env)) return done(false);
+    const added = {
+      refresh: got.refresh_token,
+      access: got.access_token,
+      access_exp: Date.now() + (Number(got.expires_in) > 0 ? Number(got.expires_in) : 3600) * 1000,
+      scopes,
+      email: who.email,
+      sub: who.sub,
+      connected: new Date().toISOString(),
+    };
+    try {
+      return done(await saveAddedMailbox(env, pending.a, pending.d, added));
+    } catch {
+      ctx.waitUntil(revokeToken(got.refresh_token, f).catch(() => undefined)); // not kept (too many, or that browser signed out): not left granted
+      return done(false);
+    }
+  }
   const refresh = got.refresh_token || (same ? old.refresh : null);
   if (!refresh) return done(false); // a different Google account that granted before: Connect again gives one (prompt=consent)
   const tokens = {
@@ -561,4 +615,63 @@ async function callback(request, env, ctx) {
   await call(env, pending.a, 'google-save', { ...asDevice, record: await sealTokens(env, pending.a, tokens) });
   if (old && !same && old.refresh) ctx.waitUntil(revokeToken(old.refresh, f)); // replaced by another Google account
   return done(CAPABILITIES[pending.c].every((s) => scopes.includes(s)) || (pending.c === 'gmail' ? hasGmailScopes(scopes) : pending.c === 'calendar' ? hasCalendarScopes(scopes) : false));
+}
+
+// ── Outlook: Microsoft's sign-in for "Add an account" (mailboxes.js, mail-graph.js) ──
+
+const msRedirectUri = (request) => `${new URL(request.url).origin}${MS_CALLBACK}`;
+const sealMsState = (env, value) => sealWith(env, 'ms-cookie', 'ms-state', value);
+const openMsState = (env, value) => openWith(env, 'ms-cookie', 'ms-state', value);
+
+async function msConnectStart(request, env, who) {
+  await limited(env, 'API_RATE', who.account);
+  if (!mailMultiOn(env) || !msReady(env)) throw new ApiError(404, 'not_found', 'Outlook isn’t set up here yet.');
+  // no Gmail needed first: an Outlook mailbox can be the only one (the mailbox cap is checked when it's saved)
+  const state = b64url(randomBytes(32));
+  const { verifier, challenge } = await pkcePair();
+  const sealed = await sealMsState(env, { a: who.account, d: who.token.device, s: state, v: verifier, x: Date.now() + STATE_SECONDS * 1000 });
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: msAuthUrl(msClient(env), { redirectUri: msRedirectUri(request), state, challenge }),
+      'set-cookie': cookie(MS_COOKIE, `${sealed.iv}.${sealed.ct}`, { maxAge: STATE_SECONDS, sameSite: 'Lax' }),
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+    },
+  });
+}
+
+async function msCallback(request, env) {
+  const url = new URL(request.url);
+  const done = (ok) => backToEden(`/#outlook=${ok ? 'connected' : 'error'}`, MS_COOKIE);
+  const [iv = '', ct = ''] = String(cookies(request)[MS_COOKIE] || '').split('.');
+  const pending = iv && ct ? await openMsState(env, { iv, ct }) : null;
+  const state = url.searchParams.get('state') || '';
+  const code = url.searchParams.get('code') || '';
+  if (!pending || pending.s !== state || !(pending.x > Date.now()) || url.searchParams.get('error') || !code || !msReady(env) || !mailMultiOn(env)) return done(false);
+  await limited(env, 'API_RATE', pending.a);
+  const f = msFetch(env);
+  let got;
+  try { got = await msExchange(msClient(env), f, { code, verifier: pending.v, redirectUri: msRedirectUri(request) }); } catch { return done(false); }
+  const who = msIdClaims(got.id_token, msClient(env).clientId);
+  const scopes = typeof got.scope === 'string' ? got.scope.split(/\s+/).filter(Boolean) : [];
+  if (!who || typeof got.refresh_token !== 'string' || !hasOutlookScopes(scopes)) return done(false); // mail not granted: nothing kept
+  let me = { email: null, name: '' };
+  try { me = await graphMe(f, got.access_token); } catch { /* the id_token's address below */ }
+  const email = me.email || who.email;
+  if (!email) return done(false);
+  try {
+    return done(await saveOutlookMailbox(env, pending.a, pending.d, {
+      refresh: got.refresh_token,
+      access: got.access_token,
+      access_exp: Date.now() + (Number(got.expires_in) > 0 ? Number(got.expires_in) : 3600) * 1000,
+      scopes,
+      email,
+      name: me.name || who.name || '',
+      sub: who.sub,
+      connected: new Date().toISOString(),
+    }));
+  } catch {
+    return done(false); // too many mailboxes, or that browser signed out meanwhile
+  }
 }
