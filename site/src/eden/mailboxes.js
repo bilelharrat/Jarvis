@@ -37,12 +37,32 @@
 import { call } from '../accounts/index.js';
 import { MBOX_COLORS, MBOX_ID, MBOX_PRIMARY, newMailboxId, openMailbox, sealMailbox } from '../accounts/mailboxes.js';
 import { ApiError } from '../accounts/util.js';
+import { openWith, sealWith } from '../accounts/tokens.js';
 import { GoogleError, createGmailApi, refreshAccessToken, revokeToken, runGmailAction } from './vendor/google.js';
 import { IMAP_PRESETS, checkEmail, checkPassword, checkServers, createImapGmail, detectServers, presetForEmail, socketsFor, verifyImapAccount } from './mail-imap.js';
 import { createGraphGmail, msClient, msFetch, msReady, msRefresh } from './mail-graph.js';
 import { UPLOAD_ACTIONS, outgoingUploads, uploadAction } from './gmail-uploads.js';
 
 const MBOX_EXPIRY_MARGIN_MS = 60_000;
+
+// ── the iPhone app's "Add an account" (Gmail or Outlook sign-in in its web sheet) ──
+// The sheet has no askeden.com cookie of the app's sign-in, so the link carries a ticket: the app's sign-in for this
+// account, sealed under the server's key (only it can open it), good for 5 minutes, and only for starting a mailbox
+// sign-in (google-data.js connect routes).
+const MAIL_TICKET_MS = 5 * 60 * 1000;
+/** A ticket for `who` (an iv.ct string). */
+export async function mailAddTicket(env, who) {
+  const s = await sealWith(env, 'mail-add-ticket', 'mail-add', { a: who.account, k: who.token, x: Date.now() + MAIL_TICKET_MS });
+  return `${s.iv}.${s.ct}`;
+}
+/** A ticket's sign-in, as a gate's `who` ({ account, token, app: true }); null if bad or old. */
+export async function openMailAddTicket(env, ticket) {
+  const [iv = '', ct = ''] = String(ticket || '').split('.');
+  if (!iv || !ct) return null;
+  const t = await openWith(env, 'mail-add-ticket', 'mail-add', { iv, ct }).catch(() => null);
+  if (!t || typeof t.a !== 'string' || !t.k || !t.k.device || !(t.x > Date.now())) return null;
+  return { account: t.a, token: t.k, app: true };
+}
 
 export const mailMultiOn = (env = {}) => String(env.MAIL_MULTI || '').trim() === 'on';
 /** How many mailboxes Mail holds, the first Gmail included (MAIL_MULTI_MAX, 2 to 25; 10 unless set). */
@@ -130,8 +150,11 @@ export async function mailboxRoute(request, env, who, { primary, body, f }) {
       throw new ApiError(409, 'too_many', `Mail holds ${list.max} accounts at most. Remove one to add another.`);
     }
     if (body.provider === 'imap') return addImap(env, who, body, primary, f);
-    if (body.provider === 'outlook') return { url: '/api/chat/microsoft/connect' };
-    return { url: '/api/chat/google/connect?scope=gmail&add=1' };
+    // From the iPhone app (body.app): the link carries a ticket for the web sheet (mailAddTicket), and the sign-in ends
+    // on the app's scheme (google-data.js), so the sheet closes by itself.
+    const ticket = body.app === true ? `t=${encodeURIComponent(await mailAddTicket(env, who))}` : '';
+    if (body.provider === 'outlook') return { url: `/api/chat/microsoft/connect${ticket ? `?${ticket}` : ''}` };
+    return { url: `/api/chat/google/connect?scope=gmail&add=1${ticket ? `&${ticket}` : ''}` };
   }
   if (action === 'edit') {
     const id = body.id === MBOX_PRIMARY ? MBOX_PRIMARY : typeof body.id === 'string' && MBOX_ID.test(body.id) ? body.id : null;

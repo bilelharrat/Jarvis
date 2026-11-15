@@ -42,7 +42,7 @@ import { ApiError, b64ToBytes, b64url, randomBytes } from '../accounts/util.js';
 import { buildAuthUrl, exchangeCode, googleReady, pkcePair } from './google.js';
 import { SIGNIN_CSP, cookie, cookies, json, page, problem } from './web.js';
 import { UPLOAD_ACTIONS, outgoingUploads, uploadAction } from './gmail-uploads.js';
-import { loadMailbox, mailboxRoute, mailboxTokenSource, mailMultiOn, pickMailbox, runImapAction, runOutlookAction, saveAddedMailbox, saveOutlookMailbox } from './mailboxes.js';
+import { loadMailbox, mailboxRoute, mailboxTokenSource, mailMultiOn, openMailAddTicket, pickMailbox, runImapAction, runOutlookAction, saveAddedMailbox, saveOutlookMailbox } from './mailboxes.js';
 import { graphMe, hasOutlookScopes, msAuthUrl, msClient, msExchange, msFetch, msIdClaims, msReady } from './mail-graph.js';
 import {
   CALENDAR_SCOPES,
@@ -335,9 +335,9 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
   const route = `${request.method} ${path}`;
   try {
     if (route === `GET ${GDATA_CALLBACK}`) return await callback(request, env, ctx);
-    if (route === 'GET /api/chat/google/connect') return await connectStart(request, env, await gate(request, env, { header: false }));
+    if (route === 'GET /api/chat/google/connect') return await connectStart(request, env, await connectWho(request, env, gate, { addOnly: true }));
     if (route === `GET ${MS_CALLBACK}`) return await msCallback(request, env);
-    if (route === 'GET /api/chat/microsoft/connect') return await msConnectStart(request, env, await gate(request, env, { header: false }));
+    if (route === 'GET /api/chat/microsoft/connect') return await msConnectStart(request, env, await connectWho(request, env, gate));
     const who = await gate(request, env);
     await limited(env, 'API_RATE', who.account);
     const f = googleFetch(env, request);
@@ -489,6 +489,25 @@ const redirectUri = (request) => `${new URL(request.url).origin}${GDATA_CALLBACK
 const sealState = (env, value) => sealWith(env, 'gdata-cookie', 'gdata-state', value);
 const openState = (env, value) => openWith(env, 'gdata-cookie', 'gdata-state', value);
 
+// The iPhone app's web sheet (mailboxes.js mailAddTicket): a `t` ticket stands in for the browser's sign-in, for adding a
+// mailbox only, and its sign-in ends on the app's scheme (appDone) instead of the web app.
+const APP_DONE = 'com.askeden.eden://mail-added';
+async function connectWho(request, env, gate, { addOnly = false } = {}) {
+  const params = new URL(request.url).searchParams;
+  const t = params.get('t');
+  if (!t) return gate(request, env, { header: false });
+  if (addOnly && params.get('add') !== '1') throw new ApiError(400, 'bad_request', 'A ticket only adds an account.');
+  const who = await openMailAddTicket(env, t);
+  if (!who) throw new ApiError(401, 'signed_out', 'That link has expired. Go back to the app and try again.');
+  return who;
+}
+function appDone(ok, stateCookie) {
+  return new Response(null, {
+    status: 302,
+    headers: { location: `${APP_DONE}?ok=${ok ? 1 : 0}`, 'set-cookie': cookie(stateCookie, '', { maxAge: 0, sameSite: 'Lax' }), 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' },
+  });
+}
+
 async function connectStart(request, env, who) {
   await limited(env, 'API_RATE', who.account);
   const params = new URL(request.url).searchParams;
@@ -499,7 +518,7 @@ async function connectStart(request, env, who) {
   const found = await load(env, who);
   const state = b64url(randomBytes(32));
   const { verifier, challenge } = await pkcePair();
-  const sealed = await sealState(env, { a: who.account, d: who.token.device, s: state, v: verifier, c: scope, x: Date.now() + STATE_SECONDS * 1000, ...(adding ? { m: 1 } : {}) });
+  const sealed = await sealState(env, { a: who.account, d: who.token.device, s: state, v: verifier, c: scope, x: Date.now() + STATE_SECONDS * 1000, ...(adding ? { m: 1 } : {}), ...(who.app ? { p: 1 } : {}) });
   // No refresh token yet: prompt=consent makes Google issue one; else login_hint picks the same Google account.
   const url = buildAuthUrl(env, {
     redirectUri: redirectUri(request),
@@ -561,9 +580,9 @@ function backToEden(href, stateCookie) {
 
 async function callback(request, env, ctx) {
   const url = new URL(request.url);
-  const done = (ok) => backToEden(`/#gmail=${ok ? 'connected' : 'error'}`, GDATA_COOKIE);
   const [iv = '', ct = ''] = String(cookies(request)[GDATA_COOKIE] || '').split('.');
   const pending = iv && ct ? await openState(env, { iv, ct }) : null;
+  const done = (ok) => (pending && pending.p === 1 ? appDone(ok, GDATA_COOKIE) : backToEden(`/#gmail=${ok ? 'connected' : 'error'}`, GDATA_COOKIE));
   const state = url.searchParams.get('state') || '';
   const code = url.searchParams.get('code') || '';
   if (!pending || pending.s !== state || !(pending.x > Date.now()) || url.searchParams.get('error') || !code) return done(false);
@@ -629,7 +648,7 @@ async function msConnectStart(request, env, who) {
   // no Gmail needed first: an Outlook mailbox can be the only one (the mailbox cap is checked when it's saved)
   const state = b64url(randomBytes(32));
   const { verifier, challenge } = await pkcePair();
-  const sealed = await sealMsState(env, { a: who.account, d: who.token.device, s: state, v: verifier, x: Date.now() + STATE_SECONDS * 1000 });
+  const sealed = await sealMsState(env, { a: who.account, d: who.token.device, s: state, v: verifier, x: Date.now() + STATE_SECONDS * 1000, ...(who.app ? { p: 1 } : {}) });
   return new Response(null, {
     status: 302,
     headers: {
@@ -643,9 +662,9 @@ async function msConnectStart(request, env, who) {
 
 async function msCallback(request, env) {
   const url = new URL(request.url);
-  const done = (ok) => backToEden(`/#outlook=${ok ? 'connected' : 'error'}`, MS_COOKIE);
   const [iv = '', ct = ''] = String(cookies(request)[MS_COOKIE] || '').split('.');
   const pending = iv && ct ? await openMsState(env, { iv, ct }) : null;
+  const done = (ok) => (pending && pending.p === 1 ? appDone(ok, MS_COOKIE) : backToEden(`/#outlook=${ok ? 'connected' : 'error'}`, MS_COOKIE));
   const state = url.searchParams.get('state') || '';
   const code = url.searchParams.get('code') || '';
   if (!pending || pending.s !== state || !(pending.x > Date.now()) || url.searchParams.get('error') || !code || !msReady(env) || !mailMultiOn(env)) return done(false);

@@ -163,6 +163,39 @@ test('the sign-in refuses: a wrong state, a refused code, mail not granted; no f
   assert.deepEqual((await accounts(other.session)).accounts.map((a) => a.provider), ['outlook'], 'Outlook as the only mailbox');
 });
 
+test('the iPhone app adds Outlook or Gmail in a web sheet with no cookie: a ticket in the link, back to the app at the end', async () => {
+  const { session } = await signedIn();
+  const r = await accountsDo(session, { action: 'add', provider: 'outlook', app: true });
+  const { url } = await r.json();
+  assert.match(url, /^\/api\/chat\/microsoft\/connect\?t=[\w-]+\.[\w-]+$/);
+  const start = await hit(url, {}); // the sheet: no askeden.com session cookie
+  assert.equal(start.status, 302, await start.clone().text());
+  const to = new URL(start.headers.get('location'));
+  assert.equal(to.searchParams.get('redirect_uri'), 'https://askeden.com/api/chat/microsoft/callback');
+  const done = await hit(`/api/chat/microsoft/callback?state=${to.searchParams.get('state')}&code=ms-code`, { cookie: `__Host-eden-ms=${cookieValue(start, '__Host-eden-ms')}`, headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(done.status, 302);
+  assert.equal(done.headers.get('location'), 'com.askeden.eden://mail-added?ok=1', 'the sheet closes on the app’s scheme');
+  assert.equal((await accounts(session)).accounts.filter((a) => a.provider === 'outlook').length, 1);
+  // a refused sign-in also goes back to the app, saying so
+  const r2 = await (await accountsDo(session, { action: 'add', provider: 'outlook', app: true })).json();
+  const s2 = await hit(r2.url, {});
+  const bad = await hit(`/api/chat/microsoft/callback?state=forged&code=ms-code`, { cookie: `__Host-eden-ms=${cookieValue(s2, '__Host-eden-ms')}`, headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(bad.headers.get('location'), 'com.askeden.eden://mail-added?ok=0');
+  // the browser's own Add an account is unchanged: no ticket, back to the web app
+  assert.equal((await (await accountsDo(session, { action: 'add', provider: 'outlook' })).json()).url, '/api/chat/microsoft/connect');
+  // a forged or missing ticket starts nothing; a Gmail ticket only adds an account
+  assert.equal((await hit('/api/chat/microsoft/connect?t=abc.def', {})).status, 401);
+  assert.equal((await hit('/api/chat/microsoft/connect', {})).status, 401);
+  const g = await (await accountsDo(session, { action: 'add', provider: 'gmail', app: true })).json();
+  assert.match(g.url, /^\/api\/chat\/google\/connect\?scope=gmail&add=1&t=[\w-]+\.[\w-]+$/);
+  assert.equal((await hit(g.url.replace('&add=1', ''), {})).status, 400);
+  const gs = await hit(g.url, {});
+  assert.equal(gs.status, 302, await gs.clone().text());
+  const gto = new URL(gs.headers.get('location'));
+  const gd = await hit(`/api/chat/google/callback?state=${gto.searchParams.get('state')}&code=forged-code`, { cookie: `__Host-eden-gdata=${cookieValue(gs, '__Host-eden-gdata')}`, headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.match(gd.headers.get('location') || '', /^com\.askeden\.eden:\/\/mail-added\?ok=[01]$/, 'Gmail’s ends on the app too');
+});
+
 test('reading: the inbox, a full email from its MIME (HTML cleaned, attachment), search, profile and history', async () => {
   const { session } = await signedIn();
   ms.add(msMail({ subject: 'Lunch', body: 'Are you free Friday?', id: '<lunch@example.com>' }), { received: Date.parse('2026-11-06T10:00:00Z') });
