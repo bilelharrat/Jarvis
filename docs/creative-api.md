@@ -76,13 +76,18 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
 2. The page asks the person to sign in if they aren't (Apple, Google, a passkey, as the site does), then shows
    "Link Scorsese to your Eden account?" with **Cancel** and **Link**. The form posts to `POST /api/creative/link`
    (askeden.com's own page, its session cookie; not for apps).
-3. **Link** sends the browser on to the app's scheme, shared by every suite app:
+3. **Link** sends the browser on to **the asking app's own scheme**, `edenstudio-<app>://link`:
 
    ```
-   edenstudio://link?ticket=<ticket>&state=<state>&app=scorsese
+   edenstudio-scorsese://link?ticket=<ticket>&state=<state>
    ```
 
-   **Cancel** sends `edenstudio://link?error=access_denied&state=<state>&app=scorsese`. The app drops any callback
+   One scheme per app, because macOS hands a URL scheme to one app only and the PKCE verifier is in the app that
+   started the link. `<app>` is one of the fixed list above (`edenstudio-scorsese`, `edenstudio-ansel`,
+   `edenstudio-davinci`, `edenstudio-houdini`, `edenstudio-lumiere`, `edenstudio-scribe`, `edenstudio-aldus`);
+   askeden.com builds the scheme from that list and never from the request as sent. Each app registers its own scheme
+   in its `project.yml` (`CFBundleURLSchemes`). The page's `form-action` allows only that app's scheme.
+   **Cancel** sends `edenstudio-scorsese://link?error=access_denied&state=<state>`. The app drops any callback
    whose `state` isn't the one it made. The ticket is `<account id>.<43 characters>`, works once, and only for two
    minutes. askeden.com keeps only its SHA-256.
 4. The app exchanges it at once:
@@ -90,8 +95,10 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
    `POST /api/creative/token` (no `Authorization`)
 
    ```json
-   { "ticket": "<ticket>", "verifier": "<verifier>" }
+   { "ticket": "<ticket>", "verifier": "<verifier>", "app": "scorsese" }
    ```
+
+   `app` is the app that asked (the same as in step 1); the ticket was made for that app's scheme only.
 
    → 200
 
@@ -104,7 +111,8 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
    }
    ```
 
-   Errors: 400 `invalid_grant` (used, expired, wrong verifier, or another app's ticket), 401 `signed_out` (the browser
+   Errors: 400 `invalid_grant` (used, expired, wrong verifier, or a ticket made for another app), 400 `bad_request`
+   (`app` missing or not on the list), 401 `signed_out` (the browser
    that approved signed out within the two minutes), 429.
    Times are Unix milliseconds. The token lasts 365 days; after that, or once revoked, every route answers 401
    `not_connected` and the app links again. askeden.com keeps only the SHA-256 of its secret.
@@ -115,8 +123,8 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
 Each suite app on each Mac links on its own and holds its own token (at most 10 creative connections per account; the
 11th retires the oldest).
 
-Why a ticket and PKCE: another app could claim `edenstudio://`. A stolen ticket is useless without the verifier, which
-never leaves the app that made it.
+Why a ticket and PKCE: another app could claim `edenstudio-scorsese://`. A stolen ticket is useless without the
+verifier, which never leaves the app that made it.
 
 Later (not v1): an app on a Mac where Eden Code is already linked could get its ticket from Eden Code with no browser,
 as Eden Pulse does through `POST /api/hand/service` (`Eden Notes/LINK-ONCE.md`). That route isn't on this branch's
@@ -367,4 +375,5 @@ true`, `Cache-Control: no-store`. 404 when it's gone or not ready.
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FISH_API_KEY`), `EDEN_VIDEOS`, and the Account object
   (new storage keys `cquote:`, `cjob:`, `cres:` and alarm kind `creative`).
 - Needs: a merge into the live branch and one askeden.com deploy, with the owner's OK.
-- Then the suite's URL scheme `edenstudio://` in each app's `project.yml` (the release task).
+- Then each app's own URL scheme, `edenstudio-<app>` (e.g. `edenstudio-scorsese`), in its `project.yml` (the release
+  task).

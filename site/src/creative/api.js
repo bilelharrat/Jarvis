@@ -1,7 +1,8 @@
 // askeden.com's door for the Eden Creative Suite's Mac apps (Scorsese first): docs/creative-api.md is the contract.
 //
 //   GET  /creative/link              the approval page, for a browser signed in to Eden (else "sign in first")
-//   POST /api/creative/link          its form (same origin, the session cookie): Link → 303 to edenstudio://link?ticket=…
+//   POST /api/creative/link          its form (same origin, the session cookie): Link → 303 to
+//                                    edenstudio-<app>://link?ticket=…, the scheme of the app that asked only
 //   POST /api/creative/token         { ticket, verifier } → the app's token for the `creative` service
 //   POST /api/creative/revoke        the token stops at once (also from askeden.com › Account › Connected apps)
 //   GET  /api/creative/me            name, Plus, this month's allowance and what's used
@@ -27,7 +28,9 @@ import { json, page, problem, sameOrigin } from '../eden/web.js';
 import { MEDIA, parseMedia, priceFor, specHash } from './media.js';
 import { APPS, edenTurn } from './turn.js';
 
-export const CALLBACK = 'edenstudio://link';
+// Each suite app's own scheme: macOS hands a URL scheme to one app only, and the PKCE verifier is in the app that
+// started the link, so the ticket goes back to that app's scheme. `app` is from APPS (a fixed list), never raw.
+export const callbackFor = (app) => (Object.hasOwn(APPS, app) ? `edenstudio-${app}://link` : null);
 const CLIENT = 'creative';
 const LIMITS = { turnBytes: 8 * 1024 * 1024, evesBytes: 256 * 1024, mediaBytes: 6 * 1024 * 1024, smallBytes: 16 * 1024, evesChars: 20_000, deviceChars: 60 };
 const STATE = /^[A-Za-z0-9._~-]{8,200}$/;
@@ -55,7 +58,8 @@ export function linkRequest(params) {
 }
 
 const linkQuery = (req) => new URLSearchParams({ app: req.app, state: req.state, code_challenge: req.challenge, code_challenge_method: 'S256', ...(req.device ? { device: req.device } : {}) });
-const LINK_CSP = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self' edenstudio:; base-uri 'none'; frame-ancestors 'none'";
+// the form may post here and go on to this app's scheme only (none on a page without a form)
+const linkCsp = (app) => `default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'${callbackFor(app) ? ` edenstudio-${app}:` : ''}; base-uri 'none'; frame-ancestors 'none'`;
 
 function shell(title, body) {
   return `<!doctype html>
@@ -106,8 +110,8 @@ ${inputs}
   <p class="fine">Unlink any time in ${name}, or here in Account › Connected apps. The link lasts a year.</p>`);
 }
 
-function htmlPage(html, status = 200) {
-  const response = page(new Response(html, { status, headers: { 'content-type': 'text/html; charset=utf-8' } }), LINK_CSP);
+function htmlPage(html, status = 200, app = null) {
+  const response = page(new Response(html, { status, headers: { 'content-type': 'text/html; charset=utf-8' } }), linkCsp(app));
   response.headers.set('vary', 'cookie');
   return response;
 }
@@ -124,11 +128,11 @@ export async function creativeLinkPage(request, env, url) {
     email = (view?.identities || []).map((i) => i.email).find(Boolean) || '';
     plus = Boolean(view?.plan?.active);
   }
-  return htmlPage(linkHtml({ request: req, signedIn: Boolean(session), email, plus }));
+  return htmlPage(linkHtml({ request: req, signedIn: Boolean(session), email, plus }), 200, req.app);
 }
 
 const seeOther = (location) => new Response(null, { status: 303, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
-const backTo = (req, fields) => `${CALLBACK}?${new URLSearchParams({ ...fields, state: req.state, app: req.app })}`;
+const backTo = (req, fields) => `${callbackFor(req.app)}?${new URLSearchParams({ ...fields, state: req.state })}`;
 
 /** POST /api/creative/link: the approval page's own form. */
 async function approve(request, env) {
@@ -143,7 +147,7 @@ async function approve(request, env) {
   if (!webAllowed(env, session.account)) throw new ApiError(403, 'forbidden', 'This Eden account can’t use Eden yet.');
   await limited(env, 'AUTH_RATE', `creative-link:${clientIp(request)}`);
   const label = req.device ? `${req.name} on ${req.device}` : req.name;
-  const { code } = await call(env, session.account, 'scoped-code', { client: CLIENT, scope: CLIENT, redirect_uri: CALLBACK, challenge: req.challenge, app: req.app, label }, session.token);
+  const { code } = await call(env, session.account, 'scoped-code', { client: CLIENT, scope: CLIENT, redirect_uri: callbackFor(req.app), challenge: req.challenge, app: req.app, label }, session.token);
   return seeOther(backTo(req, { ticket: `${session.account}.${code}` }));
 }
 
@@ -179,9 +183,11 @@ async function token(request, env) {
   await limited(env, 'AUTH_RATE', `creative-token:${clientIp(request)}`);
   const body = await readJsonBody(request, LIMITS.smallBytes);
   const code = parseConnectCode(body.ticket);
+  const redirect = callbackFor(body.app); // the ticket was made for this app's scheme, or it isn't redeemed
+  if (!redirect) throw new ApiError(400, 'bad_request', `app is one of ${Object.keys(APPS).join(', ')}`);
   if (!code) throw new ApiError(400, 'invalid_grant', 'That link ticket isn’t right. Link again.');
   if (!webAllowed(env, code.account)) throw new ApiError(403, 'forbidden', 'This Eden account can’t use Eden yet.');
-  const minted = await call(env, code.account, 'scoped-redeem', { code: code.secret, client: CLIENT, redirect_uri: CALLBACK, verifier: String(body.verifier || '') });
+  const minted = await call(env, code.account, 'scoped-redeem', { code: code.secret, client: CLIENT, redirect_uri: redirect, verifier: String(body.verifier || '') });
   return json({
     token: makeScopedToken(code.account, minted.id, minted.secret),
     token_type: 'Bearer',

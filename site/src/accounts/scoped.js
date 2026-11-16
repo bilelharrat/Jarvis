@@ -12,7 +12,8 @@
 //   only hold the included AI for one ask (`scoped-hold`) and revoke itself.
 // - At most SCOPED.max per account and app (a new one retires that app's oldest), each for SCOPED.days (or the app's
 //   own `days`). The Eden Creative Suite (`creative`, src/creative/) links the same way from its native apps, its
-//   ticket coming back to edenstudio://link; its token also carries which suite app and Mac it is (`app`, `label`).
+//   ticket coming back to that app's own scheme, edenstudio-<app>://link (creative/api.js callbackFor); its token also
+//   carries which suite app and Mac it is (`app`, `label`).
 // - Deleting the account deletes them with everything else (storage.deleteAll).
 
 import { ApiError, b64url, randomBytes, sameText, sha256, sha256Hex, signedOut, validAccountId } from './util.js';
@@ -23,7 +24,7 @@ export const SCOPED = { days: 90, max: 10, codeSeconds: 120, codes: 10 };
 export const CLIENTS = {
   messenger: { name: 'Eden Messenger', scope: 'ask', callback: '/eden/connected' },
   // The Creative Suite's Mac apps (src/creative/api.js has the flow): a native scheme, never a web page; a year long.
-  creative: { name: 'Eden Creative Suite', scope: 'creative', callback: 'edenstudio://link', days: 365 },
+  creative: { name: 'Eden Creative Suite', scope: 'creative', callback: 'edenstudio-<app>://link', days: 365 }, // per app: creative/api.js callbackFor
 };
 
 const ID = /^[0-9a-f]{16}$/;

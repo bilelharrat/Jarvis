@@ -10,7 +10,7 @@ import { challengeOf, parseScopedToken } from '../src/accounts/scoped.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { clearHostedEvesVault } from '../src/eden/eves.js';
 import { videoUSD } from '../src/eden/image.js';
-import { CALLBACK, evesPrompt, linkRequest } from '../src/creative/api.js';
+import { callbackFor, evesPrompt, linkRequest } from '../src/creative/api.js';
 import { TOOL_MODELS, parseTurn, systemFor, toolModels } from '../src/creative/turn.js';
 import { parseMedia } from '../src/creative/media.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, readEvents, sseBody } from './fakes.js';
@@ -135,13 +135,12 @@ async function approvedTicket(session, verifier = VERIFIER) {
   const response = await hit('/api/creative/link', { method: 'POST', origin: ORIGIN, session, form: { ...(await linkParams(verifier)), decision: 'allow' } });
   assert.equal(response.status, 303, await response.clone().text());
   const back = new URL(response.headers.get('location'));
-  assert.equal(`${back.protocol}//${back.host}`, CALLBACK);
+  assert.equal(`${back.protocol}//${back.host}`, 'edenstudio-scorsese://link', 'the asking app’s own scheme');
   assert.equal(back.searchParams.get('state'), STATE);
-  assert.equal(back.searchParams.get('app'), 'scorsese');
   return back.searchParams.get('ticket');
 }
 
-const exchange = (ticket, verifier = VERIFIER) => hit('/api/creative/token', { method: 'POST', body: { ticket, verifier } });
+const exchange = (ticket, verifier = VERIFIER, app = 'scorsese') => hit('/api/creative/token', { method: 'POST', body: { ticket, verifier, app } });
 
 /** A linked Scorsese: { owner, session, account, token, connection }, with Plus unless told otherwise. */
 async function linked({ plus = true, sub } = {}) {
@@ -170,7 +169,7 @@ test('the approval page: checked parameters, sign in first, then Link or Cancel'
   assert.doesNotMatch(signedOutPage, /<form/);
   const csp = out.headers.get('content-security-policy');
   assert.match(csp, /default-src 'none'/);
-  assert.match(csp, /form-action 'self' edenstudio:/);
+  assert.match(csp, /form-action 'self' edenstudio-scorsese:;/, 'this app’s scheme only');
   assert.match(csp, /frame-ancestors 'none'/);
   assert.equal(out.headers.get('cache-control'), 'no-store');
 
@@ -204,7 +203,13 @@ test('Link: askeden.com’s own form only; Cancel goes back with access_denied; 
   assert.equal((await hit('/api/creative/link', { method: 'POST', session, form: { ...params, decision: 'allow' } })).status, 403, 'no Origin: not the page');
   const denied = await hit('/api/creative/link', { method: 'POST', origin: ORIGIN, session, form: { ...params, decision: 'deny' } });
   assert.equal(denied.status, 303);
-  assert.equal(denied.headers.get('location'), `edenstudio://link?error=access_denied&state=${STATE}&app=scorsese`);
+  assert.equal(denied.headers.get('location'), `edenstudio-scorsese://link?error=access_denied&state=${STATE}`);
+  // another suite app's link goes back to that app's scheme, never the one named raw
+  const ansel = await hit('/api/creative/link', { method: 'POST', origin: ORIGIN, session, form: { ...params, app: 'ansel', decision: 'deny' } });
+  assert.equal(ansel.headers.get('location'), `edenstudio-ansel://link?error=access_denied&state=${STATE}`);
+  const raw = await hit('/api/creative/link', { method: 'POST', origin: ORIGIN, session, form: { ...params, app: 'evil://x', decision: 'allow' } });
+  assert.equal(raw.status, 400);
+  assert.equal(raw.headers.get('location'), null);
   const signedOutPost = await hit('/api/creative/link', { method: 'POST', origin: ORIGIN, form: { ...params, decision: 'allow' } });
   assert.equal(signedOutPost.status, 303);
   assert.match(signedOutPost.headers.get('location'), /^\/creative\/link\?app=scorsese&/);
@@ -216,6 +221,13 @@ test('the ticket: once, two minutes, its verifier, the creative client only; the
   const ticket = await approvedTicket(session);
   assert.equal((await exchange(ticket, 'w'.repeat(50))).status, 400, 'the wrong verifier');
   assert.equal((await (await exchange(ticket)).json()).code, 'invalid_grant', 'a ticket is tried once, right or wrong');
+  // a Scorsese ticket isn't another app's: its scheme is part of it
+  const other = await exchange(await approvedTicket(session), VERIFIER, 'ansel');
+  assert.equal(other.status, 400);
+  assert.equal((await other.json()).code, 'invalid_grant');
+  for (const app of [null, 'photoshop', 'scorsese://evil']) assert.equal((await (await exchange(await approvedTicket(session), VERIFIER, app)).json()).code, 'bad_request', String(app));
+  assert.equal(callbackFor('lumiere'), 'edenstudio-lumiere://link');
+  assert.equal(callbackFor('__proto__'), null);
 
   const good = await exchange(await approvedTicket(session));
   assert.equal(good.status, 200);
