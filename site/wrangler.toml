@@ -329,6 +329,16 @@ class_name = "AudienceRoom"
 tag = "v11"
 new_sqlite_classes = ["AudienceRoom"]
 
+# Editing a Creative Suite project together (src/creative/rooms.js, docs/creative-rooms.md): one object per shared
+# project, plus its index objects (an account's rooms, an email's invites). Not deployed yet.
+[[durable_objects.bindings]]
+name = "CREATIVE_ROOMS"
+class_name = "CreativeRoom"
+
+[[migrations]]
+tag = "creative-rooms-v1"
+new_sqlite_classes = ["CreativeRoom"]
+
 # Browser Rendering (Workers Paid: 10 browser hours and 10 concurrent browsers a month included).
 [browser]
 binding = "BROWSER"

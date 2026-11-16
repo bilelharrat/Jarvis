@@ -31,6 +31,8 @@
 //   /eden/connect, /api/eden/…   @Eden for Eden Messenger: connect, then ask (eden/ask.js)
 //   /creative/link, /api/creative/…   the Eden Creative Suite's apps: link once, then Eden, EVES and generated media
 //                            (creative/api.js, docs/creative-api.md)
+//   /api/creative/rooms…    editing a Creative Suite project together: rooms and their WebSocket (creative/rooms.js,
+//                            docs/creative-rooms.md)
 //   POST /api/stripe/webhook   Stripe's events for Plus bought on the web (eden/billing.js); nothing else under /api/stripe
 //   /api/…                  Eden Secretary accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to /
@@ -71,6 +73,8 @@ export { BrowserSession } from './browser/session.js';
 export { DeckRoom } from './eden/deck-room.js'; // Eden Slides, editing together (wrangler.toml DECK_ROOMS)
 export { AudienceRoom } from './eden/audience-room.js'; // Eden Slides live polls, Q&A, follow-along (wrangler.toml AUDIENCE_ROOMS)
 export { Course } from './edu/course.js';
+export { CreativeRoom } from './creative/rooms.js'; // Creative Suite projects, editing together (wrangler.toml CREATIVE_ROOMS)
+import { roomsApi } from './creative/rooms.js';
 export { NewsDesk } from './news/store.js';
 export { RouterApi } from './router-api/store.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
@@ -299,6 +303,8 @@ async function route(request, env, ctx) {
     if (testRefused) return testRefused;
     // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
     if (path.startsWith('/api/eden/')) return edenApi(request, env, ctx, path);
+    // Editing a Creative Suite project together: the same token and no-browser rule, its own rooms (creative/rooms.js).
+    if (path === '/api/creative/rooms' || path.startsWith('/api/creative/rooms/')) return roomsApi(request, env, ctx, path);
     // The Eden Creative Suite's Mac apps: their scoped token, no browsers at all (creative/api.js, docs/creative-api.md).
     if (path.startsWith('/api/creative/')) return creativeApi(request, env, ctx, path);
     // Stripe's webhook: a server, so no Origin and no session; its signature is the guard (eden/billing.js).
