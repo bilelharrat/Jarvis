@@ -38,6 +38,7 @@ Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --te
 | 413 | `too_big` / `too_long` | Over a size limit (§1 limits). |
 | 415 | `bad_request` | Not JSON. |
 | 422 | `not_yet` | askeden.com can't make that kind of media yet. Show "Not yet" and keep the feature off. |
+| 422 | `model_unavailable` | That video model is shut down (e.g. Veo 2). Pick a live one from the quote's `models`. |
 | 429 | `slow_down` | Rate limit, or too much running at once. Wait `Retry-After` seconds. |
 | 502 | `upstream` | The model or media provider failed or is busy. Offer Try again. |
 | 503 | `not_set_up` | askeden.com doesn't have that switched on (a missing key). Keep the feature off. |
@@ -150,7 +151,7 @@ Works without Plus (it says so). → 200
   "voice": { "today_chars": 1200, "daily_chars": 100000 },
   "connection": { "id": "0123456789abcdef", "app": "scorsese", "created": 1795000000000, "expires_at": 1826536000000, "last_used": 1795000000000 },
   "generation": {
-    "video": { "available": true },
+    "video": { "available": true, "models": ["gemini-omni-1.2-flash"] },
     "speech": { "available": true },
     "voice_clone": { "available": false, "why": "Not yet: …" }
   }
@@ -277,24 +278,51 @@ as detail. Errors before the stream as in §5.
 
 A price first, shown to the person before anything runs; then the job; then its progress and result.
 Everything made is labelled **Generated** (`"label": "Generated"` on the job and `X-Eden-Generated: true` on the
-result); the app must keep that label on the clip.
+result); the app must keep that label on the clip. Google's clips also carry an invisible SynthID watermark.
 
 | `kind` | What | Made with | Paid from |
 |---|---|---|---|
-| `video` | B-roll: a 5 or 8 s clip from a prompt, or from a start frame | Google Veo 3 Fast (default), Veo 3 (`quality: "high"`), Veo 2 as fallback, as askeden.com's chat makes videos | The Plus AI allowance, at Veo's per-second list price ($0.15/s Fast, $0.40/s Veo 3), on success only |
+| `video` | B-roll, a shot extended, a gap filled: 3–15 s from a prompt, or from a frame of the footage | The models in the table below (today: Google's Gemini Omni Flash) | The Plus AI allowance, at the model's per-second list price; exactly the quote, on success only |
 | `speech` | Lines read aloud in the Eden voice: narration, or the "Spanish version" from a translated transcript (the app translates with §5) | Fish Audio, the voice askeden.com reads aloud with | The daily voice allowance (characters: 100,000 a day with Plus), no dollars |
 | `voice_clone` | Dubbing in the speaker's own voice | — | 422 `not_yet`: needs the speaker's recorded consent flow and a cloning provider, neither built |
 | `lipsync`, `music`, `sound_effects`, `image` | — | — | 422 `not_yet` |
 
+### The video models (checked 2026-11-16)
+
+Every video `quote` lists all of them in `models`, so the app can offer a choice; `GET /api/creative/me` lists the live
+ones in `generation.video.models`. The app may ask for one with `model`; without it, askeden.com picks the first live
+one (the default).
+
+| `model` | Available | Length | Aspect | Resolution and price | Notes |
+|---|---|---|---|---|---|
+| `gemini-omni-1.2-flash` (Gemini Omni Flash) | yes, with `GEMINI_API_KEY` and `EDEN_VIDEOS` on | 3–15 s, whole seconds, default 8 | `16:9` (default), `9:16` | `360p` $0.023/s; `720p` (default) $0.069504/s; `1080p` (upscaled) $0.104/s | Native audio; a start frame as `start_image`. Google's Interactions API. |
+| `veo-3.0-fast-generate-001` (Veo 3 Fast) | no | — | — | — | Google shut it down on June 30, 2026. |
+| `veo-3.0-generate-001` (Veo 3) | no | — | — | — | Google shut it down on June 30, 2026. |
+| `veo-2.0-generate-001` (Veo 2) | no | — | — | — | Google shut it down on June 30, 2026, on the Gemini API and on Vertex AI. |
+
+Asking for a model that's shut down is 422 `model_unavailable`, never another model in its place. Sources: Google's
+deprecations page (aistudio.google.com/docs/deprecations: Veo 2 and 3.0 shut down June 30, 2026; the Veo 3.1 previews
+October 22, 2026; replacement `gemini-omni-1.2-flash`), the Omni docs (aistudio.google.com/docs/omni: 3–15 s,
+`response_format` duration, aspect ratio and resolution) and the pricing page (aistudio.google.com/docs/pricing: $12 per
+million output tokens, 5,792 tokens a second at 720p, about $0.023/s at 360p and $0.104/s at 1080p).
+
+**Higgsfield isn't here** (checked 2026-11-16). Its official API is real and usable (api.higgsfield.ai, docs at
+docs.higgsfield.ai, per-second prices at higgsfield.ai/higgsfield-api, Kling, Seedance, MiniMax Hailuo, Wan, LTX and
+more), and it allows commercial use of outputs. But its Terms of Use (Oct 23, 2026, §4.4) and Privacy Policy (Oct 31,
+2026, §2.3) let Higgsfield train its and its affiliates' models on what's sent and made, with an exclusion only under an
+Enterprise Agreement. That would put people's own footage into someone's training data, so it waits for the owner
+(TODO.md).
+
 ### `POST /api/creative/quote`
 
 ```json
-{ "app": "scorsese", "kind": "video", "prompt": "Slow aerial shot over Lisbon at dawn", "seconds": 8, "aspect": "16:9", "quality": "standard",
+{ "app": "scorsese", "kind": "video", "model": "gemini-omni-1.2-flash", "prompt": "Slow aerial shot over Lisbon at dawn",
+  "seconds": 8, "aspect": "16:9", "resolution": "720p",
   "start_image": { "media_type": "image/jpeg", "data": "<base64>" } }
 ```
 
-- `video`: `prompt` 1–4,000 characters; `seconds` 5 or 8 (default 5); `aspect` `16:9` or `9:16` (default `16:9`);
-  `quality` `standard` or `high`; `start_image` optional (PNG, JPEG or WebP, at most 4 MiB decoded).
+- `video`: `prompt` 1–4,000 characters; `model` optional (above); `seconds`, `aspect` and `resolution` within that
+  model's limits (defaults as above); `start_image` optional (PNG, JPEG or WebP, at most 4 MiB decoded).
 - `speech`: `{"kind": "speech", "lines": [{"text": "Hola y bienvenidos."}, …], "language": "es"}`, 1–100 lines,
   each 1–600 characters, at most 20,000 in all.
 
@@ -304,28 +332,39 @@ result); the app must keep that label on the clip.
 {
   "quote_id": "<24 hex>",
   "kind": "video",
-  "model": "veo-3.0-fast-generate-001",
-  "model_name": "Veo 3 Fast",
+  "model": "gemini-omni-1.2-flash",
+  "model_name": "Gemini Omni Flash",
   "seconds": 8,
-  "usd": 1.2,
+  "resolution": "720p",
+  "usd": 0.556032,
   "allowance_left_usd": 4.75,
   "chars": 0,
   "voice_left_chars": null,
   "expires_at": 1795000600000,
-  "label": "Generated"
+  "label": "Generated",
+  "models": [
+    { "id": "gemini-omni-1.2-flash", "name": "Gemini Omni Flash", "provider": "google", "available": true,
+      "seconds": { "min": 3, "max": 15, "default": 8 }, "aspects": ["16:9", "9:16"],
+      "resolutions": [{ "resolution": "360p", "usd_per_second": 0.023 }, { "resolution": "720p", "usd_per_second": 0.069504 },
+                      { "resolution": "1080p", "usd_per_second": 0.104 }],
+      "default_resolution": "720p", "audio": true, "start_image": true },
+    { "id": "veo-2.0-generate-001", "name": "Veo 2", "provider": "google", "available": false,
+      "why": "Google shut Veo 2 down on June 30, 2026, on the Gemini API and on Vertex AI." }
+  ]
 }
 ```
 
-For `speech`, `usd` is 0, `chars` is the characters it will take and `voice_left_chars` what's left today. A quote
-that can't be paid is refused here (402 `no_allowance`), before the app shows a price. 422 `not_yet` for kinds
-askeden.com can't make; 503 `not_set_up` when the provider key is missing.
+(`models` lists all four; two are cut here.) For `speech`, `usd` is 0, there's no `models`, `chars` is the characters
+it will take and `voice_left_chars` what's left today. A quote that can't be paid is refused here (402 `no_allowance`),
+before the app shows a price. 400 for a value outside the model's limits; 422 `model_unavailable` for a model that's
+shut down; 422 `not_yet` for kinds askeden.com can't make; 503 `not_set_up` when the provider key is missing.
 
 ### `POST /api/creative/jobs`
 
 The same body as the quote, plus `quote_id`. It must match the quote exactly (askeden.com compares a SHA-256 of it),
 come from the same connection, within 10 minutes, once.
 
-→ 202 the job (below), whose `status` may already be `failed` (Veo refused the prompt: nothing charged). 409
+→ 202 the job (below), made on the account's alarm within seconds. 409
 `quote_used` / `quote_expired`; 400 `bad_request` when the body differs from the quote (the quote stays usable); 402;
 429 `slow_down` when 3 jobs are running already (the quote stays usable).
 
@@ -342,17 +381,19 @@ come from the same connection, within 10 minutes, once.
   "created_at": 1795000000000,
   "updated_at": 1795000030000,
   "expires_at": 1795086400000,
-  "model": "veo-3.0-fast-generate-001",
-  "model_name": "Veo 3 Fast",
-  "usd": 1.2,
+  "model": "gemini-omni-1.2-flash",
+  "model_name": "Gemini Omni Flash",
+  "seconds": 8,
+  "resolution": "720p",
+  "usd": 0.556032,
   "label": "Generated",
   "result": null,
   "error": null
 }
 ```
 
-`status`: `running` → `succeeded` or `failed`. `progress` 0–1 (video: an estimate from the time taken; speech: lines
-done). On `succeeded`, `result` is `{"items": [{"index": 0, "url": "/api/creative/jobs/<id>/result?item=0",
+`status`: `running` → `succeeded` or `failed`. `progress` 0–1 (video: an estimate from the time taken, a clip takes
+about a minute or two; speech: lines done). A clip not back within 8 minutes has failed. On `succeeded`, `result` is `{"items": [{"index": 0, "url": "/api/creative/jobs/<id>/result?item=0",
 "mime": "video/mp4", "bytes": 3145728}]}` (speech: one item per line, `audio/mpeg`). On `failed`, `error` is
 `{code, message}` and nothing was charged for a video (a speech job's characters stay counted, as on askeden.com). Poll
 every 3–5 s. Jobs and results are kept 24 hours, at most 20 per account.

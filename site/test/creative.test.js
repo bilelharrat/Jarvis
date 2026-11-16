@@ -9,7 +9,6 @@ import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { challengeOf, parseScopedToken } from '../src/accounts/scoped.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { clearHostedEvesVault } from '../src/eden/eves.js';
-import { videoUSD } from '../src/eden/image.js';
 import { callbackFor, evesPrompt, linkRequest } from '../src/creative/api.js';
 import { TOOL_MODELS, parseTurn, systemFor, toolModels } from '../src/creative/turn.js';
 import { parseMedia } from '../src/creative/media.js';
@@ -514,60 +513,94 @@ test('EVES on a caption: askeden.com’s own EVES run, on the Plus allowance, it
 
 const VIDEO = { app: 'scorsese', kind: 'video', prompt: 'Slow aerial shot over Lisbon at dawn', seconds: 8, aspect: '16:9' };
 const MP4 = 'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE='; // the first bytes of an MP4
+const INTERACTIONS = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+const videoEnv = (extra = {}) => makeEnv({ GEMINI_API_KEY: 'g-test', EDEN_VIDEOS: 'on', ...extra });
 
-function veo({ polls = 1, fail = null } = {}) {
-  let left = polls;
+/** Gemini Omni Flash on the Interactions API: done at once, or `inProgress` polls first, or refused. */
+function omni({ inProgress = 0, fail = null } = {}) {
+  let left = inProgress;
+  const done = { id: 'int-1', object: 'interaction', model: 'gemini-omni-1.2-flash', status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', data: MP4 }] }] };
   return [
-    [(u, init) => /\/v1beta\/models\/veo-[\w.-]+:predictLongRunning$/.test(u) && init.method === 'POST', () => (fail ? Response.json({ error: { message: fail } }, { status: 400 }) : Response.json({ name: 'models/veo-3.0-fast-generate-001/operations/op-1' }))],
-    [(u) => u === 'https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-fast-generate-001/operations/op-1', () => {
-      if (left > 0) {
+    [(u, init) => u === INTERACTIONS && init.method === 'POST', () => (fail ? Response.json({ error: { code: 400, message: fail, status: 'INVALID_ARGUMENT' } }, { status: 400 }) : inProgress ? Response.json({ id: 'int-1', status: 'in_progress' }) : Response.json(done))],
+    [(u) => u === `${INTERACTIONS}/int-1`, () => {
+      if (left > 1) {
         left -= 1;
-        return Response.json({ name: 'op-1', done: false });
+        return Response.json({ id: 'int-1', status: 'in_progress' });
       }
-      return Response.json({ name: 'op-1', done: true, response: { generateVideoResponse: { generatedSamples: [{ video: { bytesBase64Encoded: MP4, mimeType: 'video/mp4' } }] } } });
+      return Response.json(done);
     }],
   ];
 }
 
-test('B-roll: a quote, then the job, Veo polled on the account’s alarm, the clip labelled Generated, charged once', async () => {
-  env = makeEnv({ GEMINI_API_KEY: 'g-test', EDEN_VIDEOS: 'on', EDEN_VIDEO_POLL_MS: '0' });
+test('the video models: what Google serves today, with prices and limits; Veo 2 and Veo 3 listed as shut down, never faked', async () => {
+  env = videoEnv();
   const a = await linked();
-  providers = veo({ polls: 1 });
-  const q = await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO });
-  assert.equal(q.status, 200, await q.clone().text());
-  const quote = await q.json();
-  assert.equal(quote.model, 'veo-3.0-fast-generate-001');
-  assert.equal(quote.usd, videoUSD('veo-3.0-fast-generate-001', 8));
-  assert.equal(quote.usd, 1.2);
-  assert.equal(quote.label, 'Generated');
-  assert.equal(sent.filter((s) => s.url.includes('veo')).length, 0, 'a quote runs nothing');
+  const q = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+  assert.deepEqual(q.models.map((m) => [m.id, m.available]), [['gemini-omni-1.2-flash', true], ['veo-3.0-fast-generate-001', false], ['veo-3.0-generate-001', false], ['veo-2.0-generate-001', false]]);
+  const omniRow = q.models[0];
+  assert.deepEqual(omniRow.seconds, { min: 3, max: 15, default: 8 });
+  assert.deepEqual(omniRow.aspects, ['16:9', '9:16']);
+  assert.deepEqual(omniRow.resolutions, [{ resolution: '360p', usd_per_second: 0.023 }, { resolution: '720p', usd_per_second: 0.069504 }, { resolution: '1080p', usd_per_second: 0.104 }]);
+  assert.equal(omniRow.audio, true);
+  assert.match(q.models[3].why, /Google shut Veo 2 down on June 30, 2026/);
+  // the router's default: the first live model, at its default resolution
+  assert.equal(q.model, 'gemini-omni-1.2-flash');
+  assert.equal(q.resolution, '720p');
+  assert.equal(q.usd, 0.556032, '8 s × $0.069504');
+  // an explicit model and resolution
+  const hd = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: { ...VIDEO, model: 'gemini-omni-1.2-flash', seconds: 15, resolution: '1080p' } })).json();
+  assert.equal(hd.usd, 1.56);
+  // asking for Veo 2 (or Veo 3) is a plain no, not another model in its place
+  for (const model of ['veo-2.0-generate-001', 'veo-3.0-generate-001']) {
+    const r = await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: { ...VIDEO, model } });
+    assert.equal(r.status, 422, model);
+    const out = await r.json();
+    assert.equal(out.code, 'model_unavailable');
+    assert.match(out.error, /June 30, 2026/);
+  }
+  // each model's own limits
+  for (const bad of [{ seconds: 2 }, { seconds: 16 }, { seconds: 7.5 }, { aspect: '1:1' }, { resolution: '4k' }, { model: 'sora-2' }]) {
+    assert.equal((await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: { ...VIDEO, ...bad } })).status, 400, JSON.stringify(bad));
+  }
+  const me = await (await hit('/api/creative/me', { bearer: a.token })).json();
+  assert.deepEqual(me.generation.video, { available: true, models: ['gemini-omni-1.2-flash'] });
+  assert.equal(sent.filter((x) => x.url.startsWith(INTERACTIONS)).length, 0, 'quotes run nothing');
+});
 
-  // the job must be exactly what was priced
-  const changed = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, seconds: 5, quote_id: quote.quote_id } });
+test('B-roll: a quote, then the job, made on the account’s alarm, the clip labelled Generated, charged the quote once', async () => {
+  env = videoEnv();
+  const a = await linked();
+  providers = omni();
+  const frame = { media_type: 'image/jpeg', data: 'A'.repeat(250_000) }; // a frame of the footage: kept in pieces until it's used
+  const body = { ...VIDEO, start_image: frame };
+  const quote = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body })).json();
+  assert.equal(quote.label, 'Generated');
+
+  // the job must be exactly what was priced (and the quote stays usable)
+  const changed = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...body, seconds: 5, quote_id: quote.quote_id } });
   assert.equal(changed.status, 400);
-  const q2 = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
-  const started = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q2.quote_id } });
+  const started = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...body, quote_id: quote.quote_id } });
   assert.equal(started.status, 202, await started.clone().text());
   const job = await started.json();
   assert.equal(job.status, 'running');
   assert.equal(job.label, 'Generated');
   assert.equal(job.result, null);
-  const start = sent.find((s) => s.url.endsWith(':predictLongRunning'));
-  assert.equal(start.payload.instances[0].prompt, VIDEO.prompt);
-  assert.deepEqual(start.payload.parameters, { aspectRatio: '16:9', durationSeconds: 8, sampleCount: 1 });
-  const again = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q2.quote_id } });
+  const again = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...body, quote_id: quote.quote_id } });
   assert.equal(again.status, 409);
   assert.equal((await again.json()).code, 'quote_used');
   assert.equal((await usage(a.account)).spent, 0, 'nothing charged until the clip is back');
+  assert.ok([...object(a.account).ctx.storage.map.keys()].some((k) => k.startsWith(`cin:${job.id}:`)), 'the frame waits in pieces');
 
-  await object(a.account).alarm(); // not done yet
-  assert.equal((await (await hit(`/api/creative/jobs/${job.id}`, { bearer: a.token })).json()).status, 'running');
-  assert.equal((await hit(`/api/creative/jobs/${job.id}/result`, { bearer: a.token })).status, 404, 'not ready');
-  await object(a.account).alarm(); // done
+  await object(a.account).alarm();
+  const call = sent.find((x) => x.url === INTERACTIONS);
+  assert.equal(call.payload.model, 'gemini-omni-1.2-flash');
+  assert.deepEqual(call.payload.response_format, { duration: '8s', aspect_ratio: '16:9', resolution: '720p' });
+  assert.deepEqual(call.payload.input, [{ type: 'image', data: frame.data, mime_type: 'image/jpeg' }, { type: 'text', text: VIDEO.prompt }]);
+  assert.equal(call.headers['x-goog-api-key'], 'g-test');
   const done = await (await hit(`/api/creative/jobs/${job.id}`, { bearer: a.token })).json();
   assert.equal(done.status, 'succeeded');
   assert.equal(done.progress, 1);
-  assert.equal(done.result.items.length, 1);
+  assert.equal(done.model, 'gemini-omni-1.2-flash');
   assert.equal(done.result.items[0].mime, 'video/mp4');
   const file = await hit(done.result.items[0].url, { bearer: a.token });
   assert.equal(file.status, 200);
@@ -575,23 +608,46 @@ test('B-roll: a quote, then the job, Veo polled on the account’s alarm, the cl
   assert.equal(file.headers.get('x-eden-generated'), 'true');
   assert.match(file.headers.get('content-disposition'), /^attachment; filename="eden-generated-/);
   assert.equal(Buffer.from(await file.arrayBuffer()).toString('base64'), MP4);
-  assert.equal((await usage(a.account)).spent, 1.2, 'charged the quoted price, once');
+  assert.equal((await usage(a.account)).spent, quote.usd, 'charged the quoted price, once');
   assert.equal(object(a.account).holds.size, 0);
+  assert.ok(![...object(a.account).ctx.storage.map.keys()].some((k) => k.startsWith('cin:')), 'the frame is gone once used');
+  await object(a.account).alarm();
+  assert.equal(sent.filter((x) => x.url === INTERACTIONS).length, 1, 'made once');
   // another account (or connection) sees nothing of it
   const b = await linked({ sub: 'apple-user-2' });
   assert.equal((await hit(`/api/creative/jobs/${job.id}`, { bearer: b.token })).status, 404);
 });
 
-test('B-roll that fails: nothing charged; a quote expires; three at once; kinds askeden.com can’t make say not_yet', async () => {
-  env = makeEnv({ GEMINI_API_KEY: 'g-test', EDEN_VIDEOS: 'on', EDEN_VIDEO_POLL_MS: '0' });
+test('B-roll still in progress is polled; one Google refuses costs nothing; three at once; not_yet kinds; a quote expires', async () => {
+  env = videoEnv();
   const a = await linked();
-  providers = veo({ fail: 'The prompt was blocked by safety policy.' });
-  const q = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
-  const job = await (await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q.quote_id } })).json();
-  assert.equal(job.status, 'failed');
-  assert.equal(job.error.code, 'upstream');
-  assert.equal((await usage(a.account)).spent, 0);
+  providers = omni({ inProgress: 2 });
+  const q1 = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+  const slow = await (await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q1.quote_id } })).json();
+  await object(a.account).alarm();
+  assert.equal((await (await hit(`/api/creative/jobs/${slow.id}`, { bearer: a.token })).json()).status, 'succeeded');
+  assert.equal(sent.filter((x) => x.url === `${INTERACTIONS}/int-1`).length, 2, 'polled until done');
+  const paid = (await usage(a.account)).spent;
+  assert.equal(paid, q1.usd);
+
+  providers = omni({ fail: 'The prompt was blocked by safety policy.' });
+  const q2 = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+  const job = await (await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q2.quote_id } })).json();
+  await object(a.account).alarm();
+  const failed = await (await hit(`/api/creative/jobs/${job.id}`, { bearer: a.token })).json();
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.error.code, 'upstream');
+  assert.match(failed.error.message, /Nothing was charged/);
+  assert.equal((await usage(a.account)).spent, paid, 'a refused clip costs nothing');
   assert.equal(object(a.account).holds.size, 0);
+
+  // three running at once (not made yet), the fourth waits; its quote stays usable
+  for (let i = 0; i < 3; i++) {
+    const qi = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+    assert.equal((await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: qi.quote_id } })).status, 202);
+  }
+  const q4 = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+  assert.equal((await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q4.quote_id } })).status, 429);
 
   const old = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
   const kept = await object(a.account).storage.get(`cquote:${old.quote_id}`);
@@ -600,15 +656,6 @@ test('B-roll that fails: nothing charged; a quote expires; three at once; kinds 
   assert.equal(late.status, 409);
   assert.equal((await late.json()).code, 'quote_expired');
 
-  providers = veo({ polls: 100 });
-  for (let i = 0; i < 3; i++) {
-    const qi = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
-    assert.equal((await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: qi.quote_id } })).status, 202);
-  }
-  const q4 = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
-  const fourth = await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q4.quote_id } });
-  assert.equal(fourth.status, 429);
-
   for (const kind of ['voice_clone', 'lipsync', 'music', 'sound_effects', 'image']) {
     const r = await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: { app: 'scorsese', kind } });
     assert.equal(r.status, 422, kind);
@@ -616,12 +663,33 @@ test('B-roll that fails: nothing charged; a quote expires; three at once; kinds 
   }
   env.EDEN_VIDEOS = 'off';
   env.EDEN_IMAGES = 'off';
-  const off = await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO });
-  assert.equal(off.status, 503);
-  // a quote the allowance can't pay is refused before a price is shown
+  assert.equal((await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).status, 503);
   env.EDEN_VIDEOS = 'on';
-  await object(a.account).storage.put('usage', { month: new Date().toISOString().slice(0, 7), spent: 19.5, trial_spent: 1 });
-  assert.equal((await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).status, 402);
+  // a quote the allowance can't pay is refused before a price is shown
+  await object(a.account).storage.put('usage', { month: new Date().toISOString().slice(0, 7), spent: 19.9, trial_spent: 1 });
+  assert.equal((await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: { ...VIDEO, seconds: 15, resolution: '1080p' } })).status, 402);
+});
+
+test('a clip that outlives its deadline fails without a charge, and is never made twice', async () => {
+  env = videoEnv();
+  const a = await linked();
+  providers = omni();
+  const q = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+  const job = await (await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q.quote_id } })).json();
+  // an alarm that finds the call already out (the lease ran out mid-call) waits for it
+  const kept = await object(a.account).storage.get(`cjob:${job.id}`);
+  await object(a.account).storage.put(`cjob:${job.id}`, { ...kept, phase: 'making' });
+  await object(a.account).alarm();
+  assert.equal(sent.filter((x) => x.url === INTERACTIONS).length, 0);
+  // past the deadline: failed, nothing charged, the hold gone
+  await object(a.account).storage.put(`cjob:${job.id}`, { ...kept, phase: 'making', deadline: Date.now() - 1 });
+  const { creativeDue } = await import('../src/creative/ops.js');
+  await creativeDue(object(a.account), { key: `cjob:${job.id}` });
+  const out = await (await hit(`/api/creative/jobs/${job.id}`, { bearer: a.token })).json();
+  assert.equal(out.status, 'failed');
+  assert.match(out.error.message, /too long/);
+  assert.equal((await usage(a.account)).spent, 0);
+  assert.equal(object(a.account).holds.size, 0);
 });
 
 test('speech in the Eden voice: a quote in characters, the lines read on the alarm, counted on the voice allowance', async () => {
@@ -651,4 +719,5 @@ test('speech in the Eden voice: a quote in characters, the lines read on the ala
   assert.equal((await usage(a.account)).spent, 0, 'no dollars: the voice has its own allowance');
   // a line over 600 characters is split by the app
   assert.throws(() => parseMedia({ kind: 'speech', lines: [{ text: 'x'.repeat(601) }] }), (e) => e.status === 413);
+  assert.throws(() => parseMedia({ kind: 'video', model: 'veo-2.0-generate-001', prompt: 'x' }), (e) => e.status === 422 && e.code === 'model_unavailable');
 });

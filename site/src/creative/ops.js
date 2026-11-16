@@ -8,18 +8,18 @@
 //   creative-allow       what the AI allowance may spend now (Plus only): account.allowAi
 //   creative-hold        a hold on it for one turn's worst case (Plus only): account.holdAi, EDEN_TURNS at once
 //   creative-quote       a priced spec kept 10 minutes, once (Plus only)
-//   creative-job         a quote turned into a job (Plus only): video started on Veo, speech counted on the voice
+//   creative-job         a quote turned into a job (Plus only): video held on the allowance, speech counted on the voice
 //   creative-job-get     a job, as the app sees it
 //   creative-job-result  a finished item's bytes (base64)
 //
-// Jobs run on the account's one alarm (schedule.js, kind `creative`): `cjob:<id>` is a job's next step (a Veo poll, a
+// Jobs run on the account's one alarm (schedule.js, kind `creative`): `cjob:<id>` is a job's next step (the clip made, a
 // few lines read aloud), `cjobx:<id>` its expiry. A result is kept in pieces (`cres:<id>:<item>:<n>`) for MEDIA.keepMs.
 
 import { ApiError, randomBytes } from '../accounts/util.js';
 import { tokenCaller } from '../accounts/scoped.js';
 import { allowances } from '../accounts/account.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
-import { LABEL, MEDIA, fishSpeech, generationStatus, veoPoll, veoStart, videoUSD, voiceCeiling } from './media.js';
+import { LABEL, MEDIA, fishSpeech, generationStatus, omniGenerate, voiceCeiling } from './media.js';
 
 export const PLUS_WORDS = 'Eden in the Creative Suite is part of Eden Plus. Editing works without it.';
 const NOT_CREATIVE = () => new ApiError(403, 'forbidden', 'This connection isn’t for the Creative Suite.');
@@ -125,7 +125,7 @@ async function quote(account, token, q) {
   for (const [key, old] of waiting) if (old.expires <= now) await account.storage.delete(key);
   if (waiting.filter(([, old]) => old.expires > now).length >= 20) throw new ApiError(429, 'slow_down', 'Too many prices asked for at once; wait a few minutes.', { 'retry-after': '60' });
   const id = hex(12);
-  const kept = { id, token: token.id, kind: q.kind, hash: q.hash, usd: q.usd, chars: q.chars || 0, model: q.model, model_name: q.model_name, seconds: q.seconds ?? null, fallbacks: q.fallbacks || [], expires: now + MEDIA.quoteMs };
+  const kept = { id, token: token.id, kind: q.kind, hash: q.hash, usd: q.usd, chars: q.chars || 0, model: q.model, model_name: q.model_name, seconds: q.seconds ?? null, resolution: q.resolution ?? null, expires: now + MEDIA.quoteMs };
   await account.storage.put(`cquote:${id}`, kept);
   return {
     quote_id: id,
@@ -133,6 +133,7 @@ async function quote(account, token, q) {
     model: q.model,
     model_name: q.model_name,
     seconds: q.seconds ?? null,
+    resolution: q.resolution ?? null,
     usd: q.usd,
     allowance_left_usd: allowanceLeft,
     chars: q.chars || 0,
@@ -175,6 +176,7 @@ function jobView(job) {
     expires_at: job.expires,
     model: job.model,
     model_name: job.model_name,
+    ...(job.kind === 'video' ? { seconds: job.seconds, resolution: job.resolution } : {}),
     usd: job.usd,
     label: LABEL,
     result: done ? { items: job.items.map((it) => ({ index: it.index, url: `/api/creative/jobs/${job.id}/result?item=${it.index}`, mime: it.mime, bytes: it.bytes })) } : null,
@@ -213,32 +215,15 @@ async function startJob(account, token, { quote_id: quoteId, hash, spec }) {
   }
   const hold = await account.holdAi({ usd: q.usd });
   if (!hold.ok) throw new ApiError(402, 'no_allowance', hold.why);
-  Object.assign(job, { hold: hold.hold, bucket: hold.bucket, seconds: q.seconds, quoted: q.usd, deadline: now + MEDIA.videoDeadlineMs });
-  let started = null;
-  for (const model of [q.model, ...q.fallbacks]) {
-    started = await veoStart(account.env, model, spec);
-    if (started.ok) {
-      if (model !== q.model) Object.assign(job, { model, model_name: modelName(model), usd: Math.min(q.usd, videoUSD(model, q.seconds)) });
-      break;
-    }
-    if (!started.retryable) break;
-  }
-  if (!started.ok) {
-    account.release({ hold: hold.hold });
-    Object.assign(job, { status: 'failed', error: { code: 'upstream', message: started.message }, usd: 0 });
-    await account.storage.put(`cjob:${job.id}`, job);
-    await scheduleJob(account, `cjobx:${job.id}`, 'creative', job.expires);
-    return jobView(job);
-  }
-  job.op = started.op;
+  // what the alarm needs to make it; a start frame is kept in pieces (a value is at most 128 KiB) until the clip is made
+  const { start_image: image, ...rest } = spec;
+  const parts = image ? Math.ceil(image.data.length / MEDIA.imageChunk) : 0;
+  for (let n = 0; n < parts; n++) await account.storage.put(`cin:${job.id}:${n}`, image.data.slice(n * MEDIA.imageChunk, (n + 1) * MEDIA.imageChunk));
+  Object.assign(job, { hold: hold.hold, bucket: hold.bucket, seconds: q.seconds, resolution: q.resolution, deadline: now + MEDIA.videoDeadlineMs, spec: rest, image: image ? { media_type: image.media_type, parts } : null, phase: 'queued' });
   await account.storage.put(`cjob:${job.id}`, job);
-  await scheduleJob(account, `cjob:${job.id}`, 'creative', now + pollMs(account.env));
+  await scheduleJob(account, `cjob:${job.id}`, 'creative', now);
   return jobView(job);
 }
-
-const MODEL_NAMES = { 'veo-3.0-fast-generate-001': 'Veo 3 Fast', 'veo-3.0-generate-001': 'Veo 3', 'veo-2.0-generate-001': 'Veo 2' };
-const modelName = (id) => MODEL_NAMES[id] || 'Veo';
-const pollMs = (env) => (Number(env.EDEN_VIDEO_POLL_MS) >= 0 && env.EDEN_VIDEO_POLL_MS !== undefined && env.EDEN_VIDEO_POLL_MS !== '' ? Number(env.EDEN_VIDEO_POLL_MS) : 3000);
 
 /** The site's daily voice ceiling for everyone (worker.js VoiceQuota): one object, so the check-and-add is atomic. */
 async function takeCeiling(account, chars) {
@@ -275,7 +260,7 @@ async function storeItem(account, job, index, mime, data) {
 }
 
 async function dropJob(account, job) {
-  const keys = [`cjob:${job.id}`];
+  const keys = [`cjob:${job.id}`, ...Array.from({ length: (job.image && job.image.parts) || 0 }, (_, n) => `cin:${job.id}:${n}`)];
   for (const it of job.items || []) for (let n = 0; n < it.parts; n++) keys.push(`cres:${job.id}:${it.index}:${n}`);
   for (let i = 0; i < keys.length; i += 128) await account.storage.delete(keys.slice(i, i + 128));
   await unscheduleJob(account, `cjob:${job.id}`);
@@ -309,20 +294,34 @@ async function finish(account, job, fields) {
   return undefined;
 }
 
+const dropInput = async (account, job) => {
+  if (job.image && job.image.parts) await account.storage.delete(Array.from({ length: job.image.parts }, (_, n) => `cin:${job.id}:${n}`));
+};
+
 async function videoStep(account, job) {
   const now = account.now();
-  if (now > job.deadline) return finish(account, job, { status: 'failed', usd: 0, error: { code: 'upstream', message: 'Google Veo took too long to make the clip. Nothing was charged. Try again.' } });
-  const look = await veoPoll(account.env, job.op);
-  if (!look.ok && !look.retryable) return finish(account, job, { status: 'failed', usd: 0, error: { code: 'upstream', message: `${look.message} Nothing was charged.` } });
-  if (!look.ok || !look.done) {
-    job.updated = now;
-    await account.storage.put(`cjob:${job.id}`, job);
-    return now + pollMs(account.env);
+  const failed = async (message) => {
+    await dropInput(account, job);
+    return finish(account, job, { status: 'failed', usd: 0, error: { code: 'upstream', message: `${message} Nothing was charged. Try again.` } });
+  };
+  if (now > job.deadline) return failed('Google took too long to make the clip.');
+  // made once: an alarm that runs again while the call is out (the lease ran out) waits for that one
+  if (job.phase === 'making') return now + 15_000;
+  job.phase = 'making';
+  job.updated = now;
+  await account.storage.put(`cjob:${job.id}`, job);
+  let image = null;
+  if (job.image) {
+    const got = await account.storage.get(Array.from({ length: job.image.parts }, (_, n) => `cin:${job.id}:${n}`));
+    image = { media_type: job.image.media_type, data: Array.from({ length: job.image.parts }, (_, n) => got.get(`cin:${job.id}:${n}`) || '').join('') };
   }
-  await storeItem(account, job, 0, look.clip.mime, look.clip.data);
-  // what it cost, never more than the quote: the Plus allowance's provider dollars (account.js spend)
-  if (job.usd > 0) await account.spend({ usd: job.usd, bucket: job.bucket, meta: { feature: 'creative-video', product: 'creative', model: job.model, seconds: job.seconds } });
-  return finish(account, job, { status: 'succeeded' });
+  const made = await omniGenerate(account.env, { ...job.spec, ...(image ? { start_image: image } : {}) }, { signal: AbortSignal.timeout(Math.max(1000, job.deadline - now)) });
+  if (!made.ok) return failed(made.message);
+  await storeItem(account, job, 0, made.clip.mime, made.clip.data);
+  await dropInput(account, job);
+  // exactly the quote, once, on success: the Plus allowance's provider dollars (account.js spend)
+  if (job.usd > 0) await account.spend({ usd: job.usd, bucket: job.bucket, meta: { feature: 'creative-video', product: 'creative', model: job.model, seconds: job.seconds, resolution: job.resolution } });
+  return finish(account, job, { status: 'succeeded', phase: 'done' });
 }
 
 async function speechStep(account, job) {

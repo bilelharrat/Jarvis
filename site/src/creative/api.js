@@ -281,16 +281,15 @@ async function eves(request, env, ctx, who) {
 // ── generated media ──
 
 async function quote(request, env, who) {
-  const spec = parseMedia(await readJsonBody(request, LIMITS.mediaBytes));
-  const price = priceFor(env, spec);
+  const spec = parseMedia(await readJsonBody(request, LIMITS.mediaBytes), [], env);
+  const { models, ...price } = priceFor(env, spec);
   const out = await call(env, who.account, 'creative-quote', scoped(who, { quote: { ...price, hash: await specHash(spec) } }));
-  return json(out);
+  return json(models ? { ...out, models } : out);
 }
 
 async function startJob(request, env, who) {
   const raw = await readJsonBody(request, LIMITS.mediaBytes);
-  const spec = parseMedia(raw, ['quote_id']);
-  priceFor(env, spec); // still made here (a key switched off since the quote: 503)
+  const spec = parseMedia(raw, ['quote_id'], env); // still made here (a key switched off since the quote: 503)
   const job = await call(env, who.account, 'creative-job', scoped(who, { quote_id: raw.quote_id, hash: await specHash(spec), spec }));
   return json(job, 202);
 }
