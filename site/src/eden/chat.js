@@ -415,7 +415,7 @@ export function inputEstimate(messages, system) {
 
 const round1 = (x) => Math.round(x * 10) / 10;
 
-function routeSettings(settings) {
+export function routeSettings(settings) {
   return {
     ...(settings.level !== undefined ? { level: settings.level } : {}),
     ...(settings.efficiency !== undefined ? { efficiency: settings.efficiency } : {}),
@@ -424,7 +424,7 @@ function routeSettings(settings) {
 }
 
 /** The Model Router's pick (RouteResult), or a pinned model's row; throws a 422 for settings it can't take. */
-function routed(cfg, prompt, extras, only = null) {
+export function routed(cfg, prompt, extras, only = null) {
   try {
     return routerFor(cfg, only).routeSync({ prompt, ...extras });
   } catch (error) {
@@ -600,7 +600,7 @@ async function withMac(m, request, env, ctx, who) {
   return m;
 }
 
-async function readBody(request, cap) {
+export async function readBody(request, cap) {
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > cap) throw new ApiError(413, 'too_big', 'That request is too big.');
   const text = await request.text();
@@ -1806,7 +1806,7 @@ export function synthesisPrompt(question, answers) {
 }
 
 /** The page's lanes (`models`), checked: 2 to COMPARE_MAX hosted models, each once. */
-function compareModels(raw, cfg) {
+export function compareModels(raw, cfg) {
   if (raw.models === undefined || raw.models === null) return undefined;
   if (!Array.isArray(raw.models)) bad('models must be a list of { model, effort? }');
   if (raw.models.length > COMPARE_MAX) bad(`Compare asks at most ${COMPARE_MAX} models at once.`);
@@ -1823,7 +1823,7 @@ function compareModels(raw, cfg) {
 }
 
 /** The lanes for a question: the page's, else the router's best distinct models (eligible first). */
-function compareLanes(cfg, prompt, extras, models) {
+export function compareLanes(cfg, prompt, extras, models) {
   const result = routed(cfg, prompt, extras);
   const rows = [...result.rows.filter((r) => r.eligible !== false), ...result.rows.filter((r) => r.eligible === false)];
   const wanted = models || [...new Map(rows.map((r) => [r.model, r])).values()].slice(0, COMPARE_MAX).map((r) => ({ model: r.model, effort: r.effort }));

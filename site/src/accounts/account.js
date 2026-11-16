@@ -27,6 +27,7 @@ import {
 import { forgetGoogleOnDelete, googleOp } from './tokens.js';
 import { approvalOp } from './approvals.js';
 import { scopedOp } from './scoped.js';
+import { creativeDue, creativeOp } from '../creative/ops.js';
 import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
 import { GRANT_CLIENTS } from './apple.js';
@@ -119,7 +120,7 @@ const RELAY = { frame: 64 * 1024, held: 256 * 1024, streams: 16 };
 export const LIMITS = { plus: 6, legacy: 20, trial: 1, sandbox: 0.5, daredevil: 6 };
 const REVOKED_KEPT = 50; // refunded transaction ids kept per original transaction
 
-function allowances(env = {}) {
+export function allowances(env = {}) {
   const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v !== undefined ? Number(v) : d);
   return {
     plus: n(env.PLUS_BUDGET_USD, LIMITS.plus),
@@ -235,6 +236,7 @@ export class Account {
       if (op === 'identity-link') return json(await this.linkIdentity(body));
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
+      if (op.startsWith('creative-')) return json(await creativeOp(this, op, body)); // the Creative Suite's apps, on their scoped token (src/creative/ops.js checks it)
       if (op === 'rcpt-open') return json(await receiptOp(this, op, body)); // a read receipt's pixel loaded (the Worker's /r/ route; receipts.js)
       const device = await this.authenticate(request);
       // A browser may delete the account only when the person typed DELETE (the account page).
@@ -1197,6 +1199,7 @@ export class Account {
       pwatch: async () => ((await travelOn()) ? (await stayWatchDue(this, { notify: notifyOwner }), await promiseDue(this, { notify: notifyOwner })) : unscheduleJob(this, 'pwatch')), // booked hotels cheaper before free cancellation ends (travel/stayops.js)
       // each trip re-checked a week before, the day before and each morning; what changed pushed once (travel/recheck.js)
       tcheck: () => recheckDue(this, { tripOp, notify: notifyOwner, plus: travelOn }),
+      creative: (job) => creativeDue(this, job), // the Creative Suite's generated media: a job's next step, or its expiry (src/creative/ops.js)
     });
   }
 

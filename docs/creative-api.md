@@ -8,7 +8,8 @@ media). It never runs an app's tools.
 Code: `site/src/creative/` (Worker routes `api.js`, the model turn `turn.js`, generated media `media.js`, the account
 object's side `ops.js`). Tests: `site/test/creative.test.js`.
 
-Status (2026-11-16): the shapes are settled; the code is being built on branch `feat/creative-eden`. **Not deployed.**
+Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --test test/creative.test.js`, and a local
+`wrangler dev`). **Not deployed.** Everything below is what the code does.
 
 ## 1. Conventions
 
@@ -51,6 +52,11 @@ minute). The ticket exchange counts on `AUTH_RATE` per network (20 a minute), an
 account object allows at most 10 Eden replies at once (the site's `EDEN_TURNS`) and 3 generation jobs running at once.
 
 **Size limits:** `eden` body 8 MiB; `eves` body 256 KiB; `quote` and `jobs` body 6 MiB (a start frame); others 16 KiB.
+
+**Order of checks** on `eden`, `eves`, `quote` and `jobs`: the token's form, `API_RATE`, `USER_RATE`, then the token
+itself and Plus in the account's object, and only then the body. So a revoked token always gets 401 and an account
+without Plus always gets 402, whatever it sent. `me`, `revoke` and `GET jobs/…` need the token only (a job paid for
+stays readable if Plus lapses).
 
 ## 2. Link once
 
@@ -311,8 +317,9 @@ askeden.com can't make; 503 `not_set_up` when the provider key is missing.
 The same body as the quote, plus `quote_id`. It must match the quote exactly (askeden.com compares a SHA-256 of it),
 come from the same connection, within 10 minutes, once.
 
-→ 202 the job (below). 409 `quote_used` / `quote_expired`, 400 `bad_request` (the body differs from the quote),
-402, 429 `slow_down` (3 jobs running already).
+→ 202 the job (below), whose `status` may already be `failed` (Veo refused the prompt: nothing charged). 409
+`quote_used` / `quote_expired`; 400 `bad_request` when the body differs from the quote (the quote stays usable); 402;
+429 `slow_down` when 3 jobs are running already (the quote stays usable).
 
 ### `GET /api/creative/jobs/:id`
 
@@ -353,3 +360,11 @@ true`, `Cache-Control: no-store`. 404 when it's gone or not ready.
   tokens, prompts or keys.
 - Transcripts and silence detection run on the Mac (Apple's on-device speech recognition), not here.
 - Without Plus or a link, every editing feature works offline and free; the app says plainly what Eden needs.
+
+## 9. Going live (the owner)
+
+- No new secret, D1 database or Durable Object migration: it uses the keys askeden.com already has
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FISH_API_KEY`), `EDEN_VIDEOS`, and the Account object
+  (new storage keys `cquote:`, `cjob:`, `cres:` and alarm kind `creative`).
+- Needs: a merge into the live branch and one askeden.com deploy, with the owner's OK.
+- Then the suite's URL scheme `edenstudio://` in each app's `project.yml` (the release task).

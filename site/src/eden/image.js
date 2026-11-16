@@ -320,7 +320,7 @@ const bytesToB64 = (bytes) => {
 };
 
 /** Why a provider said no, in words for the person. */
-function refusalWords(provider, status, out) {
+export function refusalWords(provider, status, out) {
   const label = provider === 'gemini' ? 'Google Gemini' : provider === 'cloudflare' ? 'Cloudflare AI' : 'OpenAI';
   const e = (out && out.error) || {};
   const code = String(e.code || e.type || e.status || '');
@@ -629,7 +629,7 @@ const sleep = (ms, signal) => new Promise((res) => {
 });
 
 /** Extract base64 MP4 or download URI from a completed Veo or Interactions API operation payload. */
-async function extractVeoVideo(base, apiKey, op, signal) {
+export async function extractVeoVideo(base, apiKey, op, signal) {
   const resp = (op && op.response) || op || {};
   const stepItems = [
     ...(Array.isArray(resp.outputs) ? resp.outputs : []),

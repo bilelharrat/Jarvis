@@ -82,7 +82,7 @@ export const openTokens = (env, accountId, sealed) => openWith(env, `account:${a
  * Google's callback (a cross-site redirect: the SameSite=Strict session cookie isn't sent),
  * the browser device the sealed state cookie names, which must still be signed in.
  */
-async function caller(account, request, body) {
+export async function caller(account, request, body) {
   if (request.headers.get('x-jarvis-device')) return account.authenticate(request);
   const id = body.device;
   if (!validDeviceId(id)) throw signedOut();
@@ -91,7 +91,7 @@ async function caller(account, request, body) {
   return device;
 }
 
-function checkSealed(record) {
+export function checkSealed(record) {
   if (!record || typeof record.iv !== 'string' || typeof record.ct !== 'string' || record.iv.length > 64 || record.ct.length > MAX_SEALED) {
     throw new ApiError(400, 'bad_request', 'A sealed record is needed.');
   }
