@@ -32,15 +32,26 @@ import { verifyCreativeToken } from './rooms-auth.js';
 
 export const ROOMS = {
   people: 20, // members and pending invites
-  owned: 100, // rooms one account owns
+  owned: 50, // rooms one account owns
   indexed: 1000, // rooms one index object lists
-  opBytes: 512 * 1024,
+  opBytes: 256 * 1024,
+  logBytes: 32 * 1024 * 1024, // the log past the snapshot, in bytes of ops: then ops wait for a snapshot
+  accountBytes: 1024 * 1024 * 1024, // what the rooms an account owns may keep (logs and snapshots) together
+  usageStep: 1024 * 1024, // a room tells its owner's index its size each time it grows past another step
   ops: 120, // per socket per opWindow
   opWindow: 10_000,
-  presence: 30, // per socket a second; the rest is dropped
+  presence: 10, // per socket a second; the rest is dropped
+  hellos: 2, // per socket per helloWindow
+  helloWindow: 10_000,
+  replayOps: 2000, // a hello further behind than this, or than replayBytes, starts again from the snapshot
+  replayBytes: 4 * 1024 * 1024,
   frames: 60, // hello, comment, check and note frames per socket per frameWindow
   frameWindow: 10_000,
-  frame: 1_600_000, // the longest text frame read (a 512 KiB op, JSON-escaped)
+  frame: 800_000, // the longest text frame read (a 256 KiB op, JSON-escaped)
+  invitesPerDay: 50, // invites one account sends, across its rooms
+  invitesPerEmailDay: 10, // new rooms one email address is invited to
+  reverify: 5 * 60_000, // an open socket's token is checked again this often
+  socketLife: 12 * 3600_000, // then the socket closes (4005) and the app opens a new one
   commentChars: 4000,
   comments: 2000, // comments and replies a room keeps
   replies: 200, // a comment's replies
@@ -63,6 +74,10 @@ const BASE = '/api/creative/rooms';
 const ROOM_ID = /^[A-Za-z0-9_-]{22}$/;
 const ACCOUNT = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const MAIL_KEY = /^mail:[0-9a-f]{64}$/;
+// What the members of a room know each other by: a key of this room's own, never an account id (which elsewhere on
+// askeden.com names the account) or an email's hash.
+const PK = /^m_[A-Za-z0-9_-]{12}$/;
+const newPk = () => `m_${b64url(randomBytes(9))}`;
 const OP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 const HASH = /^[A-Za-z0-9_.:+/=-]{1,128}$/;
 const EMAIL = /^[^\s@<>()[\]\\,;:"]{1,64}@[^\s@<>()[\]\\,;:".]+(\.[^\s@<>()[\]\\,;:".]+)+$/;
@@ -163,19 +178,32 @@ function mentionsOf(value, meta) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > ROOMS.mentions) throw bad(`mentions is a list of at most ${ROOMS.mentions} member keys.`);
   for (const key of value) {
-    const m = typeof key === 'string' ? meta.members[key] : null;
-    if (!m || m.status !== 'in' || !Object.hasOwn(meta.members, key)) throw bad('A mention must be someone in the room.', 'bad_mention');
+    const m = memberByPk(meta, key);
+    if (!m || m.status !== 'in') throw bad('A mention must be someone in the room.', 'bad_mention');
   }
   return [...new Set(value)];
 }
 
+/** The member a room-scoped key names, or null. */
+function memberByPk(meta, pk) {
+  if (typeof pk !== 'string' || !PK.test(pk)) return null;
+  return Object.values(meta.members).find((m) => m.pk === pk) || null;
+}
+
 // ── what goes out ──
 
-const memberView = (m, here) => ({ key: m.key, account: m.account, name: m.name, email: m.email, role: m.role, slot: m.slot, status: m.status, here: here.has(m.key) });
+// Members see each other's room keys, names and emails (to invite and to tell people apart), never an account id.
+const memberView = (m, here) => ({ key: m.pk, name: m.name, email: m.email, role: m.role, slot: m.slot, status: m.status, here: here.has(m.key) });
 const membersOf = (meta, here) => Object.values(meta.members).sort((a, b) => a.slot - b.slot).map((m) => memberView(m, here));
 const snapshotView = (snap) => (snap ? { seq: snap.seq, hash: snap.hash, bytes: snap.bytes } : null);
 const indexName = (m) => (m.status === 'in' ? `idx:acct:${m.account}` : `idx:mail:${m.key.slice(5)}`);
 const entryOf = (meta, m) => ({ id: meta.id, name: meta.name, role: m.role, owner: meta.owner, ownerName: (meta.members[meta.owner] || {}).name || '', status: m.status, at: m.at });
+/** An op as it goes out: without `cum`, the room's own bookkeeping. */
+const opFrame = ({ cum: _cum, ...entry }, framed = true) => (framed ? { t: 'op', ...entry } : entry);
+const ownerPk = (meta) => (meta.members[meta.owner] || {}).pk || null;
+/** The log past the snapshot, in bytes of ops (`cum` counts every op's bytes since the room began). */
+const logBytesOf = (meta) => (meta.cum || 0) - ((meta.snap && meta.snap.cum) || 0);
+const roomBytesOf = (meta) => logBytesOf(meta) + ((meta.snap && meta.snap.bytes) || 0);
 
 export class CreativeRoom {
   constructor(ctx, env) {
@@ -186,6 +214,8 @@ export class CreativeRoom {
     this.chain = Promise.resolve(); // one change at a time, whatever it waits on
     this.rates = new Map(); // socket id → its counters (lost on hibernation, which only comes when quiet)
     this.attachments = new WeakMap(); // where a socket's attachment lives when the runtime has no serializeAttachment
+    this.replaying = new Map(); // socket id → frames held for it while a hello's catch-up goes out (in order after it)
+    this.verify = (request) => verifyCreativeToken(request, this.env); // an open socket's token, checked again
     if (ctx.setWebSocketAutoResponse && globalThis.WebSocketRequestResponsePair) {
       ctx.setWebSocketAutoResponse(new globalThis.WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'));
     }
@@ -203,6 +233,8 @@ export class CreativeRoom {
     const method = request.method;
     try {
       if (parts[0] === 'idx') return await this.indexOp(parts[1] || '', request);
+      // An account being deleted (forgetAccount): only the Worker's own code calls this, never a request from outside.
+      if (parts[0] === 'forget' && method === 'POST') return json(await this.forget(await readJson(request, 16_384)));
       const who = identityFrom(request.headers);
       if (!who) throw new ApiError(401, 'not_connected', 'Link this app to your Eden account again.');
       const [what = '', key] = parts;
@@ -277,8 +309,11 @@ export class CreativeRoom {
   broadcast(frame, exceptSid = null) {
     const text = JSON.stringify(frame);
     for (const ws of this.sockets()) {
-      if (exceptSid && (this.attachmentOf(ws) || {}).sid === exceptSid) continue;
-      this.tell(ws, text);
+      const sid = (this.attachmentOf(ws) || {}).sid;
+      if (exceptSid && sid === exceptSid) continue;
+      const held = this.replaying.get(sid);
+      if (held) held.push(text);
+      else this.tell(ws, text);
     }
   }
 
@@ -287,7 +322,7 @@ export class CreativeRoom {
   }
 
   rateOf(sid) {
-    if (!this.rates.has(sid)) this.rates.set(sid, { op: [0, 0], presence: [0, 0], frames: [0, 0] });
+    if (!this.rates.has(sid)) this.rates.set(sid, { op: [0, 0], presence: [0, 0], frames: [0, 0], hello: [0, 0] });
     return this.rates.get(sid);
   }
 
@@ -304,16 +339,73 @@ export class CreativeRoom {
 
   async socket(request, who) {
     if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') throw new ApiError(426, 'bad_request', 'The live line speaks WebSocket.');
-    return this.locked(who, (meta, me) => {
+    // The token the socket opened with, and the address it came to, so it can be checked again while the socket is
+    // open (`reverify`): the Worker hands them over for the socket route only. They live in the socket's
+    // attachment, never in the room's storage.
+    const token = request.headers.get('x-eden-token') || '';
+    const origin = request.headers.get('x-eden-origin') || '';
+    return this.locked(who, async (meta, me) => {
       if (this.sockets(`k:${me.key}`).length >= ROOMS.socketsPerMember) throw new ApiError(429, 'too_many', `At most ${ROOMS.socketsPerMember} of your apps can be in a room at once.`);
       const { response, server } = this.upgrade([`k:${me.key}`]);
-      this.attach(server, { sid: hex(randomBytes(8)), key: me.key, at: this.now(), presence: null, pat: 0 });
+      const now = this.now();
+      this.attach(server, { sid: hex(randomBytes(8)), key: me.key, pk: me.pk, at: now, verified: now, token, origin, presence: null, pat: 0 });
+      await this.armAlarm();
       return response;
     });
   }
 
   async webSocketMessage(ws, message) {
-    return this.serial(() => this.onMessage(ws, message));
+    // A socket whose token is due to be checked again is checked first, outside the room's queue (it waits on the
+    // account's own object).
+    if (!(await this.stillValid(ws))) return;
+    const then = await this.serial(() => this.onMessage(ws, message));
+    // A hello's catch-up goes out after the queue moves on (frames meanwhile are held for that socket, in order).
+    if (typeof then === 'function') {
+      await then().catch((error) => {
+        console.error('creative room: a catch-up failed', error && error.message);
+        this.drop(ws, 1011, 'try again');
+      });
+    }
+  }
+
+  /** Whether a socket may go on: its token checked again every `reverify` (4003 when it no longer verifies, as when
+   *  it's revoked), and at most `socketLife` old (4005: the app opens a new one). */
+  async stillValid(ws, now = this.now()) {
+    const att = this.attachmentOf(ws);
+    if (!att) return true; // onMessage drops it
+    if (now - att.at >= ROOMS.socketLife) {
+      this.tell(ws, { t: 'error', code: 'expired', message: 'Reconnecting to the room.' });
+      this.drop(ws, 4005, 'expired');
+      return false;
+    }
+    if (now - (att.verified || att.at) < ROOMS.reverify) return true;
+    let who = null;
+    try {
+      if (att.token && att.origin) who = cleanWho(await this.verify(new Request(att.origin, { headers: { authorization: `Bearer ${att.token}` } })));
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status >= 500) return true; // the accounts side is down: try again later
+    }
+    if (!who || who.account !== att.key) {
+      this.tell(ws, { t: 'error', code: 'not_connected', message: 'Link this app to your Eden account again.' });
+      this.drop(ws, 4003, 'not connected');
+      return false;
+    }
+    this.attach(ws, { ...(this.attachmentOf(ws) || att), verified: now });
+    return true;
+  }
+
+  /** While sockets are open, the room wakes every `reverify` to check them, quiet ones included. */
+  async armAlarm() {
+    if (typeof this.storage.setAlarm !== 'function') return;
+    const at = typeof this.storage.getAlarm === 'function' ? await this.storage.getAlarm() : null;
+    if (!at) await this.storage.setAlarm(this.now() + ROOMS.reverify);
+  }
+
+  async alarm() {
+    if (!(await this.storage.get('meta'))) return; // an index object, or a deleted room
+    const now = this.now();
+    for (const ws of this.sockets()) await this.stillValid(ws, now);
+    if (this.sockets().length && typeof this.storage.setAlarm === 'function') await this.storage.setAlarm(now + ROOMS.reverify);
   }
 
   async webSocketClose(ws) {
@@ -329,8 +421,9 @@ export class CreativeRoom {
     const att = this.attachmentOf(ws);
     if (!att) return;
     this.rates.delete(att.sid);
+    this.replaying.delete(att.sid);
     const still = this.sockets(`k:${att.key}`).some((o) => o !== ws && (this.attachmentOf(o) || {}).sid !== att.sid);
-    if (!still) this.broadcast({ t: 'left', key: att.key }, att.sid);
+    if (!still) this.broadcast({ t: 'left', key: att.pk }, att.sid);
   }
 
   async onMessage(ws, message) {
@@ -362,6 +455,7 @@ export class CreativeRoom {
       if (msg.t === 'op') return await this.onOp(ws, meta, me, msg, rate);
       if (!['hello', 'comment', 'check', 'note'].includes(msg.t)) throw bad('That message isn’t one the room knows.');
       if (!this.allow(rate, 'frames', ROOMS.frames, ROOMS.frameWindow)) throw new ApiError(429, 'slow_down', 'Too many messages at once; wait a few seconds.');
+      if (msg.t === 'hello' && !this.allow(rate, 'hello', ROOMS.hellos, ROOMS.helloWindow)) throw new ApiError(429, 'slow_down', 'The room is catching you up already; wait a few seconds.');
       if (msg.t === 'hello') return await this.onHello(ws, att, meta, me, msg);
       if (msg.t === 'comment') return await this.onComment(meta, me, msg);
       if (msg.t === 'check') return await this.onCheck(ws, meta, me, msg);
@@ -377,7 +471,7 @@ export class CreativeRoom {
     if (!this.allow(rate, 'presence', ROOMS.presence, 1000)) return; // over the rate: dropped, silently
     const presence = presenceOf(msg, me.role);
     this.attach(ws, { ...att, presence, pat: this.now() });
-    this.broadcast({ t: 'presence', key: me.key, name: me.name, slot: me.slot, ...presence }, att.sid);
+    this.broadcast({ t: 'presence', key: me.pk, name: me.name, slot: me.slot, ...presence }, att.sid);
   }
 
   async onOp(ws, meta, me, msg, rate) {
@@ -391,26 +485,52 @@ export class CreativeRoom {
     const label = line(msg.label, ROOMS.labelChars, 'An op’s label');
     const note = msg.note === undefined || msg.note === null ? null : line(msg.note, ROOMS.noteChars, 'An op’s note') || null;
     if (typeof msg.op !== 'string' || !msg.op) throw bad('op is the command, as a string.');
-    if (utf8Length(msg.op) > ROOMS.opBytes) throw new ApiError(413, 'too_big', `A change is at most ${ROOMS.opBytes / 1024} KiB.`);
+    const bytes = utf8Length(msg.op);
+    if (bytes > ROOMS.opBytes) throw new ApiError(413, 'too_big', `A change is at most ${ROOMS.opBytes / 1024} KiB.`);
     // The same op again (a reconnect re-sends what wasn't confirmed): its entry, to this socket only.
     const known = await this.storage.get(oidKey(me.key, id));
     if (known !== undefined) {
       const entry = await this.storage.get(opKey(known));
-      if (entry) return this.tell(ws, { t: 'op', ...entry });
+      if (entry) return this.tell(ws, opFrame(entry));
       throw new ApiError(409, 'in_snapshot', 'That change is already in the room’s snapshot.', {}, { seq: known });
     }
     if (base > meta.head) throw new ApiError(409, 'bad_base', 'That change was made on a newer version than the room has.');
     const low = meta.snap ? meta.snap.seq : 0;
-    if (meta.head - low >= ROOMS.logMax) throw new ApiError(409, 'log_full', 'The room’s log is full: an editor’s app saves a snapshot first.');
+    if (meta.head - low >= ROOMS.logMax || logBytesOf(meta) + bytes > ROOMS.logBytes) {
+      this.wantSnapshot(meta);
+      throw new ApiError(409, 'log_full', 'The room’s log is full: an editor’s app saves a snapshot first.');
+    }
+    if (meta.overQuota) throw new ApiError(409, 'quota', 'The owner’s shared projects are using all the room they have. Delete one, or wait for a snapshot to make room.');
     const seq = meta.head + 1;
-    const entry = { seq, id, by: me.key, name: me.name, slot: me.slot, at: this.now(), base, label, via, note, op: msg.op };
+    const step = Math.floor(roomBytesOf(meta) / ROOMS.usageStep);
+    meta.cum = (meta.cum || 0) + bytes;
+    const entry = { seq, id, by: me.pk, name: me.name, slot: me.slot, at: this.now(), base, label, via, note, op: msg.op };
     meta.head = seq;
     const act = this.newActivity(meta, me, 'op', via === 'eden' ? `asked Eden: ${label || 'a change'}` : label || 'made a change', { seq, via });
-    await this.save(meta, { [opKey(seq)]: entry, [oidKey(me.key, id)]: seq }, [act]);
+    // `cum` (every op's bytes so far) is kept with the entry, so a snapshot at this seq knows the log's size up to it
+    await this.save(meta, { [opKey(seq)]: { ...entry, cum: meta.cum }, [oidKey(me.key, id)]: seq }, [act]);
     this.broadcast({ t: 'op', ...entry });
     this.broadcast({ t: 'activity', activity: act });
     const length = seq - low;
     if (length >= ROOMS.snapshotWanted && length % ROOMS.snapshotWanted === 0) this.wantSnapshot(meta);
+    if (Math.floor(roomBytesOf(meta) / ROOMS.usageStep) !== step) await this.reportUsage(meta);
+  }
+
+  /** Tells the owner's index how much this room keeps; over the account's quota, the room takes no more ops (and no
+   *  bigger snapshot) until it's under again. */
+  async reportUsage(meta, bytes = roomBytesOf(meta)) {
+    let total = 0;
+    try {
+      ({ total = 0 } = await this.askIndex(`idx:acct:${meta.owner}`, 'usage', { id: meta.id, bytes }));
+    } catch (error) {
+      console.error('creative room: usage report failed', error && error.message);
+      return;
+    }
+    const over = total > ROOMS.accountBytes;
+    if (Boolean(meta.overQuota) !== over) {
+      meta.overQuota = over;
+      await this.storage.put('meta', meta);
+    }
   }
 
   wantSnapshot(meta, only = null) {
@@ -420,47 +540,69 @@ export class CreativeRoom {
     }
   }
 
+  /** The welcome, then the catch-up. In the room's queue only the decision is made (where the app is, and whether it
+   *  starts again from the snapshot); the reading and sending happen after, in the returned function, while frames
+   *  for this socket are held and sent after it, in order. */
   async onHello(ws, att, meta, me, msg) {
     const since = msg.since === undefined || msg.since === null ? 0 : msg.since;
     if (!Number.isSafeInteger(since) || since < 0) throw bad('since is the last seq the app has (a safe integer).');
     const low = meta.snap ? meta.snap.seq : 0;
-    const resync = since < low || since > meta.head;
+    const to = meta.head;
+    let resync = since < low || since > to || to - since > ROOMS.replayOps;
+    if (!resync && since < to) {
+      // too many bytes behind: the snapshot is quicker for everyone
+      const from = since > 0 ? await this.storage.get(opKey(since)) : null;
+      const before = from ? from.cum || 0 : (meta.snap && meta.snap.cum) || 0;
+      resync = (meta.cum || 0) - before > ROOMS.replayBytes;
+    }
     const here = this.hereKeys();
     const welcome = { t: 'welcome', you: memberView(me, here), room: this.view(meta, me, here), presence: this.presenceOthers(att.sid, meta) };
-    let next = null; // the seq the ops go on from, after the welcome
-    if (resync) welcome.resync = true;
-    else {
-      welcome.ops = [];
-      let budget = ROOMS.welcomeBudget;
-      for await (const entry of this.log(since + 1, meta.head)) {
-        const size = entry.op.length + 300;
-        if (welcome.ops.length && size > budget) {
-          next = entry.seq;
-          break;
+    const wantSnapshot = to - low >= ROOMS.snapshotWanted;
+    const held = [];
+    this.replaying.set(att.sid, held);
+    return async () => {
+      try {
+        let next = null; // the seq the ops go on from, after the welcome
+        if (resync) welcome.resync = true;
+        else {
+          welcome.ops = [];
+          let budget = ROOMS.welcomeBudget;
+          for await (const entry of this.log(since + 1, to)) {
+            const size = entry.op.length + 300;
+            if (welcome.ops.length && size > budget) {
+              next = entry.seq;
+              break;
+            }
+            budget -= size;
+            welcome.ops.push(opFrame(entry, false));
+          }
         }
-        budget -= size;
-        welcome.ops.push(entry);
+        welcome.comments = [];
+        let commentsFrom = null;
+        let budget = ROOMS.welcomeBudget;
+        for await (const comment of this.allComments()) {
+          const size = JSON.stringify(comment).length;
+          if (welcome.comments.length && size > budget) {
+            commentsFrom = comment.id;
+            break;
+          }
+          budget -= size;
+          welcome.comments.push(comment);
+        }
+        welcome.activity = [...(await this.storage.list({ prefix: 'act:', reverse: true, limit: ROOMS.activityWelcome })).values()];
+        if (next !== null || commentsFrom !== null) welcome.more = true;
+        this.tell(ws, welcome);
+        // Too much for one frame: the rest at once, in order, as the frames that would have brought them.
+        if (next !== null) for await (const entry of this.log(next, to)) this.tell(ws, opFrame(entry));
+        if (commentsFrom !== null) for await (const comment of this.allComments(commentsFrom)) this.tell(ws, { t: 'comment', comment });
+      } finally {
+        // what happened meanwhile, in the order it happened
+        if (this.replaying.get(att.sid) === held) this.replaying.delete(att.sid);
+        for (const text of held) this.tell(ws, text);
       }
-    }
-    welcome.comments = [];
-    let commentsFrom = null;
-    let budget = ROOMS.welcomeBudget;
-    for await (const comment of this.allComments()) {
-      const size = JSON.stringify(comment).length;
-      if (welcome.comments.length && size > budget) {
-        commentsFrom = comment.id;
-        break;
-      }
-      budget -= size;
-      welcome.comments.push(comment);
-    }
-    welcome.activity = [...(await this.storage.list({ prefix: 'act:', reverse: true, limit: ROOMS.activityWelcome })).values()];
-    if (next !== null || commentsFrom !== null) welcome.more = true;
-    this.tell(ws, welcome);
-    // Too much for one frame: the rest at once, in order, as the frames that would have brought them.
-    if (next !== null) for await (const entry of this.log(next, meta.head)) this.tell(ws, { t: 'op', ...entry });
-    if (commentsFrom !== null) for await (const comment of this.allComments(commentsFrom)) this.tell(ws, { t: 'comment', comment });
-    if (meta.head - low >= ROOMS.snapshotWanted) this.wantSnapshot(meta, ws);
+      const now = wantSnapshot ? await this.storage.get('meta') : null;
+      if (now) this.wantSnapshot(now, ws);
+    };
   }
 
   async *log(from, to) {
@@ -496,7 +638,7 @@ export class CreativeRoom {
       const m = meta.members[att.key];
       if (!m) continue;
       const had = latest.get(att.key);
-      if (!had || had.pat < att.pat) latest.set(att.key, { pat: att.pat, value: { key: m.key, name: m.name, slot: m.slot, ...att.presence } });
+      if (!had || had.pat < att.pat) latest.set(att.key, { pat: att.pat, value: { key: m.pk, name: m.name, slot: m.slot, ...att.presence } });
     }
     return [...latest.values()].map((p) => p.value);
   }
@@ -509,7 +651,7 @@ export class CreativeRoom {
       if (meta.comments >= ROOMS.comments) throw new ApiError(409, 'too_many', `A room keeps at most ${ROOMS.comments} comments.`);
       const comment = {
         id: 0,
-        by: me.key,
+        by: me.pk,
         name: me.name,
         at: this.now(),
         sequence: anId(msg.sequence, 'sequence'),
@@ -534,7 +676,7 @@ export class CreativeRoom {
     const comment = await this.storage.get(cmKey(id));
     if (!comment) throw new ApiError(404, 'not_found', 'That comment is gone.');
     if (msg.op === 'delete') {
-      if (comment.by !== me.key && me.role !== 'owner') throw new ApiError(403, 'forbidden', 'Only who wrote it, or the room’s owner, can delete a comment.');
+      if (comment.by !== me.pk && me.role !== 'owner') throw new ApiError(403, 'forbidden', 'Only who wrote it, or the room’s owner, can delete a comment.');
       meta.comments = Math.max(0, meta.comments - 1 - comment.replies.length);
       await this.storage.put('meta', meta);
       await this.storage.delete(cmKey(id));
@@ -544,7 +686,7 @@ export class CreativeRoom {
     if (msg.op === 'reply') {
       if (meta.comments >= ROOMS.comments) throw new ApiError(409, 'too_many', `A room keeps at most ${ROOMS.comments} comments.`);
       if (comment.replies.length >= ROOMS.replies) throw new ApiError(409, 'too_many', `A comment has at most ${ROOMS.replies} replies.`);
-      const reply = { id: 0, by: me.key, name: me.name, at: this.now(), text: words(msg.text, ROOMS.commentChars, 'A reply'), mentions: mentionsOf(msg.mentions, meta) };
+      const reply = { id: 0, by: me.pk, name: me.name, at: this.now(), text: words(msg.text, ROOMS.commentChars, 'A reply'), mentions: mentionsOf(msg.mentions, meta) };
       reply.id = meta.nextComment += 1;
       meta.comments += 1;
       comment.replies.push(reply);
@@ -552,7 +694,7 @@ export class CreativeRoom {
     } else {
       if (typeof msg.resolved !== 'boolean') throw bad('resolved is true or false.');
       comment.resolved = msg.resolved;
-      comment.resolvedBy = msg.resolved ? me.key : null;
+      comment.resolvedBy = msg.resolved ? me.pk : null;
       act = this.newActivity(meta, me, 'resolve', msg.resolved ? 'resolved a comment' : 'reopened a comment');
     }
     await this.save(meta, { [cmKey(id)]: comment }, [act]);
@@ -560,7 +702,11 @@ export class CreativeRoom {
     this.broadcast({ t: 'activity', activity: act });
   }
 
+  /** An editor's app says what its project's hash is at a seq. It's compared with the room's snapshot only (an
+   *  editor uploaded it), never with another member's check; each editor's own check is kept, and holds back only that
+   *  editor's own snapshot at that seq if the two disagree. Viewers and commenters don't check. */
   async onCheck(ws, meta, me, msg) {
+    if (RANK[me.role] < RANK.edit) throw new ApiError(403, 'forbidden', 'Only editors’ apps check the room’s copy.');
     const seq = anId(msg.seq, 'seq');
     if (typeof msg.hash !== 'string' || !HASH.test(msg.hash)) throw bad('hash is the project’s hash: up to 128 of A–Z a–z 0–9 _ . : + / = -');
     if (seq > meta.head) throw bad('That seq isn’t in the room yet.');
@@ -570,16 +716,18 @@ export class CreativeRoom {
       if (msg.hash !== meta.snap.hash) this.tell(ws, { t: 'diverged', seq });
       return;
     }
-    const had = await this.storage.get(chkKey(seq));
-    if (!had) await this.storage.put(chkKey(seq), { hash: msg.hash, by: me.key });
-    else if (had.hash !== msg.hash) this.tell(ws, { t: 'diverged', seq });
+    const checks = (await this.storage.get(chkKey(seq))) || {};
+    if (checks[me.key] !== msg.hash && (Object.hasOwn(checks, me.key) || Object.keys(checks).length < ROOMS.people)) {
+      checks[me.key] = msg.hash;
+      await this.storage.put(chkKey(seq), checks);
+    }
   }
 
   onNote(ws, meta, me, msg) {
     if (RANK[me.role] < RANK.comment) throw new ApiError(403, 'forbidden', 'You can watch this room, not send notes.');
-    const to = typeof msg.to === 'string' && Object.hasOwn(meta.members, msg.to) ? meta.members[msg.to] : null;
+    const to = memberByPk(meta, msg.to);
     if (!to || to.status !== 'in') throw new ApiError(404, 'not_found', 'That person isn’t in this room.');
-    const frame = { t: 'note', from: me.key, name: me.name, text: words(msg.text, ROOMS.noteChars, 'A note'), clip: anId(msg.clip, 'clip', { nullable: true }) };
+    const frame = { t: 'note', from: me.pk, name: me.name, text: words(msg.text, ROOMS.noteChars, 'A note'), clip: anId(msg.clip, 'clip', { nullable: true }) };
     const targets = this.sockets(`k:${to.key}`);
     if (!targets.length) throw new ApiError(409, 'not_here', `${to.name} isn’t in the room right now.`);
     for (const target of targets) this.tell(target, frame);
@@ -589,7 +737,7 @@ export class CreativeRoom {
 
   newActivity(meta, me, kind, text, { seq = null, via = null } = {}) {
     meta.actN += 1;
-    return { n: meta.actN, at: this.now(), by: me.key, name: me.name, kind, text, seq, via };
+    return { n: meta.actN, at: this.now(), by: me.pk, name: me.name, kind, text, seq, via };
   }
 
   async save(meta, puts = {}, acts = []) {
@@ -675,7 +823,7 @@ export class CreativeRoom {
   }
 
   view(meta, me, here = this.hereKeys()) {
-    return { id: meta.id, name: meta.name, owner: meta.owner, head: meta.head, snapshot: snapshotView(meta.snap), settings: { ...meta.settings }, you: memberView(me, here), members: membersOf(meta, here) };
+    return { id: meta.id, name: meta.name, owner: ownerPk(meta), head: meta.head, snapshot: snapshotView(meta.snap), settings: { ...meta.settings }, you: memberView(me, here), members: membersOf(meta, here) };
   }
 
   async create(who, { id, name }) {
@@ -684,8 +832,8 @@ export class CreativeRoom {
       if (await this.storage.get('meta')) throw new ApiError(409, 'taken', 'That room id is taken.');
       if ((await this.storage.list({ prefix: 'r:', limit: 1 })).size) throw bad('That is an index, not a room.');
       const now = this.now();
-      const owner = { key: who.account, account: who.account, name: who.name, email: who.email, role: 'owner', slot: 0, status: 'in', at: now };
-      const meta = { v: 1, id, name: roomName(name), owner: who.account, created: now, head: 0, snap: null, settings: { invite: 'owner' }, members: { [who.account]: owner }, nextSlot: 1, nextComment: 0, comments: 0, actN: 0 };
+      const owner = { key: who.account, pk: newPk(), account: who.account, name: who.name, email: who.email, role: 'owner', slot: 0, status: 'in', at: now };
+      const meta = { v: 1, id, name: roomName(name), owner: who.account, created: now, head: 0, cum: 0, snap: null, settings: { invite: 'owner' }, members: { [who.account]: owner }, nextSlot: 1, nextComment: 0, comments: 0, actN: 0 };
       await this.askIndex(`idx:acct:${who.account}`, 'claim', { entry: entryOf(meta, owner) });
       await this.save(meta, {}, [this.newActivity(meta, owner, 'room', 'made the room')]);
       return { room: this.view(meta, owner, new Set()) };
@@ -750,8 +898,10 @@ export class CreativeRoom {
       }
       if (Object.hasOwn(meta.members, pendingKey) || Object.values(meta.members).some((m) => m.email === email)) throw new ApiError(409, 'already', 'That person is already in this room, or invited.');
       if (Object.keys(meta.members).length >= ROOMS.people) throw new ApiError(409, 'too_many', `A room has at most ${ROOMS.people} people.`);
-      const member = { key: pendingKey, account: null, name: email, email, role, slot: meta.nextSlot, status: 'pending', at: this.now(), by: me.key };
-      await this.askIndex(indexName(member), 'put', { entry: entryOf(meta, member) });
+      const member = { key: pendingKey, pk: newPk(), account: null, name: email, email, role, slot: meta.nextSlot, status: 'pending', at: this.now(), by: me.key };
+      // invites a day: per sender, across their rooms; and per email, in its index's `put` (a new room only)
+      await this.askIndex(`idx:acct:${me.account}`, 'charge', { kind: 'invite', limit: ROOMS.invitesPerDay });
+      await this.askIndex(indexName(member), 'put', { entry: entryOf(meta, member), invite: true });
       meta.nextSlot += 1;
       meta.members[pendingKey] = member;
       const act = this.newActivity(meta, me, 'member', `invited ${email}`);
@@ -766,7 +916,7 @@ export class CreativeRoom {
     if (!GIVEN.has(role)) throw bad('role is "edit", "comment" or "view".');
     return this.locked(who, async (meta, me, jobs) => {
       if (me.role !== 'owner') throw ownerOnly('change who can do what');
-      const target = key !== 'me' && Object.hasOwn(meta.members, key) ? meta.members[key] : key === 'me' ? me : null;
+      const target = key === 'me' ? me : memberByPk(meta, key);
       if (!target) throw new ApiError(404, 'not_found', 'That person isn’t in this room.');
       if (target.role === 'owner') throw new ApiError(409, 'owner', 'The owner stays the owner.');
       if (target.role !== role) {
@@ -786,9 +936,9 @@ export class CreativeRoom {
       who,
       async (meta, me, jobs) => {
         let target = me;
-        if (key !== 'me' && key !== me.key) {
+        if (key !== 'me' && key !== me.pk) {
           if (me.role !== 'owner') throw ownerOnly('remove people');
-          target = Object.hasOwn(meta.members, key) ? meta.members[key] : null;
+          target = memberByPk(meta, key);
           if (!target) throw new ApiError(404, 'not_found', 'That person isn’t in this room.');
         }
         if (target.role === 'owner') throw new ApiError(409, 'owner', target === me ? 'The owner can’t leave the room; delete it instead.' : 'The owner can’t be removed.');
@@ -804,7 +954,7 @@ export class CreativeRoom {
         this.broadcastMembers(meta);
         this.broadcast({ t: 'activity', activity: act });
         jobs.push(() => this.askIndex(indexName(target), 'drop', { id: meta.id }));
-        return { removed: target.key };
+        return { removed: target.pk };
       },
       { convert: key !== 'me' },
     );
@@ -812,12 +962,14 @@ export class CreativeRoom {
 
   // ── snapshots ──
 
+  /** Who may save the room's copy at a seq: an editor, between the snapshot and the head. Only the editor's own check
+   *  at that seq can hold it back (that Mac said something else before); another member's never does. */
   async snapshotAllowed(meta, me, seq, hash) {
     if (RANK[me.role] < RANK.edit) throw new ApiError(403, 'forbidden', 'Only editors and the owner save the room’s snapshot.');
     const low = meta.snap ? meta.snap.seq : 0;
     if (seq < low || seq > meta.head) throw new ApiError(409, 'bad_seq', `x-seq must be between the room’s snapshot (${low}) and its head (${meta.head}).`);
-    const known = meta.snap && meta.snap.seq === seq ? meta.snap.hash : ((await this.storage.get(chkKey(seq))) || {}).hash;
-    if (known !== undefined && known !== hash) throw new ApiError(409, 'diverged', 'This Mac’s project differs from the room’s at that point; it can’t replace the room’s copy.');
+    const mine = ((await this.storage.get(chkKey(seq))) || {})[me.key];
+    if (mine !== undefined && mine !== hash) throw new ApiError(409, 'diverged', 'This Mac said its project was different at that point; it can’t replace the room’s copy.');
   }
 
   async putSnapshot(request, who) {
@@ -828,7 +980,14 @@ export class CreativeRoom {
     if (!HASH.test(hash)) throw bad('x-hash is the project’s hash at x-seq.');
     const declared = Number(request.headers.get('content-length'));
     if (declared > ROOMS.snapshotBytes) throw new ApiError(413, 'too_big', `A snapshot is at most ${ROOMS.snapshotBytes / 1048576} MiB.`);
-    await this.locked(who, (meta, me) => this.snapshotAllowed(meta, me, seq, hash)); // before taking the bytes
+    await this.locked(who, async (meta, me) => {
+      await this.snapshotAllowed(meta, me, seq, hash); // before taking the bytes
+      // the owner's quota, counting this room as it would be with the new snapshot
+      if (Number.isSafeInteger(declared) && declared > 0) {
+        const { total = 0 } = await this.askIndex(`idx:acct:${meta.owner}`, 'usage', { id: meta.id, bytes: roomBytesOf(meta), peek: declared - ((meta.snap && meta.snap.bytes) || 0) });
+        if (total > ROOMS.accountBytes) throw new ApiError(413, 'quota', 'The owner’s shared projects are using all the room they have. Delete one first.');
+      }
+    });
     if (!request.body) throw bad('Send the snapshot’s bytes.');
     const gen = hex(randomBytes(6));
     let chunks = 0;
@@ -866,11 +1025,13 @@ export class CreativeRoom {
       return await this.locked(who, async (meta, me) => {
         await this.snapshotAllowed(meta, me, seq, hash); // again: the room may have moved on meanwhile
         const old = meta.snap;
-        meta.snap = { gen, seq, hash, bytes, chunks, at: this.now(), by: me.key };
+        const at = seq === meta.head ? { cum: meta.cum || 0 } : (await this.storage.get(opKey(seq))) || { cum: (old && old.cum) || 0 };
+        meta.snap = { gen, seq, hash, bytes, chunks, cum: at.cum || 0, at: this.now(), by: me.key };
         await this.storage.put('meta', meta);
         committed = true;
         if (old) await this.dropChunks(old.gen, old.chunks);
         await this.compact(old ? old.seq : 0, seq);
+        await this.reportUsage(meta);
         return { snapshot: snapshotView(meta.snap) };
       });
     } catch (error) {
@@ -924,7 +1085,28 @@ export class CreativeRoom {
         if (await this.storage.get('meta')) throw bad('That is a room, not an index.');
         if (op === 'list') return { rooms: [...(await this.storage.list({ prefix: 'r:' })).values()] };
         if (op === 'drop') {
-          if (ROOM_ID.test(String(body.id))) await this.storage.delete(`r:${body.id}`);
+          if (ROOM_ID.test(String(body.id))) await this.storage.delete([`r:${body.id}`, `u:${body.id}`]);
+          return {};
+        }
+        if (op === 'wipe') {
+          // the account (or email) is being deleted: its index goes, counters and all
+          await this.storage.deleteAll();
+          return {};
+        }
+        if (op === 'usage') {
+          // a room the account owns says what it keeps; the answer is all its rooms together (`peek`: as it would be
+          // with that many more bytes, without saving it)
+          if (!ROOM_ID.test(String(body.id)) || !Number.isSafeInteger(body.bytes) || body.bytes < 0) throw bad('That isn’t a usage report.');
+          const peek = Number.isSafeInteger(body.peek) ? body.peek : null;
+          if (peek === null) await this.storage.put(`u:${body.id}`, body.bytes);
+          let total = peek === null ? 0 : body.bytes + peek;
+          for (const [key, bytes] of await this.storage.list({ prefix: 'u:' })) if (peek === null || key !== `u:${body.id}`) total += bytes;
+          return { total };
+        }
+        if (op === 'charge') {
+          // what an account does across its rooms, counted a day at a time (invites)
+          if (body.kind !== 'invite' || !Number.isSafeInteger(body.limit)) throw bad('That isn’t a charge.');
+          await this.chargeDay(`rate:${body.kind}`, body.limit, 'You’ve sent a lot of invites today; try again tomorrow.');
           return {};
         }
         if (op !== 'put' && op !== 'claim') throw new ApiError(404, 'not_found', 'No such thing.');
@@ -935,12 +1117,82 @@ export class CreativeRoom {
           const all = [...(await this.storage.list({ prefix: 'r:' })).values()];
           if (all.length >= ROOMS.indexed) throw new ApiError(409, 'too_many', 'That person is in, or invited to, too many rooms.');
           if (op === 'claim' && all.filter((r) => r.role === 'owner').length >= ROOMS.owned) throw new ApiError(409, 'too_many', `You can own at most ${ROOMS.owned} rooms. Delete one first.`);
+          if (body.invite === true) await this.chargeDay('rate:invited', ROOMS.invitesPerEmailDay, 'That email has been invited to a lot of projects today; try again tomorrow.');
         }
         await this.storage.put(`r:${entry.id}`, entry);
         return {};
       }),
     );
   }
+
+  /** One more of something an index counts per day (UTC); over `limit`, 429. */
+  async chargeDay(key, limit, message) {
+    const day = new Date(this.now()).toISOString().slice(0, 10);
+    const had = (await this.storage.get(key)) || {};
+    const n = had.day === day ? had.n : 0;
+    if (n >= limit) throw new ApiError(429, 'slow_down', message);
+    await this.storage.put(key, { day, n: n + 1 });
+  }
+
+  // ── an account being deleted (forgetAccount) ──
+
+  /** In this room: the account's own room goes (as its owner deleting it would); anywhere else they're taken out,
+   *  joined or invited (`mailKeys`: their emails' pending keys). */
+  async forget(body) {
+    const account = validAccount(body.account) ? body.account : null;
+    const mailKeys = Array.isArray(body.mailKeys) ? body.mailKeys.filter((k) => typeof k === 'string' && MAIL_KEY.test(k)) : [];
+    const jobs = [];
+    const out = await this.serial(async () => {
+      const meta = await this.storage.get('meta');
+      if (!meta) return { gone: true };
+      if (account && meta.owner === account) {
+        for (const ws of this.sockets()) {
+          this.tell(ws, { t: 'deleted' });
+          this.drop(ws, 4002, 'deleted');
+        }
+        await this.storage.deleteAll();
+        if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+        this.rates.clear();
+        for (const m of Object.values(meta.members)) if (m.account !== account) jobs.push(() => this.askIndex(indexName(m), 'drop', { id: meta.id }));
+        return { deleted: meta.id };
+      }
+      const gone = Object.values(meta.members).filter((m) => (account && m.key === account) || mailKeys.includes(m.key));
+      if (!gone.length) return {};
+      for (const m of gone) {
+        delete meta.members[m.key];
+        for (const ws of this.sockets(`k:${m.key}`)) {
+          this.tell(ws, { t: 'removed' });
+          this.drop(ws, 4001, 'removed');
+        }
+      }
+      await this.storage.put('meta', meta);
+      this.broadcastMembers(meta);
+      return { removed: gone.length };
+    });
+    for (const job of jobs) await job().catch((e) => console.error('creative room: an index update failed', e && e.message));
+    return out;
+  }
+}
+
+/**
+ * An Eden account is being deleted (accounts/index.js eraseAccount): the rooms it owns are deleted, it leaves every
+ * other room it's in or invited to (by each of its emails), and its index objects go. Best effort, room by room.
+ */
+export async function forgetAccount(env, account, emails = []) {
+  if (!env.CREATIVE_ROOMS || !validAccount(account)) return;
+  const ask = (name, path, body) => roomStub(env, name).fetch(`https://room/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const mails = [...new Set(emails.map(cleanEmail).filter(Boolean))];
+  const mailKeys = await Promise.all(mails.map(async (e) => `mail:${await sha256Hex(e)}`));
+  const indexes = [`idx:acct:${account}`, ...mailKeys.map((k) => `idx:mail:${k.slice(5)}`)];
+  const rooms = new Set();
+  for (const name of indexes) {
+    const listed = await ask(name, 'idx/list', {}).then((r) => r.json()).catch(() => ({}));
+    for (const r of listed.rooms || []) if (ROOM_ID.test(String(r.id))) rooms.add(r.id);
+  }
+  for (const id of rooms) {
+    await ask(`room:${id}`, 'forget', { account, mailKeys }).catch((e) => console.error('creative rooms: forgetting an account failed', e && e.message));
+  }
+  for (const name of indexes) await ask(name, 'idx/wipe', {}).catch(() => {});
 }
 
 const roomName = (name) => cleanName(name, 'Untitled project');
@@ -967,6 +1219,12 @@ function toRoom(env, who, id, sub, request, body) {
   headers.set('x-eden-account', who.account);
   headers.set('x-eden-name', encodeURIComponent(who.name));
   headers.set('x-eden-email', encodeURIComponent(who.email));
+  if (sub === '/socket') {
+    // so the room can check the token again while the socket stays open (CreativeRoom.stillValid)
+    const auth = /^Bearer\s+(\S{1,400})$/i.exec(request.headers.get('authorization') || '');
+    if (auth) headers.set('x-eden-token', auth[1]);
+    headers.set('x-eden-origin', request.url);
+  }
   const init = { method: request.method, headers };
   if (body !== undefined) init.body = body;
   else if (request.method !== 'GET' && request.method !== 'HEAD' && request.body) {
@@ -982,7 +1240,8 @@ async function listRooms(env, who) {
   const rooms = new Map();
   for (const r of invited) rooms.set(r.id, r);
   for (const r of mine) rooms.set(r.id, r);
-  return [...rooms.values()].sort((a, b) => b.at - a.at).map(({ id, name, role, owner, ownerName, status }) => ({ id, name, role, owner, ownerName, status }));
+  // never the owner's account id: their name only
+  return [...rooms.values()].sort((a, b) => b.at - a.at).map(({ id, name, role, ownerName, status }) => ({ id, name, role, ownerName, status }));
 }
 
 /** /api/creative/rooms[/…] (docs/creative-rooms.md). `deps.verify` stands in for the token check in tests. */
@@ -991,13 +1250,13 @@ export async function roomsApi(request, env, ctx, path, deps = {}) {
     // The apps send no Origin; a browser always does: no page may call these, reads included (no CORS), as creative/api.js.
     if (request.headers.get('origin') !== null || request.method === 'OPTIONS') throw new ApiError(403, 'forbidden', 'Not from a browser: rooms are for the Creative Suite’s apps.');
     if (!env.CREATIVE_ROOMS) throw new ApiError(503, 'not_set_up', 'Editing together isn’t set up here yet.');
+    // The network first, then the token, and only then the account's own count: a token that doesn't verify never
+    // charges the account it names (so knowing someone's account id can't rate-limit them out).
+    const slow = () => new ApiError(429, 'slow_down', 'Too many requests; wait a minute.', { 'retry-after': '60' });
+    if (env.API_RATE && !(await env.API_RATE.limit({ key: `creative-ip:${request.headers.get('cf-connecting-ip') || 'unknown'}` })).success) throw slow();
     const who = cleanWho(await (deps.verify || verifyCreativeToken)(request, env));
     if (!who) throw new ApiError(401, 'not_connected', 'Link this app to your Eden account again.');
-    if (env.API_RATE) {
-      // every Creative Suite route counts here per account (docs/creative-api.md "Rate limits")
-      const { success } = await env.API_RATE.limit({ key: who.account });
-      if (!success) throw new ApiError(429, 'slow_down', 'Too many requests; wait a minute.', { 'retry-after': '60' });
-    }
+    if (env.API_RATE && !(await env.API_RATE.limit({ key: `creative:${who.account}` })).success) throw slow();
     const parts = path.slice(BASE.length).split('/').filter(Boolean);
     const method = request.method;
     if (!parts.length) {
@@ -1013,7 +1272,7 @@ export async function roomsApi(request, env, ctx, path, deps = {}) {
     let sub = what ? `/${what}` : '/';
     if (what === 'members') {
       const member = safeDecode(key);
-      if (!(member === 'me' || validAccount(member) || MAIL_KEY.test(member))) throw new ApiError(404, 'not_found', 'That person isn’t in this room.');
+      if (!(member === 'me' || PK.test(member))) throw new ApiError(404, 'not_found', 'That person isn’t in this room.');
       sub += `/${encodeURIComponent(member)}`;
     }
     if (what === 'activity') sub += new URL(request.url).search;

@@ -222,7 +222,7 @@ async function deleteAccount(request, env) {
 export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
   // Team spaces and delegations are read first (the account's own object is about to go), erased after.
   const team = env.ACCOUNTS ? await import('./space.js').then((m) => m.teamSnapshot(env, accountId, auth).then((snap) => ({ m, snap }))).catch(() => null) : null;
-  const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [], appstore_claims: claims = [], play_claims: playClaims = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
+  const { apple_grant: grant, apple_grants: grants = {}, identities = [], emails = [], stripe_subscription: stripeSub, published = [], shared = [], appstore_claims: claims = [], play_claims: playClaims = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
   // Every Apple grant at once (R2C-13): the Eden Secretary app's, and the Eden apps' each with the client id it
   // was issued to (eden/session.js nativeApple). Each call is capped at 5 s and logs its own failure (status
   // and client id only); none holds up or stops the deletion.
@@ -234,6 +234,8 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
   // And its shared chats' links (accounts/shared-chats.js `shr:<id>`).
   for (const id of shared) await call(env, `shr:${id}`, 'share-index-drop', { account: accountId }).catch(() => {});
+  // Creative Suite shared projects: the rooms it owns are deleted, it leaves the others, its room indexes go.
+  await import('../creative/rooms.js').then((m) => m.forgetAccount(env, accountId, emails)).catch((e) => console.error('creative rooms cleanup failed', e && e.message));
   // The cloud browser's history, bookmarks and agent log live in its own per-account object.
   if (env.BROWSER_SESSIONS) {
     await env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(accountId)).fetch('https://browser/erase', { method: 'POST' }).catch((e) => console.error('cloud browser cleanup failed', e && e.message));

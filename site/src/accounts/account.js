@@ -650,7 +650,9 @@ export class Account {
     const grant = await this.storage.get('apple_grant');
     const grants = (await this.storage.get('apple_grants')) || {};
     const stripe = await stripeToCancel(this); // the Worker cancels it at Stripe (eden/billing.js)
-    const identities = (await this.identities()).filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
+    const all = await this.identities();
+    const identities = all.filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
+    const emails = [...new Set(all.map((i) => i.email).filter((e) => typeof e === 'string' && e))]; // the Worker takes them out of shared projects (creative/rooms.js)
     const published = [...(await this.storage.list({ prefix: 'pubh:' })).keys()].map((k) => k.slice(5)); // the Worker drops their /p/ links
     const shared = await sharedIds(this.storage); // and their /s/ links (shared-chats.js)
     const playClaims = (await this.storage.get('play_claims')) || []; // read before deleteAll (play-plan.js)
@@ -658,7 +660,7 @@ export class Account {
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
-    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared, appstore_claims: (await this.storage.get('appstore_claims')) || [], play_claims: playClaims };
+    return { apple_grant: grant || null, apple_grants: grants, identities, emails, stripe_subscription: stripe, published, shared, appstore_claims: (await this.storage.get('appstore_claims')) || [], play_claims: playClaims };
   }
 
   publicDevice(device, me) {
