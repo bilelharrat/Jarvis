@@ -236,7 +236,7 @@ export class Account {
       if (op === 'identity-link') return json(await this.linkIdentity(body));
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
-      if (op.startsWith('creative-')) return json(await creativeOp(this, op, body)); // the Creative Suite's apps, on their scoped token (src/creative/ops.js checks it)
+      if (op.startsWith('creative-')) { const out = await creativeOp(this, op, body); return out instanceof Response ? out : json(out); } // the Creative Suite's apps, on their scoped token (src/creative/ops.js checks it; a result is streamed)
       if (op === 'rcpt-open') return json(await receiptOp(this, op, body)); // a read receipt's pixel loaded (the Worker's /r/ route; receipts.js)
       const device = await this.authenticate(request);
       // A browser may delete the account only when the person typed DELETE (the account page).

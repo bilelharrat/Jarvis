@@ -14,7 +14,7 @@ import { VIDEO_GEN, extractVeoVideo, refusalWords } from '../eden/image.js';
 import { JARVIS_VOICE_ID, LIMITS as VOICE_LIMITS } from '../voice-config.js';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
-const SUITE_APPS = ['scorsese', 'ansel', 'davinci', 'houdini', 'lumiere', 'scribe', 'aldus']; // turn.js APPS
+export const SUITE_APPS = ['scorsese', 'ansel', 'davinci', 'houdini', 'lumiere', 'scribe', 'aldus']; // turn.js APPS
 const FISH_TTS = 'https://api.fish.audio/v1/tts';
 
 export const MEDIA = {
@@ -22,7 +22,8 @@ export const MEDIA = {
   keepMs: 24 * 3600_000, // a job and its result are kept this long
   jobs: 20, // kept per account (the oldest finished go first)
   running: 3, // running at once per account
-  chunk: 100_000, // base64 characters per stored piece (a Durable Object value is at most 128 KiB)
+  chunk: 100_000, // base64 characters per stored piece (a Durable Object value is at most 128 KiB); a multiple of 4
+  streamParts: 8, // pieces read at a time when a result is sent (about 600 KB in memory, whatever the clip's length)
   videoDeadlineMs: 8 * 60_000, // a clip that isn't back by then has failed
   videoExpectMs: 90_000, // what a clip usually takes, for `progress`
   speechLines: 100,

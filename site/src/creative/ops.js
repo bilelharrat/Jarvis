@@ -4,13 +4,14 @@
 // decides who may do what.
 //
 //   creative-me          the account's name, plan, allowance, voice and this connection (works without Plus)
-//   creative-check       the token and Plus, nothing else (the costly routes ask it first)
+//   creative-check       the token (and Plus, unless `plus: false`), nothing else: every route asks it first, and
+//                        learns the suite app the token was made for (a token is one app's only)
 //   creative-allow       what the AI allowance may spend now (Plus only): account.allowAi
 //   creative-hold        a hold on it for one turn's worst case (Plus only): account.holdAi, EDEN_TURNS at once
 //   creative-quote       a priced spec kept 10 minutes, once (Plus only)
 //   creative-job         a quote turned into a job (Plus only): video held on the allowance, speech counted on the voice
 //   creative-job-get     a job, as the app sees it
-//   creative-job-result  a finished item's bytes (base64)
+//   creative-job-result  a finished item's bytes, streamed from its pieces (never the whole clip in memory)
 //
 // Jobs run on the account's one alarm (schedule.js, kind `creative`): `cjob:<id>` is a job's next step (the clip made, a
 // few lines read aloud), `cjobx:<id>` its expiry. A result is kept in pieces (`cres:<id>:<item>:<n>`) for MEDIA.keepMs.
@@ -19,7 +20,7 @@ import { ApiError, randomBytes } from '../accounts/util.js';
 import { tokenCaller } from '../accounts/scoped.js';
 import { allowances } from '../accounts/account.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
-import { LABEL, MEDIA, fishSpeech, generationStatus, omniGenerate, voiceCeiling } from './media.js';
+import { LABEL, MEDIA, SUITE_APPS, fishSpeech, generationStatus, omniGenerate, voiceCeiling } from './media.js';
 
 export const PLUS_WORDS = 'Eden in the Creative Suite is part of Eden Plus. Editing works without it.';
 const NOT_CREATIVE = () => new ApiError(403, 'forbidden', 'This connection isn’t for the Creative Suite.');
@@ -30,6 +31,8 @@ const round6 = (x) => Math.round(x * 1e6) / 1e6;
 async function creativeCaller(account, body) {
   const token = await tokenCaller(account, body || {});
   if (token.client !== 'creative' || token.scope !== 'creative') throw NOT_CREATIVE();
+  // made for one suite app (scoped.js keeps which): a token without one isn't the suite's, so link again
+  if (!SUITE_APPS.includes(token.app)) throw new ApiError(401, 'not_connected', 'This app isn’t connected to Eden any more. Connect it again.');
   return token;
 }
 
@@ -47,9 +50,9 @@ export async function creativeOp(account, op, body) {
   switch (op) {
     case 'creative-me':
       return me(account, token);
-    case 'creative-check': // the token and Plus, before a costly route reads its body
-      await plusOnly(account);
-      return { ok: true };
+    case 'creative-check': // the token (and Plus where it costs), before the Worker counts or reads anything for it
+      if (body.plus !== false) await plusOnly(account);
+      return { ok: true, app: token.app };
     case 'creative-allow':
       await plusOnly(account);
       return account.allowAi();
@@ -237,20 +240,35 @@ async function takeCeiling(account, chars) {
   return res.json();
 }
 
-async function result(account, job, item) {
+const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+/**
+ * A finished item as a stream of its bytes: MEDIA.streamParts pieces read and decoded at a time (each piece is a whole
+ * number of base64 quads), so a long clip never sits in memory whole, here or in the Worker. The headers say what it is.
+ */
+function result(account, job, item) {
   const index = Number(item ?? 0);
   const it = job.status === 'succeeded' && Number.isInteger(index) ? job.items.find((x) => x.index === index) : null;
   if (!it) throw new ApiError(404, 'not_found', job.status === 'succeeded' ? 'No such item.' : 'It isn’t ready yet.');
-  const keys = Array.from({ length: it.parts }, (_, n) => `cres:${job.id}:${index}:${n}`);
-  let data = '';
-  for (let i = 0; i < keys.length; i += 100) {
-    const got = await account.storage.get(keys.slice(i, i + 100));
-    for (const key of keys.slice(i, i + 100)) data += got.get(key) ?? '';
-  }
-  return { mime: it.mime, data };
+  let next = 0;
+  const body = new ReadableStream({
+    async pull(controller) {
+      if (next >= it.parts) return controller.close();
+      const keys = Array.from({ length: Math.min(MEDIA.streamParts, it.parts - next) }, (_, k) => `cres:${job.id}:${index}:${next + k}`);
+      const got = await account.storage.get(keys);
+      for (const key of keys) {
+        const piece = got.get(key);
+        if (typeof piece !== 'string') return controller.error(new Error('the result expired while it was sent'));
+        controller.enqueue(fromBase64(piece));
+      }
+      next += keys.length;
+    },
+  });
+  return new Response(body, { headers: { 'content-type': it.mime, 'x-eden-bytes': String(it.bytes), 'cache-control': 'no-store' } });
 }
 
-async function storeItem(account, job, index, mime, data) {
+async function storeItem(account, job, index, mime, raw) {
+  const data = /\s/.test(raw) ? raw.replace(/\s+/g, '') : raw; // pieces must split on whole base64 quads
   const parts = Math.max(1, Math.ceil(data.length / MEDIA.chunk));
   const entries = {};
   for (let n = 0; n < parts; n++) entries[`cres:${job.id}:${index}:${n}`] = data.slice(n * MEDIA.chunk, (n + 1) * MEDIA.chunk);

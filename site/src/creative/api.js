@@ -14,11 +14,13 @@
 // The link is the site's scoped-token machinery (accounts/scoped.js, client `creative`), as Eden Messenger's @Eden is
 // (eden/ask.js): a two-minute ticket bound to a PKCE challenge, sent only to the suite's own scheme, redeemed once for a
 // token kept hashed in the account's object and good for nothing but the `creative-*` ops (ops.js). Every app route
-// checks the token there, and Plus where it costs; the rate limits are the site's own (API_RATE, USER_RATE, AUTH_RATE).
+// checks the token there first, and Plus where it costs. A token is one suite app's: a request naming another app is
+// refused. The rate limits are the site's own (API_RATE, USER_RATE, AUTH_RATE): the network first, and the account
+// only once its token is checked (never an account named in a token nobody has verified), under `creative:` keys.
 // The app routes take no browser: a request with an Origin is refused (no CORS). Nothing asked is stored or logged.
 
 import { call, clientIp, limited } from '../accounts/index.js';
-import { makeScopedToken, parseConnectCode, parseScopedToken } from '../accounts/scoped.js';
+import { SCOPED, makeScopedToken, parseConnectCode, parseScopedToken, retiredBy } from '../accounts/scoped.js';
 import { ApiError, webAllowed } from '../accounts/util.js';
 import { MAX_BODY, compareLanes, compareModels, creditFactor, hostedConfig, inputEstimate, messageText, parseSend, readBody as chatReadBody, routeSettings, routed, systemPrompt } from '../eden/chat.js';
 import { hostedEves } from '../eden/eves.js';
@@ -83,8 +85,17 @@ ${body}
 </html>`;
 }
 
+const day = (ms) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+/** What Link would unlink (this app's oldest, past its cap), said before the person agrees. */
+function replacingHtml(name, replacing) {
+  if (!replacing.length) return '';
+  const which = replacing.map((c) => `<b>${esc(c.label || name)}</b>, linked ${esc(day(c.created))}`).join('; ');
+  return `  <p class="alert">${name} can be linked on ${SCOPED.max} Macs at most. Linking this one unlinks the oldest: ${which}.</p>\n`;
+}
+
 /** The page's HTML (exported for the tests). */
-export function linkHtml({ request: req, signedIn = false, email = '', plus = true, error = '' }) {
+export function linkHtml({ request: req, signedIn = false, email = '', plus = true, error = '', replacing = [] }) {
   if (error) {
     return shell('Can’t link', `  <h1 id="title">Can’t link</h1>
   <p class="lead">${esc(error)}</p>
@@ -103,7 +114,7 @@ export function linkHtml({ request: req, signedIn = false, email = '', plus = tr
   return shell(`Link ${req.name}`, `  <h1 id="title">Link ${name} to Eden?</h1>
   <p class="lead">${name}${req.device ? ` on ${esc(req.device)}` : ''} will use Eden with your account${email ? `, <b>${esc(email)}</b>` : ''}.</p>
   <p class="alert">Eden sees only what ${name} sends it from your project, and answers on your Plus AI allowance. It shows a price before it makes any clip or voice-over. It can’t read your Eden chats, mail, calendar, notes or account.</p>
-${plus ? '' : `  <p class="fine">Eden in ${name} is part of Eden Plus. You can link now and get Plus later; editing works without it.</p>\n`}  <form method="post" action="/api/creative/link">
+${replacingHtml(name, replacing)}${plus ? '' : `  <p class="fine">Eden in ${name} is part of Eden Plus. You can link now and get Plus later; editing works without it.</p>\n`}  <form method="post" action="/api/creative/link">
 ${inputs}
     <p><button class="button ghost" type="submit" name="decision" value="deny">Cancel</button> <button class="button" type="submit" name="decision" value="allow">Link</button></p>
   </form>
@@ -123,12 +134,15 @@ export async function creativeLinkPage(request, env, url) {
   const { session } = env.ACCOUNTS ? await currentSession(request, env) : { session: null };
   let email = '';
   let plus = true;
+  let replacing = [];
   if (session) {
     const view = await call(env, session.account, 'get', {}, session.token).catch(() => null);
     email = (view?.identities || []).map((i) => i.email).find(Boolean) || '';
     plus = Boolean(view?.plan?.active);
+    const listed = await call(env, session.account, 'scoped-list', {}, session.token).catch(() => null);
+    replacing = retiredBy(listed?.connections || [], CLIENT, req.app);
   }
-  return htmlPage(linkHtml({ request: req, signedIn: Boolean(session), email, plus }), 200, req.app);
+  return htmlPage(linkHtml({ request: req, signedIn: Boolean(session), email, plus, replacing }), 200, req.app);
 }
 
 const seeOther = (location) => new Response(null, { status: 303, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
@@ -193,6 +207,8 @@ async function token(request, env) {
     token_type: 'Bearer',
     scope: minted.scope,
     connection: { id: minted.id, app: minted.app || null, created: minted.created ?? null, expires_at: minted.expires },
+    // this app's oldest links, retired to make room (at most SCOPED.max per app): the app says which Macs were unlinked
+    unlinked: (minted.unlinked || []).map((c) => ({ id: c.id, app: c.app || null, label: c.label || null, created: c.created ?? null, last_used: c.last_used ?? null })),
   });
 }
 
@@ -263,7 +279,7 @@ function evesEnv(env, who) {
 }
 
 async function eves(request, env, ctx, who) {
-  const body = parseEves(await readJsonBody(request, LIMITS.evesBytes));
+  const body = parseEves(sameApp(await readJsonBody(request, LIMITS.evesBytes), who));
   // Plus and some allowance, said plainly before EVES starts (it checks again for its own worst case)
   const allow = await call(env, who.account, 'creative-allow', scoped(who));
   if (!allow.ok) throw new ApiError(402, 'no_allowance', allow.why);
@@ -281,14 +297,14 @@ async function eves(request, env, ctx, who) {
 // ── generated media ──
 
 async function quote(request, env, who) {
-  const spec = parseMedia(await readJsonBody(request, LIMITS.mediaBytes), [], env);
+  const spec = parseMedia(sameApp(await readJsonBody(request, LIMITS.mediaBytes), who), [], env);
   const { models, ...price } = priceFor(env, spec);
   const out = await call(env, who.account, 'creative-quote', scoped(who, { quote: { ...price, hash: await specHash(spec) } }));
   return json(models ? { ...out, models } : out);
 }
 
 async function startJob(request, env, who) {
-  const raw = await readJsonBody(request, LIMITS.mediaBytes);
+  const raw = sameApp(await readJsonBody(request, LIMITS.mediaBytes), who);
   const spec = parseMedia(raw, ['quote_id'], env); // still made here (a key switched off since the quote: 503)
   const job = await call(env, who.account, 'creative-job', scoped(who, { quote_id: raw.quote_id, hash: await specHash(spec), spec }));
   return json(job, 202);
@@ -296,23 +312,46 @@ async function startJob(request, env, who) {
 
 const JOB_PATH = /^\/api\/creative\/jobs\/([0-9a-f]{24})(\/result)?$/;
 
+/**
+ * A finished item, streamed: the account object sends its pieces as it reads them (ops.js result) and this passes the
+ * stream on, so a long 1080p clip is never whole in the Worker's memory. Its length is known, so it's sent with one.
+ */
 async function jobResult(env, who, id, url) {
   const item = url.searchParams.has('item') ? Number(url.searchParams.get('item')) : 0;
   if (!Number.isInteger(item) || item < 0 || item >= MEDIA.speechLines) throw new ApiError(404, 'not_found', 'No such item.');
-  const { mime, data } = await call(env, who.account, 'creative-job-result', scoped(who, { job: id, item }));
-  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(who.account));
+  const res = await stub.fetch('https://account/creative-job-result', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(scoped(who, { job: id, item })) });
+  if (res.status >= 400 || !res.body) {
+    const out = await res.json().catch(() => ({}));
+    throw new ApiError(res.status >= 400 ? res.status : 502, out.code || 'error', out.error || 'Something went wrong.');
+  }
+  const mime = res.headers.get('content-type') || 'application/octet-stream';
+  const bytes = Number(res.headers.get('x-eden-bytes'));
+  let body = res.body;
+  if (Number.isSafeInteger(bytes) && bytes > 0 && typeof FixedLengthStream === 'function') {
+    const fixed = new FixedLengthStream(bytes); // Workers: streamed, with a content-length
+    res.body.pipeTo(fixed.writable).catch(() => {});
+    body = fixed.readable;
+  }
   const ext = mime === 'video/mp4' ? 'mp4' : mime === 'audio/mpeg' ? 'mp3' : 'bin';
-  return new Response(bytes, {
+  return new Response(body, {
     status: 200,
     headers: {
       'content-type': mime,
-      'content-length': String(bytes.length),
       'content-disposition': `attachment; filename="eden-generated-${id}-${item}.${ext}"`,
       'x-eden-generated': 'true',
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
     },
   });
+}
+
+/** A token is one suite app's: a request that names another of the suite's apps is refused, never served as that app. */
+function sameApp(body, who) {
+  if (body.app !== undefined && body.app !== who.app && Object.hasOwn(APPS, body.app)) {
+    throw new ApiError(403, 'wrong_app', `This link is ${APPS[who.app]}’s, not ${APPS[body.app]}’s. Link ${APPS[body.app]} to Eden on its own.`);
+  }
+  return body;
 }
 
 // ── /api/creative/* ──
@@ -333,9 +372,15 @@ export async function creativeApi(request, env, ctx, path) {
     if (!route) throw new ApiError(404, 'not_found', 'No such thing here.');
     const wants = route === 'me' || route === 'job' ? 'GET' : 'POST';
     if (method !== wants) throw new ApiError(405, 'bad_request', `${wants} only.`);
+    // this network first: the account a token names isn't counted until the token is checked, so a forged token
+    // naming someone else's account costs only the sender (no one can rate-limit another person out of askeden.com)
+    await limited(env, 'API_RATE', `creative-ip:${clientIp(request)}`);
     const who = bearer(request, env);
-    await limited(env, 'API_RATE', who.account);
-    if (route === 'revoke') return await revoke(request, env);
+    if (route === 'revoke') return await revoke(request, env); // checked there, and nothing to count it against
+    const costly = route === 'eden' || route === 'eves' || route === 'quote' || route === 'jobs';
+    // the token (and Plus where it costs) before anything is counted or read for it; it says which app it's for
+    who.app = (await call(env, who.account, 'creative-check', scoped(who, { plus: costly }))).app;
+    await limited(env, 'API_RATE', `creative:${who.account}`);
     if (route === 'me') return json(await call(env, who.account, 'creative-me', scoped(who)));
     if (route === 'job') {
       const [, id, isResult] = JOB_PATH.exec(path);
@@ -343,8 +388,7 @@ export async function creativeApi(request, env, ctx, path) {
       return json(await call(env, who.account, 'creative-job-get', scoped(who, { job: id })));
     }
     await limited(env, 'USER_RATE', `creative:${who.account}`);
-    await call(env, who.account, 'creative-check', scoped(who)); // the token and Plus first: nothing is read for a stranger
-    if (route === 'eden') return await edenTurn(request, env, ctx, who, await readJsonBody(request, LIMITS.turnBytes));
+    if (route === 'eden') return await edenTurn(request, env, ctx, who, sameApp(await readJsonBody(request, LIMITS.turnBytes), who));
     if (route === 'eves') return await eves(request, env, ctx, who);
     if (route === 'quote') return await quote(request, env, who);
     return await startJob(request, env, who);

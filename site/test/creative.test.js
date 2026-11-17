@@ -284,6 +284,56 @@ test('auth: no token, a malformed one, a device token or a Messenger token are r
   assert.equal((await hit('/api/account', { bearer: a.token })).status, 401);
 });
 
+test('a token is its app’s: another suite app is refused, and each app has its own ten links, the one retired named (review L3)', async () => {
+  const a = await linked();
+  const anselCases = [
+    ['/api/creative/eden', { ...TURN, app: 'ansel' }],
+    ['/api/creative/eves', { app: 'ansel', kind: 'captions', text: 'Neil Armstrong walked on the Moon in 1969.' }],
+    ['/api/creative/quote', { app: 'ansel', kind: 'speech', lines: [{ text: 'Hola.' }] }],
+    ['/api/creative/jobs', { app: 'ansel', kind: 'speech', lines: [{ text: 'Hola.' }], quote_id: '0123456789abcdef01234567' }],
+  ];
+  for (const [p, body] of anselCases) {
+    const r = await hit(p, { method: 'POST', bearer: a.token, body });
+    assert.equal(r.status, 403, p);
+    const out = await r.json();
+    assert.equal(out.code, 'wrong_app', p);
+    assert.match(out.error, /This link is Scorsese’s, not Ansel’s\. Link Ansel to Eden on its own\./);
+  }
+  assert.equal(sent.filter((s) => !s.url.includes('appleid')).length, 0, 'no provider was asked');
+
+  // the oldest link is a's (made a minute before the rest)
+  const first = parseScopedToken(a.token).id;
+  const kept = await object(a.account).storage.get(`scoped:${first}`);
+  await object(a.account).storage.put(`scoped:${first}`, { ...kept, created: kept.created - 60_000 });
+  const ticketFor = async (app, device) => {
+    const r = await hit('/api/creative/link', { method: 'POST', origin: ORIGIN, session: a.session, form: { ...(await linkParams(VERIFIER, { app, device })), decision: 'allow' } });
+    return new URL(r.headers.get('location')).searchParams.get('ticket');
+  };
+  const ansel = await (await exchange(await ticketFor('ansel', 'Studio iMac'), VERIFIER, 'ansel')).json();
+  assert.equal(ansel.connection.app, 'ansel');
+  assert.equal((await hit('/api/creative/me', { bearer: ansel.token })).status, 200);
+  for (let i = 2; i <= 10; i++) {
+    const minted = await (await exchange(await ticketFor('scorsese', `Mac ${i}`))).json();
+    assert.deepEqual(minted.unlinked, [], `link ${i} of 10 retires nothing`);
+  }
+  // the approval page says before Link which Mac an 11th Scorsese would unlink
+  const page = await (await hit(`/creative/link?${new URLSearchParams(await linkParams(VERIFIER, { device: 'New MacBook' }))}`, { session: a.session })).text();
+  assert.match(page, /Scorsese can be linked on 10 Macs at most\. Linking this one unlinks the oldest: <b>Scorsese on Bilel’s MacBook Pro<\/b>, linked \d{1,2} [A-Z][a-z]+ \d{4}\./);
+  const anselPage = await (await hit(`/creative/link?${new URLSearchParams(await linkParams(VERIFIER, { app: 'ansel' }))}`, { session: a.session })).text();
+  assert.doesNotMatch(anselPage, /unlinks/, 'Ansel has room of its own');
+  // the 11th: that oldest Scorsese goes, and the answer names it; Ansel's link stays
+  const eleventh = await (await exchange(await ticketFor('scorsese', 'New MacBook'))).json();
+  assert.deepEqual(eleventh.unlinked.map((c) => [c.id, c.app, c.label]), [[first, 'scorsese', 'Scorsese on Bilel’s MacBook Pro']]);
+  assert.equal((await hit('/api/creative/me', { bearer: a.token })).status, 401);
+  assert.equal((await hit('/api/creative/me', { bearer: ansel.token })).status, 200, 'another app’s link is never retired for this one');
+  assert.equal((await hit('/api/creative/me', { bearer: eleventh.token })).status, 200);
+  // a creative token that doesn't say its app (none are made) is no link at all
+  const loose = parseScopedToken(eleventh.token).id;
+  const { app: _gone, ...noApp } = await object(a.account).storage.get(`scoped:${loose}`);
+  await object(a.account).storage.put(`scoped:${loose}`, noApp);
+  assert.equal((await (await hit('/api/creative/me', { bearer: eleventh.token })).json()).code, 'not_connected');
+});
+
 // ── /me ──
 
 test('/me: the account, Plus, this month’s allowance and what’s used, and what can be generated', async () => {
@@ -326,16 +376,17 @@ test('without Plus: Eden, EVES, quotes and jobs say plus_required; editing needs
   assert.equal(sent.filter((s) => !s.url.includes('appleid')).length, 0, 'no provider was asked');
 });
 
-test('rate limits: the site’s API_RATE per account on every route, USER_RATE on the costly ones', async () => {
+test('rate limits: API_RATE per network first, then per account once the token is checked; USER_RATE on the costly ones', async () => {
   const a = await linked();
+  const from = (ip) => ({ 'cf-connecting-ip': ip });
   env.API_RATE = rateLimiter(2);
-  assert.equal((await hit('/api/creative/me', { bearer: a.token })).status, 200);
-  assert.equal((await hit('/api/creative/me', { bearer: a.token })).status, 200);
-  const third = await hit('/api/creative/me', { bearer: a.token });
-  assert.equal(third.status, 429);
+  assert.equal((await hit('/api/creative/me', { bearer: a.token, headers: from('198.51.100.7') })).status, 200);
+  assert.equal((await hit('/api/creative/me', { bearer: a.token, headers: from('198.51.100.8') })).status, 200);
+  const third = await hit('/api/creative/me', { bearer: a.token, headers: from('198.51.100.9') });
+  assert.equal(third.status, 429, 'the account’s own limit, from any network');
   assert.equal((await third.json()).code, 'slow_down');
   assert.equal(third.headers.get('retry-after'), '60');
-  assert.deepEqual([...new Set(env.API_RATE.keys)], [a.account]);
+  assert.deepEqual([...new Set(env.API_RATE.keys)], ['creative-ip:198.51.100.7', `creative:${a.account}`, 'creative-ip:198.51.100.8', 'creative-ip:198.51.100.9']);
   delete env.API_RATE;
   env.USER_RATE = rateLimiter(1);
   assert.equal((await eden(a.token)).status, 200);
@@ -344,6 +395,26 @@ test('rate limits: the site’s API_RATE per account on every route, USER_RATE o
   // the ticket exchange: per network
   env.AUTH_RATE = rateLimiter(0);
   assert.equal((await exchange('x')).status, 429);
+});
+
+test('a forged token naming someone’s account costs only its sender: the person isn’t rate-limited out (review M2)', async () => {
+  const victim = await linked();
+  const forged = `es1.${victim.account}.0123456789abcdef.${'A'.repeat(43)}`;
+  env.API_RATE = rateLimiter(3);
+  env.USER_RATE = rateLimiter(3);
+  const attacker = { 'cf-connecting-ip': '203.0.113.66' };
+  const codes = [];
+  for (let i = 0; i < 20; i++) {
+    const [p, method] = i % 2 ? ['/api/creative/me', 'GET'] : ['/api/creative/eden', 'POST'];
+    codes.push((await hit(p, { method, bearer: forged, headers: attacker, body: method === 'POST' ? TURN : undefined })).status);
+  }
+  assert.deepEqual([...new Set(codes)], [401, 429], 'refused, then slowed down on its own network');
+  const charged = [...env.API_RATE.keys, ...env.USER_RATE.keys];
+  assert.ok(!charged.some((k) => k.includes(victim.account)), `nothing counted against the account it names: ${JSON.stringify([...new Set(charged)])}`);
+  // the person, from their own network, works as before
+  const mine = { 'cf-connecting-ip': '198.51.100.20' };
+  assert.equal((await hit('/api/creative/me', { bearer: victim.token, headers: mine })).status, 200);
+  assert.equal((await eden(victim.token, TURN, { headers: mine })).status, 200);
 });
 
 // ── one Eden turn ──
@@ -517,9 +588,9 @@ const INTERACTIONS = 'https://generativelanguage.googleapis.com/v1beta/interacti
 const videoEnv = (extra = {}) => makeEnv({ GEMINI_API_KEY: 'g-test', EDEN_VIDEOS: 'on', ...extra });
 
 /** Gemini Omni Flash on the Interactions API: done at once, or `inProgress` polls first, or refused. */
-function omni({ inProgress = 0, fail = null } = {}) {
+function omni({ inProgress = 0, fail = null, data = MP4 } = {}) {
   let left = inProgress;
-  const done = { id: 'int-1', object: 'interaction', model: 'gemini-omni-1.2-flash', status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', data: MP4 }] }] };
+  const done = { id: 'int-1', object: 'interaction', model: 'gemini-omni-1.2-flash', status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', data }] }] };
   return [
     [(u, init) => u === INTERACTIONS && init.method === 'POST', () => (fail ? Response.json({ error: { code: 400, message: fail, status: 'INVALID_ARGUMENT' } }, { status: 400 }) : inProgress ? Response.json({ id: 'int-1', status: 'in_progress' }) : Response.json(done))],
     [(u) => u === `${INTERACTIONS}/int-1`, () => {
@@ -690,6 +761,41 @@ test('a clip that outlives its deadline fails without a charge, and is never mad
   assert.match(out.error.message, /too long/);
   assert.equal((await usage(a.account)).spent, 0);
   assert.equal(object(a.account).holds.size, 0);
+});
+
+test('a long clip is streamed from its stored pieces, a few at a time, never whole in memory (review: reliability)', async () => {
+  env = videoEnv();
+  const a = await linked();
+  const clip = Buffer.alloc(700_000);
+  for (let i = 0; i < clip.length; i++) clip[i] = (i * 7) % 251;
+  providers = omni({ data: clip.toString('base64') }); // 933,336 base64 characters: ten pieces
+  const q = await (await hit('/api/creative/quote', { method: 'POST', bearer: a.token, body: VIDEO })).json();
+  const job = await (await hit('/api/creative/jobs', { method: 'POST', bearer: a.token, body: { ...VIDEO, quote_id: q.quote_id } })).json();
+  await object(a.account).alarm();
+  const done = await (await hit(`/api/creative/jobs/${job.id}`, { bearer: a.token })).json();
+  assert.equal(done.result.items[0].bytes, 700_000);
+  assert.equal([...object(a.account).ctx.storage.map.keys()].filter((k) => k.startsWith(`cres:${job.id}:0:`)).length, 10);
+  // the account object answers with the bytes as a stream, not a JSON string of them
+  const { id, secret } = parseScopedToken(a.token);
+  const inner = await object(a.account).fetch(new Request('https://account/creative-job-result', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, secret, job: job.id, item: 0 }) }));
+  assert.equal(inner.headers.get('content-type'), 'video/mp4');
+  assert.equal(inner.headers.get('x-eden-bytes'), '700000');
+  await inner.body.cancel();
+  // and the Worker passes it on as it comes: piece by piece, the bytes exact
+  const file = await hit(done.result.items[0].url, { bearer: a.token });
+  assert.equal(file.status, 200);
+  assert.equal(file.headers.get('content-type'), 'video/mp4');
+  const reader = file.body.getReader();
+  const chunks = [];
+  for (let next = await reader.read(); !next.done; next = await reader.read()) chunks.push(next.value);
+  assert.equal(chunks.length, 10, 'one chunk a stored piece');
+  assert.ok(Math.max(...chunks.map((c) => c.length)) <= 75_000);
+  assert.ok(Buffer.concat(chunks).equals(clip));
+  // another connection's token gets no stream of it
+  const b = await linked({ sub: 'apple-user-2' });
+  const theirs = await hit(done.result.items[0].url, { bearer: b.token });
+  assert.equal(theirs.status, 404);
+  assert.equal((await theirs.json()).code, 'not_found');
 });
 
 test('speech in the Eden voice: a quote in characters, the lines read on the alarm, counted on the voice allowance', async () => {

@@ -32,6 +32,7 @@ Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --te
 | 402 | `plus_required` | The account has no Plus. Say so, and offer Plus (`https://askeden.com/#settings=account`). Editing goes on. |
 | 402 | `no_allowance` | This month's Plus AI allowance (and credits) can't pay for this. The `error` says when it renews. |
 | 403 | `forbidden` | A browser `Origin`, or an account that may not use Eden yet. |
+| 403 | `wrong_app` | The body names another suite app than the one this token was linked for (a Scorsese token sent `"app": "ansel"`). A bug in the app: each app links on its own. |
 | 404 | `not_found` | No such route, job or result. |
 | 405 | `bad_request` | Wrong method. |
 | 409 | `quote_used` / `quote_expired` | The quote was already used, or is more than 10 minutes old. Ask for a new quote. |
@@ -47,17 +48,35 @@ Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --te
 **Offline** is the app's own case: the request never reached askeden.com (no network, DNS, TLS, or a timeout before
 any byte). The app says "You're offline. Editing still works; Eden needs the internet." and never retries in a loop.
 
-**Rate limits** (the site's own bindings, `site/wrangler.toml`): every app route counts on `API_RATE` per account
-(600 a minute). `eden`, `eves`, `quote` and `jobs` (POST) also count on `USER_RATE` as `creative:<account>` (600 a
-minute). The ticket exchange counts on `AUTH_RATE` per network (20 a minute), and so does approving a link. On top, the
-account object allows at most 10 Eden replies at once (the site's `EDEN_TURNS`) and 3 generation jobs running at once.
+**Rate limits** (the site's own bindings, `site/wrangler.toml`), in two steps:
+1. **The network, before any token is checked.** Every app route counts on `API_RATE` as `creative-ip:<network>` (600 a
+   minute).
+2. **The account, once its token has been checked.** It counts on `API_RATE` as `creative:<account>` (600 a minute), and
+   `eden`, `eves`, `quote` and `jobs` (POST) also count on `USER_RATE` as `creative:<account>` (600 a minute).
+
+So a request with a forged token that names someone else's account only counts against the network it came from. It
+never counts against that account, and can't rate-limit anyone out of askeden.com. The `creative:` keys are the suite's
+own, apart from the site's chat, mail and other routes.
+
+The ticket exchange counts on `AUTH_RATE` per network (20 a minute), and so does approving a link. On top, the account
+object allows at most 10 Eden replies at once (the site's `EDEN_TURNS`) and 3 generation jobs running at once.
 
 **Size limits:** `eden` body 8 MiB; `eves` body 256 KiB; `quote` and `jobs` body 6 MiB (a start frame); others 16 KiB.
 
-**Order of checks** on `eden`, `eves`, `quote` and `jobs`: the token's form, `API_RATE`, `USER_RATE`, then the token
-itself and Plus in the account's object, and only then the body. So a revoked token always gets 401 and an account
-without Plus always gets 402, whatever it sent. `me`, `revoke` and `GET jobs/…` need the token only (a job paid for
-stays readable if Plus lapses).
+**Order of checks** on every app route:
+1. The token's form.
+2. `API_RATE` for the network.
+3. The token itself in the account's object, and Plus on `eden`, `eves`, `quote` and `jobs`.
+4. `API_RATE` for the account, and `USER_RATE` on the costly routes.
+5. Only then the body. A body that names another suite app than the token's gets 403 `wrong_app`.
+
+So a revoked token always gets 401 and an account without Plus always gets 402, whatever it sent. `me`, `revoke` and
+`GET jobs/…` need the token only, so a job already paid for stays readable if Plus lapses. `revoke` is checked in its
+own op and counts only per network.
+
+**A token is one app's.** It is bound to the suite app it was linked for (`connection.app`). `eden` and `eves` must send
+that `app`; `quote` and `jobs` may leave it out, or must send the same one. Jobs and quotes belong to the token that made
+them.
 
 ## 2. Link once
 
@@ -108,9 +127,15 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
      "token": "es1.<account>.<id>.<secret>",
      "token_type": "Bearer",
      "scope": "creative",
-     "connection": { "id": "0123456789abcdef", "app": "scorsese", "created": 1795000000000, "expires_at": 1826536000000 }
+     "connection": { "id": "0123456789abcdef", "app": "scorsese", "created": 1795000000000, "expires_at": 1826536000000 },
+     "unlinked": []
    }
    ```
+
+   `unlinked` lists this app's links that were retired to make room, oldest first: `{id, app, label, created,
+   last_used}`, e.g. `{"id": "…", "app": "scorsese", "label": "Scorsese on Studio Mac", …}`. It's empty unless that
+   app was already linked on 10 Macs. When it isn't empty, the app tells the person, e.g. "Linked. Scorsese on Studio Mac
+   was unlinked to make room (10 Macs at most)."
 
    Errors: 400 `invalid_grant` (used, expired, wrong verifier, or a ticket made for another app), 400 `bad_request`
    (`app` missing or not on the list), 401 `signed_out` (the browser
@@ -121,8 +146,10 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
    The person can also revoke it on askeden.com › Account › Connected apps (it's listed there as
    "Eden Creative Suite", with the app and device). Either way it stops at once.
 
-Each suite app on each Mac links on its own and holds its own token (at most 10 creative connections per account; the
-11th retires the oldest).
+Each suite app on each Mac links on its own and holds its own token, bound to that app. Each app has its own cap of 10
+links per account, so an 11th Scorsese link retires the oldest Scorsese link and never another app's. When Link would
+retire one, the approval page says so before the person agrees ("Scorsese can be linked on 10 Macs at most. Linking this
+one unlinks the oldest: Scorsese on Studio Mac, linked 3 March 2026."), and the token's answer lists it in `unlinked`.
 
 Why a ticket and PKCE: another app could claim `edenstudio-scorsese://`. A stolen ticket is useless without the
 verifier, which never leaves the app that made it.
@@ -400,8 +427,13 @@ every 3–5 s. Jobs and results are kept 24 hours, at most 20 per account.
 
 ### `GET /api/creative/jobs/:id/result?item=0`
 
-The file itself, with the token: `Content-Type` as `mime`, `Content-Disposition: attachment`, `X-Eden-Generated:
-true`, `Cache-Control: no-store`. 404 when it's gone or not ready.
+The file itself, with the token: `Content-Type` as `mime`, `Content-Length` as `bytes`, `Content-Disposition:
+attachment`, `X-Eden-Generated: true`, `Cache-Control: no-store`. 404 when it's gone or not ready, or isn't this token's.
+
+The file is streamed, never sent as one base64 JSON value. The account object keeps it in pieces of about 75 KB and
+sends them a few at a time as it reads them, and the Worker passes the stream on. So a long 1080p clip is never held
+whole in memory on askeden.com. The app should download it to a file (`URLSession` download task) rather than into
+memory. If the stream stops short of `Content-Length`, it asks again; a 404 then means the job's 24 hours are up.
 
 ## 8. What isn't here
 
@@ -418,3 +450,6 @@ true`, `Cache-Control: no-store`. 404 when it's gone or not ready.
 - Needs: a merge into the live branch and one askeden.com deploy, with the owner's OK.
 - Then each app's own URL scheme, `edenstudio-<app>` (e.g. `edenstudio-scorsese`), in its `project.yml` (the release
   task).
+- Before launch, make the longest clip (15 s at 1080p) once on a dev deploy and watch the account object's memory.
+  Sending a result is streamed, but making one still holds Google's answer whole for a moment, because the Interactions
+  API returns the clip inline as base64.
