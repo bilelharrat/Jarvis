@@ -8,13 +8,20 @@
 // latest snapshot for late joiners, the people, the comments and the activity, and relays presence.
 // A room keeps:
 //
-//   meta                 { id, name, owner, created, head (the last seq), snap: { gen, seq, hash,
-//                          bytes, chunks } | null, settings: { invite }, members: { key → member },
-//                          nextSlot, nextComment, comments (comments and replies kept), actN }
-//   op:<seq, 16 digits>  an ordered command: { seq, id, by, name, slot, at, base, label, via, note, op }
-//                        (`op` stays the app's string: never parsed here, so its ids keep their precision)
+//   meta                 { id, name, owner, created, head (the last seq), cum (bytes of every op ever
+//                          ordered), snap: { gen, seq, hash, bytes, chunks, cum } | null, settings:
+//                          { invite }, members: { key → member }, nextSlot, nextComment, comments
+//                          (comments and replies kept), actN, overQuota }
+//   op:<seq, 16 digits>  an ordered command: { seq, id, by, name, slot, at, base, label, via, note, op,
+//                        cum } (`op` stays the app's string: never parsed here, so its ids keep their
+//                        precision; `cum` is meta.cum after it, so the log's bytes past any seq are known)
 //   oid:<key>:<n|s><id>  the seq of that author's op id: a re-send answers with the entry it already has
-//   chk:<seq>            the first Mac's project hash at seq ({ hash, by }), from `check`
+//   chk:<seq>            the editors' project hashes at seq, [[member key, hash], …] in order, from `check`
+//
+// A member is { key, pk, account, name, email, role, slot, status, at }. `key` is the account id, or
+// `mail:<hash>` for a pending invite, and never leaves the room: members, frames and the listing name
+// people by `pk`, a random key of this room's (`m_` and 12 base64url characters), so an account id is
+// never shown to anyone else.
 //   snap:<gen>:<i>       the snapshot, in 1 MiB chunks; a new upload writes a new generation, then meta,
 //                        then deletes the old one (and the log up to it)
 //   cm:<id>              a comment and its replies
@@ -93,6 +100,8 @@ const ownerOnly = (what = 'do that') => new ApiError(403, 'forbidden', `Only the
 const pad = (n, width = 16) => String(n).padStart(width, '0');
 const opKey = (seq) => `op:${pad(seq)}`;
 const chkKey = (seq) => `chk:${pad(seq)}`;
+/** The editors' checks at a seq, in the order they came: [[member key, hash], …]. */
+const checksOf = (stored) => (Array.isArray(stored) ? stored : []);
 const cmKey = (id) => `cm:${pad(id)}`;
 const actKey = (n) => `act:${pad(n)}`;
 const chunkKey = (gen, i) => `snap:${gen}:${pad(i, 6)}`;
@@ -702,11 +711,11 @@ export class CreativeRoom {
     this.broadcast({ t: 'activity', activity: act });
   }
 
-  /** An editor's app says what its project's hash is at a seq. It's compared with the room's snapshot only (an
-   *  editor uploaded it), never with another member's check; each editor's own check is kept, and holds back only that
-   *  editor's own snapshot at that seq if the two disagree. Viewers and commenters don't check. */
+  /** An app says what its project's hash is at a seq, and is told `diverged` when that differs from the room's snapshot
+   *  at that seq, or else from the first editor's check there. Only editors' checks are kept (one per editor), so a
+   *  viewer or commenter can be told about their own copy but never sway anyone else's; and a check holds back only
+   *  that editor's own snapshot at that seq (snapshotAllowed), never another's. */
   async onCheck(ws, meta, me, msg) {
-    if (RANK[me.role] < RANK.edit) throw new ApiError(403, 'forbidden', 'Only editors’ apps check the room’s copy.');
     const seq = anId(msg.seq, 'seq');
     if (typeof msg.hash !== 'string' || !HASH.test(msg.hash)) throw bad('hash is the project’s hash: up to 128 of A–Z a–z 0–9 _ . : + / = -');
     if (seq > meta.head) throw bad('That seq isn’t in the room yet.');
@@ -716,11 +725,15 @@ export class CreativeRoom {
       if (msg.hash !== meta.snap.hash) this.tell(ws, { t: 'diverged', seq });
       return;
     }
-    const checks = (await this.storage.get(chkKey(seq))) || {};
-    if (checks[me.key] !== msg.hash && (Object.hasOwn(checks, me.key) || Object.keys(checks).length < ROOMS.people)) {
-      checks[me.key] = msg.hash;
-      await this.storage.put(chkKey(seq), checks);
-    }
+    const checks = checksOf(await this.storage.get(chkKey(seq)));
+    const first = checks.find(([key]) => key !== me.key);
+    if (first && first[1] !== msg.hash) this.tell(ws, { t: 'diverged', seq });
+    if (RANK[me.role] < RANK.edit) return;
+    const mine = checks.find(([key]) => key === me.key);
+    if (mine ? mine[1] === msg.hash : checks.length >= ROOMS.people) return;
+    if (mine) mine[1] = msg.hash;
+    else checks.push([me.key, msg.hash]);
+    await this.storage.put(chkKey(seq), checks);
   }
 
   onNote(ws, meta, me, msg) {
@@ -968,8 +981,8 @@ export class CreativeRoom {
     if (RANK[me.role] < RANK.edit) throw new ApiError(403, 'forbidden', 'Only editors and the owner save the room’s snapshot.');
     const low = meta.snap ? meta.snap.seq : 0;
     if (seq < low || seq > meta.head) throw new ApiError(409, 'bad_seq', `x-seq must be between the room’s snapshot (${low}) and its head (${meta.head}).`);
-    const mine = ((await this.storage.get(chkKey(seq))) || {})[me.key];
-    if (mine !== undefined && mine !== hash) throw new ApiError(409, 'diverged', 'This Mac said its project was different at that point; it can’t replace the room’s copy.');
+    const mine = checksOf(await this.storage.get(chkKey(seq))).find(([key]) => key === me.key);
+    if (mine && mine[1] !== hash) throw new ApiError(409, 'diverged', 'This Mac said its project was different at that point; it can’t replace the room’s copy.');
   }
 
   async putSnapshot(request, who) {
