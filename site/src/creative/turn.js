@@ -13,11 +13,11 @@
 
 import { ApiError } from '../accounts/util.js';
 import { call } from '../accounts/index.js';
-import { costOf, priceOf, pricesReady, usageMeter } from '../accounts/proxy.js';
+import { costOf, priceOf, usageMeter } from '../accounts/proxy.js';
 import { fallbackMessages, sseOf } from '../accounts/service-ai.js';
 import { appAskMax } from '../eden/ask.js';
 import { appConfig } from '../eden/ext-chat.js';
-import { modelOf, viaBase } from '../eden/providers.js';
+import { modelOf, viaBase } from '../eden/providers.js'; // also hands proxy.js priceOf every model's list price
 import { createLocalRouter } from '../eden/vendor/model-router.js';
 
 /**
@@ -337,7 +337,6 @@ export async function edenTurn(request, env, ctx, who, raw) {
   const turn = parseTurn(raw);
   const tools = await toolModels(env, request);
   if (!tools.pool.length) throw new ApiError(503, 'not_set_up', 'No model that can use the Creative Suite’s tools is set up at askeden.com yet.');
-  await pricesReady(); // every tool model's list price, not only Claude's
   const system = systemFor(turn);
   const tokens = inputTokens(system, turn);
   const fitted = fitTurn(env, tools.pool, pickModel(tools.pool, turn, tokens), tokens, turn.maxTokens);

@@ -2,14 +2,23 @@
 
 askeden.com's door for the Eden Creative Suite apps (Scorsese first; Ansel, Da Vinci, Houdini, Lumière, Scribe and
 Aldus use the same door). Eden's thinking runs in the app, which holds the tools. askeden.com checks who is asking,
-checks Plus, meters and rate-limits, picks the model with the Model Router, and runs the paid server work (generated
-media). It never runs an app's tools.
+meters the account's own allowance and rate-limits, picks the model with the Model Router, and runs the paid server
+work (generated media). It never runs an app's tools.
 
-Code: `site/src/creative/` (Worker routes `api.js`, the model turn `turn.js`, generated media `media.js`, the account
-object's side `ops.js`). Tests: `site/test/creative.test.js`.
+**One account, one allowance, one meter** (owner, 2026-11-16, second round): any askeden.com account works in every
+suite app, free accounts included, and spends exactly what askeden.com's own chat spends, through the same code
+(`account.js` `allowAi`, `holdAi`, `spend`, `voice`): the plan's allowance (by the month, or askeden.com's weekly slices
+where it has them), else the free trial (and, where askeden.com has it, the free share), then bought credits. There is
+no separate creative allowance and no Plus gate. The apps allow a person's own API keys only when `paying` (§3) is true.
 
-Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --test test/creative.test.js`, and a local
-`wrangler dev`). **Not deployed.** Everything below is what the code does.
+Code: `site/src/creative/` (Worker routes `api.js`, the model turn `turn.js`, EVES `eves.js`, generated media
+`media.js`, the account object's side `ops.js`). Tests: `site/test/creative.test.js`. Rooms: `docs/creative-rooms.md`.
+
+Status (2026-11-16): on branch `feat/creative-on-main` (from askeden.com's `main`, without `ios-app-store-prep`'s other
+work). askeden.com itself isn't deployed from `main`: the suite goes live as an overlay on the live tree,
+`site/scripts/deploy-creative-overlay.sh` (§9), whose `src/creative/eves.js` is `scripts/creative-overlay/eves-live.js`.
+**Not deployed.** Everything below is what the code does; where `main` and the live site differ, both are said.
+Every change from the first version of this contract is listed in §10.
 
 ## 1. Conventions
 
@@ -29,8 +38,9 @@ Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --te
 | 400 | `bad_request` | The request is malformed. The `error` says what. A bug in the app. |
 | 400 | `invalid_grant` | The ticket is used, expired, or the verifier doesn't match. Start the link again. |
 | 401 | `not_connected` | No token, or it was revoked, expired, or is malformed. Forget the token and offer **Link to Eden** again. |
-| 402 | `plus_required` | The account has no Plus. Say so, and offer Plus (`https://askeden.com/#settings=account`). Editing goes on. |
-| 402 | `no_allowance` | This month's Plus AI allowance (and credits) can't pay for this. The `error` says when it renews. |
+| 402 | `plus_required` | **No longer sent**: any account may use Eden. Kept here so older app builds still read it. |
+| 402 | `no_allowance` | The account's allowance (its plan's, else the trial, then credits) can't pay for this. The `error` is askeden.com's own words, e.g. "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)." Offer Plus or credits (`https://askeden.com/#settings=account`). Editing goes on. |
+| 402 | `over_ask_limit` | New. This one turn would cost more than one ask from an app's token may (`EDEN_APP_ASK_MAX_USD`, $0.50 by default), even made smaller (§5). Show the `error` ("Start a new conversation, or send less of the project"). It isn't about the allowance or Plus. |
 | 403 | `forbidden` | A browser `Origin`, or an account that may not use Eden yet. |
 | 403 | `wrong_app` | The body names another suite app than the one this token was linked for (a Scorsese token sent `"app": "ansel"`). A bug in the app: each app links on its own. |
 | 404 | `not_found` | No such route, job or result. |
@@ -42,37 +52,44 @@ Status (2026-11-16): built and tested on branch `feat/creative-eden` (`node --te
 | 422 | `model_unavailable` | That video model is shut down (e.g. Veo 2). Pick a live one from the quote's `models`. |
 | 429 | `slow_down` | Rate limit, or too much running at once. Wait `Retry-After` seconds. |
 | 502 | `upstream` | The model or media provider failed or is busy. Offer Try again. |
-| 503 | `not_set_up` | askeden.com doesn't have that switched on (a missing key). Keep the feature off. |
+| 503 | `not_set_up` | askeden.com doesn't have that switched on (a missing key, or EVES where askeden.com runs none: §6). Keep the feature off. |
 | 500 | `server` | Something broke on askeden.com. Offer Try again. |
 
 **Offline** is the app's own case: the request never reached askeden.com (no network, DNS, TLS, or a timeout before
 any byte). The app says "You're offline. Editing still works; Eden needs the internet." and never retries in a loop.
 
 **Rate limits** (the site's own bindings, `site/wrangler.toml`), in two steps:
-1. **The network, before any token is checked.** Every app route counts on `API_RATE` as `creative-ip:<network>` (600 a
-   minute).
-2. **The account, once its token has been checked.** It counts on `API_RATE` as `creative:<account>` (600 a minute), and
-   `eden`, `eves`, `quote` and `jobs` (POST) also count on `USER_RATE` as `creative:<account>` (600 a minute).
+1. **The network, before any token is checked.** Every app route counts on `API_RATE` as `creative-ip:<network>`.
+2. **The account, once its token has been checked.** Every route counts on `API_RATE` as `creative:<account>`.
+
+`API_RATE` is 600 a minute on the live site (120 in `main`'s `wrangler.toml`). There is no second per-account limit
+(`USER_RATE` isn't on `main`, and the suite doesn't use it live): a turn's cost is bounded by the allowance, the per-ask
+ceiling (§5) and the turns at once below.
 
 So a request with a forged token that names someone else's account only counts against the network it came from. It
 never counts against that account, and can't rate-limit anyone out of askeden.com. The `creative:` keys are the suite's
 own, apart from the site's chat, mail and other routes.
 
-The ticket exchange counts on `AUTH_RATE` per network (20 a minute), and so does approving a link. On top, the account
-object allows at most 10 Eden replies at once (the site's `EDEN_TURNS`) and 3 generation jobs running at once.
+The ticket exchange counts on `AUTH_RATE` per network (20 a minute), and so does approving a link. On top, per account:
+- at most **2 of the suite's turns at once** (Eden turns and EVES runs, all suite apps together): a third gets 429
+  `slow_down` with `Retry-After: 10` ("Eden is already answering 2 requests from the Creative Suite on this account");
+- those also count among askeden.com's own replies at once (`EDEN_TURNS`: 10 live, 2 on `main`), shared with its chat;
+- 3 generation jobs running at once. A clip being made doesn't take one of the replies at once.
 
 **Size limits:** `eden` body 8 MiB; `eves` body 256 KiB; `quote` and `jobs` body 6 MiB (a start frame); others 16 KiB.
 
 **Order of checks** on every app route:
 1. The token's form.
 2. `API_RATE` for the network.
-3. The token itself in the account's object, and Plus on `eden`, `eves`, `quote` and `jobs`.
-4. `API_RATE` for the account, and `USER_RATE` on the costly routes.
-5. Only then the body. A body that names another suite app than the token's gets 403 `wrong_app`.
+3. The token itself in the account's object, and on `eden`, `quote`, `jobs` (and `eves` where askeden.com runs it)
+   that the account's allowance can pay for anything now (402 `no_allowance`, in askeden.com's words).
+4. `API_RATE` for the account.
+5. Only then the body. A body that names another suite app than the token's gets 403 `wrong_app`. (Where askeden.com
+   runs no EVES, `eves` answers 503 here without reading the body.)
 
-So a revoked token always gets 401 and an account without Plus always gets 402, whatever it sent. `me`, `revoke` and
-`GET jobs/…` need the token only, so a job already paid for stays readable if Plus lapses. `revoke` is checked in its
-own op and counts only per network.
+So a revoked token always gets 401 and an account with nothing left always gets 402, whatever it sent. `me`, `revoke`
+and `GET jobs/…` need the token only, so a job already paid for stays readable when the allowance runs out. `revoke` is
+checked in its own op and counts only per network.
 
 **A token is one app's.** It is bound to the suite app it was linked for (`connection.app`). `eden` and `eves` must send
 that `app`; `quote` and `jobs` may leave it out, or must send the same one. Jobs and quotes belong to the token that made
@@ -94,8 +111,9 @@ for the `creative` service in its own Keychain item. It's the site's scoped-toke
    - `app`: `scorsese`, `ansel`, `davinci`, `houdini`, `lumiere`, `scribe` or `aldus`.
    - `device` (optional, at most 60 characters): shown on the account page, e.g. "Scorsese on Bilel's MacBook Pro".
 2. The page asks the person to sign in if they aren't (Apple, Google, a passkey, as the site does), then shows
-   "Link Scorsese to your Eden account?" with **Cancel** and **Link**. The form posts to `POST /api/creative/link`
-   (askeden.com's own page, its session cookie; not for apps).
+   "Link Scorsese to your Eden account?" with **Cancel** and **Link**, and says Eden uses the account's included AI, the
+   same allowance as askeden.com (no Plus needed). The form posts to `POST /api/creative/link` (askeden.com's own page,
+   its session cookie; not for apps).
 3. **Link** sends the browser on to **the asking app's own scheme**, `edenstudio-<app>://link`:
 
    ```
@@ -160,19 +178,36 @@ base yet; when it lands, `{service: "creative"}` would mint the same ticket.
 
 ## 3. `GET /api/creative/me`
 
-Works without Plus (it says so). → 200
+Any plan, free included. → 200
 
 ```json
 {
   "account": { "id": "<uuid>", "name": "person@example.com", "email": "person@example.com" },
   "plus": true,
-  "plan": { "name": "plus", "unlimited": false, "renews": true, "expires": 1797600000000 },
+  "paying": true,
+  "plan": { "name": "plus", "label": "Pro", "tier": "pro", "paying": true, "source": "stripe", "unlimited": false, "renews": true, "expires": 1797600000000 },
+  "usage": {
+    "meter": "weekly",
+    "label": "This week",
+    "percent_used": 40,
+    "percent_left": 60,
+    "used_usd": 1.2,
+    "left_usd": 1.8,
+    "total_usd": 3,
+    "renews_at": 1795600000000,
+    "answers_left": 54,
+    "period": { "label": "This period", "percent_left": 79, "left_usd": 9.5, "total_usd": 12, "ends_at": 1796083200000 },
+    "credits_usd": 0,
+    "can_use": true,
+    "why": null
+  },
+  "eves": { "available": true },
   "allowance": {
     "period_start": 1793491200000,
     "period_end": 1796083200000,
-    "budget_usd": 6,
-    "used_usd": 1.25,
-    "left_usd": 4.75,
+    "budget_usd": 12,
+    "used_usd": 2.5,
+    "left_usd": 9.5,
     "credits_usd": 0
   },
   "voice": { "today_chars": 1200, "daily_chars": 100000 },
@@ -185,15 +220,43 @@ Works without Plus (it says so). → 200
 }
 ```
 
-`name` is the account's sign-in email (askeden.com keeps no other name). `allowance` is this month's Plus AI allowance
-in US dollars of provider list price, the same figures as askeden.com's account page. `generation` lists every kind in
-§6 with whether askeden.com can make it now.
+- `name` is the account's sign-in email (askeden.com keeps no other name).
+- `plus`: any plan is active (Plus, a promo code's free Plus, or any paid tier). Kept for older builds.
+- **`paying`**: the person pays for Eden: a plan bought in the App Store, with Stripe or on Google Play (`plan.source`
+  `app_store`, `stripe`, `both` or `google_play`), and the owner's own unlimited accounts. A promo code's free Plus is
+  `plus: true` but `paying: false`. **The apps allow the person's own API keys only when `paying` is true.**
+- `plan`: `name` is askeden.com's own (`plus` for every paid plan, else `free`); `label` is the plan's name as
+  askeden.com shows it (`Free`, `Plus`, and on the live site also `Pro`, `Max`, `Ultra`, `Platinum`, `Eden Black`,
+  `Unlimited`); `tier` is askeden.com's tier id where it has them (live), else `null`; `source` as above, or `promo`, or
+  `null`.
+- **`usage`** is the account's meter in the units askeden.com's account page shows (`public/eden/account.js`), from the
+  account's own view, so a free account and every plan read exactly as there:
+
+  | `meter` | `label` | When | `renews_at` |
+  |---|---|---|---|
+  | `weekly` | This week | a plan released in weekly slices (the live site's `ALLOWANCE_V2`); `answers_left` is askeden.com's "~N answers", and `period` is "This period" beside it | when more arrives |
+  | `period` | This period | the same, for a plan with no weekly limit (Eden Black's default) | the period's end |
+  | `monthly` | Included AI this month | a plan by the calendar month (`main`) | the 1st of next month |
+  | `trial` | Trial AI | no plan: the free trial, used once, not monthly | `null` |
+
+  `percent_left` is rounded as the page rounds it, and `percent_used` is 100 minus it. The dollars behind them are list
+  price. `credits_usd` is bought credits, apart. `can_use` and `why` are what a turn would meet now: `why` is askeden.com's
+  own sentence (e.g. the trial used up). `answers_left` and `period` are `null` except on the weekly meter. Show it as the
+  site does: "This week: $1.80 left (~54 answers)", "Trial AI: 75% left".
+- `eves`: whether `POST /api/creative/eves` works for this account now, by askeden.com's own rule (§6), with `why` when
+  it doesn't. The same for every plan.
+- `allowance`: the plan's period in dollars, as before: what the account page calls the period (or the month), its
+  budget, used and left. `budget_usd` is 0 without a plan. Kept for older builds; `usage` is the one to show.
+- `voice`: today's characters of the Eden voice and the plan's daily characters (20,000 free, 100,000 with Plus; the live
+  site's tiers have their own).
+- `generation` lists every kind in §7 with whether askeden.com can make it now.
 
 ## 4. Which models Eden may use
 
 The Model Router (`site/src/eden/vendor/model-router.js`, rules only, no paid classifier call) picks one model per
-turn from the person's last typed message and the conversation's size. It may pick only models that can call tools on
-askeden.com's server keys:
+turn from the person's last typed message and the conversation's size. Its pool is the Ask Eden apps' (`eden/ext-chat.js`
+`appConfig`: askeden.com's own keys only, never the person's, each provider as switched), narrowed to the models that
+can call tools:
 
 | Model | Provider | Needs |
 |---|---|---|
@@ -203,9 +266,10 @@ askeden.com's server keys:
 | `gemini-4-argon` | Google | `GEMINI_API_KEY` |
 | `gemini-3.8-flash` | Google | `GEMINI_API_KEY` |
 
-Each must also be on the site's model list (`EDEN_MODELS`) with its provider switched on. Never picked: Kimi K3 (no
-tool path on the server), Gemini 3.5 Flash-Lite (too weak for many-step tool use: agentic score 79.7), DeepSeek, Meta
-and Mistral (opt-in or not offered). Claude streams token by token; Gemini and GPT are asked once and their answer
+Each must also be on the site's model list (`EDEN_MODELS`) with its provider switched on: `gemini-4-argon` isn't on
+`main`'s list, so it's picked only where askeden.com lists it. Never picked: Kimi K3 (no tool path on the server),
+Gemini 3.5 Flash-Lite (too weak for many-step tool use: agentic score 79.7), DeepSeek, Meta and Mistral (opt-in or not
+offered). Claude streams token by token; Gemini and GPT are asked once and their answer
 arrives as one burst of events (the site's `service-ai.js` translation). No extended thinking.
 
 ## 5. `POST /api/creative/eden`: one model turn, streamed
@@ -266,10 +330,20 @@ comment could be someone else's words, so askeden.com fences all of it:
 - **What the app must do:** send only the person's own typed words as `user` text, and send everything from the project
   through `context` or tool results. It also still confirms destructive tools with the person before running them.
 
-Before the model is asked: the token, Plus (402 `plus_required`), the rate limits, and a hold on the allowance for the
-turn's worst case (input at a token per 3 bytes, images 1,600 tokens each, plus `max_tokens` of output, at the picked
-model's list price). Not enough left: 402 `no_allowance`. Afterwards the account pays what the turn really used (the
-provider's reported usage; a stopped stream counts what streamed), and the hold goes.
+Before the model is asked: the token, that the allowance can pay for anything (402 `no_allowance`), the rate limits,
+then the turn's worst case (input at a token per 3 bytes, images 1,600 tokens each, plus `max_tokens` of output, at the
+model's list price):
+
+1. **The per-ask ceiling**, as for every Ask Eden app's token (`eden/ask.js` `appAskMax`: `EDEN_APP_ASK_MAX_USD`, $0.50
+   by default). Over it, askeden.com makes the turn fit: first a shorter reply on the router's pick (never under 1,024
+   tokens, so a tool call still fits), then the other tool models, cheapest first, the same way. **So the model may be
+   asked for fewer tokens than the app's `max_tokens`**, and the reply may stop with `max_tokens` sooner; the `route`
+   event names the model that answers. Nothing fits: 402 `over_ask_limit`.
+2. **A hold** of that worst case on the account's own allowance (`account.js` `holdAi`, as askeden.com's chat holds a
+   reply), as one of the suite's 2 turns at once (§1). Not enough left: 402 `no_allowance`.
+
+Afterwards the account pays what the turn really used (the provider's reported usage; a stopped stream counts what
+streamed), on the same meter as askeden.com's chat, and the hold goes.
 
 → 200 `text/event-stream`. Each event is `event: <type>` and `data: <JSON>`; a `: ping` comment comes every 15 s.
 
@@ -287,8 +361,9 @@ blocks in order) and a user turn with one `tool_result` per `tool_use`, and POST
 model for the next turn; the history works across providers. Closing the connection stops the turn (what streamed is
 still counted).
 
-Errors before the stream: 400, 401 `not_connected`, 402 `plus_required` / `no_allowance`, 403, 413, 429 `slow_down`,
-502 `upstream` (the model couldn't be reached or refused the request), 503 `not_set_up` (no model with tools here).
+Errors before the stream: 400, 401 `not_connected`, 402 `no_allowance` / `over_ask_limit`, 403, 413, 429 `slow_down`
+(the suite's 2 turns at once, askeden.com's replies at once, or the rate limits), 502 `upstream` (the model couldn't be
+reached or refused the request), 503 `not_set_up` (no model with tools here).
 
 ## 6. `POST /api/creative/eves`: check names, places and facts
 
@@ -301,7 +376,16 @@ check it.
 ```
 
 - `kind`: `captions` or `transcript`. `text`: 1–20,000 characters. `language` (optional): a BCP 47 tag.
-- Plus is required; the run is held and paid on the allowance exactly as on askeden.com.
+- **askeden.com's own EVES rules, the same for every plan** (free included): EVES runs when askeden.com has at least two
+  models on its own keys (what its chat calls `eves` in `/api/chat/meta`), never on the person's keys. The run is held
+  and paid on the account's own allowance exactly as an EVES run on askeden.com (`allow-ai`, then `hold-ai`, as one of
+  the suite's 2 turns at once). The owner-only modes (`EVES_STRONG` "owner", the Gemma judge) stay off here: a suite
+  token never counts as the owner.
+- `GET /api/creative/me`'s `eves` says beforehand whether it would run: `{"available": true}`, or `false` with `why`.
+- Where askeden.com doesn't have EVES (`main` today, `site/src/creative/eves.js`), every call is 503 `not_set_up`
+  with the words "EVES isn’t on askeden.com yet, on any plan…", and `eves.available` is false with the same `why`. The
+  live site has it (`site/src/eden/eves.js`); the overlay (§9) puts `site/scripts/creative-overlay/eves-live.js` in
+  `eves.js`'s place there.
 
 → 200 `text/event-stream`, EVES's own events, passed through unchanged. What the app needs:
 
@@ -315,7 +399,7 @@ check it.
 | `end` | The run is over |
 
 Events for lanes `0`–`2` and `judge` (`text`, `usage`, `done`, `citations`, `checks`, `verdict`) can be ignored or shown
-as detail. Errors before the stream as in §5.
+as detail. Errors before the stream as in §5, and 503 `not_set_up` when askeden.com has fewer than two models.
 
 ## 7. Generated media: quote, then a job
 
@@ -325,8 +409,8 @@ result); the app must keep that label on the clip. Google's clips also carry an 
 
 | `kind` | What | Made with | Paid from |
 |---|---|---|---|
-| `video` | B-roll, a shot extended, a gap filled: 3–15 s from a prompt, or from a frame of the footage | The models in the table below (today: Google's Gemini Omni Flash) | The Plus AI allowance, at the model's per-second list price; exactly the quote, on success only |
-| `speech` | Lines read aloud in the Eden voice: narration, or the "Spanish version" from a translated transcript (the app translates with §5) | Fish Audio, the voice askeden.com reads aloud with | The daily voice allowance (characters: 100,000 a day with Plus), no dollars |
+| `video` | B-roll, a shot extended, a gap filled: 3–15 s from a prompt, or from a frame of the footage | The models in the table below (today: Google's Gemini Omni Flash) | The account's own allowance (any plan's, else the trial, then credits), at the model's per-second list price; exactly the quote, on success only |
+| `speech` | Lines read aloud in the Eden voice: narration, or the "Spanish version" from a translated transcript (the app translates with §5) | Fish Audio, the voice askeden.com reads aloud with | The plan's daily voice characters, as askeden.com's read-aloud counts them (20,000 free, 100,000 with Plus; the live site's tiers have their own), no dollars |
 | `voice_clone` | Dubbing in the speaker's own voice | — | 422 `not_yet`: needs the speaker's recorded consent flow and a cloning provider, neither built |
 | `lipsync`, `music`, `sound_effects`, `image` | — | — | 422 `not_yet` |
 
@@ -398,8 +482,10 @@ Enterprise Agreement. That would put people's own footage into someone's trainin
 ```
 
 (`models` lists all four; two are cut here.) For `speech`, `usd` is 0, there's no `models`, `chars` is the characters
-it will take and `voice_left_chars` what's left today. A quote that can't be paid is refused here (402 `no_allowance`),
-before the app shows a price. 400 for a value outside the model's limits; 422 `model_unavailable` for a model that's
+it will take and `voice_left_chars` what's left today. For `video`, `allowance_left_usd` is what the account can spend
+now (the figure an askeden.com turn is checked against: the plan's left, this week's on a weekly plan, else the trial,
+plus credits). A quote that can't be paid is refused here (402 `no_allowance`: "Not enough of your Eden allowance is
+left for this clip…"), before the app shows a price. 400 for a value outside the model's limits; 422 `model_unavailable` for a model that's
 shut down; 422 `not_yet` for kinds askeden.com can't make; 503 `not_set_up` when the provider key is missing.
 
 ### `POST /api/creative/jobs`
@@ -407,7 +493,9 @@ shut down; 422 `not_yet` for kinds askeden.com can't make; 503 `not_set_up` when
 The same body as the quote, plus `quote_id`. It must match the quote exactly (askeden.com compares a SHA-256 of it),
 come from the same connection, within 10 minutes, once.
 
-→ 202 the job (below), made on the account's alarm within seconds. 409
+→ 202 the job (below), made on the account's alarm within seconds. A video's price is held on the allowance while it's
+made (`account.js` `holdMedia`, the same check as `holdAi`); that hold doesn't count as one of askeden.com's replies at
+once or the suite's 2 turns, so an Eden turn still runs while clips are made. 409
 `quote_used` / `quote_expired`; 400 `bad_request` when the body differs from the quote (the quote stays usable); 402;
 429 `slow_down` when 3 jobs are running already (the quote stays usable).
 
@@ -456,16 +544,90 @@ memory. If the stream stops short of `Content-Length`, it asks again; a 404 then
 - Nothing is stored of what's asked: messages, tools and context go to the model and nowhere else; the logs carry no
   tokens, prompts or keys.
 - Transcripts and silence detection run on the Mac (Apple's on-device speech recognition), not here.
-- Without Plus or a link, every editing feature works offline and free; the app says plainly what Eden needs.
+- Without a link, every editing feature works offline and free; the app says plainly what Eden needs.
+- No plan of its own: no Creative Suite allowance, price or Plus gate. A free account uses its trial, then credits.
 
 ## 9. Going live (the owner)
 
-- No new secret, D1 database or Durable Object migration: it uses the keys askeden.com already has
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FISH_API_KEY`), `EDEN_VIDEOS`, and the Account object
-  (new storage keys `cquote:`, `cjob:`, `cres:` and alarm kind `creative`).
-- Needs: a merge into the live branch and one askeden.com deploy, with the owner's OK.
+askeden.com isn't deployed from `main`: each deploy is the live tree plus only that session's files ("live <version> +
+only my files … Rollback: <version>"). So the suite goes live as an **overlay** on the live tree, never as a merge of
+this branch:
+
+- `site/scripts/creative-overlay/apply.mjs <live site/> <this branch's site/>` lays it on: 9 new files
+  (`src/creative/api.js`, `media.js`, `ops.js`, `turn.js`, `rooms.js`, `rooms-auth.js`, `src/creative/eves.js` from
+  `scripts/creative-overlay/eves-live.js`, `test/creative.test.js`, `test/creative-rooms.test.js`) and exact,
+  once-only edits to 6 (`src/accounts/account.js`, `src/accounts/index.js`, `src/accounts/scoped.js`, `src/worker.js`,
+  `src/eden/chat.js` (exports only), `wrangler.toml`). It stops if an anchor isn't found exactly once, if the overlay
+  is there already, or if `EDEN_VIDEOS` isn't `"on"` (it is on the live site).
+- `site/scripts/deploy-creative-overlay.sh --from <live site/>` copies the live tree twice into a fresh folder (never
+  touching it), runs the whole site suite on the plain copy and on the overlaid one (no new failure allowed, every
+  creative and rooms test passing), dry-runs both builds and compares them module by module (only the overlay's modules
+  may differ). With `--go --expect-live <version>` only, and only if that's still the live version, it deploys with
+  the house message ending "live <version> + only my files … Rollback: <version>". Needs the owner's OK.
+- One Durable Object migration: `creative-rooms-v1` (new SQLite class `CreativeRoom`, binding `CREATIVE_ROOMS`) for
+  rooms (`docs/creative-rooms.md`). Cloudflare may refuse a rollback to a version before it; then redeploy the plain
+  live tree with the binding, the migration and the `CreativeRoom` export kept.
+- No new secret or D1 database: it uses the keys askeden.com already has (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `GEMINI_API_KEY`, `FISH_API_KEY`), `EDEN_VIDEOS` (on), and the Account object (new storage keys `cquote:`, `cjob:`,
+  `cres:` and alarm kind `creative`).
 - Then each app's own URL scheme, `edenstudio-<app>` (e.g. `edenstudio-scorsese`), in its `project.yml` (the release
   task).
 - Before launch, make the longest clip (15 s at 1080p) once on a dev deploy and watch the account object's memory.
   Sending a result is streamed, but making one still holds Google's answer whole for a moment, because the Interactions
   API returns the clip inline as base64.
+
+## 10. What changed from the first version (owner, 2026-11-16)
+
+The first version is `feat/creative-eden` 54c95a7a. Paths, request bodies, event names and every field it had are
+unchanged; these are all the differences an app can see.
+
+**Who may use it**
+1. No Plus gate. Every route works for any askeden.com account, free included. 402 `plus_required` is no longer sent
+   (§1); a free account spends its trial, then credits, and meets 402 `no_allowance` with askeden.com's own words when
+   they're used up.
+2. The link page no longer says Eden is part of Plus. It says Eden "uses your Eden account’s included AI, the same
+   allowance as Eden here" (§2).
+
+**`GET /api/creative/me` (§3)**
+3. New `paying` (top level and `plan.paying`): true for a plan bought in the App Store, with Stripe or on Google Play,
+   and for the owner's unlimited accounts; false for a promo code's free Plus and for free accounts. The apps gate the
+   person's own API keys on it.
+4. `plan` gains `label`, `tier` and `source`. `name` stays `plus` or `free`, and `unlimited`, `renews` and `expires`
+   stay.
+5. New `usage`: the meter askeden.com's account page shows (`weekly`, `period`, `monthly` or `trial`), with
+   `percent_used`, `percent_left`, `used_usd`, `left_usd`, `total_usd`, `renews_at`, `answers_left`, `period`,
+   `credits_usd`, `can_use` and `why`.
+6. New `eves`: `{available, why?}`.
+7. `allowance` keeps its fields but now comes from the account's own view: on a weekly plan it's the whole period
+   (`usage` has the week). Without a plan, `budget_usd` is 0 as before.
+8. `voice.daily_chars` is the plan's own daily characters (the live site's tiers differ), not a fixed Plus figure.
+
+**`POST /api/creative/eden` (§5)**
+9. The account's own allowance, any plan, through `holdAi` and `spend` as askeden.com's chat (before: the Plus
+   allowance only).
+10. The model pool is the Ask Eden apps' (`appConfig`), on askeden.com's keys.
+11. New per-ask ceiling (`EDEN_APP_ASK_MAX_USD`, $0.50 by default). Over it, the model may be asked for fewer
+    `max_tokens` than the app sent (at least 1,024), or a cheaper tool model may answer (the `route` event says which).
+    Nothing fits: new 402 `over_ask_limit`.
+12. At most 2 suite turns at once per account (429 `slow_down`, `retry-after: 10`), inside askeden.com's own replies at
+    once (`EDEN_TURNS`: 2 on `main`, 10 live).
+13. No per-account `USER_RATE` limit any more; `API_RATE` (network, then account) and `AUTH_RATE` stay (§1).
+
+**`POST /api/creative/eves` (§6)**
+14. askeden.com's own EVES rules for every plan (at least two models on its keys), on the account's allowance. On
+    `main`, where askeden.com has no EVES, it's 503 `not_set_up` with `why`. Live, the overlay runs hosted EVES. Before,
+    it was Plus-only and assumed EVES was there.
+
+**Media (§7)**
+15. Video is paid from the account's own allowance, any plan (before: Plus only). The 402 words changed to "Not enough
+    of your Eden allowance is left for this clip. Make it shorter or smaller, or add credits on askeden.com (Settings ›
+    Account)." `allowance_left_usd` is what the account can spend now (on a weekly plan, this week's), plus credits.
+16. Speech counts the plan's own daily voice characters (free 20,000, Plus 100,000, live tiers their own). Before, it
+    was Plus only.
+17. A clip's hold no longer counts against the replies at once, so an Eden turn runs while up to 3 clips are made.
+18. `EDEN_VIDEOS` is on (`wrangler.toml`; the live site already had it on), so `generation.video.available` is true
+    where `GEMINI_API_KEY` is set.
+
+**Going live (§9)**
+19. It goes live as an overlay on the live tree (`scripts/deploy-creative-overlay.sh`), not as a merge. It adds one
+    Durable Object migration, `creative-rooms-v1`, for rooms.

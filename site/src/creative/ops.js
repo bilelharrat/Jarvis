@@ -3,35 +3,35 @@
 // gone) and only a `creative` one. account.js sends them here before its device check; the Worker (api.js) never
 // decides who may do what.
 //
-//   creative-me          the account's name, plan (and whether it's paid for), its usage as askeden.com shows it, the
-//                        voice, EVES, what can be generated and this connection
+//   creative-me          the account's name, plan (and whether it's paid for), its usage as askeden.com's account page
+//                        shows it, the voice, what can be generated and this connection (the Worker adds EVES)
 //   creative-check       the token, and on a costly route (`costly: true`) whether the allowance can pay for anything
 //                        (402 no_allowance, in askeden.com's own words): every route asks it first, and learns the
 //                        suite app the token was made for (a token is one app's only)
 //   creative-allow       what the AI allowance may spend now: account.allowAi
-//   creative-hold        a hold on it for one turn's worst case: account.holdAi, EDEN_TURNS at once (shared with chat)
+//   creative-hold        a hold on it for one turn's worst case: account.holdAi (EDEN_TURNS at once, shared with chat),
+//                        and at most CREATIVE_TURNS of the suite's at once
 //   creative-quote       a priced spec kept 10 minutes, once
 //   creative-job         a quote turned into a job: video held on the allowance, speech counted on the voice
 //   creative-job-get     a job, as the app sees it
 //   creative-job-result  a finished item's bytes, streamed from its pieces (never the whole clip in memory)
 //
 // One account, one allowance, one meter (owner, 2026-11-16): any askeden.com account may use Eden in every suite app,
-// and it spends exactly what askeden.com's own chat spends (account.js allowAi, holdAi, spend, voice): a month of Plus
-// for a Plus plan, else the free trial, then bought credits. There is no separate creative allowance and no Plus gate.
+// and it spends exactly what askeden.com's own chat spends (account.js allowAi, holdAi, spend, voice): the plan's own
+// allowance (by the month, or askeden.com's weekly slices where it has them), else the free trial, then bought credits.
+// There is no separate creative allowance and no Plus gate. What /me shows is the account's own view (account.js view):
+// the same plan, figures and wording as askeden.com's account page (public/eden/account.js).
 //
 // Jobs run on the account's one alarm (schedule.js, kind `creative`): `cjob:<id>` is a job's next step (the clip made, a
 // few lines read aloud), `cjobx:<id>` its expiry. A result is kept in pieces (`cres:<id>:<item>:<n>`) for MEDIA.keepMs.
 
 import { ApiError, randomBytes } from '../accounts/util.js';
 import { tokenCaller } from '../accounts/scoped.js';
-import { allowances } from '../accounts/account.js';
 import { scheduleJob, unscheduleJob } from '../accounts/schedule.js';
 import { LABEL, MEDIA, SUITE_APPS, fishSpeech, generationStatus, omniGenerate, voiceCeiling } from './media.js';
 
-// askeden.com runs no EVES on its own servers today, for any plan (eden/chat.js meta: `eves: false`, and the page hides
-// its switch): the suite follows that rule. When askeden.com runs EVES, POST /api/creative/eves runs it the same way
-// (feat/creative-eden had the pass-through onto eden/eves.js).
-export const EVES = { available: false, why: 'EVES isn’t on askeden.com yet, on any plan. Eden still answers; check names and facts yourself for now.' };
+/** At most this many of the suite's turns at once per account (its agent runs one at a time), inside chat's EDEN_TURNS. */
+export const CREATIVE_TURNS = 2;
 const NOT_CREATIVE = () => new ApiError(403, 'forbidden', 'This connection isn’t for the Creative Suite.');
 const hex = (n) => [...randomBytes(n)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const JOB_ID = /^[0-9a-f]{24}$/;
@@ -52,8 +52,13 @@ async function canSpend(account) {
   return allow;
 }
 
-/** Paid for: Plus bought in the App Store or with Stripe (a promo code's free Plus is Plus, but not paid). */
-export const paidPlan = (plan) => Boolean(plan.active) && ['app_store', 'stripe', 'both'].includes(plan.source);
+/**
+ * Paying for Eden (the apps allow the person's own API keys only then; owner, 2026-11-16): a plan bought in the App
+ * Store, with Stripe or on Google Play. A promo code's free Plus is Plus, but not paid for. The owner's own unlimited
+ * accounts count as paying (they hold every paid feature on askeden.com).
+ */
+export const PAID_SOURCES = ['app_store', 'stripe', 'both', 'google_play'];
+export const paidPlan = (plan) => Boolean(plan && plan.active) && (PAID_SOURCES.includes(plan.source) || Boolean(plan.unlimited));
 
 const connectionView = (t) => ({ id: t.id, app: t.app || null, created: t.created, expires_at: t.expires, last_used: t.last_used || null });
 
@@ -70,8 +75,15 @@ export async function creativeOp(account, op, body) {
     }
     case 'creative-allow':
       return account.allowAi();
-    case 'creative-hold':
-      return account.holdAi({ usd: body.usd });
+    case 'creative-hold': {
+      account.held(''); // expired holds go
+      if ([...account.holds.values()].filter((h) => h.creative).length >= CREATIVE_TURNS) {
+        throw new ApiError(429, 'slow_down', `Eden is already answering ${CREATIVE_TURNS} requests from the Creative Suite on this account; wait for one to finish.`, { 'retry-after': '10' });
+      }
+      const hold = await account.holdAi({ usd: body.usd });
+      if (hold.ok && account.holds.has(hold.hold)) account.holds.get(hold.hold).creative = true;
+      return hold;
+    }
     case 'creative-quote':
       return quote(account, token, body.quote);
     case 'creative-job':
@@ -85,68 +97,101 @@ export async function creativeOp(account, op, body) {
   }
 }
 
+/** The account's own view (plan and usage, as askeden.com's account page reads them): the same on every askeden.com. */
+const viewOf = (account) => account.view({ id: null, grant: null }, { slim: true });
+
 async function me(account, token) {
   const acct = await account.storage.get('account');
-  const plan = await account.planNow();
-  const usage = await account.usageNow();
-  const budget = plan.active ? await account.plusCap(plan) : 0;
+  const view = await viewOf(account);
+  const plan = view.plan || {};
+  const u = view.usage || {};
   const allow = await account.allowAi();
   const email = (await account.identities()).map((i) => i.email).find(Boolean) || null;
-  const caps = allowances(account.env);
-  const voice = (await account.storage.get('voice')) || {};
-  const today = new Date(account.now()).toISOString().slice(0, 10);
   const paying = paidPlan(plan);
+  const credits = round6(Number(allow.credits_usd) || 0);
   return {
     account: { id: acct.id, name: email, email },
     plus: Boolean(plan.active),
     paying,
-    plan: { name: plan.active ? 'plus' : 'free', paying, source: plan.source || null, unlimited: Boolean(plan.unlimited), renews: plan.renews ?? null, expires: plan.expires || null },
-    usage: usageView(plan, usage, budget, caps, allow),
-    eves: EVES,
-    allowance: {
-      period_start: Date.parse(`${usage.month}-01T00:00:00Z`),
-      period_end: nextMonth(usage.month),
-      budget_usd: budget,
-      used_usd: round6(usage.spent),
-      left_usd: round6(Math.max(0, budget - usage.spent)),
-      credits_usd: round6(Number(allow.credits_usd) || 0),
+    plan: {
+      name: plan.active ? 'plus' : 'free', // askeden.com's own: "plus" for every paid plan
+      label: plan.label || (plan.active ? 'Plus' : 'Free'), // what askeden.com shows: Plus, Pro, Max, Ultra, Platinum, Eden Black…
+      tier: plan.tier || null,
+      paying,
+      source: plan.source || null,
+      unlimited: Boolean(plan.unlimited),
+      renews: plan.renews ?? null,
+      expires: plan.expires || null,
     },
-    voice: { today_chars: voice.day === today ? voice.chars : 0, daily_chars: plan.active ? caps.voicePlus : caps.voiceFree },
+    usage: usageView(plan, u, allow, credits),
+    allowance: {
+      period_start: u.period_start ?? null,
+      period_end: u.period_end ?? null,
+      budget_usd: Number(u.budget_usd) || 0,
+      used_usd: round6(Number(u.spent_usd) || 0),
+      left_usd: round6(Number(u.left_usd) || 0),
+      credits_usd: credits,
+    },
+    voice: { today_chars: Number(u.voice_today) || 0, daily_chars: Number(u.voice_daily) || 0 },
     connection: connectionView(token),
     generation: generationStatus(account.env),
   };
 }
 
 /**
- * The allowance as askeden.com's account page shows it (public/eden/account.js): with Plus, "Included AI this month"
- * and the percentage left, starting again on the 1st; without, "Trial AI" and the percentage left, used once, not
- * monthly. Credits are dollars. `can_use` and `why` are what a turn would meet now (account.js allowAi).
+ * The account's usage as askeden.com's account page shows it (public/eden/account.js), from the account's own view:
+ * - a plan released weekly (ALLOWANCE_V2): "This week", what's left of the week's slice and about how many answers,
+ *   more arriving at `renews_at`; `period` is "This period" beside it;
+ * - a plan without a weekly limit there (Eden Black's default): "This period";
+ * - a plan by the month: "Included AI this month", starting again on the 1st;
+ * - no plan: "Trial AI", used once, not monthly (renews_at null).
+ * Percentages as the page rounds them; dollars of list price behind them; credits apart. `can_use` and `why` are what
+ * a turn would meet now (account.js allowAi, the same words).
  */
-function usageView(plan, usage, budget, caps, allow) {
-  const monthly = Boolean(plan.active);
-  const total = monthly ? budget : caps.trial;
-  const used = Math.min(total, monthly ? usage.spent : usage.trial_spent || 0);
-  const left = Math.max(0, total - used);
-  const pct = (x) => (total > 0 ? Math.max(0, Math.min(100, Math.round((x / total) * 100))) : 0);
+export function usageView(plan, u, allow, credits = 0) {
+  const pct = (left, total) => (Number(total) > 0 ? Math.max(0, Math.min(100, Math.round(((Number(left) || 0) / Number(total)) * 100))) : 0);
+  const weekly = Boolean(plan.active) && typeof u.week_left_usd === 'number';
+  let meter;
+  let label;
+  let left;
+  let total;
+  let renews;
+  let answers = null;
+  let period = null;
+  if (weekly && u.weekly_limit !== false) {
+    meter = 'weekly';
+    label = 'This week';
+    left = u.week_left_usd;
+    total = Math.max(u.week_left_usd, Number(u.week_slice_usd) || 0);
+    renews = u.week_end || null;
+    answers = Number.isFinite(Number(u.week_answers_left)) && u.week_answers_left !== null ? Math.floor(Number(u.week_answers_left)) : null;
+    period = { label: 'This period', percent_left: pct(u.left_usd, u.budget_usd), left_usd: round6(Number(u.left_usd) || 0), total_usd: round6(Number(u.budget_usd) || 0), ends_at: u.period_end ?? null };
+  } else if (weekly) {
+    [meter, label, left, total, renews] = ['period', 'This period', u.left_usd, u.budget_usd, u.period_end ?? null];
+  } else if (plan.active) {
+    [meter, label, left, total, renews] = ['monthly', 'Included AI this month', u.left_usd, u.budget_usd, u.period_end ?? null];
+  } else {
+    [meter, label, left, total, renews] = ['trial', 'Trial AI', u.trial_left_usd, u.trial_usd, null];
+  }
+  left = Math.max(0, Number(left) || 0);
+  total = Math.max(0, Number(total) || 0);
+  const percentLeft = pct(left, total);
   return {
-    meter: monthly ? 'monthly' : 'trial',
-    label: monthly ? 'Included AI this month' : 'Trial AI',
-    percent_used: total > 0 ? pct(used) : 100,
-    percent_left: pct(left),
-    used_usd: round6(used),
+    meter,
+    label,
+    percent_used: total > 0 ? 100 - percentLeft : 100,
+    percent_left: percentLeft,
+    used_usd: round6(Math.max(0, total - left)),
     left_usd: round6(left),
     total_usd: round6(total),
-    renews_at: monthly ? nextMonth(usage.month) : null,
-    credits_usd: round6(Number(allow.credits_usd) || 0),
+    renews_at: renews,
+    answers_left: answers,
+    period,
+    credits_usd: credits,
     can_use: Boolean(allow.ok),
     why: allow.ok ? null : allow.why || null,
   };
 }
-
-const nextMonth = (key) => {
-  const [y, m] = key.split('-').map(Number);
-  return Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1);
-};
 
 // ── quotes ──
 
@@ -187,11 +232,8 @@ async function quote(account, token, q) {
 }
 
 async function voiceLeftToday(account) {
-  const plan = await account.planNow();
-  const caps = allowances(account.env);
-  const voice = (await account.storage.get('voice')) || {};
-  const today = new Date(account.now()).toISOString().slice(0, 10);
-  return Math.max(0, (plan.active ? caps.voicePlus : caps.voiceFree) - (voice.day === today ? voice.chars : 0));
+  const { usage: u = {} } = await viewOf(account); // the plan's own daily characters, as account.js voice counts them
+  return Math.max(0, (Number(u.voice_daily) || 0) - (Number(u.voice_today) || 0));
 }
 
 // ── jobs ──

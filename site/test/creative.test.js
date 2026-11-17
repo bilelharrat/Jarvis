@@ -12,8 +12,9 @@ import { forgetSessions } from '../src/eden/session.js';
 
 import { callbackFor, linkRequest } from '../src/creative/api.js';
 import { DATA_RULE, TOOL_MODELS, TURN as LIMITS, fitTurn, parseTurn, systemFor, toolModels } from '../src/creative/turn.js';
-import { pricesReady } from '../src/accounts/proxy.js';
 import { parseMedia } from '../src/creative/media.js';
+import { EVES_HERE } from '../src/creative/eves.js';
+import { CREATIVE_TURNS, creativeOp } from '../src/creative/ops.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, readEvents, sseBody } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
@@ -55,7 +56,9 @@ const toolCall = ({ name = 'find_silences', input = { min_seconds: 1.5 }, text =
   ];
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  // the live site's hosted EVES (scripts/creative-overlay): its vault starts empty for each test
+  if (EVES_HERE) (await import('../src/eden/eves.js')).clearHostedEvesVault();
   waits = [];
   sent = [];
   forgetAppleKeys();
@@ -341,15 +344,16 @@ test('/me: the account, its plan and whether it’s paid for, its usage as asked
   const free = await (await hit('/api/creative/me', { bearer: a.token })).json();
   assert.equal(free.plus, false, 'works without Plus, and says so');
   assert.equal(free.paying, false);
-  assert.deepEqual(free.plan, { name: 'free', paying: false, source: null, unlimited: false, renews: null, expires: null });
+  assert.deepEqual(free.plan, { name: 'free', label: 'Free', tier: free.plan.tier, paying: false, source: null, unlimited: false, renews: null, expires: null });
+  assert.ok([null, 'free'].includes(free.plan.tier), 'askeden.com’s own tier, where it has them');
   assert.equal(free.account.id, a.account);
   assert.equal(free.connection.app, 'scorsese');
   // askeden.com's own meter for a free account: the trial, in percent left, used once (not monthly)
-  assert.deepEqual(free.usage, { meter: 'trial', label: 'Trial AI', percent_used: 0, percent_left: 100, used_usd: 0, left_usd: 1, total_usd: 1, renews_at: null, credits_usd: 0, can_use: true, why: null });
+  assert.deepEqual(free.usage, { meter: 'trial', label: 'Trial AI', percent_used: 0, percent_left: 100, used_usd: 0, left_usd: 1, total_usd: 1, renews_at: null, answers_left: null, period: null, credits_usd: 0, can_use: true, why: null });
   assert.equal(free.allowance.budget_usd, 0, 'the old Plus-month figures stay as they were, for older builds');
   assert.equal(free.voice.daily_chars, 20000, 'the free voice allowance, as askeden.com’s');
-  assert.equal(free.eves.available, false, 'EVES as askeden.com has it: not on its servers, for any plan');
-  assert.match(free.eves.why, /EVES isn’t on askeden\.com yet/);
+  assert.equal(free.eves.available, EVES_HERE, 'EVES as askeden.com has it, the same for every plan');
+  if (!EVES_HERE) assert.match(free.eves.why, /EVES isn’t on askeden\.com yet/);
   assert.equal(free.generation.voice_clone.available, false);
   assert.match(free.generation.voice_clone.why, /consent/);
   // the trial spent down a little: the same figures askeden.com's account page shows
@@ -371,6 +375,7 @@ test('/me: the account, its plan and whether it’s paid for, its usage as asked
   assert.equal(plus.plus, true);
   assert.equal(plus.paying, true, 'Plus bought in the App Store is paid for');
   assert.equal(plus.plan.name, 'plus');
+  assert.equal(plus.plan.label, 'Plus');
   assert.equal(plus.plan.source, 'app_store');
   assert.equal(plus.usage.meter, 'monthly');
   assert.equal(plus.usage.label, 'Included AI this month');
@@ -382,7 +387,7 @@ test('/me: the account, its plan and whether it’s paid for, its usage as asked
   assert.equal(plus.allowance.left_usd, 15);
   assert.equal(plus.voice.daily_chars, 100000);
   assert.ok(plus.allowance.period_end > plus.allowance.period_start);
-  assert.equal(plus.eves.available, false, 'the same EVES rule with Plus');
+  assert.equal(plus.eves.available, free.eves.available, 'the same EVES rule with Plus');
   assert.ok(!JSON.stringify(plus).includes(parseScopedToken(a.token).secret), 'no secrets');
 
   // free Plus from a promo code is Plus, but not paid for: own keys stay off in the apps
@@ -428,7 +433,22 @@ test('without Plus: Eden turns, quotes and jobs run on the account’s own trial
   assert.equal((await hit('/api/creative/me', { bearer: a.token })).status, 200);
 });
 
-test('EVES follows askeden.com: not on its servers for any plan, said plainly (503 not_set_up) before anything is read or asked', async () => {
+test('at most two of the suite’s turns at once per account (inside askeden.com’s own replies at once); a finished one frees its place', async () => {
+  const a = await linked();
+  const { id, secret } = parseScopedToken(a.token);
+  const account = object(a.account);
+  const holds = [];
+  for (let i = 0; i < CREATIVE_TURNS; i++) {
+    const h = await creativeOp(account, 'creative-hold', { id, secret, usd: 0.01 });
+    assert.equal(h.ok, true);
+    holds.push(h.hold);
+  }
+  await assert.rejects(creativeOp(account, 'creative-hold', { id, secret, usd: 0.01 }), (e) => e.status === 429 && e.code === 'slow_down' && e.headers['retry-after'] === '10');
+  account.release({ hold: holds[0] });
+  assert.equal((await creativeOp(account, 'creative-hold', { id, secret, usd: 0.01 })).ok, true);
+});
+
+test('EVES follows askeden.com: not on its servers for any plan, said plainly (503 not_set_up) before anything is read or asked', { skip: EVES_HERE && 'askeden.com runs EVES here: the test below' }, async () => {
   const free = await linked({ plus: false });
   const plus = await linked({ sub: 'apple-user-2' });
   for (const who of [free, plus]) {
@@ -608,7 +628,6 @@ test('the tool models: the Ask Eden apps’ pool on askeden.com’s own keys, on
 });
 
 test('one turn costs at most what one ask from an app’s token may (EDEN_APP_ASK_MAX_USD): a shorter reply, a cheaper model, or 402 over_ask_limit', async () => {
-  await pricesReady();
   const pool = (await toolModels({ ANTHROPIC_API_KEY: 'k', GEMINI_API_KEY: 'g', EDEN_MODELS: 'claude-opus-5-5,claude-sonnet-5-5,gemini-3.8-flash' })).pool;
   const opus = { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'anthropic', effort: null };
   // well under the ceiling: as picked
@@ -698,6 +717,41 @@ test('an Eden turn: the allowance is held first (402 when it can’t pay), a pro
   assert.deepEqual(cut.map((e) => e.type), ['route', 'text', 'usage', 'error', 'done']);
   assert.equal(cut.at(-1).data.stop_reason, 'error');
   assert.ok((await usage(a.account)).spent > 0);
+});
+
+test('EVES on a caption where askeden.com runs it: its own EVES run, on the account’s allowance, its events passed through', { skip: !EVES_HERE && 'askeden.com runs no EVES here: the test above' }, async () => {
+  env = makeEnv({ ANTHROPIC_API_KEY: '', OPENAI_API_KEY: 'o-test', GEMINI_API_KEY: 'g-test', EDEN_MODELS: 'gpt-6.1-sol,gemini-3.8-flash' });
+  const a = await linked({ plus: false }); // any plan, as on askeden.com
+  const answer = '“1968” is wrong: Neil Armstrong walked on the Moon on July 20, 1969.';
+  const openai = (text) => [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: null }] })}`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}`,
+    `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 400, completion_tokens: 60 } })}`,
+    'data: [DONE]',
+  ].join('\n\n') + '\n\n';
+  const gemini = (text) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text }] }, finishReason: 'STOP', groundingMetadata: { webSearchQueries: ['apollo 11'], groundingChunks: [{ web: { uri: 'https://www.nasa.gov/apollo-11/', title: 'NASA' } }] } }], usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 80 } })}\n\n`;
+  const stream = (body) => new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  providers = [
+    [(u) => u === 'https://api.openai.com/v1/chat/completions', () => stream(openai(answer))],
+    [(u) => u === 'https://api.openai.com/v1/responses', () => stream(openai(answer))],
+    [(u) => u.includes('generativelanguage.googleapis.com') && u.includes(':streamGenerateContent'), () => stream(gemini(answer))],
+  ];
+  const r = await hit('/api/creative/eves', { method: 'POST', bearer: a.token, body: { app: 'scorsese', kind: 'captions', text: 'Neil Armstrong walked on the Moon in 1968.', language: 'en' } });
+  assert.equal(r.status, 200, await r.clone().text());
+  const events = await readEvents(r);
+  const types = events.map((e) => e.type);
+  for (const t of ['eves', 'verification', 'end']) assert.ok(types.includes(t), `${t} in ${types.join(',')}`);
+  const asked = sent.filter((s) => s.url.includes('openai') || s.url.includes('generativelanguage')).map((s) => JSON.stringify(s.payload));
+  assert.ok(asked.some((p) => p.includes('Neil Armstrong walked on the Moon in 1968.')), 'EVES was asked about the caption');
+  assert.ok(asked.some((p) => p.includes('Check the names, places, dates, numbers and facts in these captions')));
+  assert.ok((await usage(a.account)).trial_spent > 0, 'paid on the account’s own allowance (the trial, here)');
+  assert.equal(object(a.account).holds.size, 0);
+  // the checks: a text, captions or a transcript, at most 20,000 characters
+  for (const body of [{ app: 'scorsese', kind: 'poem', text: 'x' }, { app: 'scorsese', kind: 'captions', text: '' }, { app: 'scorsese', kind: 'captions', text: 'x'.repeat(20_001) }]) {
+    assert.ok([400, 413].includes((await hit('/api/creative/eves', { method: 'POST', bearer: a.token, body })).status));
+  }
+  const { evesPrompt } = await import('../src/creative/eves.js');
+  assert.match(evesPrompt({ app: 'scorsese', kind: 'transcript', text: 'a """ b', language: '' }), /from a video in Scorsese/);
 });
 
 // ── generated media ──

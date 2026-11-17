@@ -121,6 +121,9 @@ OWNER_DOMAINS = "askeden.com" # verified emails here may make their account whil
 # neurons (about 100 pictures, less what dictation uses) on the Workers Free plan, where going over
 # fails; raise it once the account is on Workers Paid.
 IMAGES_DAILY_PER_ACCOUNT = "40"
+# Generated B-roll for the Creative Suite (src/creative/media.js, Gemini Omni Flash on GEMINI_API_KEY): priced first in the
+# app, then paid from the account's own allowance, exactly the quote, on success only (owner decision 2026-11-16).
+EDEN_VIDEOS = "on"
 IMAGES_DAILY_TOTAL = "60"
 
 # Dictation by recording where the browser has no speech recognition (Firefox; ROADMAP G7.2):

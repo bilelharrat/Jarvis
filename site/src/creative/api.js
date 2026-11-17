@@ -7,7 +7,7 @@
 //   POST /api/creative/revoke        the token stops at once (also from askeden.com › Account › Connected apps)
 //   GET  /api/creative/me            name, plan (and whether it's paid for), usage as askeden.com shows it, and more
 //   POST /api/creative/eden          one model turn, streamed; the app's tools passed to the model, never run here
-//   POST /api/creative/eves          EVES as askeden.com has it: today not on its servers, for any plan (503)
+//   POST /api/creative/eves          EVES on a caption or transcript, as askeden.com has it (creative/eves.js)
 //   POST /api/creative/quote         a price for generated media, before anything runs
 //   POST /api/creative/jobs          the quoted job; GET /api/creative/jobs/:id its progress; …/result the file
 //
@@ -26,7 +26,7 @@ import { ApiError, webAllowed } from '../accounts/util.js';
 import { currentSession } from '../eden/session.js';
 import { json, page, problem, sameOrigin } from '../eden/web.js';
 import { MEDIA, parseMedia, priceFor, specHash } from './media.js';
-import { EVES } from './ops.js';
+import { EVES_HERE, creativeEves, evesStatus } from './eves.js';
 import { APPS, edenTurn } from './turn.js';
 
 // Each suite app's own scheme: macOS hands a URL scheme to one app only, and the PKCE verifier is in the app that
@@ -217,12 +217,6 @@ async function revoke(request, env) {
   return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
 }
 
-// ── EVES ──
-// askeden.com's own rule (ops.js EVES): no EVES on its servers today, for any plan. Said plainly, before the body is
-// read; the app keeps its EVES button off (GET /api/creative/me `eves`).
-
-const evesOff = () => new ApiError(503, 'not_set_up', EVES.why);
-
 // ── generated media ──
 
 async function quote(request, env, who) {
@@ -306,18 +300,18 @@ export async function creativeApi(request, env, ctx, path) {
     await limited(env, 'API_RATE', `creative-ip:${clientIp(request)}`);
     const who = bearer(request, env);
     if (route === 'revoke') return await revoke(request, env); // checked there, and nothing to count it against
-    const costly = route === 'eden' || route === 'quote' || route === 'jobs';
+    const costly = route === 'eden' || route === 'quote' || route === 'jobs' || (route === 'eves' && EVES_HERE);
     // the token (and, where it costs, that the allowance can pay) before anything is counted or read for it; it says
     // which app it's for
     who.app = (await call(env, who.account, 'creative-check', scoped(who, { costly }))).app;
     await limited(env, 'API_RATE', `creative:${who.account}`);
-    if (route === 'me') return json(await call(env, who.account, 'creative-me', scoped(who)));
+    if (route === 'me') return json({ ...(await call(env, who.account, 'creative-me', scoped(who))), eves: await evesStatus(env, request) });
     if (route === 'job') {
       const [, id, isResult] = JOB_PATH.exec(path);
       if (isResult) return await jobResult(env, who, id, new URL(request.url));
       return json(await call(env, who.account, 'creative-job-get', scoped(who, { job: id })));
     }
-    if (route === 'eves') throw evesOff();
+    if (route === 'eves') return await creativeEves(request, env, ctx, who, (cap) => readJsonBody(request, cap), sameApp);
     if (route === 'eden') return await edenTurn(request, env, ctx, who, sameApp(await readJsonBody(request, LIMITS.turnBytes), who));
     if (route === 'quote') return await quote(request, env, who);
     return await startJob(request, env, who);
