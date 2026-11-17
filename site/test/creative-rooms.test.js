@@ -102,6 +102,22 @@ async function refused(response, status, code) {
 const roomOf = (id) => env.CREATIVE_ROOMS.objects.get(`room:${id}`);
 const indexOf = (name) => env.CREATIVE_ROOMS.objects.get(name);
 const mailKey = async (email) => `mail:${await sha256Hex(email)}`;
+const PK = /^m_[A-Za-z0-9_-]{12}$/; // a member's key: the room's own, never an account id
+const ACCOUNTS = Object.values(PEOPLE).map((p) => p.account);
+
+/** Each person's key in a room, as its owner sees them: by first name once in, by email while invited. */
+async function keysOf(id, token = 'dev-ana') {
+  const { room } = await ok(await call(token, `/${id}`));
+  for (const m of room.members) assert.match(m.key, PK);
+  return Object.fromEntries(room.members.map((m) => [m.status === 'in' ? m.name.toLowerCase() : m.email, m.key]));
+}
+
+/** Nothing a room sends or answers names an account. */
+function noAccounts(value, what = 'it') {
+  const text = JSON.stringify(value);
+  for (const account of ACCOUNTS) assert.ok(!text.includes(account), `${what} names ${account}: ${text.slice(0, 400)}`);
+  assert.ok(!/"account"/.test(text), `${what} has an account field`);
+}
 
 async function makeRoom(token = 'dev-ana', name = 'Trailer') {
   return (await ok(await call(token, '', { method: 'POST', body: { name } }), 201)).room;
@@ -204,20 +220,23 @@ test('the real check: a `creative` token verified in its account object; malform
     env.LINKS = namespace(Link, env);
     const made = await worker.fetch(new Request('https://askeden.com/api/account/apple', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identity_token: await identityToken({ sub: 'rooms-ana' }), nonce: 'raw-nonce', device: { name: 'iPhone', kind: 'iphone' } }) }), env, {});
     assert.equal(made.status, 200, await made.clone().text());
-    const account = (await made.json()).account.id;
+    const signedIn = await made.json();
+    const account = signedIn.account.id;
     const object = env.ACCOUNTS.objects.get(account);
     await object.storage.put('identities', [{ provider: 'google', sub_hash: 'x', email: 'ana.real@example.com', added: Date.now() }]);
     // A connection as the link flow leaves it (accounts/scoped.js `scoped:<id>`; creative.test.js runs the flow itself).
     const mint = async (client = 'creative', expires = Date.now() + 86400_000) => {
       const id = [...randomBytes(8)].map((b) => b.toString(16).padStart(2, '0')).join('');
       const secret = b64url(randomBytes(32));
-      await object.storage.put(`scoped:${id}`, { id, client, scope: client === 'creative' ? 'creative' : 'ask', secret_hash: await sha256Hex(secret), created: Date.now(), expires, last_used: Date.now() });
+      await object.storage.put(`scoped:${id}`, { id, client, scope: client === 'creative' ? 'creative' : 'ask', ...(client === 'creative' ? { app: 'scorsese' } : {}), secret_hash: await sha256Hex(secret), created: Date.now(), expires, last_used: Date.now() });
       return { id, secret, token: `es1.${account}.${id}.${secret}` };
     };
     const good = await mint();
     const real = (token, path = '', init = {}) => call(token, path, { base: 'https://askeden.com', ...init });
     const { room } = await ok(await real(good.token, '', { method: 'POST', body: { name: 'Real' } }), 201);
-    assert.deepEqual([room.owner, room.you.key, room.you.email, room.you.name], [account, account, 'ana.real@example.com', 'ana.real@example.com']);
+    assert.deepEqual([room.owner, room.you.email, room.you.name], [room.you.key, 'ana.real@example.com', 'ana.real@example.com']);
+    assert.match(room.you.key, PK);
+    assert.ok(!JSON.stringify(room).includes(account), 'the account id never comes back');
     assert.deepEqual((await ok(await real(good.token))).rooms.map((r) => r.id), [room.id]);
     assert.deepEqual(await verifyCreativeToken(new Request('https://askeden.com/x', { headers: { authorization: `Bearer ${good.token}` } }), env), { account, name: 'ana.real@example.com', email: 'ana.real@example.com' });
     const expired = (await mint('creative', Date.now() - 1)).token;
@@ -230,6 +249,14 @@ test('the real check: a `creative` token verified in its account object; malform
     delete env.EDEN_ACCOUNTS;
     await object.storage.delete(`scoped:${good.id}`); // revoked
     await refused(await real(good.token), 401, 'not_connected');
+
+    // Deleting the account (the iPhone app's Delete Account) deletes the room it owns, and its index (the review's
+    // M4; the account-deletion test below has the rest).
+    const erased = await worker.fetch(new Request('https://askeden.com/api/account', { method: 'DELETE', headers: { authorization: `Bearer ${signedIn.token}` } }), env, {});
+    assert.equal(erased.status, 204, await erased.clone().text());
+    assert.equal(roomOf(room.id).storage.map.size, 0, 'the room is gone');
+    assert.equal(indexOf(`idx:acct:${account}`).storage.map.size, 0, 'and its index');
+    assert.equal(indexOf(`idx:mail:${await sha256Hex('ana.real@example.com')}`)?.storage.map.size ?? 0, 0, 'and its email’s');
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -241,34 +268,42 @@ test('a room: made, an invite by email, the invite becomes a member at first sig
   const room = await makeRoom('dev-ana', '  Trailer\u0000 cut ');
   assert.match(room.id, /^[A-Za-z0-9_-]{22}$/);
   assert.equal(room.name, 'Trailer cut');
-  assert.equal(room.owner, 'acct-ana');
   assert.equal(room.head, 0);
   assert.equal(room.snapshot, null);
   assert.deepEqual(room.settings, { invite: 'owner' });
-  assert.deepEqual(room.you, { key: 'acct-ana', account: 'acct-ana', name: 'Ana', email: 'ana@example.com', role: 'owner', slot: 0, status: 'in', here: false });
+  const anaKey = room.you.key;
+  assert.match(anaKey, PK);
+  assert.equal(room.owner, anaKey);
+  assert.deepEqual(room.you, { key: anaKey, name: 'Ana', email: 'ana@example.com', role: 'owner', slot: 0, status: 'in', here: false });
+  noAccounts(room, 'the room');
 
   const ana = await connect('dev-ana', room.id);
-  const maya = await mailKey('maya@example.com');
   const { member } = await ok(await invite(room.id, ' Maya@Example.com ', 'edit'), 201);
-  assert.deepEqual(member, { key: maya, account: null, name: 'maya@example.com', email: 'maya@example.com', role: 'edit', slot: 1, status: 'pending', here: false });
-  assert.deepEqual(only(ana.take(), 'members')[0].members.map((m) => [m.key, m.status]), [['acct-ana', 'in'], [maya, 'pending']]);
+  const maya = member.key;
+  assert.match(maya, PK);
+  assert.notEqual(maya, anaKey);
+  assert.deepEqual(member, { key: maya, name: 'maya@example.com', email: 'maya@example.com', role: 'edit', slot: 1, status: 'pending', here: false });
+  assert.deepEqual(only(ana.take(), 'members')[0].members.map((m) => [m.key, m.status]), [[anaKey, 'in'], [maya, 'pending']]);
   await refused(await invite(room.id, 'maya@example.com', 'view'), 409, 'already');
   await refused(await invite(room.id, 'ANA@example.com', 'view'), 409, 'already');
 
-  assert.deepEqual((await ok(await call('dev-maya', ''))).rooms, [{ id: room.id, name: 'Trailer cut', role: 'edit', owner: 'acct-ana', ownerName: 'Ana', status: 'pending' }]);
+  // The listing names the owner, never their account (the review's M2: no account ids to anyone else).
+  assert.deepEqual((await ok(await call('dev-maya', ''))).rooms, [{ id: room.id, name: 'Trailer cut', role: 'edit', ownerName: 'Ana', status: 'pending' }]);
   assert.deepEqual((await ok(await call('dev-jon', ''))).rooms, []);
   await refused(await call('dev-jon', `/${room.id}`), 404, 'not_found');
 
-  // Maya signs in with that email: she's in, on the slot her invite had.
+  // Maya signs in with that email: she's in, on the slot and with the key her invite had.
   const seen = await ok(await call('dev-maya', `/${room.id}`));
-  assert.deepEqual(seen.room.you, { key: 'acct-maya', account: 'acct-maya', name: 'Maya', email: 'maya@example.com', role: 'edit', slot: 1, status: 'in', here: false });
-  assert.deepEqual(seen.room.members.map((m) => [m.key, m.slot, m.status, m.here]), [['acct-ana', 0, 'in', true], ['acct-maya', 1, 'in', false]]);
+  assert.deepEqual(seen.room.you, { key: maya, name: 'Maya', email: 'maya@example.com', role: 'edit', slot: 1, status: 'in', here: false });
+  assert.deepEqual(seen.room.members.map((m) => [m.key, m.slot, m.status, m.here]), [[anaKey, 0, 'in', true], [maya, 1, 'in', false]]);
+  noAccounts(seen, 'what Maya sees');
   const told = ana.take();
-  assert.deepEqual(only(told, 'members')[0].members.map((m) => m.key), ['acct-ana', 'acct-maya']);
-  assert.deepEqual(only(told, 'activity').map((f) => [f.activity.kind, f.activity.by, f.activity.text]), [['member', 'acct-maya', 'joined']]);
-  assert.deepEqual((await ok(await call('dev-maya', ''))).rooms, [{ id: room.id, name: 'Trailer cut', role: 'edit', owner: 'acct-ana', ownerName: 'Ana', status: 'in' }]);
-  assert.equal(indexOf(`idx:mail:${maya.slice(5)}`).storage.map.size, 0, 'the email’s invite is gone from its index');
-  assert.deepEqual((await ok(await call('dev-ana', ''))).rooms, [{ id: room.id, name: 'Trailer cut', role: 'owner', owner: 'acct-ana', ownerName: 'Ana', status: 'in' }]);
+  noAccounts(told, 'the frames');
+  assert.deepEqual(only(told, 'members')[0].members.map((m) => m.key), [anaKey, maya]);
+  assert.deepEqual(only(told, 'activity').map((f) => [f.activity.kind, f.activity.by, f.activity.text]), [['member', maya, 'joined']]);
+  assert.deepEqual((await ok(await call('dev-maya', ''))).rooms, [{ id: room.id, name: 'Trailer cut', role: 'edit', ownerName: 'Ana', status: 'in' }]);
+  assert.equal(indexOf(`idx:mail:${(await mailKey('maya@example.com')).slice(5)}`).storage.map.has(`r:${room.id}`), false, 'the email’s invite is gone from its index');
+  assert.deepEqual((await ok(await call('dev-ana', ''))).rooms, [{ id: room.id, name: 'Trailer cut', role: 'owner', ownerName: 'Ana', status: 'in' }]);
 
   // Emails compare lower-cased: Lee's token says Lee@Example.COM.
   await ok(await invite(room.id, 'lee@example.com', 'view'), 201);
@@ -279,6 +314,7 @@ test('a room: made, an invite by email, the invite becomes a member at first sig
 
 test('roles: a viewer watches, a commenter comments, an editor edits (and invites only when allowed), only the owner runs the room', async () => {
   const room = await roomWith({ maya: 'edit', jon: 'comment', lee: 'view' });
+  const keys = await keysOf(room.id);
   const [ana, maya, jon, lee] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id), await connect('dev-jon', room.id), await connect('dev-lee', room.id)];
   for (const ws of [ana, maya, jon, lee]) await hello(room.id, ws);
   const note = { t: 'comment', op: 'add', cid: 'c1', sequence: 1, clip: 2, offset: 0, time: 0, text: 'Hi' };
@@ -287,14 +323,14 @@ test('roles: a viewer watches, a commenter comments, an editor edits (and invite
   assert.deepEqual(lee.take().map((f) => [f.t, f.code, f.id]), [['error', 'forbidden', 'op-1']]);
   await send(room.id, lee, note);
   assert.deepEqual(lee.take().map((f) => [f.t, f.code, f.cid]), [['error', 'forbidden', 'c1']]);
-  await send(room.id, lee, { t: 'note', to: 'acct-ana', text: 'hey' });
+  await send(room.id, lee, { t: 'note', to: keys.ana, text: 'hey' });
   assert.equal(lee.take()[0].code, 'forbidden');
   await send(room.id, jon, op(2));
   assert.deepEqual(jon.take().map((f) => [f.t, f.code, f.id]), [['error', 'forbidden', 'op-2']]);
   await send(room.id, jon, note);
   assert.equal(only(ana.take(), 'comment').length, 1, 'a commenter’s comment reaches everyone');
   await send(room.id, maya, op(3));
-  assert.deepEqual(only(ana.take(), 'op').map((f) => [f.seq, f.by]), [[1, 'acct-maya']]);
+  assert.deepEqual(only(ana.take(), 'op').map((f) => [f.seq, f.by]), [[1, keys.maya]]);
   assert.equal(roomOf(room.id).storage.map.has('op:0000000000000002'), false, 'nothing but the editor’s op was ordered');
 
   await refused(await invite(room.id, 'x@example.com', 'view', 'dev-maya'), 403, 'forbidden');
@@ -304,21 +340,22 @@ test('roles: a viewer watches, a commenter comments, an editor edits (and invite
   await refused(await invite(room.id, 'y@example.com', 'view', 'dev-jon'), 403, 'forbidden');
   await refused(await invite(room.id, 'y@example.com', 'view', 'dev-lee'), 403, 'forbidden');
 
-  for (const [path, method, body] of [[`/${room.id}/members/acct-jon`, 'PATCH', { role: 'edit' }], [`/${room.id}`, 'PATCH', { name: 'Mine' }], [`/${room.id}`, 'DELETE'], [`/${room.id}/members/acct-jon`, 'DELETE']]) {
+  for (const [path, method, body] of [[`/${room.id}/members/${keys.jon}`, 'PATCH', { role: 'edit' }], [`/${room.id}`, 'PATCH', { name: 'Mine' }], [`/${room.id}`, 'DELETE'], [`/${room.id}/members/${keys.jon}`, 'DELETE']]) {
     await refused(await call('dev-maya', path, { method, body }), 403, 'forbidden');
   }
   await refused(await putSnapshot('dev-jon', room.id, new Uint8Array([1]), 0, 'h'), 403, 'forbidden');
   await refused(await putSnapshot('dev-lee', room.id, new Uint8Array([1]), 0, 'h'), 403, 'forbidden');
 
-  await refused(await call('dev-ana', `/${room.id}/members/acct-jon`, { method: 'PATCH', body: { role: 'owner' } }), 400, 'bad_request');
-  await refused(await call('dev-ana', `/${room.id}/members/acct-ana`, { method: 'PATCH', body: { role: 'view' } }), 409, 'owner');
+  await refused(await call('dev-ana', `/${room.id}/members/${keys.jon}`, { method: 'PATCH', body: { role: 'owner' } }), 400, 'bad_request');
+  await refused(await call('dev-ana', `/${room.id}/members/${keys.ana}`, { method: 'PATCH', body: { role: 'view' } }), 409, 'owner');
   await refused(await call('dev-ana', `/${room.id}/members/me`, { method: 'DELETE' }), 409, 'owner');
-  await refused(await call('dev-ana', `/${room.id}/members/acct-nobody`, { method: 'PATCH', body: { role: 'view' } }), 404, 'not_found');
+  await refused(await call('dev-ana', `/${room.id}/members/m_AAAAAAAAAAAA`, { method: 'PATCH', body: { role: 'view' } }), 404, 'not_found');
+  await refused(await call('dev-ana', `/${room.id}/members/acct-jon`, { method: 'PATCH', body: { role: 'view' } }), 404, 'not_found'); // an account id names no one
 
   // The owner makes Jon an editor: his next op goes through at once, and his index entry says so.
-  const changed = await ok(await call('dev-ana', `/${room.id}/members/acct-jon`, { method: 'PATCH', body: { role: 'edit' } }));
+  const changed = await ok(await call('dev-ana', `/${room.id}/members/${keys.jon}`, { method: 'PATCH', body: { role: 'edit' } }));
   assert.equal(changed.member.role, 'edit');
-  assert.ok(only(ana.take(), 'members').at(-1).members.some((m) => m.key === 'acct-jon' && m.role === 'edit'));
+  assert.ok(only(ana.take(), 'members').at(-1).members.some((m) => m.key === keys.jon && m.role === 'edit'));
   jon.take();
   await send(room.id, jon, op(4));
   assert.deepEqual(only(jon.take(), 'op').map((f) => f.seq), [2]);
@@ -336,7 +373,7 @@ test('slots: 0 for the owner, then one each in invite order, never reused; at mo
   const slot = async (email, role = 'edit') => (await ok(await invite(room.id, email, role), 201)).member.slot;
   assert.equal(await slot('maya@example.com'), 1);
   assert.equal(await slot('jon@example.com'), 2);
-  await ok(await call('dev-ana', `/${room.id}/members/${encodeURIComponent(await mailKey('maya@example.com'))}`, { method: 'DELETE' }));
+  await ok(await call('dev-ana', `/${room.id}/members/${(await keysOf(room.id))['maya@example.com']}`, { method: 'DELETE' }));
   assert.equal(await slot('lee@example.com'), 3);
   assert.equal(await slot('maya@example.com'), 4, 'Maya again: a new slot, never her old one');
   assert.equal((await ok(await call('dev-jon', `/${room.id}`))).room.you.slot, 2);
@@ -363,20 +400,23 @@ test('ops: one order for everyone, the sender’s copy is its confirmation, and 
   const m = only(maya.take(), 'op');
   assert.deepEqual(a.map((f) => f.seq), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   assert.deepEqual(m, a, 'both see the same entries in the same order');
-  assert.deepEqual(a.filter((f) => f.by === 'acct-ana').map((f) => f.id).sort(), ['a0', 'a10', 'a2', 'a4', 'a6', 'a8']);
-  assert.deepEqual(a.filter((f) => f.by === 'acct-maya').map((f) => f.id).sort(), ['m1', 'm11', 'm3', 'm5', 'm7', 'm9']);
+  const keys = await keysOf(room.id);
+  assert.deepEqual(a.filter((f) => f.by === keys.ana).map((f) => f.id).sort(), ['a0', 'a10', 'a2', 'a4', 'a6', 'a8']);
+  assert.deepEqual(a.filter((f) => f.by === keys.maya).map((f) => f.id).sort(), ['m1', 'm11', 'm3', 'm5', 'm7', 'm9']);
+  noAccounts(a, 'the ops');
   for (const f of a) {
     assert.equal(f.op, big);
-    assert.equal(f.name, f.by === 'acct-ana' ? 'Ana' : 'Maya');
-    assert.equal(f.slot, f.by === 'acct-ana' ? 0 : 1);
+    assert.equal(f.cum, undefined, 'the room’s byte count stays in the room');
+    assert.equal(f.name, f.by === keys.ana ? 'Ana' : 'Maya');
+    assert.equal(f.slot, f.by === keys.ana ? 0 : 1);
     assert.equal(f.via, null);
     assert.equal(f.note, null);
     assert.equal(typeof f.at, 'number');
   }
   assert.equal((await ok(await call('dev-maya', `/${room.id}`))).room.head, 12);
-  const keys = [...roomOf(room.id).storage.map.keys()].filter((k) => k.startsWith('op:')).sort();
-  assert.equal(keys.length, 12);
-  assert.equal(keys[0], 'op:0000000000000001');
+  const stored = [...roomOf(room.id).storage.map.keys()].filter((k) => k.startsWith('op:')).sort();
+  assert.equal(stored.length, 12);
+  assert.equal(stored[0], 'op:0000000000000001');
 
   // An integer id stays an integer; a label and note are cleaned.
   await send(room.id, ana, { t: 'op', id: 77, base: 12, label: 'Trim\nclip', note: 'why', op: 'x' });
@@ -448,7 +488,9 @@ test('ops: 120 per 10 s a socket, then slow_down until the window passes', async
 });
 
 test('hello: welcome with the tail after `since`, the others’ presence, comments and activity; resync behind the snapshot', async () => {
+  ROOMS.hellos = 100; // how often a socket may say hello has its own test
   const room = await roomWith();
+  const keys = await keysOf(room.id);
   const ana = await connect('dev-ana', room.id);
   const first = (await hello(room.id, ana))[0];
   assert.equal(first.t, 'welcome');
@@ -461,13 +503,15 @@ test('hello: welcome with the tail after `since`, the others’ presence, commen
   const [welcome, ...rest] = await hello(room.id, maya, 2);
   assert.deepEqual(rest, []);
   assert.equal(welcome.t, 'welcome');
-  assert.equal(welcome.you.key, 'acct-maya');
+  assert.equal(welcome.you.key, keys.maya);
   assert.equal(welcome.room.head, 5);
   assert.deepEqual(welcome.ops.map((e) => [e.seq, e.id]), [[3, 'op-3'], [4, 'op-4'], [5, 'op-5']]);
-  assert.deepEqual(welcome.presence, [{ key: 'acct-ana', name: 'Ana', slot: 0, sequence: 1, playhead: 3 * SECOND, selection: [9], lock: 9, doing: 'editing' }]);
+  assert.ok(welcome.ops.every((e) => e.t === undefined && e.cum === undefined));
+  assert.deepEqual(welcome.presence, [{ key: keys.ana, name: 'Ana', slot: 0, sequence: 1, playhead: 3 * SECOND, selection: [9], lock: 9, doing: 'editing' }]);
   assert.deepEqual(welcome.comments.map((c) => c.text), ['Look here']);
   assert.deepEqual(welcome.activity.slice(0, 2).map((a) => [a.kind, a.text]), [['comment', 'Look here'], ['op', 'Change 5']], 'newest first');
-  assert.ok(welcome.room.members.find((m) => m.key === 'acct-ana').here);
+  assert.ok(welcome.room.members.find((m) => m.key === keys.ana).here);
+  noAccounts(welcome, 'the welcome');
 
   await ok(await putSnapshot('dev-ana', room.id, new Uint8Array([1, 2, 3]), 3, 'h3'));
   assert.equal((await hello(room.id, maya, 1))[0].resync, true);
@@ -533,31 +577,69 @@ test('snapshots: a multi-chunk upload and download round trip; the next one repl
   assert.deepEqual((await ok(await call('dev-ana', `/${room.id}`))).room.snapshot, { seq: 3, hash: 'three', bytes: second.length });
 });
 
-test('checks: a different hash from another Mac answers diverged, and a snapshot that disagrees with the room’s hash is refused', async () => {
-  const room = await roomWith({ maya: 'edit', jon: 'view' });
-  const [ana, maya, jon] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id), await connect('dev-jon', room.id)];
-  for (const ws of [ana, maya, jon]) await hello(room.id, ws);
-  await send(room.id, ana, op(1));
-  await send(room.id, ana, op(2));
-  for (const ws of [ana, maya, jon]) ws.take();
-  await send(room.id, ana, { t: 'check', seq: 2, hash: 'AAA' });
-  await send(room.id, jon, { t: 'check', seq: 2, hash: 'AAA' });
-  assert.deepEqual([...ana.take(), ...jon.take()], [], 'the same hash: nothing to say');
-  await send(room.id, maya, { t: 'check', seq: 2, hash: 'BBB' });
-  assert.deepEqual(maya.take(), [{ t: 'diverged', seq: 2 }]);
-  assert.deepEqual(ana.take(), []);
+test('checks: one kept per editor; a hash unlike the first editor’s, or the snapshot’s, answers diverged to its sender only; no one’s holds back another’s snapshot', async () => {
+  const room = await roomWith({ maya: 'edit', jon: 'view', lee: 'comment' });
+  const [ana, maya, jon, lee] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id), await connect('dev-jon', room.id), await connect('dev-lee', room.id)];
+  for (const ws of [ana, maya, jon, lee]) await hello(room.id, ws);
+  for (let i = 1; i <= 3; i++) await send(room.id, ana, op(i));
+  const all = () => [ana, maya, jon, lee].flatMap((ws) => ws.take());
+  all();
+  const stored = (seq) => roomOf(room.id).storage.map.get(`chk:${String(seq).padStart(16, '0')}`);
 
-  await refused(await putSnapshot('dev-maya', room.id, new Uint8Array([9]), 2, 'BBB'), 409, 'diverged');
+  await send(room.id, ana, { t: 'check', seq: 2, hash: 'AAA' });
+  await send(room.id, maya, { t: 'check', seq: 2, hash: 'AAA' });
+  assert.deepEqual(all(), [], 'the same hash: nothing to say');
+  // A viewer's or commenter's app is told about its own copy, and its hash is never kept.
+  await send(room.id, jon, { t: 'check', seq: 2, hash: 'BBB' });
+  await send(room.id, lee, { t: 'check', seq: 2, hash: 'AAA' });
+  assert.deepEqual(jon.take(), [{ t: 'diverged', seq: 2 }]);
+  assert.deepEqual(all(), []);
+  assert.deepEqual(stored(2), [['acct-ana', 'AAA'], ['acct-maya', 'AAA']]);
+  // An editor unlike the first editor there is told; the first isn't.
+  await send(room.id, maya, { t: 'check', seq: 3, hash: 'CCC' });
+  await send(room.id, ana, { t: 'check', seq: 3, hash: 'DDD' });
+  assert.deepEqual(ana.take(), [{ t: 'diverged', seq: 3 }]);
+  assert.deepEqual(all(), []);
+  assert.deepEqual(stored(3), [['acct-maya', 'CCC'], ['acct-ana', 'DDD']]);
+  await send(room.id, ana, { t: 'check', seq: 3, hash: 'DDD' });
+  assert.equal(stored(3).length, 2, 'one each, however often');
+
+  // An editor's own check holds back only their own snapshot at that seq…
+  await refused(await putSnapshot('dev-maya', room.id, new Uint8Array([9]), 2, 'ZZZ'), 409, 'diverged');
   assert.equal((await ok(await call('dev-ana', `/${room.id}`))).room.snapshot, null);
-  await ok(await putSnapshot('dev-maya', room.id, new Uint8Array([9]), 2, 'AAA'));
-  await send(room.id, maya, { t: 'check', seq: 2, hash: 'BBB' });
-  assert.deepEqual(maya.take(), [{ t: 'diverged', seq: 2 }], 'against the snapshot’s hash too');
+  // …never another's: Maya said CCC at 3, and Ana's DDD goes in.
+  await ok(await putSnapshot('dev-ana', room.id, new Uint8Array([9]), 3, 'DDD'));
+  all();
+  await send(room.id, maya, { t: 'check', seq: 3, hash: 'CCC' });
+  assert.deepEqual(maya.take(), [{ t: 'diverged', seq: 3 }], 'against the snapshot’s hash');
+  await send(room.id, jon, { t: 'check', seq: 3, hash: 'DDD' });
+  assert.deepEqual(all(), []);
   await send(room.id, maya, { t: 'check', seq: 1, hash: 'old' });
   assert.deepEqual(maya.take(), [], 'behind the snapshot: nothing to compare');
-  for (const bad of [{ seq: 3, hash: 'x' }, { seq: 2 ** 53, hash: 'x' }, { seq: 2, hash: 'a b' }, { seq: 2, hash: 'x'.repeat(129) }]) {
+  for (const bad of [{ seq: 4, hash: 'x' }, { seq: 2 ** 53, hash: 'x' }, { seq: 3, hash: 'a b' }, { seq: 3, hash: 'x'.repeat(129) }]) {
     await send(room.id, maya, { t: 'check', ...bad });
     assert.equal(maya.take()[0].code, 'bad_request', JSON.stringify(bad));
   }
+});
+
+test('the review’s M1: a viewer racing to vouch for a seq with a bogus hash neither tells the editor diverged nor blocks the snapshot', async () => {
+  const room = await roomWith({ jon: 'view' });
+  const [ana, jon] = [await connect('dev-ana', room.id), await connect('dev-jon', room.id)];
+  await send(room.id, ana, { t: 'op', id: 'o1', base: 0, label: 'x', op: '{"a":1}' });
+  jon.take();
+  await send(room.id, jon, { t: 'check', seq: 1, hash: 'bogus' });
+  assert.deepEqual(jon.take(), []);
+  ana.take();
+  await send(room.id, ana, { t: 'check', seq: 1, hash: 'real-hash' });
+  assert.deepEqual(ana.take(), [], 'not diverged');
+  assert.deepEqual(await ok(await putSnapshot('dev-ana', room.id, new Uint8Array([1, 2, 3]), 1, 'real-hash')), { snapshot: { seq: 1, hash: 'real-hash', bytes: 3 } });
+  // and an editor can't block another editor's snapshot either
+  await ok(await invite(room.id, 'maya@example.com', 'edit'), 201);
+  const maya = await connect('dev-maya', room.id);
+  await send(room.id, ana, op(2, { base: 1 }));
+  await send(room.id, maya, { t: 'check', seq: 2, hash: 'bogus' });
+  await send(room.id, ana, { t: 'check', seq: 2, hash: 'real-2' });
+  await ok(await putSnapshot('dev-ana', room.id, new Uint8Array([4]), 2, 'real-2'));
 });
 
 test('the log asks for a snapshot at 500 ops past the last one, and refuses ops at 20 000 until one comes', async () => {
@@ -574,7 +656,9 @@ test('the log asks for a snapshot at 500 ops past the last one, and refuses ops 
   ana.take();
   maya.take();
   await send(room.id, ana, op(6));
-  assert.deepEqual(ana.take().map((f) => [f.t, f.code, f.id]), [['error', 'log_full', 'op-6']]);
+  assert.deepEqual(ana.take().map((f) => [f.t, f.code, f.id]), [['snapshot_wanted', undefined, undefined], ['error', 'log_full', 'op-6']], 'full: the editors are asked again');
+  assert.deepEqual(only(jon.take(), 'snapshot_wanted'), []);
+  assert.deepEqual(only(maya.take(), 'snapshot_wanted'), [{ t: 'snapshot_wanted', seq: 5 }]);
   const frames = await hello(room.id, maya, 5);
   assert.deepEqual(frames.map((f) => f.t), ['welcome', 'snapshot_wanted']);
   await ok(await putSnapshot('dev-maya', room.id, new Uint8Array([5]), 5, 'five'));
@@ -587,20 +671,22 @@ test('the log asks for a snapshot at 500 ops past the last one, and refuses ops 
 
 // ── presence, notes, comments, activity ──
 
-test('presence: relayed to the others only, with who it is; never stored; over 30 a second dropped silently', async () => {
+test('presence: relayed to the others only, with who it is; never stored; over 10 a second dropped silently', async () => {
   const room = await roomWith({ maya: 'edit', jon: 'view' });
+  const keys = await keysOf(room.id);
   const [ana, maya] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id)];
   const object = roomOf(room.id);
   let now = 5_000_000;
   object.now = () => now;
   const p = { t: 'presence', sequence: 1, playhead: 762_048_000_123, selection: [5, 6, 5], lock: 5, doing: 'editing' };
   await send(room.id, ana, p);
-  assert.deepEqual(maya.take(), [{ t: 'presence', key: 'acct-ana', name: 'Ana', slot: 0, sequence: 1, playhead: 762_048_000_123, selection: [5, 6], lock: 5, doing: 'editing' }]);
+  assert.deepEqual(maya.take(), [{ t: 'presence', key: keys.ana, name: 'Ana', slot: 0, sequence: 1, playhead: 762_048_000_123, selection: [5, 6], lock: 5, doing: 'editing' }]);
   assert.deepEqual(ana.take(), [], 'not back to the sender');
   assert.ok(!JSON.stringify([...object.storage.map.values()]).includes('762048000123'), 'presence is never stored');
 
+  assert.equal(ROOMS.presence, 10);
   for (let i = 0; i < 40; i++) await send(room.id, ana, { ...p, playhead: i });
-  assert.equal(maya.take().length, ROOMS.presence - 1, '30 a second (one already sent this second)');
+  assert.equal(maya.take().length, ROOMS.presence - 1, '10 a second (one already sent this second)');
   assert.deepEqual(ana.take(), [], 'dropped without an error');
   now += 1000;
   await send(room.id, ana, { ...p, playhead: 41 });
@@ -617,13 +703,14 @@ test('presence: relayed to the others only, with who it is; never stored; over 3
   plainSockets = true;
   const jon = await connect('dev-jon', room.id);
   const [welcome] = await hello(room.id, jon);
-  assert.deepEqual(welcome.presence.map((x) => [x.key, x.playhead]), [['acct-ana', 41]]);
+  assert.deepEqual(welcome.presence.map((x) => [x.key, x.playhead]), [[keys.ana, 41]]);
   await send(room.id, jon, { t: 'presence', sequence: 1, playhead: 7 });
-  assert.deepEqual(only(maya.take(), 'presence').map((x) => [x.key, x.playhead, x.doing]), [['acct-jon', 7, 'viewing']]);
+  assert.deepEqual(only(maya.take(), 'presence').map((x) => [x.key, x.playhead, x.doing]), [[keys.jon, 7, 'viewing']]);
 });
 
 test('left: when someone’s last socket closes', async () => {
   const room = await roomWith();
+  const keys = await keysOf(room.id);
   const ana = await connect('dev-ana', room.id);
   const mac1 = await connect('dev-maya', room.id);
   const mac2 = await connect('dev-maya', room.id);
@@ -632,21 +719,22 @@ test('left: when someone’s last socket closes', async () => {
   assert.deepEqual(ana.take(), [], 'Maya is still here on her other Mac');
   mac2.close(1006);
   await roomOf(room.id).webSocketError(mac2);
-  assert.deepEqual(ana.take(), [{ t: 'left', key: 'acct-maya' }]);
-  assert.equal((await ok(await call('dev-ana', `/${room.id}`))).room.members.find((m) => m.key === 'acct-maya').here, false);
+  assert.deepEqual(ana.take(), [{ t: 'left', key: keys.maya }]);
+  assert.equal((await ok(await call('dev-ana', `/${room.id}`))).room.members.find((m) => m.key === keys.maya).here, false);
 });
 
 test('notes: delivered only to the person asked, never stored', async () => {
   const room = await roomWith({ maya: 'edit', jon: 'comment', lee: 'view' });
+  const keys = await keysOf(room.id);
   const [ana, maya, jon] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id), await connect('dev-jon', room.id)];
   const before = JSON.stringify([...roomOf(room.id).storage.map]);
-  await send(room.id, jon, { t: 'note', to: 'acct-maya', text: 'Can you look at this cut?', clip: 7 });
-  assert.deepEqual(maya.take(), [{ t: 'note', from: 'acct-jon', name: 'Jon', text: 'Can you look at this cut?', clip: 7 }]);
+  await send(room.id, jon, { t: 'note', to: keys.maya, text: 'Can you look at this cut?', clip: 7 });
+  assert.deepEqual(maya.take(), [{ t: 'note', from: keys.jon, name: 'Jon', text: 'Can you look at this cut?', clip: 7 }]);
   assert.deepEqual([...ana.take(), ...jon.take()], []);
   assert.equal(JSON.stringify([...roomOf(room.id).storage.map]), before);
-  await send(room.id, jon, { t: 'note', to: 'acct-lee', text: 'hi' });
+  await send(room.id, jon, { t: 'note', to: keys.lee, text: 'hi' });
   assert.equal(jon.take()[0].code, 'not_here', 'Lee has no app in the room');
-  for (const bad of [{ to: 'acct-nobody', text: 'hi' }, { to: '__proto__', text: 'hi' }, { to: 'acct-maya', text: '' }, { to: 'acct-maya', text: 'x'.repeat(1001) }, { to: 'acct-maya', text: 'hi', clip: 'seven' }]) {
+  for (const bad of [{ to: 'acct-maya', text: 'hi' }, { to: 'm_AAAAAAAAAAAA', text: 'hi' }, { to: '__proto__', text: 'hi' }, { to: keys.maya, text: '' }, { to: keys.maya, text: 'x'.repeat(1001) }, { to: keys.maya, text: 'hi', clip: 'seven' }]) {
     await send(room.id, jon, { t: 'note', ...bad });
     assert.ok(['not_found', 'bad_request', 'too_big'].includes(jon.take()[0].code), JSON.stringify(bad));
   }
@@ -656,14 +744,15 @@ test('notes: delivered only to the person asked, never stored', async () => {
 test('comments: add, reply, resolve and delete, mentions of people in the room only, sent to everyone', async () => {
   const room = await roomWith({ maya: 'edit', jon: 'comment' });
   await ok(await invite(room.id, 'pending@example.com', 'view'), 201);
+  const keys = await keysOf(room.id);
   const [ana, maya, jon] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id), await connect('dev-jon', room.id)];
-  const add = { t: 'comment', op: 'add', cid: 'c-1', sequence: 1, clip: 2, offset: SECOND, time: 2 * SECOND, text: '  Too long\r\nhere  ', mentions: ['acct-ana', 'acct-ana'] };
+  const add = { t: 'comment', op: 'add', cid: 'c-1', sequence: 1, clip: 2, offset: SECOND, time: 2 * SECOND, text: '  Too long\r\nhere  ', mentions: [keys.ana, keys.ana] };
   await send(room.id, maya, add);
   const [made] = only(ana.take(), 'comment');
   assert.equal(made.cid, 'c-1');
   const { at, ...rest } = made.comment;
   assert.equal(typeof at, 'number');
-  assert.deepEqual(rest, { id: 1, by: 'acct-maya', name: 'Maya', sequence: 1, clip: 2, offset: SECOND, time: 2 * SECOND, text: 'Too long\nhere', mentions: ['acct-ana'], replies: [], resolved: false, resolvedBy: null });
+  assert.deepEqual(rest, { id: 1, by: keys.maya, name: 'Maya', sequence: 1, clip: 2, offset: SECOND, time: 2 * SECOND, text: 'Too long\nhere', mentions: [keys.ana], replies: [], resolved: false, resolvedBy: null });
   assert.deepEqual(only(jon.take(), 'comment'), [made]);
   assert.deepEqual(only(maya.take(), 'comment'), [made]);
 
@@ -672,7 +761,9 @@ test('comments: add, reply, resolve and delete, mentions of people in the room o
     await send(room.id, ws, msg);
     return ws.take().map((f) => [f.code, f.cid]);
   };
-  assert.deepEqual(await fails(maya, { ...add, mentions: ['acct-jon', 'acct-lee'] }), [['bad_mention', 'c-1']]);
+  assert.deepEqual(await fails(maya, { ...add, mentions: [keys.jon, 'm_AAAAAAAAAAAA'] }), [['bad_mention', 'c-1']]);
+  assert.deepEqual(await fails(maya, { ...add, mentions: ['acct-jon'] }), [['bad_mention', 'c-1']], 'an account id names no one');
+  assert.deepEqual(await fails(maya, { ...add, mentions: [keys['pending@example.com']] }), [['bad_mention', 'c-1']]);
   assert.deepEqual(await fails(maya, { ...add, mentions: [await mailKey('pending@example.com')] }), [['bad_mention', 'c-1']]);
   assert.deepEqual(await fails(maya, { ...add, mentions: ['__proto__'] }), [['bad_mention', 'c-1']]);
   assert.deepEqual(await fails(maya, { ...add, text: 'x'.repeat(4001) }), [['too_big', 'c-1']]);
@@ -683,12 +774,13 @@ test('comments: add, reply, resolve and delete, mentions of people in the room o
   assert.deepEqual(await fails(maya, { t: 'comment', op: 'reply', comment: 99, text: 'hm' }), [['not_found', undefined]]);
   assert.equal(made.comment.id, 1);
 
-  await send(room.id, ana, { t: 'comment', op: 'reply', comment: 1, text: 'Agreed', mentions: ['acct-maya'] });
+  await send(room.id, ana, { t: 'comment', op: 'reply', comment: 1, text: 'Agreed', mentions: [keys.maya] });
   const replied = only(jon.take(), 'comment')[0].comment;
-  assert.deepEqual(replied.replies.map((r) => [r.id, r.by, r.name, r.text, r.mentions]), [[2, 'acct-ana', 'Ana', 'Agreed', ['acct-maya']]]);
+  assert.deepEqual(replied.replies.map((r) => [r.id, r.by, r.name, r.text, r.mentions]), [[2, keys.ana, 'Ana', 'Agreed', [keys.maya]]]);
   await send(room.id, jon, { t: 'comment', op: 'resolve', comment: 1, resolved: true });
   const resolved = only(ana.take(), 'comment').at(-1).comment;
-  assert.deepEqual([resolved.resolved, resolved.resolvedBy], [true, 'acct-jon']);
+  assert.deepEqual([resolved.resolved, resolved.resolvedBy], [true, keys.jon]);
+  noAccounts([made, replied, resolved], 'the comments');
   assert.deepEqual(await fails(jon, { t: 'comment', op: 'resolve', comment: 1, resolved: 'yes' }), [['bad_request', undefined]]);
   await send(room.id, jon, { t: 'comment', op: 'resolve', comment: 1, resolved: false });
   assert.deepEqual(only(ana.take(), 'comment').at(-1).comment.resolvedBy, null);
@@ -711,16 +803,18 @@ test('comments: add, reply, resolve and delete, mentions of people in the room o
 
 test('activity: every op, comment and change of people, an op by Eden credited to who asked; paged; the last 1000 kept', async () => {
   const room = await roomWith();
+  const keys = await keysOf(room.id);
   const maya = await connect('dev-maya', room.id);
   await send(room.id, maya, op(1, { label: 'Tighten the cut', via: 'eden' }));
   const frames = maya.take();
   assert.equal(only(frames, 'op')[0].via, 'eden');
   const { at, n, ...act } = only(frames, 'activity')[0].activity;
-  assert.deepEqual(act, { by: 'acct-maya', name: 'Maya', kind: 'op', text: 'asked Eden: Tighten the cut', seq: 1, via: 'eden' });
+  assert.deepEqual(act, { by: keys.maya, name: 'Maya', kind: 'op', text: 'asked Eden: Tighten the cut', seq: 1, via: 'eden' });
   await send(room.id, maya, op(2, { label: '' }));
   assert.equal(only(maya.take(), 'activity')[0].activity.text, 'made a change');
 
   const { activity } = await ok(await call('dev-maya', `/${room.id}/activity`));
+  noAccounts(activity, 'the activity');
   assert.deepEqual(activity.map((a) => [a.kind, a.text]), [['op', 'made a change'], ['op', 'asked Eden: Tighten the cut'], ['member', 'joined'], ['member', 'invited maya@example.com'], ['room', 'made the room']]);
   assert.deepEqual(activity.map((a) => a.n), [5, 4, 3, 2, 1]);
   assert.deepEqual((await ok(await call('dev-maya', `/${room.id}/activity?before=3`))).activity.map((a) => a.n), [2, 1]);
@@ -739,15 +833,16 @@ test('activity: every op, comment and change of people, an op by Eden credited t
 test('removing a member closes their sockets; leaving and turning down an invite work for anyone', async () => {
   const room = await roomWith({ maya: 'edit', jon: 'comment' });
   await ok(await invite(room.id, 'lee@example.com', 'view'), 201);
+  const keys = await keysOf(room.id);
   const ana = await connect('dev-ana', room.id);
   const [mac1, mac2] = [await connect('dev-maya', room.id), await connect('dev-maya', room.id)];
-  assert.deepEqual(await ok(await call('dev-ana', `/${room.id}/members/acct-maya`, { method: 'DELETE' })), { removed: 'acct-maya' });
+  assert.deepEqual(await ok(await call('dev-ana', `/${room.id}/members/${keys.maya}`, { method: 'DELETE' })), { removed: keys.maya });
   for (const ws of [mac1, mac2]) {
     assert.deepEqual(ws.take(), [{ t: 'removed' }]);
     assert.equal(ws.closed.code, 4001);
   }
   const told = ana.take();
-  assert.deepEqual(only(told, 'members')[0].members.map((m) => m.key).includes('acct-maya'), false);
+  assert.deepEqual(only(told, 'members')[0].members.map((m) => m.key).includes(keys.maya), false);
   assert.equal(only(told, 'activity')[0].activity.text, 'removed Maya');
   assert.deepEqual((await ok(await call('dev-maya', ''))).rooms, []);
   await refused(await call('dev-maya', `/${room.id}`), 404, 'not_found');
@@ -759,8 +854,8 @@ test('removing a member closes their sockets; leaving and turning down an invite
   await ok(await call('dev-lee', `/${room.id}/members/me`, { method: 'DELETE' }));
   assert.equal(only(ana.take(), 'activity')[0].activity.text, 'turned down the invitation');
   assert.deepEqual((await ok(await call('dev-lee', ''))).rooms, []);
-  await refused(await call('dev-ana', `/${room.id}/members/acct-maya`, { method: 'DELETE' }), 404, 'not_found');
-  assert.deepEqual((await ok(await call('dev-ana', `/${room.id}`))).room.members.map((m) => m.key), ['acct-ana']);
+  await refused(await call('dev-ana', `/${room.id}/members/${keys.maya}`, { method: 'DELETE' }), 404, 'not_found');
+  assert.deepEqual((await ok(await call('dev-ana', `/${room.id}`))).room.members.map((m) => m.key), [keys.ana]);
 });
 
 test('deleting a room: sockets get deleted, its storage is wiped, and every index entry goes', async () => {
@@ -790,12 +885,12 @@ test('deleting a room: sockets get deleted, its storage is wiped, and every inde
   await refused(await call('dev-ana', `/${room.id}`), 404, 'not_found');
   await refused(await call('dev-ana', `/${room.id}/socket`, { headers: { upgrade: 'websocket' } }), 404, 'not_found');
   const stale = new Socket();
-  stale.att = { sid: 'x', key: 'acct-ana', at: 0, presence: null, pat: 0 };
+  stale.att = { sid: 'x', key: 'acct-ana', pk: 'm_AAAAAAAAAAAA', at: Date.now(), verified: Date.now(), presence: null, pat: 0 };
   await send(room.id, stale, op(2));
   assert.deepEqual(stale.take(), [{ t: 'deleted' }]);
 });
 
-test('the listing: rooms owned, invited to and joined; renames reach it; 100 owned at most', async () => {
+test('the listing: rooms owned, invited to and joined, with no one’s account id; renames reach it; 50 owned at most', async () => {
   const mine = await makeRoom('dev-ana', 'Mine');
   const mayas = await makeRoom('dev-maya', 'Maya’s');
   await ok(await invite(mayas.id, 'ana@example.com', 'comment', 'dev-maya'), 201);
@@ -803,11 +898,14 @@ test('the listing: rooms owned, invited to and joined; renames reach it; 100 own
   await ok(await invite(jons.id, 'ana@example.com', 'view', 'dev-jon'), 201);
   await ok(await call('dev-ana', `/${jons.id}`));
   const list = (await ok(await call('dev-ana', ''))).rooms;
-  assert.deepEqual(list.map((r) => [r.id, r.name, r.role, r.owner, r.ownerName, r.status]).sort(), [
-    [jons.id, 'Jon’s', 'view', 'acct-jon', 'Jon', 'in'],
-    [mayas.id, 'Maya’s', 'comment', 'acct-maya', 'Maya', 'pending'],
-    [mine.id, 'Mine', 'owner', 'acct-ana', 'Ana', 'in'],
+  noAccounts(list, 'the listing');
+  for (const r of list) assert.deepEqual(Object.keys(r).sort(), ['id', 'name', 'ownerName', 'role', 'status']);
+  assert.deepEqual(list.map((r) => [r.id, r.name, r.role, r.ownerName, r.status]).sort(), [
+    [jons.id, 'Jon’s', 'view', 'Jon', 'in'],
+    [mayas.id, 'Maya’s', 'comment', 'Maya', 'pending'],
+    [mine.id, 'Mine', 'owner', 'Ana', 'in'],
   ].sort());
+  assert.equal(DEFAULTS.owned, 50);
   await ok(await call('dev-jon', `/${jons.id}`, { method: 'PATCH', body: { name: 'Jon’s cut' } }));
   await ok(await call('dev-maya', `/${mayas.id}`, { method: 'PATCH', body: { name: 'Maya’s cut' } }));
   const names = (await ok(await call('dev-ana', ''))).rooms.map((r) => r.name).sort();

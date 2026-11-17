@@ -45,6 +45,7 @@ export const ROOMS = {
   logBytes: 32 * 1024 * 1024, // the log past the snapshot, in bytes of ops: then ops wait for a snapshot
   accountBytes: 1024 * 1024 * 1024, // what the rooms an account owns may keep (logs and snapshots) together
   usageStep: 1024 * 1024, // a room tells its owner's index its size each time it grows past another step
+  quotaRecheck: 60_000, // over the quota, a room asks again at most this often (another room may have gone)
   ops: 120, // per socket per opWindow
   opWindow: 10_000,
   presence: 10, // per socket a second; the rest is dropped
@@ -509,6 +510,11 @@ export class CreativeRoom {
       this.wantSnapshot(meta);
       throw new ApiError(409, 'log_full', 'The room’s log is full: an editor’s app saves a snapshot first.');
     }
+    if (meta.overQuota && this.now() - (this.quotaAt || 0) >= ROOMS.quotaRecheck) {
+      // another of the owner's rooms may have shrunk or gone since: ask again, at most once a `quotaRecheck`
+      this.quotaAt = this.now();
+      await this.reportUsage(meta);
+    }
     if (meta.overQuota) throw new ApiError(409, 'quota', 'The owner’s shared projects are using all the room they have. Delete one, or wait for a snapshot to make room.');
     const seq = meta.head + 1;
     const step = Math.floor(roomBytesOf(meta) / ROOMS.usageStep);
@@ -557,8 +563,9 @@ export class CreativeRoom {
     if (!Number.isSafeInteger(since) || since < 0) throw bad('since is the last seq the app has (a safe integer).');
     const low = meta.snap ? meta.snap.seq : 0;
     const to = meta.head;
-    let resync = since < low || since > to || to - since > ROOMS.replayOps;
-    if (!resync && since < to) {
+    // far behind, it starts again from the snapshot (when there is one to start from)
+    let resync = since < low || since > to || (Boolean(meta.snap) && to - since > ROOMS.replayOps);
+    if (!resync && meta.snap && since < to) {
       // too many bytes behind: the snapshot is quicker for everyone
       const from = since > 0 ? await this.storage.get(opKey(since)) : null;
       const before = from ? from.cum || 0 : (meta.snap && meta.snap.cum) || 0;
