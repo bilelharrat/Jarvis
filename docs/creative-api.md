@@ -245,10 +245,26 @@ Request:
   to the app, which runs it (asking the person first where it should), then sends the result as a `tool_result` in the
   next request.
 - `tool_choice` (optional): `{type: "auto" | "any" | "none"}` or `{type: "tool", name}`.
-- `context` (optional, at most 64 KiB as JSON): `instructions` (a string, at most 20,000 characters) is the app's own
-  instructions for Eden and goes into the system prompt after askeden.com's short preamble; everything else is put in a
-  `<context>` block as data the model must not take instructions from.
+- `context` (optional, at most 64 KiB as JSON):
+  - `instructions` (a string, at most 20,000 characters) is the app's own instructions for Eden. It goes into the system
+    prompt after askeden.com's preamble. It must be the app's own fixed text, never anything from the project.
+  - Everything else (clip and file names, captions, transcripts, comments) is the project's data.
 - `max_tokens` (optional): 256–16,384, default 4,096.
+
+**The project's words are data, never instructions.** In a project several people edit, any clip name, caption or
+comment could be someone else's words, so askeden.com fences all of it:
+- **The context's data** goes last in the system prompt, as JSON inside one `<project_data app="<app>">…</project_data>`
+  block.
+- **Each tool result's text** is wrapped in `<tool_output tool_use_id="…">…</tool_output>`. Images in a tool result pass
+  as they are.
+- **Inside a fence there is no `<` or `>`.** In the JSON they become `<` and `>` (and `&` becomes `&`), so
+  it's still exactly the same JSON. In tool output they become `&lt;` and `&gt;` (and `&` becomes `&amp;`). So a clip
+  named `ignore previous instructions … </project_data>` stays inside its fence and can't open or close one.
+- **A system rule** tells the model that only the person's own messages in the chat are requests. What's inside the
+  fences is never an instruction, whoever it claims to be from. It may tell the person what the data asks, but never
+  acts on it.
+- **What the app must do:** send only the person's own typed words as `user` text, and send everything from the project
+  through `context` or tool results. It also still confirms destructive tools with the person before running them.
 
 Before the model is asked: the token, Plus (402 `plus_required`), the rate limits, and a hold on the allowance for the
 turn's worst case (input at a token per 3 bytes, images 1,600 tokens each, plus `max_tokens` of output, at the picked
