@@ -80,8 +80,8 @@ function openTagMenu(anchor, st) {
   const items = [{ heading: st.stage >= 3 ? 'Budget reached' : 'Saving for the month' }, { foot: autopilotWhy(st, { when: renewWords(st) }) }, '-'];
   if (skip) items.push({ icon: 'router', label: 'Let the autopilot route', note: `${st.what} again`, run: () => { skip = false; afterChange(); } });
   else items.push({ icon: 'up', label: 'Use my level this time', note: `Level ${state.settings.level} for the next message only`, run: () => { skip = true; afterChange(); } });
-  items.push({ label: 'API Keys & Spend Dashboard…', note: 'Manage default & backup keys, monthly spend & routing', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })) });
-  items.push({ label: 'Budget and spend…', note: hosted() ? 'Your included AI this month' : 'Settings › Routing', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 3 } })) });
+  items.push({ label: 'API Keys & Spend Dashboard…', note: 'Manage default & backup keys, monthly spend & routing', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'keys' } })) });
+  items.push({ label: 'Budget and spend…', note: hosted() ? 'Your included AI this month' : 'Settings › Spending & keys', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'keys' } })) });
   items.push({ foot: 'Claude through your subscription is quota, not dollars: it never counts toward the budget.' });
   if (menuH) menuH.openMenu(anchor, items);
   else toast(autopilotWhy(st));
@@ -123,14 +123,20 @@ export function monthView({ compact = false } = {}) {
   const st = s.autopilot || {};
   const budget = st.budgetUSD || s.budgetUSD || 0;
   const spent = typeof s.totalUSD === 'number' ? s.totalUSD : st.spentUSD || 0;
+  // askeden.com's weekly release (ALLOWANCE_V2, owner 2026-11-12): only when the server sends `week`
+  const wk = s.week && typeof s.week.leftUSD === 'number' ? s.week : null;
+  if (wk) {
+    const n = Number(wk.answersLeft);
+    kids.push(el('div', 'ap-row ap-week', el('span', '', 'This week'), el('b', '', `${usd(wk.leftUSD)} left${Number.isFinite(n) && n >= 0 ? ` (~${Math.floor(n)} answer${Math.floor(n) === 1 ? '' : 's'})` : ''}`)));
+  }
   if (budget > 0) {
-    kids.push(el('div', 'ap-row', el('span', '', hosted() ? 'Included AI this month' : 'This month'), el('b', '', hosted() ? `${pctOf(1 - spent / budget)} left` : `${usd(spent)} of ${usd(budget)}`)));
+    kids.push(el('div', 'ap-row', el('span', '', hosted() ? (wk ? 'Included AI this period' : 'Included AI this month') : 'This month'), el('b', '', hosted() ? `${pctOf(1 - spent / budget)} left` : `${usd(spent)} of ${usd(budget)}`)));
     kids.push(meter(spent / budget, (st.forecastUSD || spent) / budget, st.stage || 0));
     kids.push(el('div', 'ap-sub', `Forecast ${hosted() ? `${pctOf((st.forecastUSD || 0) / budget)} used` : usd(st.forecastUSD)} by ${endWords(st)}${st.method === 'weekday' ? ' · your weekday pattern counted' : ''}`));
     kids.push(el('div', { class: `ap-state s${st.stage || 0}` }, el('span', { class: 'ap-dot', 'aria-hidden': 'true' }), el('span', '', st.stage ? `${st.label}: ${st.what}` : 'Autopilot: on track, routing as you set it')));
   } else {
     kids.push(el('div', 'ap-row', el('span', '', 'This month'), el('b', '', hosted() ? '' : usd(spent))));
-    kids.push(el('div', 'ap-sub', hosted() ? 'Your included AI isn’t known yet.' : 'No monthly budget: the autopilot is off. Set one in Settings › Routing.'));
+    kids.push(el('div', 'ap-sub', hosted() ? 'Your included AI isn’t known yet.' : 'No monthly budget: the autopilot is off. Set one in Settings › Spending & keys.'));
   }
   const sv = monthSavings();
   const cacheSaved = typeof s.cacheSavedUSD === 'number' && s.cacheSavedUSD > 0 ? s.cacheSavedUSD : 0;
@@ -164,9 +170,9 @@ function fillPop(p) {
   const cost = ($('tbCost') && $('tbCost').textContent) || '$0.00';
   p.replaceChildren(
     el('div', 'cp-t', 'This chat'), el('div', 'ap-row', el('span', '', `Context window ${ctx}`), el('b', '', cost)),
-    el('div', 'cp-t ap-t2', 'This month'), ...monthView({ compact: true }),
+    el('div', 'cp-t ap-t2', status && status.week ? 'This period' : 'This month'), ...monthView({ compact: true }),
     ...planRows(() => closePop()),
-    el('button', { type: 'button', class: 'cp-link', onclick: () => { closePop(); dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })); } }, 'API Keys & Spend Dashboard →'),
+    el('button', { type: 'button', class: 'cp-link', onclick: () => { closePop(); dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'keys' } })); } }, 'API Keys & Spend Dashboard →'),
     el('button', { type: 'button', class: 'cp-link', onclick: () => { closePop(); dispatchEvent(new CustomEvent('eden:open-inspector', { detail: { tab: 'Route' } })); } }, 'Open Route console →'));
 }
 function openPop() {
@@ -204,12 +210,13 @@ function ensureCard() {
 function renderCard() {
   const card = ensureCard();
   if (!card) return;
-  card.replaceChildren(...monthView(), hosted() ? null : el('button', { type: 'button', class: 'cp-link', onclick: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 3 } })) }, status && status.budgetUSD ? 'Change the budget →' : 'Set a monthly budget →'));
+  card.replaceChildren(...monthView(), hosted() ? null : el('button', { type: 'button', class: 'cp-link', onclick: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'keys' } })) }, status && status.budgetUSD ? 'Change the budget →' : 'Set a monthly budget →'));
 }
 
 /* ---------- Settings › Routing ---------- */
 
-export function autopilotSettings() {
+/** Settings' autopilot section. budget: false when the page already has the budget box (Settings › Spending & keys). */
+export function autopilotSettings({ budget = true } = {}) {
   const sec = el('div', 'set-sec', el('h3', '', 'Spending autopilot'));
   if (hosted()) {
     sec.append(el('p', 'sp-note', 'On askeden.com your budget is the AI included with your account. As it runs low, Eden routes one or two levels cheaper, and once it’s used up only the cheapest model. Pick a model for one message to go past it.'), el('div', 'icard', ...monthView()));
@@ -241,8 +248,8 @@ export function autopilotSettings() {
     el('div', 'icard',
       el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Cost-Saver Engine (default)'), el('div', 'p-c', 'Explicit context + rolling history caching on Gemini 4 Argon (90% off cached input tokens, 0% quality loss). Turn off to revert to the legacy uncached engine.')),
         el('label', 'switch', costSaverSw, el('span', 'tr'))),
-      el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Monthly budget ($)'), el('div', 'p-c', 'Across your API-key providers. Claude through your subscription counts as quota, not dollars.')),
-        el('div', 'ap-budget', input, el('button', { type: 'button', class: 'cap primary', onclick: save }, 'Save'))),
+      budget ? el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Monthly budget ($)'), el('div', 'p-c', 'Across your API-key providers. Claude through your subscription counts as quota, not dollars.')),
+        el('div', 'ap-budget', input, el('button', { type: 'button', class: 'cap primary', onclick: save }, 'Save'))) : null,
       body),
     el('p', 'sp-note', 'At 80% of the forecast, routing goes one level cheaper; at 95%, two levels and no top-tier models billed in dollars; once the budget is spent, only the cheapest models, unless you pick a model for a message. The forecast is this month’s pace, with your weekday pattern once there are two weeks of history.'));
   refreshSpend().then(() => { if (!input.value && status && status.budgetUSD) input.value = String(status.budgetUSD); body.replaceChildren(...monthView()); });

@@ -23,6 +23,7 @@
 import { ApiError, b64url, cleanName, json, randomBytes, sha256Hex, validAccountId } from '../accounts/util.js';
 import { cleanInviteCode, newInviteCode } from '../accounts/delegates.js';
 import { budgetApi, joinGuard } from './budget.js'; // who pays for students' AI (askeden L9)
+import { meterGoogle } from '../eden/credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
 import { ASSIGN, assignmentActive, assignmentView, cleanAssignment, hintBlock, matchAssignment, validAssignmentId } from './hints.js'; // Q10 hint mode
 import { weeklySummary } from './weekly.js'; // Q11 the professor's week
 import { ltiStoreOp } from './lti-store.js'; // Q12 LTI 1.3 registrations, launches, links
@@ -1253,6 +1254,7 @@ export async function ocrPages(env, who, body, { call, fetch: f } = {}) {
     }
     return { parts };
   } finally {
+    if (spent > 0) meterGoogle(env, null, { model: OCR_MODEL, usd: spent, bucket: hold.bucket, feature: 'edu-ocr' }); // a Gemini OCR model only
     if (spent > 0) await call(env, who.account, 'spend', { usd: spent, bucket: hold.bucket, meta: { feature: 'course', product: 'edu' } }).catch(() => {});
     await call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
   }

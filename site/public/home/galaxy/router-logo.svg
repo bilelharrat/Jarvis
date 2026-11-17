@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#14213d"/>
+      <stop offset="1" stop-color="#0a1120"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <!-- Branching routing paths -->
+    <path d="M340 512 C 500 512, 540 320, 680 320" fill="none" stroke="#4fb0ff" stroke-width="36"/>
+    <path d="M340 512 L 680 512" fill="none" stroke="#fca311" stroke-width="36"/>
+    <path d="M340 512 C 500 512, 540 704, 680 704" fill="none" stroke="#ff6b6b" stroke-width="36"/>
+    <!-- Origin and target nodes -->
+    <circle cx="340" cy="512" r="54" fill="#ffffff" stroke="#38ef7d" stroke-width="16"/>
+    <circle cx="680" cy="320" r="44" fill="#4fb0ff"/>
+    <circle cx="680" cy="512" r="44" fill="#fca311"/>
+    <circle cx="680" cy="704" r="44" fill="#ff6b6b"/>
+  </g>
+</svg>

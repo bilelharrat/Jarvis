@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="glass.css">
 <link rel="stylesheet" href="verify.css">
 <link rel="stylesheet" href="eves.css">
+<link rel="stylesheet" href="crew.css">
 <link rel="stylesheet" href="voice.css">
 <link rel="stylesheet" href="account.css">
 <link rel="stylesheet" href="actions.css">
@@ -53,6 +54,8 @@
   <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="15" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></symbol>
   <symbol id="i-routine" viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 3.5V8h-4.5"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7"/></symbol>
+  <symbol id="i-plane" viewBox="0 0 24 24"><path d="M21 15.5v-1.8l-7.5-4.7V4a1.5 1.5 0 00-3 0v5L3 13.7v1.8l7.5-2.3V18l-2 1.5V21l3.5-1 3.5 1v-1.5l-2-1.5v-4.8z"/></symbol>
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3.5h8L19 8.5V20a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 015 20V5A1.5 1.5 0 016 3.5z"/><path d="M13.5 3.5V9H19M8.5 13h7M8.5 16.5h7"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4.5 19.5l.9-3.8L15.8 5.3a1.8 1.8 0 012.5 0l.4.4a1.8 1.8 0 010 2.5L8.3 18.6l-3.8.9z"/><path d="M14 7l3 3"/></symbol>
   <symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 9.5l3 3-3 3M12.5 15.5H17"/></symbol>
@@ -154,6 +157,7 @@
       <span class="dots" id="tbDots"></span>
       <span class="tb-tags" id="tbTags"></span>
       <span class="tb-sp"></span>
+      <button type="button" class="iconbtn" id="btnConvMenu" aria-haspopup="menu" aria-expanded="false" title="Conversation" aria-label="Conversation actions"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
       <button type="button" class="tb-private" id="btnPrivacy" aria-pressed="false" title="Privacy mode: keep this chat on your Mac"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span class="tbp-l">Private</span></button>
       <span class="ctxwrap" id="tbCtx" title="Context window">
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="rgba(120,120,128,.25)" stroke-width="2"/><circle id="ctxArc" cx="8" cy="8" r="6.4" fill="none" stroke="#0a84ff" stroke-width="2" stroke-linecap="round" stroke-dasharray="40.2" stroke-dashoffset="40.2"/></svg>
@@ -162,7 +166,6 @@
       <button type="button" class="iconbtn" id="btnCanvasBack" title="Back to the canvas" aria-label="Show canvas"><svg class="ic" aria-hidden="true"><use href="#i-art"/></svg></button>
       <button type="button" class="iconbtn" id="btnSplit" aria-pressed="false" title="Split view (⌘⇧\)" aria-label="Split view"><svg class="ic" aria-hidden="true"><use href="#i-split"/></svg></button>
       <button type="button" class="iconbtn" id="btnPalette" title="Search and commands (⌘K)" aria-label="Search and commands"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></button>
-      <button type="button" class="iconbtn" id="btnConvMenu" aria-haspopup="menu" aria-expanded="false" title="Conversation" aria-label="Conversation actions"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
       <button type="button" class="iconbtn" id="btnInspector" title="Toggle inspector · ⌘⌥0" aria-label="Toggle inspector"><svg class="ic" aria-hidden="true"><use href="#i-insp"/></svg></button>
       <button type="button" class="iconbtn" id="btnBrowser" aria-pressed="false" title="Browser · ⌘⇧B" aria-label="Browser"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></button>
     </header>
@@ -246,6 +249,7 @@
           <label for="deck-input" class="sr-only">Message Eden</label>
           <div class="jc-composer-top">
             <button type="button" class="jc-orb" id="jc-orb" aria-expanded="false" aria-controls="jc-composer-drawer" aria-label="Composer options" title="Options: add, mode, model, effort, context (right-click to pin)"><svg class="jc-reactor" width="17" height="17" viewBox="0 0 40 40" aria-hidden="true"><circle class="halo" cx="20" cy="20" r="18.2"/><circle class="ring" cx="20" cy="20" r="14.6"/><circle class="inner" cx="20" cy="20" r="11.4"/><circle class="core" cx="20" cy="20" r="8.6"/><circle class="shine" cx="17.2" cy="16.8" r="3"/></svg></button>
+            <button type="button" class="jc-mode-tag" id="jc-mode-tag" hidden><span class="jc-mode-tag-ic" id="jc-mode-tag-ic" aria-hidden="true"></span><span id="jc-mode-tag-l"></span><span class="jc-mode-tag-x" aria-hidden="true">×</span></button>
             <div class="jc-input-wrap" id="jc-input-wrap">
               <textarea id="deck-input" rows="1" placeholder="Message Eden — routed automatically…"></textarea>
               <div class="jc-ghost" id="jc-ghost" hidden aria-hidden="true"><span class="jc-ghost-typed" id="jc-ghost-typed"></span><span class="jc-ghost-rest" id="jc-ghost-rest"></span><kbd class="jc-ghost-tab" id="jc-ghost-tab" title="Press Tab to accept suggestion">Tab</kbd></div>
@@ -273,7 +277,7 @@
           </div>
         </form>
         <p class="jc-statusline"><span id="cc-mode">? for shortcuts</span><span class="sp"></span><span id="cc-status"></span></p>
-        <input type="file" id="jc-file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.pdf,.epub,.docx,.pptx,.xlsx,.xls,.csv,.tsv,application/pdf,application/epub+zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/*,.md,.markdown,.json,.jsonl,.yml,.yaml,.toml,.ini,.xml,.html,.css,.scss,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.go,.rs,.java,.kt,.swift,.m,.c,.h,.cc,.cpp,.hpp,.cs,.php,.sh,.zsh,.sql,.log,.txt" multiple hidden>
+        <input type="file" id="jc-file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.pdf,.epub,.docx,.pptx,.xlsx,.xlsm,.xlsb,.xls,.xlt,.xltx,.xltm,.xlw,.xlam,.xla,.ods,.fods,.slk,.dif,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.spreadsheetml.template,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.ms-excel.sheet.binary.macroEnabled.12,application/vnd.ms-excel.template.macroEnabled.12,application/vnd.ms-excel.addin.macroEnabled.12,application/vnd.oasis.opendocument.spreadsheet,.csv,.tsv,application/pdf,application/epub+zip,text/*,.md,.markdown,.json,.jsonl,.yml,.yaml,.toml,.ini,.xml,.html,.css,.scss,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.go,.rs,.java,.kt,.swift,.m,.c,.h,.cc,.cpp,.hpp,.cs,.php,.sh,.zsh,.sql,.log,.txt" multiple hidden>
       </div>
     </div>
     </div></div>
@@ -380,7 +384,7 @@
   <div class="sheet-card glass set-card">
     <div class="sheet-head"><h2 id="setTitle">Settings</h2><button type="button" class="cap" id="btnAccount" hidden>Account</button><button type="button" class="iconbtn" id="btnSetClose" aria-label="Close settings"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div class="set-layout">
-      <div class="sheet-tabs"><div class="seg" style="--n:7" id="setSeg" role="tablist" aria-label="Settings sections"><div class="seg-thumb"></div><button type="button" role="tab" class="on" data-i="0"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg></span><span class="st-l">Keys &amp; Spend</span></button><button type="button" role="tab" data-i="1"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></span><span class="st-l">Accounts</span></button><button type="button" role="tab" data-i="2"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-palette"/></svg></span><span class="st-l">Appearance</span></button><button type="button" role="tab" data-i="3"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-route"/></svg></span><span class="st-l">Routing</span></button><button type="button" role="tab" data-i="4"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-bulb"/></svg></span><span class="st-l">Memory</span></button><button type="button" role="tab" data-i="5"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg></span><span class="st-l">About</span></button><button type="button" role="tab" data-i="6"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="st-l">EVES</span></button></div></div>
+      <div class="sheet-tabs"><div class="seg" style="--n:6" id="setSeg" role="tablist" aria-label="Settings sections"><div class="seg-thumb"></div><button type="button" role="tab" class="on" data-i="0"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg></span><span class="st-l">General</span></button><button type="button" role="tab" data-i="1"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></span><span class="st-l">Accounts &amp; memory</span></button><button type="button" role="tab" data-i="2"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-route"/></svg></span><span class="st-l">Models &amp; routing</span></button><button type="button" role="tab" data-i="3"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="st-l">Fact-checking</span></button><button type="button" role="tab" data-i="4"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg></span><span class="st-l">Spending &amp; keys</span></button><button type="button" role="tab" data-i="5"><span class="st-ic"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg></span><span class="st-l">About</span></button></div></div>
       <div class="sheet-body" id="setBody"></div>
     </div>
   </div>

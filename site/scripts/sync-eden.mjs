@@ -31,6 +31,9 @@
 //   node scripts/sync-eden.mjs [--eden <path>]      (default: ~/askeden, or $EDEN_HOME; --model-router and
 //                                                   $MODEL_ROUTER_HOME still work as older names)
 //   node scripts/sync-eden.mjs --check              (exit 1 if public/eden is out of date)
+//
+// Syncing from another copy (--eden <worktree>) stops if it lacks unsaved web/chat changes that ~/askeden has, since the
+// sync would take them off askeden.com (droppedMainChanges; 2026-11-06). --allow-drop goes ahead anyway.
 // DEPLOY FREEZE (owner's order, App Review): refuse to sync while ../../DEPLOY_FREEZE exists.
 import { existsSync as __frozen } from 'node:fs';
 if (__frozen(new URL('../../../DEPLOY_FREEZE', import.meta.url)) && !process.env.EDEN_FREEZE_OVERRIDE) {
@@ -131,7 +134,9 @@ const VERIFY_EXPORTS = {
     'scoreWeightedAgreement',
     'crossFamilyAuditClaims',
   ],
-  'src/verify/evidence.ts': ['ADDED_LEAD', 'EVIDENCE_MAX_CALLS', 'EVIDENCE_OUTPUT_TOKENS', 'applyCorrections', 'checkEvidence'],
+  'src/verify/evidence.ts': ['ADDED_LEAD', 'EVIDENCE_MAX_CALLS', 'EVIDENCE_OUTPUT_TOKENS', 'aboutEarlierYear', 'applyCorrections', 'checkEvidence'],
+  'src/verify/eves-lanes.ts': ['chooseEvesLanes', 'EVES_LANE_PROVIDERS', 'FACTUAL_KINDS', 'evesLanesFor'], // hosted EVES: each provider's lane, the measured table (2026-11-10/11)
+  'src/verify/eves-classify.ts': ['classifyByRules', 'classifyQuestion', 'geminiClassifyAsk'], // hosted EVES: the question's kind (2026-11-11)
   'src/verify/claims.ts': [
     'clip',
     'extractClaimsDetailed',
@@ -153,6 +158,7 @@ const VERIFY_EXPORTS = {
   'src/verify/repair.ts': ['repairAnswer', 'surgicalClauseReplace', 'downgradeUnverifiedPrecision'],
   'src/verify/eves-config.ts': ['ANCHOR_OUTPUT_TOKENS', 'DEFAULT_LIMITS', 'EVES_TIME_BUDGET_MS', 'TYPICAL_LANE_SHARE', 'resolveLimits'],
   'src/verify/text.ts': ['normalizeForMatch'],
+  'src/verify/prompts.ts': ['freshnessNote'], // hosted EVES: today's date and the live-facts rule for every answer (2026-11-10)
   'src/verify/vault.ts': [
     'VAULT_VECTOR_MIN_COSINE',
     'VAULT_MAX_ENTRIES',
@@ -186,13 +192,79 @@ const ADDED_HEAD = '<meta name="robots" content="noindex, nofollow">\n<script ty
 
 function args(argv) {
   // Eden moved out of the Model Router folder into its own repo (askeden) on 2026-10-06.
-  const out = { router: process.env.EDEN_HOME || process.env.MODEL_ROUTER_HOME || path.join(os.homedir(), 'askeden'), check: false };
+  const out = { router: process.env.EDEN_HOME || process.env.MODEL_ROUTER_HOME || path.join(os.homedir(), 'askeden'), check: false, allowDrop: process.env.EDEN_SYNC_ALLOW_DROP === '1' };
   for (let i = 0; i < argv.length; i++) {
     if ((argv[i] === '--eden' || argv[i] === '--model-router') && argv[i + 1]) out.router = path.resolve(argv[++i]);
     else if (argv[i] === '--check') out.check = true;
-    else throw new Error(`usage: sync-eden.mjs [--eden <path>] [--check]  (unexpected ${argv[i]})`);
+    else if (argv[i] === '--allow-drop') out.allowDrop = true;
+    else throw new Error(`usage: sync-eden.mjs [--eden <path>] [--check] [--allow-drop]  (unexpected ${argv[i]})`);
   }
   return out;
+}
+
+/**
+ * Syncing from another copy of askeden (a worktree, a merge in /tmp) replaces public/eden whole, so the main folder's
+ * (~/askeden) unsaved web/chat changes that copy lacks would quietly leave askeden.com. On 2026-11-06 that took the iPhone
+ * app's progress design off the site (deploy b0cf9b2a): the app showed a bare numbered list. Returns those files' names.
+ * A changed file counts as carried when merging the main folder's change (its HEAD to its working copy) into the other
+ * copy's file leaves that file as it is.
+ */
+function droppedMainChanges(source) {
+  let main;
+  let other;
+  try {
+    main = fs.realpathSync(path.join(os.homedir(), 'askeden'));
+    other = fs.realpathSync(source);
+  } catch {
+    return [];
+  }
+  if (main === other) return [];
+  let status;
+  try {
+    status = execFileSync('git', ['-C', main, 'status', '--porcelain', '--untracked-files=all', '--', 'web/chat'], { encoding: 'utf8' });
+  } catch {
+    return [];
+  }
+  const dropped = [];
+  for (const line of status.split('\n').filter(Boolean)) {
+    const code = line.slice(0, 2);
+    const rel = line.slice(3).replace(/^.* -> /, '').replace(/^"(.*)"$/, '$1');
+    const name = path.posix.relative('web/chat', rel);
+    // only what this sync copies (pageFiles): top-level files of the served types; a deletion drops nothing
+    if (code.includes('D') || name.includes('/') || name.startsWith('.') || !TYPES.has(path.extname(name).toLowerCase())) continue;
+    const mine = path.join(main, rel);
+    const theirs = path.join(other, rel);
+    if (!fs.existsSync(mine)) continue;
+    if (!fs.existsSync(theirs)) { dropped.push(name); continue; }
+    const t = fs.readFileSync(theirs);
+    const m = fs.readFileSync(mine);
+    if (t.equals(m)) continue;
+    let base;
+    try {
+      base = execFileSync('git', ['-C', main, 'show', `HEAD:${rel}`], { maxBuffer: 256 << 20 });
+    } catch {
+      dropped.push(name); // new in the main folder and different in the other copy
+      continue;
+    }
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eden-sync-'));
+    try {
+      fs.writeFileSync(path.join(tmp, 'theirs'), t);
+      fs.writeFileSync(path.join(tmp, 'base'), base);
+      fs.writeFileSync(path.join(tmp, 'mine'), m);
+      let merged = null;
+      try {
+        // --union: where both copies changed the same place (both added to the end of app.css, say), keep both sides;
+        // the other copy is left as it is only if the main folder's side is already in it
+        merged = execFileSync('git', ['merge-file', '-p', '--union', path.join(tmp, 'theirs'), path.join(tmp, 'base'), path.join(tmp, 'mine')], { maxBuffer: 256 << 20 });
+      } catch {
+        // git couldn't merge: count it as dropped
+      }
+      if (!merged || !merged.equals(t)) dropped.push(name);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+  return dropped;
 }
 
 /** web/chat's files (top level only: the site is flat), as { name, bytes }. */
@@ -338,6 +410,17 @@ async function main() {
   files.sort((a, b) => (a.name < b.name ? -1 : 1));
 
   const help = helpFiles(opts.router);
+
+  if (!opts.check) {
+    const dropped = droppedMainChanges(opts.router);
+    if (dropped.length && !opts.allowDrop) {
+      console.error(`\nSTOPPED: ${opts.router} lacks unsaved web/chat changes that ~/askeden has, and this sync would take them off askeden.com:\n  ${dropped.join(', ')}\n` +
+        'Merge them into the copy you sync from (or sync from ~/askeden), then run again. Other sessions\' work may be in these files.\n' +
+        'To drop them on purpose: --allow-drop (or EDEN_SYNC_ALLOW_DROP=1).\n');
+      process.exit(1);
+    }
+    if (dropped.length) console.warn(`--allow-drop: leaving out ~/askeden's unsaved changes to ${dropped.join(', ')}`);
+  }
 
   if (opts.check) {
     const staleHelp = help.filter((f) => !fs.existsSync(path.join(HELP_OUT, f.name)) || !fs.readFileSync(path.join(HELP_OUT, f.name)).equals(f.bytes));

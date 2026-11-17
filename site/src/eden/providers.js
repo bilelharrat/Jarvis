@@ -27,7 +27,9 @@
 import { ApiError } from '../accounts/util.js';
 import { userKeyFor } from '../accounts/user-keys.js';
 import { withVideoParts } from './video.js';
+import { acquire as poolAcquire, classify as poolClassify, order as poolOrder, poolEnabled, poolOn, report as poolReport, retryAfterMs, withPool } from './key-pool.js';
 import { MODELS, createLocalRouter } from './vendor/model-router.js';
+import { datedModel } from './dated-prices.js'; // charging only: model choice (ratesOf, the router) sees the registry as it is
 import { PROVIDER_NAMES, buildStreamRequest, computedWhere, createStreamParser, hasVision, readSse, redact, requestMaxOutputTokens, usageCost, withMaxOutputTokens } from './vendor/providers.js';
 
 export { PROVIDER_NAMES, computedWhere, hasVision };
@@ -83,38 +85,90 @@ export function vertexCredentialKey(env) {
 
 export const isVertexKey = (k) => typeof k === 'string' && k.startsWith('vertex://');
 
-export function serviceKeyList(env, provider) {
+/**
+ * The service keys in cost tiers (key-pool.js spreads within a tier, never across): Vertex when VERTEX_FIRST (GCP
+ * credits), then the primary keys (<VAR> comma list plus <VAR>_2 … <VAR>_9), then <VAR>_FALLBACK_KEYS, then Vertex
+ * when not first. Empty tiers are left out.
+ */
+export function serviceKeyTiers(env, provider) {
   const seen = new Set(['']);
-  const out = [];
-  const vKey = provider === 'gemini' ? vertexCredentialKey(env) : '';
-  const vertexFirst = !/^(off|0|false|no)$/i.test(String((env && env.VERTEX_FIRST) ?? 'on').trim());
-  if (vKey && vertexFirst) {
-    seen.add(vKey);
-    out.push(vKey);
-  }
-  for (const raw of [env[KEY_VARS[provider]], env[FALLBACK_KEY_VARS[provider]]]) {
-    for (const part of String(raw || '').split(',')) {
-      const k = part.trim();
-      if (k && !seen.has(k)) {
-        seen.add(k);
-        out.push(k);
+  const take = (raws) => {
+    const out = [];
+    for (const raw of raws) {
+      for (const part of String(raw || '').split(',')) {
+        const k = part.trim();
+        if (k && !seen.has(k)) {
+          seen.add(k);
+          out.push(k);
+        }
       }
     }
-  }
-  if (vKey && !seen.has(vKey)) out.push(vKey);
-  return out;
+    return out;
+  };
+  const vKey = provider === 'gemini' ? vertexCredentialKey(env) : '';
+  const vertexFirst = !/^(off|0|false|no)$/i.test(String((env && env.VERTEX_FIRST) ?? 'on').trim());
+  const tiers = [];
+  // The Vertex credential is ONE key, never split on commas: VERTEX_CREDENTIALS is a service-account JSON full of them.
+  // Split, its pieces ("…project_id": "…", "…client_email"…) went out as Gemini API keys, Google answered "API key not
+  // valid", and every picture, video and plain-key Gemini call failed (owner, 2026-11-06).
+  if (vKey) seen.add(vKey);
+  if (vKey && vertexFirst) tiers.push([vKey]);
+  const v = KEY_VARS[provider];
+  tiers.push(take(v ? [env[v], ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => env[`${v}_${n}`])] : []));
+  tiers.push(take(FALLBACK_KEY_VARS[provider] ? [env[FALLBACK_KEY_VARS[provider]]] : []));
+  if (vKey && !vertexFirst) tiers.push([vKey]);
+  return tiers.filter((t) => t.length);
 }
+
+/** Every service key, flat, in the fixed tier order (no pool). */
+export const serviceKeyList = (env, provider) => serviceKeyTiers(env, provider).flat();
+
+/**
+ * Only the keys a raw-key call can send (never a vertex:// credential). Takes a providerKey entry
+ * ({ key, fallbackKeys }), a key, a flat list, or tiers (→ tiers). Keeps the order given.
+ */
+export function plainKeys(x) {
+  if (!x) return [];
+  if (typeof x === 'string') return isVertexKey(x) ? [] : [x];
+  if (Array.isArray(x)) {
+    if (x.some((t) => Array.isArray(t))) return x.map((t) => plainKeys(t)).filter((t) => t.length);
+    return x.filter((k, i, a) => typeof k === 'string' && k && !isVertexKey(k) && a.indexOf(k) === i);
+  }
+  return plainKeys([x.key, ...(Array.isArray(x.fallbackKeys) ? x.fallbackKeys : [])]);
+}
+
+/** A provider's plain service keys (no Vertex) in pool order; [] when none. Ignores EDEN_<P>=off and the asker's own keys. */
+export const plainServiceKeys = (env, provider) => plainKeys(poolOrder(provider, serviceKeyTiers(env, provider), { env }));
 
 /** Claude for everyone on the included AI: an ANTHROPIC_API_KEY is set (and ANTHROPIC not switched off). Without it, Claude stays bring-your-own-key. */
 export const serviceClaude = (env) => serviceKeyList(env, 'anthropic').length > 0 && !switchedOff(env, 'anthropic');
 
 /** The key a provider's calls use for this asker, and whose it is; null: none. Stable contract (top of file). */
+// A person's own Gemini key that Google refuses ("API key not valid") made every Gemini call fail for them, chat included
+// (owner, 2026-11-06). Looked at once (a free model list, remembered 10 min); refused, askeden.com's key is used instead,
+// counted on their included AI like anyone's without a key (source 'service'). A network hiccup never counts as refused.
+const ownKeyChecks = new Map(); // key → { ok, at }
+export async function geminiKeyRefused(key) {
+  if (!key || isVertexKey(key)) return false;
+  const c = ownKeyChecks.get(key);
+  if (c && Date.now() - c.at < 10 * 60_000) return !c.ok;
+  let ok = true;
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { headers: { 'x-goog-api-key': key } });
+    if (r.status === 400 || r.status === 401 || r.status === 403) ok = !/API_KEY_INVALID|API key not valid|API_KEY_EXPIRED|expired/i.test(await r.text().catch(() => ''));
+  } catch { /* ok */ }
+  ownKeyChecks.set(key, { ok, at: Date.now() });
+  if (!ok) console.log(JSON.stringify({ evt: 'own_key_refused', provider: 'gemini' }));
+  return !ok;
+}
+
 export async function providerKey(env, who, provider) {
+  poolOn(env); // KEY_POOL as this request sees it, before any return (streamCall/ratingRouter read poolEnabled())
   if (!PROVIDER_IDS.includes(provider) || switchedOff(env, provider)) return null;
   const own = await userKeyFor(env, who, provider); // the owner's own key first (accounts/user-keys.js)
-  if (own) return own;
+  if (own && !(provider === 'gemini' && (await geminiKeyRefused(own.key)))) return own;
   if (BYOK_ONLY.includes(provider) && !serviceClaudeForTests && !serviceClaude(env)) return null; // Claude: own key only, unless the service has an Anthropic key (serviceClaude)
-  const list = serviceKeyList(env, provider);
+  const list = poolOrder(provider, serviceKeyTiers(env, provider), { env }); // key-pool.js: spread within a tier; KEY_POOL=off: fixed order
   if (!list.length) return null;
   const [key, ...fallbackKeys] = list;
   return { key, source: 'service', ...(fallbackKeys.length ? { fallbackKeys } : {}) };
@@ -229,7 +283,7 @@ export function usageUSD(model, u) {
     reasoningTokens: u.reasoningTokens || 0,
     ...(u.cachedInputTokens ? { cachedInputTokens: u.cachedInputTokens } : {}),
   };
-  return round6(usageCost(model, tokens) + searchUSD(model, u.webSearches || 0));
+  return round6(usageCost(datedModel(model), tokens) + searchUSD(model, u.webSearches || 0)); // priced on the call's day (dated-prices.js)
 }
 
 /**
@@ -264,7 +318,7 @@ export function capRequest(request, cap) {
  * `short: 'search'` when it's the searches that don't).
  */
 export function fitCall(model, request, { leftUSD, inputTokens, searches = 0, maxTokens, minReply = 512, resultTokens = 10_000 }) {
-  const [inPrice, outPrice] = ratesOf(model, inputTokens);
+  const [inPrice, outPrice] = ratesOf(datedModel(model), inputTokens); // a hold covers the call's own day's price (dated-prices.js)
   const usd = (tokens, price) => (tokens * price) / 1e6;
   const fixed = (n) =>
     model.provider === 'anthropic'
@@ -322,13 +376,26 @@ export const viaBase = (base, url) => (base ? url.replace(PROVIDER_HOSTS, (_, h)
 export function ratingRouter(cfg, keys, efforts, base = null) {
   const k = keys.gemini;
   if (!k || !cfg.models.length) return null;
-  const all = [k.key, ...(Array.isArray(k.fallbackKeys) ? k.fallbackKeys : [])];
-  const aiStudioKey = all.find((x) => x && !isVertexKey(x)) || k.key;
+  // the rating sends x-goog-api-key, so only plain keys (never vertex://); none: as with no Gemini key
+  const plain = plainKeys(k);
+  if (!plain.length) return null;
   const router = createLocalRouter({
     models: cfg.models.map((m) => m.id),
     efforts,
-    apiKey: aiStudioKey,
-    fetch: (url, init) => fetch(viaBase(base, String(url)), init),
+    apiKey: plain[0],
+    // the same Gemini call on the next key when one is busy or failing (key-pool.js); the key order is providerKey's.
+    // KEY_POOL=off: one call on the first key, no retry (as before the pool)
+    fetch: (url, init = {}) =>
+      withPool(
+        'gemini',
+        poolEnabled() ? plain : plain.slice(0, 1),
+        (key) => {
+          const headers = new Headers(init.headers || {});
+          headers.set('x-goog-api-key', key);
+          return fetch(viaBase(base, String(url)), { ...init, headers });
+        },
+        { signal: init.signal, ordered: true }
+      ),
     timeoutMs: 8_000,
   });
   return { router, metered: k.source === 'service' };
@@ -460,7 +527,23 @@ async function resolveVertexKey(rawKey, base, signal) {
   return { project: parsed.project_id || project, location, token: tok.access_token };
 }
 
-export async function streamCall({ model, request, messages, system, search = false, uses = 0, key, fallbackKeys = [], base = null, inputTokens = 0, videos = [] }, { signal, emit }) {
+/**
+ * Gemini's tool-call glitches: a turn that ends with MALFORMED_FUNCTION_CALL (or UNEXPECTED_TOOL_CALL) and no text, with or
+ * without tools in the request. A second try nearly always answers (2026-11-10: an EVES lane on Gemini 3.8 Flash failed
+ * this way and its answer was lost, "1 model failed. Coverage is reduced."). Once, and only when nothing was shown yet.
+ */
+export const GEMINI_RETRYABLE_STOP = /stopped without an answer \((?:MALFORMED_FUNCTION_CALL|UNEXPECTED_TOOL_CALL)\)/;
+
+export async function streamCall(args, ctx) {
+  const first = await streamCallOnce(args, ctx);
+  if (args.model.provider !== 'gemini' || first.stopped || ctx.signal.aborted || String(first.text || '').trim() || !GEMINI_RETRYABLE_STOP.test(String(first.failure || ''))) return first;
+  console.log(JSON.stringify({ evt: 'gemini_retry', model: args.model.id, why: String(first.failure).slice(0, 80) }));
+  const again = await streamCallOnce(args, ctx);
+  // the first attempt is billed too: Google charged for its input and thinking (2026-11-10 review)
+  return first.costUSD > 0 ? { ...again, costUSD: (again.costUSD || 0) + first.costUSD } : again;
+}
+
+async function streamCallOnce({ model, request, messages, system, search = false, uses = 0, key, fallbackKeys = [], base = null, inputTokens = 0, videos = [] }, { signal, emit }) {
   const provider = model.provider;
   const candidates = [key, ...(Array.isArray(fallbackKeys) ? fallbackKeys : [])].filter((k, i, a) => k && a.indexOf(k) === i);
   const buildForKey = async (k) => {
@@ -502,6 +585,7 @@ export async function streamCall({ model, request, messages, system, search = fa
   let chars = 0;
   let reported = null;
   const citations = [];
+  const marks = []; // where each source goes in the reply (stream.ts CiteMark: Gemini's groundingSupports, Claude's cited blocks)
   const parser = createStreamParser(provider, model, { search: provider === 'openai' && search });
   const result = (extra) => {
     const p = parser.progress();
@@ -518,10 +602,12 @@ export async function streamCall({ model, request, messages, system, search = fa
       usage = { inputTokens: p.inputTokens || inputTokens, outputTokens: output, reasoningTokens: reasoning, webSearches: p.webSearches, estimated: true };
     }
     if (search && provider === 'gemini' && !usage.webSearches && citations.length) usage.webSearches = 1;
-    return { text, citations, usage, costUSD: usageUSD(model, usage), stopped: false, failure: null, finish: null, status: null, ...extra };
+    return { text, citations, marks, usage, costUSD: usageUSD(model, usage), stopped: false, failure: null, finish: null, status: null, ...extra };
   };
   let upstream;
   let lastErrorBody = '';
+  let failedKey = '';
+  let releaseKey = () => {}; // the streaming key's in-flight count (key-pool.js), released when the stream ends
   for (let idx = 0; idx < candidates.length; idx++) {
     const hasNext = idx + 1 < candidates.length;
     const isVertex = isVertexKey(candidates[idx]);
@@ -530,33 +616,52 @@ export async function streamCall({ model, request, messages, system, search = fa
       http = await buildForKey(candidates[idx]);
     } catch (error) {
       if (signal.aborted) return result({ stopped: true });
+      poolReport(provider, candidates[idx], { kind: 'failure', status: 0 });
       if (hasNext) continue;
       return { ...result({ failure: clean(`Couldn't reach ${PROVIDER_NAMES[provider]}: ${error.message}`) }), usage: null, costUSD: 0 };
     }
     if (!http) {
+      poolReport(provider, candidates[idx], { kind: 'failure', status: 0 });
       if (hasNext) continue;
       return { ...result({ failure: `${PROVIDER_NAMES[provider]} credentials could not be resolved.` }), usage: null, costUSD: 0 };
     }
+    const release = poolAcquire(provider, candidates[idx]);
     try {
       upstream = await fetch(viaBase(base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal });
     } catch (error) {
+      release();
       if (signal.aborted) return result({ stopped: true });
-      if (isVertex && hasNext) continue;
+      poolReport(provider, candidates[idx], { kind: 'failure', status: 0 });
+      if ((isVertex || poolEnabled()) && hasNext) continue; // a network error: the next key (KEY_POOL=off: Vertex only, as before)
       return { ...result({ failure: clean(`Couldn't reach ${PROVIDER_NAMES[provider]}: ${error.message}`) }), usage: null, costUSD: 0 };
     }
-    if (upstream.ok && upstream.body) break;
+    if (upstream.ok && upstream.body) {
+      poolReport(provider, candidates[idx], { kind: 'ok', status: upstream.status });
+      releaseKey = release;
+      break;
+    }
+    release();
     lastErrorBody = await upstream.text().catch(() => '');
+    const kind = poolClassify(upstream.status, lastErrorBody);
+    poolReport(provider, candidates[idx], { kind, status: upstream.status, body: lastErrorBody, retryAfter: kind === 'cooldown' ? retryAfterMs(upstream.headers) : null });
     const shouldFailover =
       hasNext &&
       (isVertex ||
         upstream.status === 402 ||
         upstream.status === 429 ||
         upstream.status === 529 ||
-        ((upstream.status === 400 || upstream.status === 401 || upstream.status === 403) && QUOTA_FAILOVER_RE.test(lastErrorBody)));
+        (poolEnabled() && upstream.status >= 500) || // 5xx: the next key of the same model (KEY_POOL=off: as before)
+        ((upstream.status === 400 || upstream.status === 401 || upstream.status === 403) && QUOTA_FAILOVER_RE.test(lastErrorBody)) ||
+        // a key the provider doesn't accept at all ("API key not valid"): the next key may work (owner, 2026-11-06)
+        ((upstream.status === 400 || upstream.status === 401 || upstream.status === 403) && /API_KEY_INVALID|API key not valid|invalid[_ ]api[_ ]key|incorrect api key/i.test(lastErrorBody)));
+    failedKey = candidates[idx];
     if (!shouldFailover) break;
   }
   if (!upstream || !upstream.ok || !upstream.body) {
     const body = lastErrorBody;
+    // which key failed, never the key: Vertex or plain, and a plain key's last 4 (2026-11-06, a key Google refused)
+    const fk = String(failedKey || '');
+    console.log(JSON.stringify({ evt: 'provider_fail', provider, model: model.id, status: upstream ? upstream.status : 0, keys: candidates.map((k) => (isVertexKey(k) ? 'vertex' : `…${String(k).slice(-4)}`)), failed: isVertexKey(fk) ? 'vertex' : fk ? `…${fk.slice(-4)}` : '', why: String(body || '').slice(0, 120) }));
     let detail = body.trim();
     try {
       const j = JSON.parse(body);
@@ -585,6 +690,7 @@ export async function streamCall({ model, request, messages, system, search = fa
         emit('thinking', { text: e.text });
       } else if (e.type === 'citations') {
         for (const c of e.sources) if (!citations.some((x) => x.url === c.url)) citations.push(c);
+        for (const m of Array.isArray(e.marks) ? e.marks : []) if (m && typeof m.after === 'string' && Array.isArray(m.urls)) marks.push({ after: m.after, urls: m.urls.filter((u) => typeof u === 'string') });
       } else if (e.type === 'usage') {
         reported = {
           inputTokens: e.inputTokens,
@@ -608,6 +714,7 @@ export async function streamCall({ model, request, messages, system, search = fa
     return result({ failure: clean(error && error.message ? error.message : error) });
   } finally {
     signal.removeEventListener('abort', onAbort);
+    releaseKey();
   }
 }
 

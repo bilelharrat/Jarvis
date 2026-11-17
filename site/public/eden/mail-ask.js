@@ -14,6 +14,17 @@ export function isQuestion(text) {
   return /\?\s*$/.test(t) || /^(who|what|when|where|why|how|did|does|do|is|are|was|were|has|have|had|which|find|show|list|summari[sz]e|any|tell me|remind me|what's|whats)\b/i.test(t);
 }
 
+/**
+ * A question about the newest mail ("what's my latest email?", "anything new today?") has no words to search
+ * for: Eden reads the inbox's newest emails instead.
+ */
+export function wantsNewest(question) {
+  const t = String(question || '').toLowerCase();
+  return /\b(latest|newest|last|recent|most recent|new|today'?s?|this morning|just (got|came))\b/.test(t)
+    && /\b(e-?mails?|mails?|messages?|inbox|came in|got|anything)\b/.test(t)
+    && !/\b(from|about|regarding|re:|by|with)\s+\S/.test(t);
+}
+
 /** The question's key words, as a plain Gmail search (the fallback, and Mail on your Mac's query). */
 export function keywordQuery(question, max = 5) {
   const ws = (String(question || '').toLowerCase().match(/[\p{L}\p{N}@._'’-]+/gu) || [])
@@ -25,7 +36,7 @@ export function keywordQuery(question, max = 5) {
 export function querySystem(now = new Date()) {
   const ymd = (d) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
   return 'You turn the owner\'s question about their email into Gmail searches. Today is ' + `${ymd(now)} (${now.toLocaleDateString('en-US', { weekday: 'long' })}).` + '\n'
-    + 'Use Gmail\'s search operators where they help: from:, to:, subject:, "exact phrase", OR, after:YYYY/MM/DD, before:YYYY/MM/DD, newer_than:7d, has:attachment, filename:pdf, in:sent, in:anywhere. Prefer a few distinctive words over long queries; names and companies are good words.\n'
+    + 'Use Gmail\'s search operators where they help: from:, to:, subject:, "exact phrase", OR, after:YYYY/MM/DD, before:YYYY/MM/DD, newer_than:7d, has:attachment, filename:pdf, in:sent, in:anywhere. Prefer a few distinctive words over long queries; names and companies are good words. A question about the newest or recent mail with no topic ("what\'s my latest email") is in:inbox, or in:inbox newer_than:1d for today.\n'
     + 'Answer with only a JSON object: {"queries":["…"]}: one to three searches, the most likely first, each under 120 characters. The question is the owner\'s; nothing else is.';
 }
 

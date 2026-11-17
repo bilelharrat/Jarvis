@@ -360,7 +360,7 @@ function checklist(box, { title, items, saveLabel, onSave, empty }) {
     let ok = 0;
     for (const t of picked) { try { await onSave(t); ok++; } catch (e) { host.toast(`Couldn’t save to memory: ${e.message}`); break; } }
     if (ok) host.toast(`${ok} saved to memory`);
-    box.replaceChildren(el('p', 'muted', ok ? `${ok} saved. You can edit or delete them in Settings › Memory.` : 'Nothing saved.'));
+    box.replaceChildren(el('p', 'muted', ok ? `${ok} saved. You can edit or delete them in Settings › Accounts & memory.` : 'Nothing saved.'));
   });
   box.replaceChildren(el('h3', 'imp-h', title), el('div', 'imp-list', ...rows.map((r) => r.row)), el('div', 'dlg-acts', all, el('span', 'grow'), save));
 }

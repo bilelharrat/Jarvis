@@ -50,6 +50,7 @@ import { promoAdmin } from './accounts/promo.js';
 import { ltiAdmin, ltiRoute } from './edu/lti.js';
 import { routerAdmin, routerApi } from './router-api/api.js';
 import { edenPage } from './eden/pages.js';
+import { notesPlanApi } from './eden/notes-handoff.js';
 import { audiencePage } from './eden/audience-room.js'; // Eden Slides' audience: /a/<id>
 import { limited as limitedBy } from './accounts/index.js';
 import { helpApi } from './eden/help.js';
@@ -59,11 +60,15 @@ import { assetLinks } from './eden/android.js';
 import { robotsTxt, sitemapXml } from './eden/seo.js';
 import { LANDING_CSP, SESSION_COOKIE, baseline, cookies, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
 import { adminLeads, submitLead } from './leads/leads.js';
+import { adminEnterprise, submitEnterprise } from './leads/enterprise.js'; // Eden Enterprise's contact form (ENTERPRISE_CONTACT)
+import { adminBonusPool } from './accounts/bonus-pool.js'; // the Ultra/Platinum/Eden Black bonus pool (PLANS_V2)
 import { clientError, clientEvent, observe } from './stats/stats.js';
-import { adminKeys, adminPage, adminStats, adminTravelRefunds } from './stats/admin.js';
+import { adminCreditPacer, adminKeys, adminLb, adminPage, adminProviders, adminSession, adminStats, adminTravelRefunds } from './stats/admin.js';
 
 export { Account, Identity, Link, Space } from './accounts/index.js';
 export { Promo } from './accounts/promo.js';
+export { BonusPool } from './accounts/bonus-pool.js'; // wrangler.toml BONUS_POOL (migration with new_sqlite_classes)
+export { EnterpriseDesk } from './leads/enterprise.js'; // wrangler.toml ENTERPRISE (same migration)
 export { BrowserSession } from './browser/session.js';
 export { DeckRoom } from './eden/deck-room.js'; // Eden Slides, editing together (wrangler.toml DECK_ROOMS)
 export { AudienceRoom } from './eden/audience-room.js'; // Eden Slides live polls, Q&A, follow-along (wrangler.toml AUDIENCE_ROOMS)
@@ -73,6 +78,10 @@ export { RouterApi } from './router-api/store.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
+import { quotaShard, shareOf } from './eden/quota-shard.js';
+import { SPEND_COPY, companyCounterFetch, fishCostUSD, meterProvider, providerFull } from './eden/spend-counter.js';
+import { configureDatedPrices } from './eden/dated-prices.js';
+import { voiceCached, voiceToCache } from './eden/voice-cache.js';
 import { courseVoice } from './edu/budget.js';
 import { travelEmail } from './travel/inbox.js';
 import { travelOn } from './travel/api.js';
@@ -113,6 +122,7 @@ async function testSessionGuard(request, env, path) {
 
 export default {
   async fetch(request, env, ctx) {
+    configureDatedPrices(env); // charging by the call's (Pacific) day: eden/dated-prices.js, DATED_PRICES=off turns it off
     // Never serve anything over plain http: a sign-in from http:// would hand Google an http
     // callback (redirect_uri_mismatch) and post forms unencrypted. 308 keeps a POST a POST.
     const insecure = toHttps(request);
@@ -239,8 +249,12 @@ async function route(request, env, ctx) {
   if (mailHost) {
     const bare = url.pathname.replace(/\/+$/, '') || '/';
     if (url.hostname === `www.${mailHost}`) return Response.redirect(`https://${mailHost}${url.pathname === '/' ? '/' : url.pathname}${url.search}`, 301);
-    if (url.hostname === mailHost) {
-      if (getLike && bare === '/') return route(new Request(new URL(`/mail${url.search}`, url), request), env, ctx);
+    // MAIL_APP "on": the app itself lives here too, as its own origin (its own cookie and sign-in, as Edu at EDU_HOST; Google,
+    // Apple and Microsoft each need this address's callbacks registered first), and askeden.com/mail forwards here.
+    const mailApp = env.MAIL_APP === 'on';
+    if (mailApp && url.hostname !== mailHost && getLike && bare === '/mail') return Response.redirect(`https://${mailHost}/${url.search}`, 301);
+    if (url.hostname === mailHost && getLike && bare === '/') return route(new Request(new URL(`/mail${url.search}`, url), request), env, ctx);
+    if (url.hostname === mailHost && !mailApp) {
       // its page (also at /mail, which the front is served as), the page's files and its film; the rest is askeden.com's
       if (!(getLike && (bare === '/mail' || bare === '/home/paper-refinement.css' || bare.startsWith('/mail-home/') || /^\/jarvis\/walk-4\.(mp4|jpg)$/.test(bare)))) return Response.redirect(`https://askeden.com${url.pathname}${url.search}`, 301);
     }
@@ -304,19 +318,27 @@ async function route(request, env, ctx) {
     if (path === '/api/admin/lti') return ltiAdmin(request, env);
     // Eden Router API clients and their keys: the owner's server call, guarded by ROUTER_ADMIN_TOKEN (router-api/api.js)
     if (path === '/api/admin/router') return routerAdmin(request, env);
+    // Eden Notes' Plus check: its Worker's server call, no session; the body's signature is the guard (eden/notes-handoff.js)
+    if (path === '/api/hand/notes/plan') return notesPlanApi(request, env);
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
     if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
     if (path === RUN_PATH) return runApi(request, env); // the code canvas's cloud runner (eden/run.js)
-    if (path === '/api/voice' || path === '/api/chat/voice') return voice(request, env, path);
+    if (path === '/api/voice' || path === '/api/chat/voice') return voice(request, env, path, ctx);
     if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
     if (path === '/api/admin/stats') return adminStats(request, env); // the owner's dashboard (stats/admin.js)
+    if (path === '/api/admin/providers') return adminProviders(request, env); // owner-only: each AI provider's own bill, apart so it never slows the stats (stats/admin.js)
     if (path === '/api/admin/keys') return adminKeys(request, env); // owner-only API keys, limits & failover (stats/admin.js)
+    if (path === '/api/admin/lb') return adminLb(request, env); // owner-only key pool health, fingerprints only (stats/admin.js, eden/key-pool.js)
     if (path === '/api/admin/leads') return adminLeads(request, env); // owner-only lead export (leads/leads.js)
     if (path === '/api/leads') return submitLead(request, env, ctx); // email + SMS capture + Klaviyo welcome flow (leads/leads.js)
+    if (path === '/api/enterprise') return submitEnterprise(request, env, ctx); // Eden Enterprise's form, 404 while ENTERPRISE_CONTACT is off (leads/enterprise.js)
+    if (path === '/api/admin/enterprise') return adminEnterprise(request, env, adminSession); // owner-only list and CSV (leads/enterprise.js)
+    if (path === '/api/admin/bonus-pool') return adminBonusPool(request, env, adminSession); // owner-only: the pool's months (accounts/bonus-pool.js)
     if (path === '/api/admin/travel-refunds') return adminTravelRefunds(request, env);
+    if (path === '/api/admin/credit-pacer') return adminCreditPacer(request, env); // owner-only: the GCP credit pacer's state, and spend made elsewhere (stats/admin.js)
     if (path === '/api/admin/travel-beta' || path === '/api/admin/travel-beta/image') return adminTravelBeta(request, env, path); // the beta's invites and reports (travel/beta.js) // the owner's dashboard: Travel refunds (stats/admin.js)
     if (path === '/api/stats/error' && request.method === 'POST') return clientError(request, env, ctx); // a browser's error report (stats/stats.js)
     if (path === '/api/stats/event' && request.method === 'POST') return clientEvent(request, env, ctx); // funnel telemetry (stats/stats.js)
@@ -617,7 +639,7 @@ export function appSiteAssociation(env, host = '') {
         ],
       }],
     },
-    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`, `${team}.com.askeden.travel`] }, // Ask Eden Travel's app signs in here too (its passkeys are askeden.com's)
+    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`, `${team}.com.askeden.travel`, `${team}.com.askeden.admin`] }, // Ask Eden Travel's and Eden Admin's apps sign in here too (their passkeys are askeden.com's)
   };
   return json(body, 200, { 'cache-control': 'public, max-age=3600' });
 }
@@ -651,7 +673,7 @@ function limits(env) {
   };
 }
 
-async function voice(request, env, path = '/api/voice') {
+async function voice(request, env, path = '/api/voice', ctx = null) {
   if (request.method !== 'POST') return json({ error: 'POST only.' }, 405, { allow: 'POST' });
   const eden = path === '/api/chat/voice';
   if (eden && (request.headers.get('x-jarvis-chat') !== '1' || !sameOrigin(request))) return json({ error: 'Only askeden.com’s own page may do that.' }, 403);
@@ -685,6 +707,7 @@ async function voice(request, env, path = '/api/voice') {
   // A student's Eden Secretary tutor in a course (`course`): the free study voice, or more while the course is funded (edu/budget.js)
   const studyVoice = eden && account && env.ACCOUNTS && typeof body.course === 'string' ? await courseVoice(env, account, body.course, text.length, { own: body.eduOwn === true }).catch(() => null) : null;
   if (studyVoice && !studyVoice.ok) return json({ error: studyVoice.why, allowance: 'study' }, 429, { 'retry-after': '3600' });
+  let voicePaid = false; // the company spend counter's column: a Plus account's own voice is paid; a course's or no account's, free
   if (account && env.ACCOUNTS && !studyVoice) {
     const answer = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account.account)).fetch('https://account/voice', {
       method: 'POST',
@@ -695,14 +718,27 @@ async function voice(request, env, path = '/api/voice') {
     if (answer.status === 401) return json({ error: verdict.error || 'Signed out.', code: 'signed_out' }, 401);
     if (answer.status === 403) return json({ error: verdict.error || 'Not allowed.', code: 'forbidden' }, 403);
     if (!verdict.ok) return json({ error: verdict.why || 'No voice allowance left today.', allowance: 'account' }, 429, { 'retry-after': '3600' });
+    voicePaid = verdict.paid === true;
   }
-  const quota = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName('daily'));
+  // SPEND_CAP_FISH_USD (eden/spend-counter.js, CREDIT_PACER=on only): free voice stops for the day once the cap is used up
+  const fishCap = await providerFull(env, 'fish', { paid: voicePaid });
+  if (fishCap.full) return json({ error: SPEND_COPY.voice, allowance: 'company' }, 429, { 'retry-after': String(fishCap.retryAfter || 3600) });
+  // the day's counts: one shard per asker (account, else network), each with its part of the everyone-together
+  // ceiling (eden/quota-shard.js; VOICE_QUOTA_SHARDS, 1 = the one 'daily' object)
+  const shard = quotaShard(env, 'daily', account ? `a:${account.account}` : network);
+  const shared = { ...cap, everyone: shareOf(cap.everyone, shard.n) };
+  const quota = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName(shard.name));
   const verdict = await (await quota.fetch('https://quota/take', {
     method: 'POST',
-    body: JSON.stringify({ install: account ? `a:${account.account}` : install, network, chars: text.length, limits: account ? { ...cap, install: 1e12, network: 1e12 } : cap }),
+    body: JSON.stringify({ install: account ? `a:${account.account}` : install, network, chars: text.length, limits: account ? { ...shared, install: 1e12, network: 1e12 } : shared }),
   })).json();
   if (!verdict.ok) return json({ error: verdict.why, allowance: verdict.which }, 429, { 'retry-after': String(verdict.retryAfter || 3600) });
   const speed = Number(body.speed);
+  // one of Eden's own fixed sentences said before: the same audio from the cache, no Fish call (eden/voice-cache.js; VOICE_PHRASE_CACHE=on only)
+  const phrase = { text, format, speed: body.speed, voiceId: JARVIS_VOICE_ID };
+  const kept = await voiceCached(env, phrase);
+  if (kept) return kept;
+  const backup = voiceBackupModel(env);
   const fish = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
     headers: {
@@ -718,22 +754,63 @@ async function voice(request, env, path = '/api/voice') {
       latency: 'low',
       ...(Number.isFinite(speed) && Math.abs(speed - 1) >= 0.01 ? { prosody: { speed: Math.min(2, Math.max(0.5, speed)) } } : {}),
     }),
+  }).catch((error) => {
+    if (!backup) throw error; // no backup: as before
+    return null;
   });
+  if (fish && !fish.ok) fish.body?.cancel().catch(() => {}); // a failed answer's body is never read: free it
+  // Fish down (network, 5xx, 429) and VOICE_FALLBACK set: the backup voice answers in the same format
+  if (backup && (!fish || fish.status === 429 || fish.status >= 500)) {
+    const audio = await voiceBackup(env, backup, text, format);
+    if (audio) return audio;
+    if (!fish) return json({ error: 'The voice service could not be reached.' }, 502);
+  }
   if (!fish.ok) return json({ error: `The voice service said ${fish.status}.` }, 502);
+  // the company spend counter (eden/spend-counter.js, CREDIT_PACER warn/on): Fish at list price per byte, an upper bound
+  meterProvider(env, ctx, { provider: 'fish', usd: fishCostUSD(text), paid: voicePaid, feature: eden ? 'chat-voice' : 'app-voice' });
+  const fresh = await voiceToCache(env, fish, phrase).catch(() => null); // a fixed phrase: kept for next time
+  if (fresh) return fresh;
   return new Response(fish.body, {
     status: 200,
     headers: { 'content-type': format === 'wav' ? 'audio/wav' : 'application/octet-stream', 'cache-control': 'no-store' },
   });
 }
 
-// The day's characters, per install, per network and in all: one object for everyone, so
-// every check-and-add is atomic. A new day (UTC) starts from nothing.
+// The voice backup (docs/load-balancing.md item 4): VOICE_FALLBACK names a Workers AI Deepgram Aura model
+// (e.g. @cf/deepgram/aura-1, @cf/deepgram/aura-2-en), whose linear16 output at 24 kHz matches Fish's wav and pcm.
+// Unset or 'off', or another model (its output format unknown here): no backup. VOICE_FALLBACK_SPEAKER picks the voice.
+function voiceBackupModel(env) {
+  const model = String(env.VOICE_FALLBACK || '').trim();
+  return env.AI && /^@cf\/deepgram\/aura-[\w.-]+$/.test(model) ? model : null;
+}
+
+async function voiceBackup(env, model, text, format) {
+  try {
+    const speaker = String(env.VOICE_FALLBACK_SPEAKER || '').trim();
+    const out = await env.AI.run(model, { text, encoding: 'linear16', container: format === 'wav' ? 'wav' : 'none', sample_rate: 24000, ...(speaker ? { speaker } : {}) });
+    const audio = out instanceof Response ? (out.ok ? out.body : null) : out;
+    if (!audio) return null;
+    return new Response(audio, {
+      status: 200,
+      headers: { 'content-type': format === 'wav' ? 'audio/wav' : 'application/octet-stream', 'cache-control': 'no-store', 'x-eden-voice': 'backup' },
+    });
+  } catch (error) {
+    console.error('voice backup failed', error && error.message);
+    return null;
+  }
+}
+
+// The day's characters, per install, per network and in all: one object for everyone (or one
+// per shard, eden/quota-shard.js), so every check-and-add is atomic. A new day (UTC) starts from nothing.
 export class VoiceQuota {
   constructor(state) {
     this.storage = state.storage;
   }
 
   async fetch(request) {
+    // the GCP credit pacer's day counter (eden/credit-pacer.js): its own object, "credit-pacer", never a voice day's
+    // and the company spend counter's per-provider days (eden/spend-counter.js), which hands the pacer's requests on
+    if (new URL(request.url).hostname === 'credit-pacer') return companyCounterFetch(this.storage, request);
     const { install, network, chars, limits: cap } = await request.json();
     const day = new Date().toISOString().slice(0, 10);
     if ((await this.storage.get('day')) !== day) {

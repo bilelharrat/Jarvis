@@ -5,6 +5,7 @@
 // them: app/browser-lib.js), zoom, and each account's monthly browser minutes.
 
 import { BLOCKED_HOSTS } from './blocklist.js';
+import { planCaps } from '../accounts/plans.js';
 
 export const LIMITS = {
   idleMs: 5 * 60 * 1000, // nothing from the viewer this long: the browser closes
@@ -363,8 +364,10 @@ export function suggest(query, { tabs = [], bookmarks = [], history = [], now = 
 // ── browser minutes, a month per account ──
 
 export const monthOf = (now) => new Date(now).toISOString().slice(0, 7);
-export function allowance(env = {}, plus = false) {
+export function allowance(env = {}, plus = false, tier = null) {
   const n = (v, d) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
+  const caps = plus && tier ? planCaps(env, tier) : null; // PLANS_V2's six plans (accounts/plans.js); today's Plus keeps BROWSER_MINUTES_PLUS
+  if (caps) return caps.browser_min;
   return plus ? n(env.BROWSER_MINUTES_PLUS, MINUTES.plus) : n(env.BROWSER_MINUTES_FREE, MINUTES.free);
 }
 /** Minutes used this month, after ms more of an open browser (whole months only: a new month starts at 0). */
@@ -430,6 +433,48 @@ export function cursorOf(c) {
 }
 
 /** A page that turned the cloud browser away (a bot check or a block page), by its title. */
+/**
+ * Google's "unusual traffic" check (google.<country>/sorry/…, a reCAPTCHA): Google shows it to the cloud
+ * browser's Cloudflare address; the person can pass it (Google's own way through). The search
+ * it was for (from the check's `continue` address, whose `q` is the words; the check's own `q` is a
+ * token) and that address (only ever a Google one), or null when the page isn't the check.
+ */
+const GOOGLE_HOST = /^(([a-z0-9-]+\.)*google\.(com|[a-z]{2}|com?\.[a-z]{2}))$/i;
+export function googleSorry(url) {
+  let u;
+  try { u = new URL(String(url || '')); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol) || !GOOGLE_HOST.test(u.hostname) || !/^\/sorry(\/|$)/.test(u.pathname)) return null;
+  const google = u.searchParams.get('continue') || '';
+  let q = '';
+  try { q = new URL(google).searchParams.get('q') || ''; } catch { /* no address to go back to */ }
+  // "Google in my browser" opens this link in the person's own browser: only Google's own sites
+  // (www., ipv4., ipv6.google.com, google.co.uk…), never google.com.evil.example (Exterminator 2026-11-10).
+  let back = '';
+  try { const c = new URL(google); if (c.protocol === 'https:' && !c.username && !c.password && GOOGLE_HOST.test(c.hostname)) back = c.toString(); } catch { /* none */ }
+  return { q: q.trim().slice(0, LIMITS.urlMax), google: back.slice(0, LIMITS.urlMax) };
+}
+
+/**
+ * Google's pass after its robot check (the GOOGLE_ABUSE_EXEMPTION cookie), kept between cloud browsers so
+ * the person needn't tick the check again each time one starts. Only that cookie, only on Google's own
+ * domains, never past its own expiry (an hour at most when it has none). Ready for CDP Storage.setCookies.
+ */
+export function googlePass(cookies, nowMs) {
+  const out = [];
+  for (const c of Array.isArray(cookies) ? cookies : []) {
+    if (!c || c.name !== 'GOOGLE_ABUSE_EXEMPTION' || typeof c.value !== 'string' || !c.value || c.value.length > 4096) continue;
+    const domain = String(c.domain || '');
+    if (!/^\.?([a-z0-9-]+\.)*google\.[a-z]{2,3}(\.[a-z]{2})?$/i.test(domain)) continue;
+    const expires = Number(c.expires) > 0 ? Number(c.expires) : nowMs / 1000 + 3600;
+    if (expires * 1000 <= nowMs) continue;
+    const pass = { name: c.name, value: c.value, domain, path: typeof c.path === 'string' && c.path.startsWith('/') ? c.path : '/', secure: c.secure !== false, httpOnly: Boolean(c.httpOnly), expires };
+    if (['Strict', 'Lax', 'None'].includes(c.sameSite)) pass.sameSite = c.sameSite;
+    out.push(pass);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
 export const botWall = (title) => /^(just a moment|attention required|access denied|access to this page has been denied|pardon our interruption|are you a robot|verify you are human|please verify you are a human|403 forbidden|request blocked|you have been blocked|robot or human)/i.test(String(title || '').trim());
 
 /** Why a page didn't open, in words, from Chrome's error (net::ERR_…). */

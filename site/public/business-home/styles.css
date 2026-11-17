@@ -15,14 +15,6 @@
 .ring-outer{width:92%;height:92%;}
 .ring-inner{width:64%;height:64%;}
 .orbit-item{position:absolute;pointer-events:auto;text-decoration:none;background:transparent;border:0;padding:0;display:flex;align-items:center;justify-content:center}
-.ring-outer .pos-top{top:0;left:50%;transform:translate(-50%,-50%)}
-.ring-outer .pos-right{top:50%;right:0;transform:translate(50%,-50%)}
-.ring-outer .pos-bottom{bottom:0;left:50%;transform:translate(-50%,50%)}
-.ring-outer .pos-left{top:50%;left:0;transform:translate(-50%,-50%)}
-.ring-inner .pos-tr{top:14.6%;left:85.4%;transform:translate(-50%,-50%)}
-.ring-inner .pos-br{top:85.4%;left:85.4%;transform:translate(-50%,-50%)}
-.ring-inner .pos-bl{top:85.4%;left:14.6%;transform:translate(-50%,-50%)}
-.ring-inner .pos-tl{top:14.6%;left:14.6%;transform:translate(-50%,-50%)}
 .orbit-logo-holder{display:flex;align-items:center;justify-content:center;position:relative;background:transparent;border:0;padding:0}
 .ring-outer .orbit-logo-holder{}
 .ring-inner .orbit-logo-holder{}
@@ -121,9 +113,47 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var
 .panel-flower{color:var(--coral)}.stack-number{font-family:var(--mono);font-style:normal;color:var(--ink2)}
 .closing{background:var(--paper2)}.closing::before,.closing::after{display:none}
 @media(min-width:641px) and (max-width:860px){.hero,.possibilities-inner{grid-template-columns:1fr}.ecosystem{max-width:460px;margin-block:35px 65px}.hero-copy{max-width:600px}.main-nav{gap:12px}.main-nav>a:not(.button){display:none}}
-@media(max-width:640px){.container{width:calc(100% - 48px)}.hero .eyebrow{font-size:11px}.hero-actions{gap:14px}.hero-description{font-size:20px}.ecosystem{width:92%;max-width:360px;margin-bottom:60px}.ecosystem-center{width:38%;height:38%;padding:6px}.ecosystem-center>span{font-size:20px}.ecosystem-center small{font-size:7.5px;margin-top:2px}.orbit-logo-holder{padding:4px 9px 4px 5px;gap:5px}.orbit-label{font-size:10px}.ring-outer .orbit-logo{width:24px;height:24px}.ring-inner .orbit-logo{width:22px;height:22px}.orbit-logo-eves{width:84px!important;height:42px!important;min-width:84px}.orbit-caption{font-size:9px}.footer-bottom{font-size:12px}.workflow-panel{padding:24px}.filters{gap:2px}.filter{font-size:12px;padding-inline:8px}.product-count{display:block;font-size:12px}.product-toolbar{align-items:flex-start;flex-direction:column}.main-nav{position:fixed;top:76px;left:0;right:0;background:var(--paper);padding:16px 24px 28px;box-shadow:0 12px 24px rgba(14,39,71,0.12);z-index:100;border-bottom:1px solid var(--line)}}
+@media(max-width:640px){.container{width:calc(100% - 48px)}.hero .eyebrow{font-size:11px}.hero-actions{gap:14px}.hero-description{font-size:20px}.ecosystem{width:92%;max-width:360px;margin-bottom:60px}.ecosystem-center{width:38%;height:38%;padding:6px}.ecosystem-center>span{font-size:20px}.ecosystem-center small{font-size:7.5px;margin-top:2px}.orbit-logo-holder{padding:4px 9px 4px 5px;gap:5px}.orbit-label{font-size:10px}.ring-outer .orbit-logo{width:24px;height:24px}.ring-inner .orbit-logo{width:22px;height:22px}.orbit-logo-eves{width:76px!important;height:38px!important;min-width:76px}.orbit-caption{font-size:9px}.footer-bottom{font-size:12px}.workflow-panel{padding:24px}.filters{gap:2px}.filter{font-size:12px;padding-inline:8px}.product-count{display:block;font-size:12px}.product-toolbar{align-items:flex-start;flex-direction:column}.main-nav{position:fixed;top:76px;left:0;right:0;background:var(--paper);padding:16px 24px 28px;box-shadow:0 12px 24px rgba(14,39,71,0.12);z-index:100;border-bottom:1px solid var(--line)}}
+/* The Eden galaxy ring, 12 apps (2026-11-13): six on each ring, the inner ones half-way between the outer ones.
+   Both rings turn together (one speed, one direction) so no two pills ever meet; every pill wraps its icon (width:max-content).
+   Sizes follow the ring's own width (container queries); under 430px each app is a small tile, icon over name.
+   Checked for overlaps at every angle at 1280, 1024, 900, 768, 390 and 360 wide. */
+.track-outer-line,.ring-outer{width:86%;height:86%}
+.track-inner-line,.ring-inner{width:56%;height:56%}
+.ecosystem-center{width:31%;height:31%}
+.orbit-ring .orbit-item{transform:translate(-50%,-50%);width:max-content}
+.o1{left:75%;top:6.7%}.o2{left:100%;top:50%}.o3{left:75%;top:93.3%}.o4{left:25%;top:93.3%}.o5{left:0;top:50%}.o6{left:25%;top:6.7%}
+.i1{left:50%;top:0}.i2{left:93.3%;top:25%}.i3{left:93.3%;top:75%}.i4{left:50%;top:100%}.i5{left:6.7%;top:75%}.i6{left:6.7%;top:25%}
+.orbit-logo-holder{gap:7px;padding:6px 12px 6px 6px}
+.orbit-label{font-size:12px}
+.orbit-logo,.ring-outer .orbit-logo,.ring-inner .orbit-logo{width:30px;height:30px;flex-shrink:0}
+.orbit-logo-eves{width:96px!important;height:48px!important;min-width:96px}
+.pos-eves .eves-pill-holder{padding:3px 6px}
+.orbit-item:not(:hover):not(:focus-visible) .orbit-tooltip{display:none} /* a hidden tooltip at the ring's edge never widens the page */
+span.orbit-item{cursor:default}
+.travel-icon,.calendar-icon,.apollo-icon{background:var(--ink)}.news-icon{background:var(--paper2)}
+.product-icon.travel-icon img,.product-icon.calendar-icon img,.product-icon.apollo-icon img{width:38px;height:38px}
+.product-card-soon{cursor:default}.product-card-soon .card-bottom{color:var(--ink2)}
+span.orbit-item:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:999px}
+span.orbit-item:hover .orbit-tooltip,span.orbit-item:focus-visible .orbit-tooltip{opacity:1;visibility:visible;transform:translateX(-50%) translateY(4px)}
+.ecosystem{container:galaxy/inline-size}
+@container galaxy (max-width:520px){.orbit-logo-holder{gap:5px;padding:4px 9px 4px 4px}.orbit-label{font-size:11px}.orbit-logo,.ring-outer .orbit-logo,.ring-inner .orbit-logo{width:24px;height:24px}.orbit-logo-eves{width:76px!important;height:38px!important;min-width:76px}}
+@media(max-width:640px){.ecosystem{width:100%;max-width:360px}.ecosystem::before{inset:0}}
+@container galaxy (max-width:430px){
+  .track-outer-line,.ring-outer{width:88%;height:88%}
+  .track-inner-line,.ring-inner{width:54%;height:54%}
+  .ecosystem-center{width:26%;height:26%;padding:4px}
+  .ecosystem-center>span{font-size:15px}
+  .ecosystem-center small{display:none}
+  .orbit-logo-holder{flex-direction:column;gap:1px;padding:4px 5px 3px;border-radius:12px}
+  .orbit-label{font-size:9.5px;line-height:1.2}
+  .orbit-logo,.ring-outer .orbit-logo,.ring-inner .orbit-logo{width:24px;height:24px;border-radius:6px}
+  .orbit-logo-eves{width:62px!important;height:31px!important;min-width:62px}
+  .pos-eves .eves-pill-holder{padding:2px 4px;border-radius:999px}
+}
 
-/* Live Google-like revolving ecosystem orbit & choreographed motion */
+
+/* Live Google-like revolving galaxy orbit & choreographed motion */
 @media(prefers-reduced-motion:no-preference){
   .status-dot{animation:status-pulse 2.2s ease-in-out infinite}
   h1 em::after{animation:coral-shimmer 3s ease-in-out infinite}
@@ -131,13 +161,11 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var
   .track-outer-line{border:2px dashed rgba(217,96,79,0.6);animation:orbit-spin-cw 34s linear infinite}
   .track-inner-line{border:2px dashed rgba(14,39,71,0.42);animation:orbit-spin-ccw 24s linear infinite}
   /* The actual product rings revolve continuously around Ask Eden */
-  .ring-outer{animation:orbit-spin-cw 34s linear infinite}
-  .ring-inner{animation:orbit-spin-ccw 24s linear infinite}
+  .ring-outer,.ring-inner{animation:orbit-spin-cw 60s linear infinite}
   /* Counter-rotate every pill so icons, labels, EVES pill, and tooltips remain 100% upright while revolving */
-  .ring-outer .orbit-logo-holder{animation:counter-spin-ccw 34s linear infinite}
-  .ring-inner .orbit-logo-holder{animation:counter-spin-cw 24s linear infinite}
+  .ring-outer .orbit-logo-holder,.ring-inner .orbit-logo-holder{animation:counter-spin-ccw 60s linear infinite}
   .orbit-logo{animation:node-float 3.2s ease-in-out infinite}
-  .pos-eves .eves-pill-holder{animation:counter-spin-cw 24s linear infinite,eves-pill-glow 2.8s ease-in-out infinite}
+  .pos-eves .eves-pill-holder{animation:counter-spin-ccw 60s linear infinite,eves-pill-glow 2.8s ease-in-out infinite}
   /* Pause revolution smoothly when the user hovers or focuses to inspect/click a product */
   .ecosystem:hover .ring-outer,.ecosystem:hover .ring-inner,.ecosystem:hover .ring-outer .orbit-logo-holder,.ecosystem:hover .ring-inner .orbit-logo-holder,.ecosystem:hover .track-outer-line,.ecosystem:hover .track-inner-line,.ecosystem:focus-within .ring-outer,.ecosystem:focus-within .ring-inner,.ecosystem:focus-within .ring-outer .orbit-logo-holder,.ecosystem:focus-within .ring-inner .orbit-logo-holder{animation-play-state:paused}
   .ecosystem-center{animation:family-reveal .45s ease both,center-pulse 3.4s ease-in-out infinite}
@@ -171,3 +199,8 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var
 @keyframes card-glow{0%,100%{box-shadow:0 6px 20px rgba(14,39,71,0.06)}50%{box-shadow:0 14px 34px rgba(217,96,79,0.18)}}
 @keyframes workflow-wave{0%,35%,100%{transform:translateX(0)}18%{transform:translateX(6px)}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important;animation:none!important}}
+/* Eden Code for your enterprise */
+.ec-section{border-top:1px solid var(--line)}.ec-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.ec-grid article{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:27px;display:flex;flex-direction:column}.ec-tag{align-self:flex-start;font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--coral);border:1px solid var(--coral);border-radius:20px;padding:2px 10px}.ec-tag-live{color:var(--ink2);border-color:var(--line);background:var(--paper2)}.ec-grid h3{font-size:24px;font-weight:500;letter-spacing:-.01em;line-height:1.3;margin:20px 0 12px}.ec-grid p{font-size:17px;line-height:1.55;color:var(--muted)}.ec-foot{display:flex;justify-content:space-between;align-items:center;gap:30px;margin-top:30px}.ec-note{font-family:var(--mono);font-size:12px;color:var(--ink2);max-width:620px}
+@media(max-width:1100px){.ec-grid article{padding:22px}}
+@media(max-width:850px){.ec-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.ec-grid{grid-template-columns:1fr;gap:13px}.ec-grid article{padding:24px}.ec-foot{flex-direction:column;align-items:flex-start;gap:20px}}

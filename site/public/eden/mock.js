@@ -580,6 +580,8 @@ export async function mockFetch(path, init = {}) {
   if (p === '/api/chat/google/config' && method === 'POST') { if (!body.clientId || !body.clientSecret) return json({ error: 'clientId and clientSecret are required' }, 400); setGoogle({ configured: true }); return json(google()); }
   if (p === '/api/chat/google/connect' && method === 'POST') { if (!google().configured) return json({ error: 'Set up Gmail first' }, 409); setGoogle({ connected: true, email: 'owner@gmail.com' }); return json({ url: `${location.pathname}${location.search.includes('gm=') ? location.search : `${location.search}&gm=1`}#gmail=connected` }); }
   if (p === '/api/chat/google/disconnect' && method === 'POST') { setGoogle({ connected: false, email: null }); return json(google()); }
+  if (p === '/api/chat/mail/accounts') return MM_ON ? mailAccountsMock(method, body) : json({ error: 'Not found', code: 'not_found' }, 404); // several accounts: ?mm=1
+  if (p === '/api/chat/gmail' && method === 'POST' && body && body.mailbox && body.mailbox !== 'primary') return MM_ON ? gmailBoxMock(body) : json({ error: 'Several mail accounts aren’t switched on here.', code: 'not_found' }, 404);
   if (p === '/api/chat/gmail' && method === 'POST') return gmailMock(body); // the Gmail section, at the end
   if (p === '/api/chat/voice' && method === 'POST') return voiceMock(body);
   if (p === '/api/chat/transcribe' && method === 'POST') { await sleep(500); return init.body && init.body.size ? json({ text: 'Remind me to call Ana at five tomorrow.', via: 'mock' }) : json({ error: 'The recording was empty.' }, 400); } // dictation by recording (voice.js)
@@ -602,7 +604,40 @@ export async function mockFetch(path, init = {}) {
    sessionStorage. */
 
 const acctQ = new URLSearchParams(location.search);
-const AKEY = `mock:account:${acctQ.get('acct') || 'free'}`;
+const AKEY = `mock:account:${acctQ.get('acct') || 'free'}${acctQ.get('allow') === 'v2' ? ':v2' : ''}${acctQ.get('plans') === 'v2' ? `:p2:${acctQ.get('tier') || ''}` : ''}`;
+// ?plans=v2: askeden.com's PLANS_V2 (site accounts/plans.js): /api/web/config lists the six plans (the workbook's
+// 2026-11-13 numbers; Platinum and Eden Black as App Store only here, web:false, to show they're hidden on the
+// web), `rollover` with ?allow=v2, and Eden Enterprise's card. ?tier=plus2|pro|max|ultra|platinum|black with ?acct=plus
+// puts the account on that plan (plan.tier/label; the bonus line on Ultra and up).
+const MOCK_PLANS = [
+  { tier: 'plus2', name: 'Plus', price_usd: 10, yearly_usd: 110, web: true, ai_usd: 5, answers: 150, eves_strong: 10, flash_day: 20, flash_month: 120, voice_day: 20000, browser_min: 120, bonus_max_pct: 0 },
+  { tier: 'pro', name: 'Pro', price_usd: 20, yearly_usd: 220, web: true, ai_usd: 10, answers: 300, eves_strong: 20, flash_day: 40, flash_month: 250, voice_day: 50000, browser_min: 300, bonus_max_pct: 0 },
+  { tier: 'max', name: 'Max', price_usd: 50, yearly_usd: 550, web: true, ai_usd: 28, answers: 830, eves_strong: 55, flash_day: 85, flash_month: 510, voice_day: 50000, browser_min: 300, bonus_max_pct: 0 },
+  { tier: 'ultra', name: 'Ultra', price_usd: 100, yearly_usd: null, web: true, ai_usd: 49, answers: 1450, eves_strong: 95, flash_day: 150, flash_month: 900, voice_day: 75000, browser_min: 600, bonus_max_pct: 20 },
+  { tier: 'platinum', name: 'Platinum', price_usd: 200, yearly_usd: 2200, web: false, ai_usd: 98, answers: 2910, eves_strong: 195, flash_day: 320, flash_month: 1930, voice_day: 100000, browser_min: 900, bonus_max_pct: 20 },
+  { tier: 'black', name: 'Eden Black', price_usd: 400, yearly_usd: 4400, web: false, ai_usd: 198, answers: 5880, eves_strong: 395, flash_day: 635, flash_month: 3800, voice_day: 100000, browser_min: 1200, bonus_max_pct: 20 },
+].map((p) => ({ ...p, app_products: { monthly: `com.askeden.eden.${p.tier}.monthly`, yearly: `com.askeden.eden.${p.tier}.yearly` } }));
+const mockTier = () => (acctQ.get('plans') === 'v2' && MOCK_PLANS.some((p) => p.tier === acctQ.get('tier')) ? acctQ.get('tier') : 'plus2');
+// ?allow=v2: askeden.com's ALLOWANCE_V2 shape (site src/accounts/allowance.js; weekly release, rollover,
+// bonus). Opt-in: without it the usage below is exactly as before. With ?acct=plus a Plus period anchored
+// 12 days ago, in its 2nd week, with $4 carried over (and, with ?plans=v2&tier=ultra or up, the bonus); a free account gets `allowance` only.
+function mockAllowanceV2(plus, now) {
+  if (acctQ.get('allow') !== 'v2') return {};
+  if (!plus) return { allowance: 'v2' };
+  const W = 7 * 864e5;
+  const start = now - 12 * 864e5;
+  const end = start + 30 * 864e5;
+  const C = 7.2;
+  const bonus = ['ultra', 'platinum', 'black'].includes(mockTier()); // the bonus is fixed at the period's start
+  return {
+    allowance: 'v2', period_source: 'stripe', period_start: start, period_end: end,
+    spent_usd: 3.1, budget_usd: C + 4, left_usd: C + 4 - 3.1, plus_usd: C,
+    week_start: start + W, week_end: start + 2 * W, week_number: 2, weeks_in_period: 4, week_slice_usd: C / 4,
+    week_left_usd: 4.5, answer_usd: 0.033, week_answers_left: Math.floor(4.5 / 0.033), // 2.5 rolled + (3.6 released - 1.6 base spent)
+    rollover_usd: 4, rollover_left_usd: 2.5, rollover_expires: end,
+    bonus_max_pct: bonus ? 20 : 0, bonus_usd: bonus ? 1.2 : 0, bonus_left_usd: bonus ? 0.8 : 0,
+  };
+}
 function acctState() {
   const saved = sessionStorage.getItem(AKEY);
   if (saved) return JSON.parse(saved);
@@ -615,7 +650,7 @@ function acctState() {
     account_id: '6f1c2b9e-0d4a-4c1e-9a77-2b6f0e5d1a42',
     account_code: 'K7Q-M4Z', // as askeden.com gives it (site accounts/util.js accountCode)
     plan: { name: plus ? 'plus' : 'free', active: plus, expires: plus ? now + 18 * 86400000 : null, renews: plus ? true : null },
-    usage: { period_start: month.toISOString(), period_end: next.toISOString(), spent_usd: plus ? 3.6 : 0, budget_usd: plus ? 6 : 0, left_usd: plus ? 2.4 : 0, trial_left_usd: plus ? 0 : 0.62, trial_usd: 1, plus_usd: 6 },
+    usage: { period_start: month.toISOString(), period_end: next.toISOString(), spent_usd: plus ? 3.6 : 0, budget_usd: plus ? 6 : 0, left_usd: plus ? 2.4 : 0, trial_left_usd: plus ? 0 : 0.62, trial_usd: 1, plus_usd: 6, ...mockAllowanceV2(plus, now) },
     credits: {
       balance_usd: plus ? 7.35 : 0, markup: plus ? 1.25 : 1.4, next_expiry: plus ? now + 300 * 86400000 : null,
       history: plus ? [{ usd: 10, left: 7.35, at: now - 65 * 86400000, expires: now + 300 * 86400000, source: 'stripe', expired: false }] : [],
@@ -632,6 +667,7 @@ function acctState() {
     plus: acctQ.get('billing') === 'off' ? { web_purchase: false, how: 'ios' } : { web_purchase: true, how: 'stripe', price_usd: 10, yearly_usd: 96, credit_packs: [5, 10, 25], auto_topup: true },
   };
   if (plus && acctQ.get('billing') !== 'off') Object.assign(a.plan, { source: 'stripe', manage: { stripe: true } });
+  if (plus && acctQ.get('plans') === 'v2') Object.assign(a.plan, { tier: mockTier(), label: MOCK_PLANS.find((p) => p.tier === mockTier()).name });
   // acct=delegate | acct=space: this browser is using a delegate's grant (chat and mail) or a team space (acting.js).
   if (kind === 'delegate') a.acting = { type: 'delegate', id: 'dlg1', label: 'Bilel', features: ['chat', 'mail'], expires: now + 20 * 86400000 };
   if (kind === 'space') a.acting = { type: 'space', id: 'spc1', label: 'Launch team', features: ['chat'], expires: now + 86400000 };
@@ -645,7 +681,8 @@ function webMock(p, method, url, body = {}) {
   const a = acctState();
   if (p === '/api/web/config') {
     const billing = acctQ.get('billing') === 'off' ? { billing: false, billing_in_app: false } : { billing: true, billing_in_app: false };
-    return json({ ...(acctQ.get('webcfg') === 'none' ? { apple: false, google: false, code: true } : { apple: true, google: true, code: true }), ...billing });
+    const plans = acctQ.get('plans') === 'v2' ? { plans: MOCK_PLANS, ...(acctQ.get('allow') === 'v2' ? { rollover: true } : {}), enterprise_contact: true } : {};
+    return json({ ...(acctQ.get('webcfg') === 'none' ? { apple: false, google: false, code: true } : { apple: true, google: true, code: true }), ...billing, ...plans });
   }
   // Stripe isn't simulated: nothing is bought from ?mock=1.
   if (p.startsWith('/api/web/billing/') && method === 'POST') return json({ error: 'Checkout and billing open Stripe on askeden.com; ?mock=1 doesn’t simulate them.', code: 'mock' }, 400);
@@ -2030,6 +2067,7 @@ async function mockMonth() {
     daily: rows.filter((d) => Date.parse(`${d.day}T12:00:00`) >= start).map((d) => ({ day: d.day, usd: Math.round(d.usd * 1e4) / 1e4 })),
     autopilot: st,
     savedVsTop: { usd: Math.round(spent * 1.9 * 1e4) / 1e4, turns: 75, model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5' },
+    ...(acctQ.get('allow') === 'v2' ? { week: { leftUSD: 4.5, end: now + 2 * 864e5, answersLeft: Math.floor(4.5 / 0.033) } } : {}), // ALLOWANCE_V2's week (opt-in, as the account above)
   };
 }
 async function mockLearned() {
@@ -2109,4 +2147,175 @@ async function learnSpendMock(p, method, body) {
     if (!x.pick.provider || x.pick.provider !== 'anthropic') { const s = lsGet(SP_KEY, {}); lsSet(SP_KEY, { ...s, added: (s.added || 0) + (x.pick.costUSD || 0) }); }
   }
   return null;
+}
+
+
+/* ================= Several Gmail accounts (mail-accounts.js, mail-merge.js; ROADMAP Y) =================
+   ?mm=1 (with ?mock=1 on a local port other than 5174) turns them on: the first Gmail (owner@gmail.com) plus
+   "Work" and "Side project", each with its own sample mail, as askeden.com's /api/chat/mail/accounts and
+   /api/chat/gmail { mailbox } answer them. Add an account adds a fourth; edit and remove work; scheduling from
+   an extra account is refused as on askeden.com.
+   ?mm=nogmail: several accounts on but no Gmail and no mailbox yet (someone with only an IMAP account):
+   Mail offers Add an account, and the first one added becomes the mailbox Mail uses. */
+const MM_NOGMAIL = new URLSearchParams(location.search).get('mm') === 'nogmail';
+const MM_ON = new URLSearchParams(location.search).get('mm') === '1' || MM_NOGMAIL;
+const MM_WORK = 'm0a1b2c3d4e5f', MM_SIDE = 'm9f8e7d6c5b4a', MM_OLD = 'm1122334455aa';
+const MM_BOXES = [
+  { id: 'primary', provider: 'gmail', email: 'owner@gmail.com', label: 'Personal', color: 'indigo', primary: true, status: 'ok' },
+  { id: MM_WORK, provider: 'gmail', email: 'you@yourcompany.com', label: 'Work', color: 'teal', primary: false, status: 'ok' },
+  { id: MM_SIDE, provider: 'gmail', email: 'hello@sideproject.co', label: 'Side project', color: 'purple', primary: false, status: 'ok' },
+];
+if (MM_NOGMAIL) MM_BOXES.length = 0;
+const MM_MAIL = {
+  [MM_WORK]: [
+    { id: 'w01', threadId: 'wt1', box: 'inbox', from: 'Maya Chen <maya.chen@yourcompany.com>', to: ['you@yourcompany.com'], subject: 'Q4 budget: final numbers', date: ago(0.4), unread: true, body: 'Hi,\n\nI attached the revised sheet with the two changes from Tuesday. Can you sign off by Friday?\n\nThanks,\nMaya' },
+    { id: 'w02', threadId: 'wt2', box: 'inbox', from: 'Jordan Ellis <jordan@yourcompany.com>', to: ['you@yourcompany.com'], subject: 'Re: contract redlines', date: ago(2.2), unread: true, body: 'Legal is fine with clause 7 if we cap the term at 24 months. Shall I send it back to them?' },
+    { id: 'w03', threadId: 'wt3', box: 'inbox', from: 'IT Desk <it@yourcompany.com>', to: ['you@yourcompany.com'], subject: 'Your laptop is ready for pickup', date: ago(27), unread: false, body: 'Your new laptop is at the front desk, floor 3. Bring your badge.' },
+    { id: 'w04', threadId: 'wt2', box: 'sent', from: 'you@yourcompany.com', to: ['Jordan Ellis <jordan@yourcompany.com>'], subject: 'contract redlines', date: ago(30), unread: false, body: 'Jordan, can legal look at clause 7 today?' },
+  ],
+  [MM_SIDE]: [
+    { id: 's01', threadId: 'st1', box: 'inbox', from: 'Ledgerly Payouts <payouts@ledgerly.example>', to: ['hello@sideproject.co'], subject: 'A payout of $1,240.00 is on its way', date: ago(3.4), unread: false, body: 'It should reach your bank by Tuesday.' },
+    { id: 's02', threadId: 'st2', box: 'inbox', from: 'Sam Okafor <sam@okafor.example>', to: ['hello@sideproject.co'], subject: 'Partnership idea', date: ago(5), unread: true, body: 'Loved the launch. Would you be open to a call next week about a bundle?' },
+  ],
+  [MM_OLD]: [
+    { id: 'o01', threadId: 'ot1', box: 'inbox', from: 'Old school friends <reunion@example.org>', to: ['old.friends@gmail.com'], subject: 'Reunion in May?', date: ago(40), unread: true, body: 'A few of us are planning a weekend in Austin. Are you in?' },
+  ],
+};
+const MM_HIST = {};
+const mmBox = (id) => MM_BOXES.find((b) => b.id === id);
+// the password providers askeden.com offers (src/eden/mail-imap.js IMAP_PRESETS), as its list sends them
+const MM_PROVIDERS = [
+  { kind: 'icloud', name: 'iCloud Mail', domains: ['icloud.com', 'me.com', 'mac.com'], help: 'Make an app-specific password at account.apple.com › Sign-In and Security › App-Specific Passwords (it needs two-factor authentication). Your Apple Account password won’t work here.' },
+  { kind: 'yahoo', name: 'Yahoo Mail', domains: ['yahoo.com', 'ymail.com'], help: 'Make an app password in your Yahoo account: Account security › Generate app password. Your Yahoo password won’t work here.' },
+  { kind: 'aol', name: 'AOL Mail', domains: ['aol.com'], help: 'Make an app password in your AOL account: Account security › Generate app password. Your AOL password won’t work here.' },
+  { kind: 'fastmail', name: 'Fastmail', domains: ['fastmail.com'], help: 'Make an app password in Fastmail: Settings › Privacy & Security › App passwords, with access to IMAP and SMTP.' },
+  { kind: 'zoho', name: 'Zoho Mail', domains: ['zoho.com'], help: 'Turn on IMAP in Zoho Mail’s settings, then make an app-specific password in your Zoho account’s security settings.' },
+  { kind: 'gmx', name: 'GMX', domains: ['gmx.com'], help: 'Turn on IMAP in GMX’s settings (E-mail › POP3 & IMAP), then use your GMX password or an app password.' },
+];
+const mmKindOf = (email) => { const d = String(email).split('@')[1] || ''; return (MM_PROVIDERS.find((p) => p.domains.includes(d)) || {}).kind || null; };
+const mmList = () => ({ multi: true, max: 10, accounts: MM_BOXES.map((b) => ({ ...b })), providers: MM_PROVIDERS, outlook: true });
+async function mailAccountsMock(method, body) {
+  await sleep(120);
+  if (method === 'GET') return json(mmList());
+  const b = body || {};
+  if (b.action === 'detect') { // askeden.com: a known provider, Thunderbird's list, or "enter the servers"
+    const email = String(b.email || '').trim();
+    const d = email.split('@')[1] || '';
+    if (/^(gmail|googlemail)\.com$/.test(d)) return json({ email, use: 'google', message: 'Add Gmail with “Gmail” (Google sign-in): it doesn’t need a password.' });
+    if (/^(outlook|hotmail|live|msn)\./.test(d)) return json({ email, use: 'microsoft', message: 'Outlook, Hotmail and Microsoft 365 need Microsoft sign-in, which comes next. They can’t be added with a password.' });
+    const k = mmKindOf(email);
+    if (k) { const p = MM_PROVIDERS.find((x) => x.kind === k); return json({ email, kind: k, name: p.name, help: p.help, servers: { imap: { host: `imap.${d}`, port: 993 }, smtp: { host: `smtp.${d}`, port: 465, security: 'tls' } } }); }
+    if (d === 'postbox.io') return json({ email, kind: 'imap', name: 'Postbox', help: 'Use your Postbox password, or an app password if your provider has them.', servers: { imap: { host: 'imap.postbox.io', port: 993 }, smtp: { host: 'smtp.postbox.io', port: 465, security: 'tls' } } });
+    return json({ email, need: 'servers', message: 'Eden couldn’t find this provider’s mail servers. Enter them below (your provider’s help pages list them).' });
+  }
+  if (b.action === 'add' && b.provider === 'imap') { // QA: the password "wrong" is refused, as a provider would
+    await sleep(700);
+    const email = String(b.email || '').trim();
+    const kind = b.kind || mmKindOf(email) || 'imap';
+    const name = (MM_PROVIDERS.find((p) => p.kind === kind) || { name: 'The mail server' }).name;
+    if (/@(gmail|googlemail)\.com$/.test(email)) return json({ error: 'Add Gmail with “Gmail” (Google sign-in): it doesn’t need a password.', code: 'use_google' }, 400);
+    if (kind === 'imap' && !b.imap && !/@postbox\.io$/.test(email)) return json({ error: 'Eden couldn’t find this provider’s mail servers. Enter them under Server settings.', code: 'need_servers' }, 400);
+    if (b.password === 'wrong') return json({ error: `${name} didn’t take that address and password. ${(MM_PROVIDERS.find((p) => p.kind === kind) || { help: '' }).help}`.trim(), code: 'signin_failed' }, 400);
+    const had = MM_BOXES.find((x) => x.email === email);
+    if (had) { had.status = 'ok'; return json(mmList()); }
+    if (MM_BOXES.length >= 10) return json({ error: 'Mail holds 10 accounts at most. Remove one to add another.', code: 'too_many' }, 409);
+    const id = `m${[...crypto.getRandomValues(new Uint8Array(6))].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+    const used = MM_BOXES.map((x) => x.color);
+    MM_BOXES.push({ id, provider: 'imap', kind, email, label: '', color: ['indigo', 'teal', 'pink', 'purple', 'brown', 'green', 'orange', 'blue'].find((c) => !used.includes(c)) || 'pink', primary: false, status: 'ok' });
+    MM_MAIL[id] = [
+      { id: `${id}a`, threadId: `${id}t1`, box: 'inbox', from: 'Mom <mom@family.example>', to: [email], subject: 'Sunday lunch?', date: ago(1.2), unread: true, body: 'Are you both coming at 1? I’m making the lemon chicken.' },
+      { id: `${id}b`, threadId: `${id}t2`, box: 'inbox', from: 'Orchard Store <receipts@orchard.example>', to: [email], subject: 'Your receipt', date: ago(30), unread: false, body: 'Order W5521 · 2 items · $38.97' },
+    ];
+    return json(mmList());
+  }
+  if (b.action === 'add' && b.provider === 'outlook') { // Microsoft's sign-in, as askeden.com's callback lands it
+    const had = MM_BOXES.find((x) => x.provider === 'outlook');
+    if (had) { had.status = 'ok'; return json({ url: `${location.pathname}${location.search}#outlook=connected` }); }
+    if (MM_BOXES.length >= 10) return json({ error: 'Mail holds 10 accounts at most. Remove one to add another.', code: 'too_many' }, 409);
+    const id = 'm0a71004c0de1';
+    const used = MM_BOXES.map((x) => x.color);
+    MM_BOXES.push({ id, provider: 'outlook', kind: 'outlook', email: 'sam.lee@outlook.com', label: '', color: ['indigo', 'teal', 'pink', 'purple', 'brown', 'green', 'orange', 'blue'].find((c) => !used.includes(c)) || 'blue', primary: false, status: 'ok' });
+    MM_MAIL[id] = [
+      { id: `${id}a`, threadId: `${id}t1`, box: 'inbox', from: 'Contoso Travel <trips@contoso.example>', to: ['sam.lee@outlook.com'], subject: 'Your Lisbon itinerary', date: ago(0.8), unread: true, body: 'Flight TP 1351 leaves Friday at 09:40. Seat 14C.' },
+      { id: `${id}b`, threadId: `${id}t2`, box: 'inbox', from: 'Alex Rivera <alex@rivera.example>', to: ['sam.lee@outlook.com'], subject: 'Book club on Thursday', date: ago(26), unread: false, body: 'We’re on chapter 9. Bring the snacks?' },
+    ];
+    return json({ url: `${location.pathname}${location.search}#outlook=connected` });
+  }
+  if (b.action === 'add') {
+    if (MM_BOXES.length >= 10) return json({ error: 'Mail holds 10 accounts at most. Remove one to add another.', code: 'too_many' }, 409);
+    if (MM_NOGMAIL && !MM_BOXES.some((x) => x.primary)) { // no Gmail yet: the one added becomes the first Gmail (askeden.com's callback)
+      MM_BOXES.unshift({ id: 'primary', provider: 'gmail', email: 'owner@gmail.com', label: '', color: 'indigo', primary: true, status: 'ok' });
+      setGoogle({ configured: true, connected: true, email: 'owner@gmail.com' });
+      return json({ url: `${location.pathname}${location.search}#gmail=connected` });
+    }
+    if (!mmBox(MM_OLD)) MM_BOXES.push({ id: MM_OLD, provider: 'gmail', email: 'old.friends@gmail.com', label: '', color: 'brown', primary: false, status: 'ok' });
+    return json({ url: `${location.pathname}${location.search}#gmail=connected` });
+  }
+  const box = mmBox(b.id);
+  if (!box) return json({ error: 'That mailbox isn’t in Mail any more.', code: 'not_found' }, 404);
+  if (b.action === 'edit') {
+    if (b.label !== undefined) box.label = String(b.label || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (b.color !== undefined) { if (!['indigo', 'teal', 'pink', 'purple', 'brown', 'green', 'orange', 'blue'].includes(b.color)) return json({ error: 'color must be one of the palette.', code: 'bad_request' }, 400); box.color = b.color; }
+    return json(mmList());
+  }
+  if (b.action === 'remove') {
+    if (box.primary) return json({ error: 'Your first Gmail is disconnected in Settings › Accounts (it also holds your calendar).', code: 'bad_request' }, 400);
+    MM_BOXES.splice(MM_BOXES.indexOf(box), 1);
+    return json(mmList());
+  }
+  return json({ error: 'action must be add, edit or remove.', code: 'bad_request' }, 400);
+}
+async function gmailBoxMock(body) {
+  const id = body.mailbox;
+  const box = mmBox(id);
+  if (!box) return json({ error: 'That mailbox isn’t in Mail any more.', code: 'not_connected' }, 409);
+  const mails = (MM_MAIL[id] ||= []);
+  const a = body.args || {};
+  await sleep(260);
+  if (['send', 'modify', 'draft', 'deleteDraft'].includes(body.action)) MM_HIST[id] = (MM_HIST[id] || 1) + 1;
+  const hist = String(MM_HIST[id] || 1);
+  const q = String(a.query || '').toLowerCase();
+  const hit = (m) => !q || `${m.from} ${(m.to || []).join(' ')} ${m.subject} ${m.body}`.toLowerCase().includes(q.replace(/^from:(\S+) or to:\S+$/, '$1'));
+  switch (body.action) {
+    case 'profile': return json({ email: box.email, messagesTotal: mails.length, threadsTotal: mails.length, historyId: hist });
+    case 'history': { const n = Number(hist) - Number(a.startHistoryId || 0); return json({ historyId: hist, changes: Math.max(0, n), tooOld: false, ids: [] }); }
+    case 'search': return json({ messages: mails.filter((m) => (q.startsWith('from:') ? true : m.box === (a.mailbox || 'inbox')) && hit(m)).map(gmSummary), nextPageToken: null, estimate: mails.length });
+    case 'searchFull': return json({ messages: mails.filter(hit).slice(0, a.limit || 10).map((m) => ({ ...gmSummary(m), body: m.body })), estimate: mails.length });
+    case 'read': { const m = mails.find((x) => x.id === a.id); return m ? json(gmDetail(m)) : json({ error: 'Not found in Gmail.', code: 'not_found' }, 404); }
+    case 'drafts': return json({ drafts: mails.filter((m) => m.box === 'drafts' && hit(m)).map((m) => ({ draftId: m.draftId, ...gmSummary(m), scheduledAt: null })), nextPageToken: null });
+    case 'getDraft': { const m = mails.find((x) => x.draftId === a.id); return m ? json({ draftId: m.draftId, ...gmDetail(m), scheduled: null }) : json({ error: 'Not found in Gmail.', code: 'not_found' }, 404); }
+    case 'draft': {
+      const draftId = a.draftId || `bd${Date.now().toString(36)}`;
+      const m = mails.find((x) => x.draftId === draftId) || { id: `bm${Date.now().toString(36)}`, draftId, threadId: a.threadId || null, box: 'drafts' };
+      Object.assign(m, { from: box.email, to: a.to || [], cc: a.cc || [], subject: a.subject || '', body: a.body || '', date: new Date().toISOString() });
+      if (!mails.includes(m)) mails.push(m);
+      return json({ id: draftId, messageId: m.id, threadId: m.threadId });
+    }
+    case 'deleteDraft': { const i = mails.findIndex((x) => x.draftId === a.id); if (i >= 0) mails.splice(i, 1); return json({ deleted: true }); }
+    case 'send': {
+      if (/\[fail\]/i.test(a.subject || '')) return json({ error: 'Gmail said no (mock).', code: 'upstream' }, 502);
+      if (a.draftId) { const i = mails.findIndex((x) => x.draftId === a.draftId); if (i >= 0) mails.splice(i, 1); }
+      const m = { id: `bs${Date.now().toString(36)}`, threadId: a.threadId || `bt${Date.now().toString(36)}`, box: 'sent', from: box.email, to: a.to || [], cc: a.cc || [], subject: a.subject || '', body: a.body || '', date: new Date().toISOString() };
+      mails.push(m);
+      return json({ id: m.id, threadId: m.threadId });
+    }
+    case 'schedule': return json({ error: 'Scheduled send works from your first Gmail account for now. Send it now, or send it from that account.', code: 'bad_request' }, 400);
+    case 'modify': {
+      for (const m of mails.filter((x) => (a.ids || []).includes(x.id))) {
+        if ((a.remove || []).includes('UNREAD')) m.unread = false;
+        if ((a.add || []).includes('UNREAD')) m.unread = true;
+        if ((a.remove || []).includes('INBOX') && m.box === 'inbox') m.box = 'archive';
+        if ((a.add || []).includes('INBOX') && m.box === 'archive') m.box = 'inbox';
+        if ((a.add || []).includes('STARRED')) m.starred = true;
+        if ((a.remove || []).includes('STARRED')) m.starred = false;
+      }
+      return json({ modified: (a.ids || []).length });
+    }
+    case 'contacts': return json({ contacts: [...new Map(mails.map((m) => [gmAddr(m.from).toLowerCase(), { name: String(m.from).replace(/\s*<.*$/, ''), email: gmAddr(m.from), count: 2, last: m.date }])).values()].filter((c) => c.email !== box.email) });
+    case 'sendAs': return json({ sendAs: [{ email: box.email, name: '', signature: '', isDefault: true, isPrimary: true, verified: true, replyTo: '' }] });
+    case 'threads': return json({ threads: (a.ids || []).map((t) => { const ms = mails.filter((m) => m.threadId === t); return ms.length ? { id: t, messages: ms.map((m) => ({ id: m.id, from: m.from, date: m.date })) } : { id: t, missing: true }; }) });
+    case 'thread': return json({ id: a.id, messages: mails.filter((m) => m.threadId === a.id).map((m) => ({ id: m.id, from: m.from, to: (m.to || []).join(', '), cc: '', date: m.date, subject: m.subject, body: m.body, attachments: [] })) });
+    case 'voiceSamples': return json({ samples: [], nextPageToken: null });
+    default: return gmailMock(body); // uploads and the rest: account-wide, as on askeden.com
+  }
 }

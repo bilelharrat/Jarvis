@@ -406,7 +406,29 @@
   background: var(--content);
   border-radius: var(--r-lg, 20px);
   padding: 16px 18px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 0 0 0.5px var(--hairline);
+  /* the reply glass, as in the app (app.css "The reply bubble's glass, everywhere"): a light rim, a top shine, a lifted shadow */
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 6px 18px rgba(40, 60, 120, 0.10);
+  --rg-top: rgba(255, 255, 255, 0.95);
+}
+@media (prefers-color-scheme: dark) {
+  .shr-msg.assistant .shr-bubble {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10), 0 6px 18px rgba(0, 0, 0, 0.35);
+    --rg-top: rgba(255, 255, 255, 0.22);
+  }
+}
+.shr-msg.assistant .shr-bubble::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--rg-top) 0%, rgba(255, 255, 255, 0) 18%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
 }
 
 .shr-empty {

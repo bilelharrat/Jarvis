@@ -29,6 +29,10 @@ import { CACHE, FRESH, checkTrip, noCache } from './checks.js';
 import { MapsError, distanceKm, isArea } from './maps.js';
 import { KINDS, TRIP, TripError, cleanTrip, dayDate, hhmm, minutesOf, money, weekday } from './trips.js';
 import { holidayLookup } from './holidays.js';
+import { envKeyTiers } from '../accounts/service-ai.js';
+import { withPool } from '../eden/key-pool.js';
+import { datedPair } from '../eden/dated-prices.js';
+import { meterGoogle, travelPlusOnly } from '../eden/credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
 
 export const PLAN = {
   // the owner's choice (2026-10-28): Gemini with Google Search drafts; Gemini 3.8 Flash if Argon fails; GPT-6.1 Sol + web
@@ -56,7 +60,8 @@ export const PLAN = {
   // src/chat/stream.ts OPENAI_SEARCH_USD)
   inUsd: 2, outUsd: 10, searchUsd: 0.01,
   // Gemini list prices per million tokens (askeden src/models.ts; Argon's introductory price runs to 2026-11-30, then
-  // $4 / $20) and Google Search grounding per query (Gemini pricing page; counted on the high side)
+  // $4 / $20; 3.8 Flash $1.50 / $7.50 from 2027-01-01: eden/dated-prices.js, which askGemini prices by) and Google
+  // Search grounding per query (Gemini pricing page; counted on the high side)
   gemini: { 'gemini-4-argon': [2, 10], 'gemini-3.8-flash': [0.75, 3.75] }, groundUsd: 0.014,
   fallbackModel: 'claude-sonnet-5-5',
   // the first sketch while the draft runs (job only): measured 2026-10-28 on two days in Florence, 4.9–6.4 s, 230 tokens
@@ -178,10 +183,11 @@ function userText({ request, constraints: c }) {
 export class PlanError extends TripError {}
 
 /** One Responses API call with web search and a JSON schema answer → { json, citations, searches, usage, usd }. */
-async function askSearchModel(key, { system, user, schema, name, maxTokens, maxSearches, ms, fetch: f, signal }) {
+async function askSearchModel(keys, { system, user, schema, name, maxTokens, maxSearches, ms, fetch: f, signal }) {
   let res;
+  const sig = until(ms, signal); // one time limit across the keys tried (key-pool.js moves on after 429/5xx/quota)
   try {
-    res = await f(RESPONSES, {
+    res = await withPool('openai', keys, (key) => f(RESPONSES, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
       body: JSON.stringify({
@@ -190,11 +196,12 @@ async function askSearchModel(key, { system, user, schema, name, maxTokens, maxS
         input: [{ role: 'developer', content: system }, { role: 'user', content: user }],
         text: { format: { type: 'json_schema', name, schema, strict: true } },
       }),
-      signal: until(ms, signal),
-    });
+      signal: sig,
+    }), { signal: sig });
   } catch (e) {
     throw failedCall(e, signal);
   }
+  if (!res) throw new PlanError('The planner could not be reached.', 504, 'unavailable');
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new PlanError(`The planner answered ${res.status}${out.error && out.error.message ? `: ${String(out.error.message).slice(0, 160)}` : ''}.`, 502, 'unavailable');
   const items = Array.isArray(out.output) ? out.output : [];
@@ -218,8 +225,9 @@ const failedCall = (e, signal) => (signal && signal.aborted ? stopped()
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
 /** One Gemini call grounded with Google Search, answering JSON in the trip's shape → { json, citations, searches, usage, usd, model }. */
-async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetch: f, signal, search = true, thinking = null }) {
-  const call = (json) => f(`${GEMINI}/${model}:generateContent`, {
+async function askGemini(keys, model, { system, user, schema, maxTokens, ms, fetch: f, signal, search = true, thinking = null }) {
+  const sig = until(ms, signal); // one time limit across the keys tried
+  const call = (json, key) => f(`${GEMINI}/${model}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
@@ -228,16 +236,20 @@ async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetc
       ...(search ? { tools: [{ google_search: {} }] } : {}),
       generationConfig: { maxOutputTokens: maxTokens, ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}), ...(json ? { responseMimeType: 'application/json', responseJsonSchema: schema } : {}) },
     }),
-    signal: until(ms, signal),
+    signal: sig,
   });
   let res;
   try {
-    res = await call(true);
-    // a model that won't take a JSON schema beside Google Search: asked again for JSON in its words
-    if (res.status === 400) res = await call(false);
+    // key-pool.js: plain keys only, the next key on 429/5xx/quota; the same model throughout
+    res = await withPool('gemini', keys, async (key) => {
+      const first = await call(true, key);
+      // a model that won't take a JSON schema beside Google Search: asked again for JSON in its words
+      return first.status === 400 ? call(false, key) : first;
+    }, { signal: sig });
   } catch (e) {
     throw failedCall(e, signal);
   }
+  if (!res) throw new PlanError('The planner could not be reached.', 504, 'unavailable');
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new PlanError(`The planner answered ${res.status}${out.error && out.error.message ? `: ${String(out.error.message).slice(0, 160)}` : ''}.`, 502, 'unavailable');
   const cand = (out.candidates || [])[0] || {};
@@ -246,7 +258,7 @@ async function askGemini(key, model, { system, user, schema, maxTokens, ms, fetc
   const searches = Array.isArray(g.webSearchQueries) ? g.webSearchQueries.length : 0;
   const u = out.usageMetadata || {};
   const usage = { input: u.promptTokenCount || 0, output: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), reasoning: u.thoughtsTokenCount || 0 };
-  const [pin, pout] = PLAN.gemini[model] || PLAN.gemini['gemini-4-argon'];
+  const [pin, pout] = datedPair(PLAN.gemini[model] ? model : 'gemini-4-argon', PLAN.gemini[model] || PLAN.gemini['gemini-4-argon']); // the call's day's price (eden/dated-prices.js)
   const usd = (usage.input * pin + usage.output * pout) / 1e6 + (searches ? PLAN.groundUsd * searches : 0);
   if (cand.finishReason === 'MAX_TOKENS') throw Object.assign(new PlanError('The planner ran out of room for this trip. Ask for fewer days.', 502, 'incomplete'), { usage, usd, searches });
   const said = ((cand.content && cand.content.parts) || []).filter((x) => x && typeof x.text === 'string' && !x.thought).map((x) => x.text).join('');
@@ -650,7 +662,7 @@ function problemsOf(trip, checks) {
  * the draft runs. Events: stage { stage, text } · sketch { model, title, days } · draft { model, days, searches } ·
  * place { stop, day, name, ok, text, source, checked_at } · change { stop, what, name, why, from, to, by, source, checked_at }.
  */
-export async function planTrip(body, { env = {}, maps, cache = noCache, now = () => Date.now(), fetch: f = globalThis.fetch, meter = null, draft: given = null, progress = null, signal = null, sketch: wantSketch = false } = {}) {
+export async function planTrip(body, { env = {}, maps, cache = noCache, now = () => Date.now(), fetch: f = globalThis.fetch, meter = null, draft: given = null, progress = null, signal = null, sketch: wantSketch = false, paid = null } = {}) {
   const t0 = now();
   const started = Date.now();
   const left = () => PLAN.deadlineMs - (Date.now() - started);
@@ -659,15 +671,19 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
   const args = cleanPlanArgs(body);
   const today = new Date(t0).toISOString().slice(0, 10);
   const system = plannerSystem(today);
-  const key = String(env.OPENAI_API_KEY || '').trim();
-  const gkey = String(env.GEMINI_API_KEY || '').trim();
+  // the service's plain keys in cost tiers (comma lists, _2 … _9, fallback lists); key-pool.js spreads and fails over
+  const key = envKeyTiers(env, 'OPENAI_API_KEY');
+  const gkey = envKeyTiers(env, 'GEMINI_API_KEY');
   // the order to try: Gemini with Google Search first (owner, 2026-10-28), then GPT-6.1 Sol with web search; each only with its key
   const order = (String(env.TRAVEL_PLAN_MODELS || '').trim() ? String(env.TRAVEL_PLAN_MODELS).split(',').map((x) => x.trim()) : PLAN.models)
-    .filter((m) => (m.startsWith('gemini') ? Boolean(gkey) && !off(env, 'EDEN_GEMINI') : Boolean(key) && !off(env, 'EDEN_OPENAI')));
+    .filter((m) => (m.startsWith('gemini') ? gkey.length > 0 && !off(env, 'EDEN_GEMINI') : key.length > 0 && !off(env, 'EDEN_OPENAI')));
   const spend = { usd: 0, searches: 0, tokens: { input: 0, output: 0, reasoning: 0 }, calls: 0, sketch: 0 };
   let model = order[0] || PLAN.fallbackModel;
   const tried = [];
-  const count = (r) => { spend.usd += r.usd || 0; spend.searches += r.searches || 0; spend.calls++; for (const k of ['input', 'output', 'reasoning']) spend.tokens[k] += (r.usage && r.usage[k]) || 0; };
+  // a Gemini call's cost also goes on the GCP credit pacer's day (credit-pacer.js; `output` here already has the thinking);
+  // `paid`: ops.js says whether the account pays (else: Travel is Plus only unless TRAVEL_PLUS = "0", so paid then)
+  const paced = (r, m) => meterGoogle(env, null, { model: r.model || m, usage: r.usage ? { inputTokens: r.usage.input, outputTokens: r.usage.output, webSearches: r.searches || 0 } : null, usd: r.usd, paid: typeof paid === 'boolean' ? paid : travelPlusOnly(env), feature: 'travel-plan' });
+  const count = (r, m = null) => { spend.usd += r.usd || 0; spend.searches += r.searches || 0; spend.calls++; for (const k of ['input', 'output', 'reasoning']) spend.tokens[k] += (r.usage && r.usage[k]) || 0; paced(r, m); };
   const ask = async (o) => {
     // the model that answered the draft also answers the repair; a failure moves to the next in the order
     const list = tried.length ? [model, ...order.filter((m) => m !== model)] : order;
@@ -698,7 +714,7 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
       try {
         const r = hedged ? await hedge.p : await call(m, user, ms, signal);
         if (!r) throw last || new PlanError('The planner could not be reached.', 504, 'unavailable');
-        count(r);
+        count(r, m);
         // the draft must rest on a search (owner, 2026-10-28): one that didn't goes to the next model, told to search
         if (o.ground && m && !r.searches) {
           if (i === 0 && hedge) hedge.go(`${o.user}\n\nSearch Google for every place’s opening days and hours before you answer: an answer without searching can’t be used.`); // (when it hadn't started yet)
@@ -712,7 +728,7 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
         if (hedge && i === 0) hedge.stop(); // the first model answered: the backup stops (or never starts)
         return r;
       } catch (e) {
-        if (e.usd) count(e);
+        if (e.usd) count(e, m);
         last = e;
         if (i === 0 && hedge) hedge.go(); // the first model failed: the backup starts now if it hadn't
         tried.push(`${m}: ${e.code || 'failed'}`);
@@ -727,10 +743,11 @@ export async function planTrip(body, { env = {}, maps, cache = noCache, now = ()
   // 0. a job's first sketch, beside the draft (shown until the draft arrives; dropped if the draft comes first)
   let drafted = false;
   const sketchCtl = new AbortController();
-  const sketchP = wantSketch && gkey && !given && !off(env, 'EDEN_GEMINI') && !off(env, 'TRAVEL_PLAN_SKETCH')
+  const sketchP = wantSketch && gkey.length > 0 && !given && !off(env, 'EDEN_GEMINI') && !off(env, 'TRAVEL_PLAN_SKETCH')
     ? sketchTrip(gkey, args, { today, fetch: f, signal: signal ? AbortSignal.any([signal, sketchCtl.signal]) : sketchCtl.signal }).then((r) => {
       spend.usd += r.usd; spend.sketch += r.usd; spend.calls++;
       for (const k of ['input', 'output', 'reasoning']) spend.tokens[k] += r.usage[k] || 0;
+      paced(r, PLAN.sketchModel);
       if (!drafted && r.days.some((d) => d.stops.length)) emit({ type: 'sketch', model: r.model, label: LABEL[r.model] || r.model, title: r.title, start: r.start, days: r.days });
     }, () => {}) // no sketch: the wait shows the draft's progress only
     : null;

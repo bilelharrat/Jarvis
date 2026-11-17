@@ -11,7 +11,7 @@
 //
 // chat.js keeps one decision point per route: `if (viaMacFor(env, who)) → viaMac…`.
 
-import { serviceAiReady } from '../accounts/service-ai.js';
+import { envKeyTiers, serviceAiReady } from '../accounts/service-ai.js';
 import { ApiError } from '../accounts/util.js';
 import { MAC_OFFLINE, WEB_RELAY, askMac, askMacBy, macStatus } from '../accounts/webrelay.js';
 import { DEFAULT_CLASSIFIER_MODEL } from './vendor/model-router.js';
@@ -48,15 +48,36 @@ export function viaMacFor(env = {}, _who = null, { hasKeys = serviceAiReady(env)
 export const viaMacRoute = (request, env, ctx, who) => throughMac(request, env, ctx, who, '/api/route', { wait: STATUS_WAIT_MS });
 
 /** The Mac's local models, only what the page shows (no addresses on the Mac). */
-function cleanLocal(body) {
-  if (!isObj(body) || typeof body.available !== 'boolean') return { ...NO_LOCAL, reason: 'Eden on your Mac couldn’t tell which local models it has.' };
+export function cleanLocal(body, env = {}) {
   const list = (v) => (Array.isArray(v) ? v.filter(isObj).slice(0, 50) : []);
+  const models = isObj(body) ? list(body.models).map((m) => ({ id: capText(m.id), server: capText(m.server, 40), serverName: capText(m.serverName, 80) })).filter((m) => m.id) : [];
+  const servers = isObj(body) ? list(body.servers).map((v) => ({ id: capText(v.id, 40), name: capText(v.name, 80), available: v.available === true, models: (Array.isArray(v.models) ? v.models.slice(0, 50) : []).map((x) => capText(x)).filter(Boolean), reason: capText(v.reason) || null })) : [];
+  if (envKeyTiers(env, 'DEEPINFRA_API_KEY').length > 0) { // same check as chat.js privateTurn (comma list, _2 … _9)
+    const diModels = ['google/gemma-4-31B-it', 'Qwen/Qwen2.5-Coder-32B-Instruct', 'deepseek-ai/DeepSeek-R1', 'meta-llama/Meta-Llama-3.1-70B-Instruct'];
+    const existingDi = servers.find((s) => s.id === 'deepinfra');
+    if (!existingDi) {
+      servers.push({ id: 'deepinfra', name: 'DeepInfra (Zero-Retention)', available: true, models: diModels, reason: null });
+    } else {
+      existingDi.available = true;
+      existingDi.reason = null;
+      if (!existingDi.models.length) existingDi.models = diModels;
+    }
+    for (const id of diModels) {
+      if (!models.some((m) => m.id === id)) {
+        models.push({ id, server: 'deepinfra', serverName: 'DeepInfra (Zero-Retention)' });
+      }
+    }
+  }
+  const available = models.length > 0 || (isObj(body) && body.available === true);
+  if (!available && (!isObj(body) || typeof body.available !== 'boolean')) {
+    return { ...NO_LOCAL, reason: 'Eden on your Mac couldn’t tell which local models it has.' };
+  }
   return {
-    available: body.available,
+    available,
     viaMac: true,
-    reason: body.available ? null : capText(body.reason) || 'No local model is running on your Mac.',
-    models: list(body.models).map((m) => ({ id: capText(m.id), server: capText(m.server, 40), serverName: capText(m.serverName, 80) })).filter((m) => m.id),
-    servers: list(body.servers).map((v) => ({ id: capText(v.id, 40), name: capText(v.name, 80), available: v.available === true, models: (Array.isArray(v.models) ? v.models.slice(0, 50) : []).map((x) => capText(x)).filter(Boolean), reason: capText(v.reason) || null })),
+    reason: available ? null : capText(body && body.reason) || 'No local model is running on your Mac.',
+    models,
+    servers,
   };
 }
 
@@ -191,7 +212,7 @@ export async function viaMacMeta(m, request, env, ctx, who) {
   if (!mac.online) {
     const reason = mac.macs ? VIA_MAC_OFFLINE : VIA_MAC_NEEDS_MAC;
     m.jarvis = m.code = { available: false, reason: mac.macs ? MAC_OFFLINE : NEEDS_MAC };
-    m.local = { ...NO_LOCAL, reason };
+    m.local = cleanLocal({ available: false, reason }, env);
     return none(reason);
   }
   let body = null;
@@ -209,13 +230,13 @@ export async function viaMacMeta(m, request, env, ctx, who) {
   }
   if (!body) {
     m.jarvis = m.code = { available: false, reason: why };
-    m.local = { ...NO_LOCAL, reason: why };
+    m.local = cleanLocal({ available: false, reason: why }, env);
     return none(why);
   }
   const mine = cleanMacMeta(body);
   const names = mine.models.filter((x) => x.available).map((x) => x.name);
   Object.assign(m, mine, {
-    local: cleanLocal(body.local),
+    local: cleanLocal(body.local, env),
     scope: `Eden on your Mac, ${VIA_MAC_LABEL}${names.length ? ` (${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''})` : ''}`,
   });
   return m;

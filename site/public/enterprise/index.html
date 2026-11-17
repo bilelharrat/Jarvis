@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf7ee">
+<title>Eden Enterprise · askeden.com</title>
+<meta name="description" content="Eden for teams and companies: a shared AI budget, admin controls and invoicing. Tell us about your team and we'll be in touch with pricing.">
+<link rel="canonical" href="https://askeden.com/enterprise">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/home/home.css">
+<link rel="stylesheet" href="/enterprise/enterprise.css">
+<script src="/lang/site-i18n.js" data-page="enterprise"></script>
+<script src="/enterprise/enterprise.js" defer></script>
+</head>
+<!-- Eden Enterprise's request form (owner's decision F, 2026-11-13). Served only with ENTERPRISE_CONTACT on
+     (site src/eden/pages.js, ENTERPRISE_CSP: the front page's policy plus Cloudflare Turnstile). It posts to
+     /api/enterprise (src/leads/enterprise.js), which stores the request and emails it to the owner. No inline
+     script or style (DESIGN.md §9); the French is in /lang/fr-enterprise.js. -->
+<body data-marketing="enterprise">
+<a class="skip" href="#main">Skip to the main content</a>
+  <header class="top">
+    <a class="brand" href="/" aria-label="Eden, askeden.com"><img src="/jarvis/eden-logo.svg" alt="" width="36" height="36"><span>Eden</span></a>
+    <nav aria-label="Site"><a href="/#pricing">Pricing</a><a class="pill" href="/signin">Sign in</a></nav>
+  </header>
+
+<main id="main" class="ent">
+  <section class="ent-intro" aria-labelledby="entH">
+    <p class="kicker">Eden Enterprise</p>
+    <h1 id="entH">Eden for your team</h1>
+    <p class="lede">For teams and companies: shared AI budget, admin controls, invoicing. Contact us for pricing.</p>
+  </section>
+
+  <section class="ent-card" aria-labelledby="formH">
+    <h2 id="formH">Contact us</h2>
+    <form id="entForm" class="ent-form" novalidate>
+      <label for="entName">Name</label>
+      <input id="entName" name="name" type="text" autocomplete="name" maxlength="100" required>
+      <label for="entEmail">Work email</label>
+      <input id="entEmail" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required>
+      <label for="entCompany">Company</label>
+      <input id="entCompany" name="company" type="text" autocomplete="organization" maxlength="120" required>
+      <label for="entSize">Team size</label>
+      <select id="entSize" name="team_size" required>
+        <option value="" selected disabled>Choose…</option>
+        <option value="1-9">1 to 9 people</option>
+        <option value="10-49">10 to 49 people</option>
+        <option value="50-249">50 to 249 people</option>
+        <option value="250-999">250 to 999 people</option>
+        <option value="1000+">1,000 people or more</option>
+      </select>
+      <label for="entMessage">Message</label>
+      <textarea id="entMessage" name="message" rows="5" maxlength="2000"></textarea>
+      <input class="sr" type="text" name="website_url" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <div id="human" class="ent-human" hidden></div>
+      <p id="entAlert" class="ent-alert" role="alert" hidden></p>
+      <button id="entSend" class="btn primary" type="submit">Send</button>
+    </form>
+    <p id="entDone" class="ent-done" role="status" tabindex="-1" hidden></p>
+    <p class="fine">How askeden.com handles what you send: the <a href="/privacy">Privacy Policy</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/">Eden</a><a href="https://edenforbusiness.com">Eden for Business</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
+</footer>
+</body>
+</html>

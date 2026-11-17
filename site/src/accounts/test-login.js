@@ -90,6 +90,7 @@ const ALLOWED_EXACT = new Set([
   'GET /api/chat/media/search',
   'GET /api/chat/media/file',
   'POST /api/chat/embed',
+  'POST /api/chat/title',
   'POST /api/chat/artifact', // kept in the account (wiped daily), served only to its own sessions
   'POST /api/chat/video',
   'GET /api/chat/google/status', // says "not connected" (connecting is refused)

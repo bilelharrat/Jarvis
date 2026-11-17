@@ -1,0 +1,60 @@
+/* Eden Crew's card in the chat (crew.js): Eden Glass (DESIGN.md): a content card with a hairline, radii 20/14/9,
+   system type, mono only for the small kickers, state always in words beside its icon. Light and dark through the
+   page's own variables (app.css). */
+.crew-card{display:flex;flex-direction:column;gap:14px;margin:8px 0 2px;padding:16px 18px;border-radius:var(--r-lg,20px);
+  background:var(--content);box-shadow:0 0 0 .5px var(--hairline),var(--sh1);color:var(--text);max-width:720px}
+.crew-head{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:start}
+.crew-tile{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;
+  background:linear-gradient(160deg,#3b9bff,#0a6fe0);box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
+.crew-head-words{min-width:0}
+.crew-kicker{margin:0;font:600 10.5px/1.3 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+.crew-title{margin:2px 0 0;font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.25;overflow-wrap:anywhere}
+.crew-line{margin:3px 0 0;font-size:13px;color:var(--text2)}
+.crew-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.crew-acts .btn{min-height:36px;padding:0 14px;border-radius:999px}
+.crew-acts .btn.tinted{background:var(--accent-soft);color:var(--accent)}
+.crew-acts .btn[disabled]{opacity:.5;cursor:default}
+.crew-summary{margin:0;font-size:14px;line-height:1.45}
+.crew-note{margin:0;font-size:12.5px;line-height:1.45;color:var(--text2)}
+.crew-warn{margin:0;font-size:12.5px;color:var(--warn)}
+.crew-done{margin:0;font-size:13.5px;line-height:1.5;color:var(--text2)}
+.crew-steps{list-style:none;margin:0;padding:4px 6px;border-radius:var(--r-md,14px);background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.crew-step{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:2px 10px;align-items:start;padding:9px 6px;border-bottom:.5px solid var(--sep)}
+.crew-step:last-child{border-bottom:0}
+.crew-mark{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;margin-top:1px;color:var(--text3);background:rgba(120,120,128,.12)}
+.crew-m-done,.crew-m-skipped{color:#fff;background:var(--run)}
+.crew-m-running,.crew-m-retrying,.crew-m-verifying{color:var(--accent);background:var(--accent-soft)}
+.crew-m-asking{color:#fff;background:var(--wait)}
+.crew-m-failed,.crew-m-stopped,.crew-m-blocked{color:#fff;background:var(--danger)}
+.crew-step-main{min-width:0}
+.crew-step-title{margin:0;font-size:14px;font-weight:500;line-height:1.35}
+.crew-step-meta{margin:1px 0 0;font-size:12.5px;color:var(--text2)}
+.crew-step-why{margin:3px 0 0;font-size:12.5px;line-height:1.4;color:var(--text2)}
+.crew-step-money{font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text);padding-top:1px}
+.crew-est{margin:0;font-size:13px;color:var(--text2)}
+.crew-est b{font-size:16px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.crew-not,.crew-qs,.crew-made{display:flex;flex-direction:column;gap:6px}
+.crew-not-row,.crew-q{margin:0;font-size:13px;line-height:1.45}
+.crew-not-row b{font-weight:600}
+.crew-needs{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:var(--r-md,14px);
+  background:color-mix(in srgb,var(--wait) 13%,var(--content));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--wait) 35%,transparent)}
+.crew-need{display:flex;flex-direction:column;gap:6px}
+.crew-need+.crew-need{padding-top:10px;border-top:.5px solid var(--sep)}
+.crew-need-step{margin:0;font-size:12px;color:var(--text2)}
+.crew-need-q{margin:0;font-size:14.5px;font-weight:600;line-height:1.35}
+.crew-own{display:flex;gap:6px;flex:1 1 240px;min-width:0}
+.crew-own input{flex:1;min-width:0;min-height:36px;padding:0 12px;border-radius:999px;border:0;font:inherit;font-size:13.5px;
+  color:var(--text);background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.crew-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding-top:12px;border-top:.5px solid var(--sep)}
+.crew-foot .crew-note{flex:1 1 260px}
+.crew-files{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.crew-file{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border-radius:999px;font-size:13px;
+  background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.crew-file small{color:var(--text3)}
+.crew-card :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:640px){
+  .crew-card{padding:14px}
+  .crew-head{grid-template-columns:36px minmax(0,1fr)}
+  .crew-head .crew-acts{grid-column:1 / -1}
+  .crew-acts .btn{min-height:44px}
+}

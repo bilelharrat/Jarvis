@@ -17,9 +17,9 @@ import { Account, Link, appleJwk, identityToken, namespace, readEvents } from '.
 
 const ORIGIN = 'https://askeden.com';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15';
-const FAST_OR_WEAK = ['gpt-6-luna', 'gemini-3.5-flash-lite', 'claude-haiku-4-5', 'kimi-k2.7-code'];
+const FAST_OR_WEAK = ['gpt-6-luna', 'gemini-3.5-flash-lite', 'claude-haiku-4-5', 'kimi-k2.7-code', 'kimi-k3'];
 // (this deploy tree's hosted models: no GPT-6 Sol or Gemini 3.1 Pro preview, Gemini 4 Argon instead)
-const FLOOR = ['claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-6.1-sol', 'gemini-4-argon', 'gemini-3.8-flash', 'kimi-k3'];
+const FLOOR = ['claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-6.1-sol', 'gemini-4-argon', 'gemini-3.8-flash']; // kimi-k3 retired 2026-11-10
 const ESSAY = 'Social media has changed how teenagers live, sleep and talk to one another. '.repeat(90);
 const realFetch = globalThis.fetch;
 let env;

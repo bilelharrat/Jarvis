@@ -7,6 +7,7 @@
 // its full destination and an image becomes a click-to-load placeholder (button.g-img).
 
 import { el, ico } from './util.js';
+import { isGoogleRedirect } from './cite-marks.js'; // Gemini's own source links: shown as that source's number
 // The chrome's words (Copy, Open in canvas…) in the page's language; a reply's own words sit in .md and are never
 // translated. Loaded lazily (not a static import) so the tests that load this file alone still can.
 let t = (s) => s;
@@ -230,10 +231,29 @@ export function safeUrl(u) {
   } catch { return null; }
 }
 
+/** A source's number after the words it backs (app.js citePop opens it); two side by side read "1,3", not thirteen. */
+function citeSup(out, n, src) {
+  if (out.lastChild && out.lastChild.nodeName === 'SUP' && out.lastChild.classList.contains('cite')) out.append(el('sup', { class: 'cite-sep', 'aria-hidden': 'true' }, ','));
+  out.append(el('sup', { class: 'cite', tabindex: '0', role: 'button', 'data-cite': String(n), 'aria-label': t(`Source ${n}: ${src.title || src.url}`) }, String(n)));
+}
+
 function link(href, kids, out, opts = {}, image = false) {
   const safe = safeUrl(href);
   if (!safe) { out.append(...kids); return; }
   if (opts.untrusted && image) { out.append(heldImage(kids, safe)); return; }
+  // Gemini linking its words to one of its own sources (a Google redirect: vertexaisearch.cloud.google.com/grounding-api-
+  // redirect/…, Google-issued, so nothing a page could plant): the words, then that source's number, not a link whose
+  // whole address was printed after it (owner, 2026-11-06). A redirect that's no source of this reply stays a link.
+  if (!image && isGoogleRedirect(safe)) {
+    const list = Array.isArray(opts.sources) ? opts.sources : [];
+    const i = list.findIndex((c) => c && [c.url, c.via, ...(Array.isArray(c.aka) ? c.aka : [])].some((u) => u === safe || u === href));
+    if (i >= 0) { out.append(...kids); citeSup(out, i + 1, list[i]); return; }
+    const a = el('a', { href: safe, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer', title: safe });
+    a.append(...kids);
+    out.append(a);
+    if (opts.untrusted) out.append(el('span', 'g-dest', t('(Google search result)')));
+    return;
+  }
   const a = el('a', { href: safe, target: '_blank', rel: 'noopener noreferrer', ...(opts.untrusted ? { referrerpolicy: 'no-referrer', title: safe } : {}) });
   a.append(...kids);
   out.append(a);
@@ -279,7 +299,7 @@ export function inline(text, out, opts = {}) {
     else if (m[12] !== undefined) {
       const n = Number(m[12]);
       const src = opts.sources && opts.sources[n - 1];
-      if (src) out.append(el('sup', { class: 'cite', tabindex: '0', role: 'button', 'data-cite': String(n), 'aria-label': t(`Source ${n}: ${src.title || src.url}`) }, String(n)));
+      if (src) citeSup(out, n, src); // two side by side read "1,3" (cite-marks.js puts several after one sentence)
       else out.append(document.createTextNode(m[0]));
     } else if (m[13] !== undefined) out.append(document.createTextNode(m[13]));
     else out.append(el('br'));

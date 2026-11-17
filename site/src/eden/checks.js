@@ -62,9 +62,24 @@ export const REANSWER_MIN_MS = 2_000;
 export const AFTER_REPLY_MS = 45_000;
 /** The search model, and its effort. */
 export const SEARCH_MODEL = 'gemini-3.8-flash';
-export const SEARCH_EFFORTS = ['medium', 'low', 'minimal', 'none'];
+// Gemini with Google Search and no extended thinking (2026-11-10): at medium, Gemini 3.8 Flash grounding stalled on a
+// question it couldn't find (over 90 s with no text, "what episode of californication does burnin for you play"), so
+// every web check and the searched second answer waited out their timeouts and the Argon fallback's: 3 to 4 minutes on
+// askeden.com before EVES answered. Without thinking the same searches came back in 3 to 11 s.
+export const SEARCH_EFFORTS = ['none', 'minimal', 'low', 'medium'];
+
+/** Gemini models whose searches run without thinking: only the one measured (2026-11-10); Argon may refuse budget 0. */
+export const NO_THINKING_SEARCH = new Set(['gemini-3.8-flash']);
+/** A Gemini request with thinking off (thinkingBudget 0 replaces any thinking level). */
+export function withoutThinking(request) {
+  const config = request && request.provider === 'gemini' && request.params && request.params.config;
+  if (!config) return request;
+  return { ...request, params: { ...request.params, config: { ...config, thinkingConfig: { thinkingBudget: 0 } } } };
+}
 /** Hard per-call timeout on check/judge/search transport calls so a hung stream never stalls EVES. */
 export const CHECK_CALL_TIMEOUT_MS = 20_000;
+/** A searched answer's own time (the anchor, the second searched answer, a web answer). */
+export const SEARCHED_ANSWER_MS = 40_000; // 30 s risked dropping a GPT answer making up to 4 searches (2026-11-10 review)
 /** A check call's output cap, thinking included: the cheap steps write a short JSON, a search a paragraph and a JSON line. */
 export const CALL_CAP = { cheap: 1_500, strong: 4_000, search: 4_000, answer: 6_000 };
 /** Gemini 3 grounding bills per query: a search call's worst case counts this many. */
@@ -207,7 +222,9 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
             : tierCap;
     const prompt = `${req.system}\n\n${req.user}`;
     const effectivePick = req.purpose === 'anchor' && pick.model.id === 'gemini-3.8-flash' ? { ...pick, effort: anchorEffort } : pick;
-    const request = sized(requestFor(effectivePick, prompt), cap);
+    // Gemini with Google Search runs without thinking (SEARCH_EFFORTS: at medium it stalled for minutes on a question it
+    // couldn't find); Gemini 3 has no 'none' effort to route to, so the request says it directly (thinkingBudget 0)
+    const request = req.search && NO_THINKING_SEARCH.has(model.id) ? withoutThinking(sized(requestFor(effectivePick, prompt), cap)) : sized(requestFor(effectivePick, prompt), cap);
     const effectiveSystem =
       req.purpose === 'evidence' && model.provider === 'gemini'
         ? `${req.system}\nFirst write 1 short sentence naming the source from your Google Search, then on a new line write the JSON.`
@@ -216,7 +233,8 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
     const callCtrl = new AbortController();
     const onAbort = () => callCtrl.abort();
     signal.addEventListener('abort', onAbort, { once: true });
-    const actualTimeout = req.purpose === 'anchor' || req.purpose === 'web answer' ? Math.max(timeoutMs, 60_000) : timeoutMs;
+    // a searched answer gets 30 s (it was 60 s: a stalled search held the whole EVES run that long, then its fallback)
+    const actualTimeout = req.purpose === 'anchor' || req.purpose === 'web answer' ? Math.max(timeoutMs, SEARCHED_ANSWER_MS) : timeoutMs;
     const timer = actualTimeout > 0 ? setTimeout(() => callCtrl.abort(), actualTimeout) : undefined;
     let r;
     let seenText = '';
@@ -248,7 +266,7 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
       tally(r.costUSD * (metered(keys, model.provider) ? factor() : 1));
     }
     if (signal.aborted) throw new Error('it was stopped');
-    if (r.stopped && callCtrl.signal.aborted) throw new Error(`${model.name} timed out after ${Math.round(timeoutMs / 1000)}s.`);
+    if (r.stopped && callCtrl.signal.aborted) throw new Error(`${model.name} timed out after ${Math.round(actualTimeout / 1000)}s.`);
     if (r.stopped) throw new Error('it was stopped');
     if (r.failure) throw Object.assign(new Error(r.failure), r.status ? { status: r.status } : {});
     if (!String(r.text || '').trim()) throw new Error(`${model.name} sent an empty reply.`);
@@ -307,7 +325,7 @@ export function hostedAsk({ picks, keys, base = null, requestFor, charge, tally,
 // When active: the anchor's Gemini 3.8 Flash runs at medium effort (not the forced low), and a second answer with web
 // search from another provider (GPT's web_search) runs beside it; claims the two dispute go to the web evidence check.
 // The iPhone and Edu apps (UA EdenApp/ or EdenEdu/) are always off. owner: owner accounts only (owner-emails.js).
-const STRONG_APP_UA = /^(?!.*\bEdenBeta\/).*\b(?:EdenApp|EdenEdu)\//; // not a TestFlight beta (EdenBeta/): that gets the website's features
+const STRONG_APP_UA = /\b(?:EdenApp|EdenEdu)\//; // website-only experiments: the iPhone and Edu apps stay off
 const STRONG_MODES = new Set(['off', 'owner', 'on']);
 /** The second searched answer's model, best first (on this site's list, and the account has an OpenAI key). */
 export const STRONG_SECOND = ['gpt-6.1-sol', 'gpt-6-sol'];

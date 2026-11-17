@@ -19,6 +19,7 @@ import { renderMarkdown } from './markdown.js';
 import { isTainted } from './guard.js';
 import { labelView, compactVerification, applyRepair, severityWord, safeLink, provenancePillView } from './verify-model.js';
 import { glassPill, toneOfLabel, phraseOfLabel } from './glass.js';
+import { placeMarks } from './cite-marks.js'; // a repair's new words: each source's [n] again where its words survive
 
 /** Chips the person opened, by reply (a reply is drawn again while it streams and after); `${id}:original` for "Show original". */
 const opened = new Set();
@@ -34,7 +35,7 @@ export function keepVerification(ev) { return compactVerification(ev); }
 export function noteVerification(node, ev) {
   let kept = compactVerification(ev);
   const swap = applyRepair(node.parts, ev);
-  if (swap) { node.parts = swap.parts; node.repairedFrom = swap.original; }
+  if (swap) { node.parts = swap.parts; node.repairedFrom = swap.original; if (node.citeMarks) placeMarks(node.parts, node.citeMarks, node.citations); } // the corrected words get their sources' numbers back where they survive
   if (!kept && swap) kept = { label: { kind: 'issues_found', text: '', detail: '' }, findings: [], repaired: { struck: [], regenerated: false, replaced: true } }; // a swap always has a chip
   if (kept) node.verification = kept;
   return !!kept;

@@ -42,6 +42,10 @@ export async function checkJarvis() {
     state.jarvis = { available: false, reason: e.message };
   }
   const box = $('jarvisState');
+  // The footer says so only when something's wrong (owner, 2026-11-06, "less busy"): a Mac that was connected and dropped.
+  // Never linked a Mac (most people on askeden.com): nothing at all, instead of "not connected" forever.
+  if (state.jarvis.available) box.dataset.seen = '1';
+  box.classList.toggle('dropped', !state.jarvis.available && box.dataset.seen === '1');
   box.classList.toggle('on', state.jarvis.available);
   $('jarvisStateText').textContent = state.jarvis.available ? 'connected' : 'not connected';
   box.title = state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');

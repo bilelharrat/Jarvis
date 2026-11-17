@@ -14,7 +14,9 @@
 import { a1, parseA1, newSheet, newWorkbook, sheetFromCsv, sheetToCsv, extent, valueOf, isDateFormat } from './sheet-model.mjs';
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
-export const KINDS = { xlsx: 'xlsx', xlsm: 'xlsx', xls: 'xls', csv: 'csv', tsv: 'csv', txt: 'csv' };
+// Every Excel workbook type (owner, 2026-11-06): .xlsx/.xlsm through ExcelJS (keeps styles); binary .xlsb, legacy .xls/.xlt/.xlw,
+// templates .xltx/.xltm, add-ins .xlam/.xla, OpenDocument .ods/.fods, SYLK .slk and .dif through SheetJS ('xls' below).
+export const KINDS = { xlsx: 'xlsx', xlsm: 'xlsx', xls: 'xls', xlsb: 'xls', xlt: 'xls', xltx: 'xls', xltm: 'xls', xlw: 'xls', xlam: 'xls', xla: 'xls', ods: 'xls', fods: 'xls', slk: 'xls', sylk: 'xls', dif: 'xls', csv: 'csv', tsv: 'csv', txt: 'csv' };
 export const kindOf = (name) => KINDS[String(name || '').toLowerCase().split('.').pop()] || null;
 
 const EPOCH = Date.UTC(1899, 11, 30);
@@ -26,7 +28,7 @@ const PX_PER_CHAR = 7;
 /** Bytes (ArrayBuffer/Uint8Array) of `name` → a workbook. libs: { ExcelJS, XLSX }. */
 export async function readWorkbook(bytes, name, libs) {
   const kind = kindOf(name);
-  if (!kind) throw new Error('Eden opens .xlsx, .xls and .csv spreadsheets.');
+  if (!kind) throw new Error('Eden opens Excel workbooks (.xlsx, .xlsm, .xlsb, .xls, .xltx, .xltm, .xlt), OpenDocument (.ods) and .csv.');
   const size = bytes.byteLength ?? bytes.length;
   if (size > MAX_FILE_BYTES) throw new Error(`That file is over ${MAX_FILE_BYTES / 1048576} MB.`);
   const title = String(name).replace(/\.[^.]+$/, '') || 'Spreadsheet';

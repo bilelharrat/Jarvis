@@ -1,5 +1,7 @@
 // The owner's dashboard (askeden.com/admin): draws GET /api/admin/stats and GET/POST /api/admin/keys.
 // Supports both Version 3 (macOS Sequoia Glass API Keys, Spend Limits & Failover Controls) and the Classic Dashboard.
+import { bonusBox, providerAlerts, providersBox } from './spend.js'; // provider bills and the usage bonus
+import * as spend from './spend.js'; // refreshSpend (falls back to forgetBonus until spend.js exports it)
 
 const PRODUCTS = {
   eden: 'Eden (web chat)', edu: 'Eden Edu', secretary: 'Eden Secretary', code: 'Eden Code', daredevil: 'Eden Daredevil',
@@ -67,7 +69,27 @@ const ago = (ms) => {
 let currentData = null;
 let uiMode = localStorage.getItem('eden.admin.mode') || 'v3'; // 'v3' | 'classic'
 let v3Theme = localStorage.getItem('eden.admin.v3theme') || 'dark'; // 'dark' | 'light'
-let v3Section = 'keys'; // 'keys' | 'limits' | 'alerts' | 'failover' | 'byok' | 'audit' | 'travel'
+let v3Section = 'keys'; // 'keys' | 'limits' | 'alerts' | 'failover' | 'byok' | 'audit' | 'travel' | 'credits'
+// The V3 section lives in the URL hash (#providers, #bonus, …) so reload and Back keep the view.
+const V3_SECTIONS = ['keys', 'limits', 'alerts', 'failover', 'byok', 'audit', 'providers', 'bonus', 'travel', 'credits'];
+const sectionFromHash = () => {
+  const h = decodeURIComponent(location.hash.slice(1));
+  return V3_SECTIONS.includes(h) ? h : null;
+};
+v3Section = sectionFromHash() || v3Section;
+function goSection(id) {
+  if (location.hash.slice(1) !== id) history.pushState(null, '', `#${id}`);
+  v3Section = id;
+  render(currentData);
+}
+function followHash() {
+  const id = sectionFromHash();
+  if (!id || id === v3Section) return;
+  v3Section = id;
+  if (currentData) render(currentData);
+}
+window.addEventListener('popstate', followHash);
+window.addEventListener('hashchange', followHash);
 let latestSecret = null; // { name, key, note } shown once after create/rotate
 let activeModal = null; // null | { kind: 'create'|'edit'|'usage', client?: obj, usage?: obj }
 let statusBannerText = null;
@@ -446,7 +468,7 @@ function renderV3(data) {
   const navItem = (id, label, badge = null) => el('button', {
     type: 'button',
     class: `nav-item${v3Section === id ? ' active' : ''}`,
-    onclick: () => { v3Section = id; render(currentData); },
+    onclick: () => goSection(id),
   },
     el('span', { class: 'nav-item-left' }, el('span', { text: label })),
     badge !== null ? el('span', { class: 'nav-badge', text: String(badge) }) : null,
@@ -872,8 +894,14 @@ function renderV3(data) {
     bodyNodes.push(byokBox, chainBox);
   } else if (v3Section === 'audit') {
     bodyNodes.push(auditBox);
+  } else if (v3Section === 'providers') {
+    bodyNodes.push(providersBox(data, { el, cost, compact }, () => render(currentData)));
+  } else if (v3Section === 'bonus') {
+    bodyNodes.push(bonusBox({ el, cost, compact }, () => render(currentData)));
   } else if (v3Section === 'travel') {
     bodyNodes.push(travelBox);
+  } else if (v3Section === 'credits') {
+    bodyNodes.push(pacerBox(data.credit_pacer));
   }
 
   const shell = el('div', { class: 'v3-shell', 'data-v3-theme': v3Theme },
@@ -905,9 +933,18 @@ function renderV3(data) {
           navItem('byok', 'BYOK Balances'),
           navItem('audit', 'Audit Trail', audits.length || null),
         ),
+        el('div', { class: 'sidebar-section-title', text: 'AI Spend & Plans' }),
+        el('div', { class: 'sidebar-nav' },
+          navItem('providers', 'Provider Bills', providerAlerts(data) || null),
+          navItem('bonus', 'Usage Bonus'),
+        ),
         el('div', { class: 'sidebar-section-title', text: 'Eden Travel' }),
         el('div', { class: 'sidebar-nav' },
           navItem('travel', 'Travel Refunds', travel.ready === false ? '!' : travelFlags.length || null),
+        ),
+        el('div', { class: 'sidebar-section-title', text: 'Google AI' }),
+        el('div', { class: 'sidebar-nav' },
+          navItem('credits', 'Credits', pacerAlert(pacerFacts(data.credit_pacer)) || (data.credit_pacer && data.credit_pacer.runaway) ? '!' : null),
         ),
         el('div', { class: 'sidebar-section-title', text: 'Site & Revenue' }),
         el('div', { class: 'sidebar-nav' },
@@ -1084,6 +1121,7 @@ function renderClassic(data) {
     card('AI models', bars((ev.ai?.by_model || []).map((m) => ({ label: m.name, value: m.usd, sub: `${compact(m.tokens)} tokens` })), cost)))));
 
   // Bugs
+  main.append(...section('AI providers', null, providersBox(data, { el, cost, compact }, () => render(currentData))), ...section('Usage bonus', null, bonusBox({ el, cost, compact }, () => render(currentData))));
   main.append(...section('Bugs', 'Last 30 days: server errors and errors in people’s browsers, newest first. Same error grouped.', card(null, table(['Where', 'What', 'Times', 'Last'],
     (ev.errors || []).map((e) => [el('span', {}, el('span', { class: `pill${e.kind === 'error' ? ' red' : ''}`, text: e.kind === 'error' ? 'server' : 'browser' }), ` ${e.name || ''}`, el('div', { class: 'note', text: product(e.product) })), el('div', { class: 'err', text: e.detail || '' }), int(e.n), ago(e.last)])))));
   const lastTd = main.querySelectorAll('td:nth-child(2)');
@@ -1092,15 +1130,27 @@ function renderClassic(data) {
   // Eden Travel's card payments to sort out by hand (src/travel/pay.js flags)
   main.append(...travelSection(data.travel || {}));
 
+  // Google AI credits: the GCP credit pacer (src/eden/credit-pacer.js)
+  main.append(...pacerSection(data.credit_pacer));
+
   // Unlimited accounts and the fine print
   main.append(el('p', { class: 'note', style: 'margin-top:28px', text: `${data.unlimited || 0} email${data.unlimited === 1 ? '' : 's'} on unlimited AI. ${st.live === false ? 'Stripe is in test mode. ' : ''}${st.partial ? 'Stripe history was cut short (very many transactions). ' : ''}App Store sales aren’t included yet.` }));
 }
 
 function render(data) {
   currentData = data;
+  typedUnsaved = false; // the fields are rebuilt, so nothing typed survives
   syncHeaderControls();
   if (uiMode === 'classic') renderClassic(data);
-  else renderV3(data);
+  else {
+    renderV3(data);
+    // Phone width: the sidebar is one sideways row; keep the open view's item in sight.
+    const bar = $('.macos-sidebar');
+    const on = bar && bar.querySelector('.nav-item.active');
+    if (on && bar.scrollWidth > bar.clientWidth) {
+      bar.scrollLeft += on.getBoundingClientRect().left - bar.getBoundingClientRect().left - 8;
+    }
+  }
 }
 
 const WHY = { refund_failed: 'Refund failing', refund_currency: 'Other currency', stuck: 'Stuck booking' };
@@ -1124,6 +1174,66 @@ function travelCells(f, v3 = false) {
     int(f.tries),
     button,
   ];
+}
+
+// The GCP credit pacer (src/eden/credit-pacer.js): today's Google AI spend against the free-use allowance, both layouts
+const PACER_NOTE = 'Google AI spent today (Pacific time). Free use stops for the day when it reaches the allowance. Paid use is never stopped.';
+const PACER_LEVEL = { green: 'Fine', amber: 'Free use limited', red: 'Free use stopped for today', off: 'Off', failed: 'Can’t read it' };
+const dollars = (n) => (Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : '—');
+
+/** { level, rows: [[label, text]] } for the credits box; level: green | amber | red | off | failed. */
+function pacerFacts(p) {
+  if (!p || (p.failed && !p.mode)) return { level: 'failed', rows: [['Status', `Couldn’t read it${p && p.failed ? ` (${p.failed})` : ''}.`]] };
+  const c = p.config || {};
+  const settings = `${dollars(c.balanceUSD)} on ${c.balanceDate || '—'}, ${dollars(c.reserveUSD)} kept back, ${c.expiry ? `expires ${c.expiry}` : `no expiry (at most ${dollars(c.unpaidDailyCapUSD)} of free use a day)`}`;
+  if (p.mode === 'off') return { level: 'off', rows: [['Status', 'Off: nothing is counted. To start, set CREDIT_PACER to warn (count only) or on, as a Worker secret.'], ['Settings', settings]] };
+  if (p.failed) return { level: 'failed', rows: [['Status', `Couldn’t read the counter, so nothing is stopped for now (${p.failed}).`], ['Settings', settings]] };
+  const rows = [
+    ['Free use today', `${dollars(p.unpaidTodayUSD)} of ${dollars(p.allowanceUSD)}${Number.isFinite(p.usedShare) ? ` (${Math.round(p.usedShare * 100)}%)` : ''}`],
+    ['Paid use today', dollars(p.paidTodayUSD)],
+  ];
+  if (p.externalTodayUSD > 0) rows.push(['Spent outside askeden.com today', dollars(p.externalTodayUSD)]);
+  if (Number.isFinite(p.busiestTotalHour)) rows.push(['Busiest hour', `${dollars(p.busiestTotalHourUSD)} at ${String(p.busiestTotalHour).padStart(2, '0')}:00`]);
+  if (p.runaway) rows.push(['Spending fast', 'Today is over 3 times the allowance, or one hour went over all of it. Paying users aren’t stopped: check what’s using it.']);
+  if (p.allowedToday) rows.push(['Allowed today', 'CREDIT_ALLOW_DAY is today, so nothing is stopped.']);
+  rows.push(['Left to pace', p.daysLeft ? `${dollars(p.remainingUSD)} over ${p.daysLeft} day${p.daysLeft === 1 ? '' : 's'}` : `${dollars(p.remainingUSD)} (a fixed daily cap)`]);
+  rows.push(['Settings', settings]);
+  if (p.mode === 'warn') rows.push(['Mode', 'Warn: counted only, nothing is stopped.']);
+  // every provider's spend today (src/eden/spend-counter.js); Google's line is the credits' above
+  for (const x of (p.providers || []).filter((x) => x.id !== 'google')) rows.push([x.name, providerLine(x)]);
+  return { level: p.level, rows };
+}
+const PROVIDER_LEVEL = { red: 'free use stopped for today', amber: 'free use near its cap', failed: 'couldn’t read it' };
+/** "$1.20 today ($0.20 free, $1.00 paid), cap $5.00 a day for free use: free use near its cap. An estimate…" */
+function providerLine(x) {
+  const parts = [`${dollars(x.totalUSD)} today`];
+  if (x.unpaidUSD > 0 || x.paidUSD > 0) parts[0] += ` (${dollars(x.unpaidUSD)} free, ${dollars(x.paidUSD)} paid)`;
+  if (Number.isFinite(x.capUSD) && x.capUSD !== null) parts.push(`cap ${dollars(x.capUSD)} a day for free use`);
+  const said = parts.join(', ') + (PROVIDER_LEVEL[x.level] ? `: ${PROVIDER_LEVEL[x.level]}.` : '.');
+  return x.note ? `${said} ${x.note}` : said;
+}
+const pacerAlert = (f) => f.level === 'red' || f.level === 'amber' || f.level === 'failed';
+
+function pacerSection(p) {
+  const f = pacerFacts(p);
+  const pill = el('span', { class: `pill${pacerAlert(f) ? ' red' : ''}`, text: PACER_LEVEL[f.level] || f.level });
+  return section('Google AI credits', PACER_NOTE, card(null, el('p', {}, pill), table(['', ''], f.rows)));
+}
+
+/** The same in the v3 layout's box. */
+function pacerBox(p) {
+  const f = pacerFacts(p);
+  const tone = f.level === 'green' ? 'green' : f.level === 'off' ? 'blue' : f.level === 'amber' ? 'amber' : 'red';
+  return el('div', { class: 'grouped-box' },
+    el('div', { class: 'grouped-header' },
+      el('div', {},
+        el('div', { class: 'grouped-title', text: 'Google AI credits' }),
+        el('div', { class: 'grouped-desc', text: PACER_NOTE }),
+      ),
+      el('span', { class: `v3-pill ${tone}`, text: PACER_LEVEL[f.level] || f.level }),
+    ),
+    el('table', { class: 'mac-table' }, el('tbody', {}, f.rows.map(([k, v]) => el('tr', {}, el('td', { style: 'font-weight:600', text: k }), el('td', { text: v }))))),
+  );
 }
 
 function travelSection(t) {
@@ -1154,6 +1264,8 @@ async function load(fresh = false) {
   loading = true;
   const button = $('#refresh');
   button.disabled = true;
+  button.textContent = 'Refreshing…';
+  button.setAttribute('aria-busy', 'true');
   try {
     const q = new URLSearchParams(Object.entries(bounds()).map(([k, v]) => [k, String(v)]));
     if (fresh) q.set('fresh', '1');
@@ -1167,10 +1279,22 @@ async function load(fresh = false) {
   } finally {
     loading = false;
     button.disabled = false;
+    button.textContent = 'Refresh';
+    button.removeAttribute('aria-busy');
   }
 }
 
-$('#refresh').addEventListener('click', () => load(true));
+// The timed redraw would wipe a half-typed field: skip it while a field in #main has focus or unsaved typing.
+let typedUnsaved = false;
+$('#main').addEventListener('input', (e) => {
+  if (e.target.matches('input, textarea, select')) typedUnsaved = true;
+});
+const editing = () => {
+  const a = document.activeElement;
+  return typedUnsaved || Boolean(a && a.matches('input, textarea, select') && $('#main').contains(a));
+};
+
+$('#refresh').addEventListener('click', () => { (spend.refreshSpend || spend.forgetBonus)(); load(true); });
 syncHeaderControls();
 load();
-setInterval(() => { if (document.visibilityState === 'visible') load(); }, 120_000);
+setInterval(() => { if (document.visibilityState === 'visible' && !editing()) load(); }, 120_000);

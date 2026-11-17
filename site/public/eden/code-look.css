@@ -1,0 +1,265 @@
+/* The Eden Code look for the chat (opt-in, OFF by default): the web chat drawn like the Eden Code screen of the
+   iPhone app (JARVIS V1/companion/iOS/Views/Screens/CodeSessionView.swift and CodeSessionsView.swift, with
+   Shared/Theme.swift, Shared/Look.swift, Views/SpaceBackground.swift, Views/Components.swift).
+   Switched on by look.js: ?look=code sets <html data-look="code"> (remembered in localStorage "eden:look"),
+   ?look=default clears it. Every rule is scoped under html[data-look="code"]; without it this file does nothing.
+
+   Dark = the app's Stark Glass (its default, always night): near-black #03060d lit by the reactor's blue from
+   above with the faintest warmth low in the corners; Liquid Glass with a specular top rim; reactor-blue #5cc8f7
+   accent with dark ink (#03101c) on it.
+   Light = the app's Obsidian by day (porcelain): flat #f4f5f7 ground, white cards with a hairline edge instead
+   of glass, arc blue #0a6cb3 with white ink on it.
+   In both: no chat bubbles. Every message is a left-aligned block under a small uppercase eyebrow ("YOU" muted,
+   "EDEN" with the reactor orb); what you said is 16px secondary ink, the answer 16px primary ink with 1.5 leading;
+   tool steps are 12px monospaced lines on a 10px rounded well; notes italic and muted; status chips are tinted
+   capsules (14% fill, 28% hairline); the composer is one 52px capsule (radius 26) with + on the left and a 36px
+   round send. 20px side margins on phones, 16px between entries. System sans only.
+   The chat's single-column layout stays: this file changes surfaces, colours and type, not the layout.
+   A few rules must outweigh app.css's chat-glass rules (html:not(.eden-app)[data-chat-glass] …) and the accent
+   style tag, so they carry :not(#eden-look) only to raise their weight (no element has that id), and the few that
+   app.js's injected web-glass tag sets with !important (user bubble, composer, send) answer with !important. */
+
+/* ── tokens: Obsidian porcelain by day ── */
+html[data-look="code"] {
+  --cl-bg: #f4f5f7; --cl-surface: #ffffff; --cl-raised: #eceef2;
+  --cl-ink: #111317; --cl-ink2: #4a4f57; --cl-muted: #646a73;
+  --cl-hair: rgba(10,12,16,.08); --cl-hair2: rgba(10,12,16,.14);
+  --cl-arc: #0a6cb3; --cl-on-arc: #ffffff; --cl-core: #0a3d6b;
+  --cl-brass: #8a5d10; --cl-signal: #1f8a4c; --cl-alert: #c8281e;
+  --cl-well: rgba(10,12,16,.045);
+  --cl-glass: var(--cl-surface); --cl-blur: none;
+  --cl-rim: inset 0 0 0 1px var(--cl-hair);
+  --cl-shadow: none;
+  --accent: var(--cl-arc); --accent-soft: rgba(10,108,179,.12); --accent-contrast: var(--cl-on-arc);
+  --bg: var(--cl-bg); --content: var(--cl-surface); --content2: var(--cl-raised);
+  --text: var(--cl-ink); --text2: var(--cl-ink2); --text3: var(--cl-muted);
+  --glass: var(--cl-surface); --glass2: var(--cl-surface);
+  --hairline: var(--cl-hair); --rim: transparent; --sep: var(--cl-hair);
+  --run: var(--cl-signal); --wait: var(--cl-brass); --warn: var(--cl-brass); --danger: var(--cl-alert);
+  --sh1: none; --sh2: 0 0 0 1px var(--cl-hair2), 0 24px 64px rgba(0,0,0,.14);
+}
+/* ── tokens: Stark Glass at night ── */
+html[data-look="code"][data-theme="dark"] {
+  --cl-bg: #03060d; --cl-surface: #0d131f; --cl-raised: #141c2b;
+  --cl-ink: #eef3f8; --cl-ink2: rgba(235,240,248,.64); --cl-muted: #7f8ca0;
+  --cl-hair: rgba(255,255,255,.09); --cl-hair2: rgba(255,255,255,.14);
+  --cl-arc: #5cc8f7; --cl-on-arc: #03101c; --cl-core: #d6f3ff;
+  --cl-brass: #e8c27a; --cl-signal: #30d158; --cl-alert: #ff453a;
+  --cl-well: rgba(118,118,128,.12);
+  --cl-glass: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035));
+  --cl-blur: blur(26px) saturate(185%);
+  --cl-rim: inset 0 .8px 0 rgba(255,255,255,.28), inset 0 0 0 .8px rgba(255,255,255,.07);
+  --cl-shadow: 0 24px 60px -28px rgba(0,0,0,.8);
+  --accent-soft: rgba(92,200,247,.14);
+  --glass: rgba(255,255,255,.05); --glass2: rgba(20,28,43,.82);
+  --sh2: 0 0 0 .5px rgba(255,255,255,.12), 0 24px 60px -20px rgba(0,0,0,.85);
+}
+/* the user's own accent pick (app.js's style tag) gives way to the app's while this look is on */
+html[data-look="code"]:not(#eden-look) { --accent: var(--cl-arc); --accent-contrast: var(--cl-on-arc); }
+/* the composer's own tokens (app.css .jc) */
+html[data-look="code"] .jc {
+  --c-ink: 17 19 23; --c-ink-2: 74 79 87; --c-muted: 100 106 115; --c-subtle: 140 146 155;
+  --c-accent: 10 108 179; --c-accent-hover: 8 92 154; --c-glow: 10 108 179; --c-success: 31 138 76;
+  --c-surface: 255 255 255;
+}
+html[data-look="code"][data-theme="dark"] .jc {
+  --c-ink: 238 243 248; --c-ink-2: 190 198 212; --c-muted: 127 140 160; --c-subtle: 96 106 122;
+  --c-accent: 92 200 247; --c-accent-hover: 128 212 250; --c-glow: 92 200 247; --c-success: 48 209 88;
+  --c-surface: 3 6 13;
+}
+
+/* ── the ground ── */
+html[data-look="code"] body { background: var(--cl-bg); color: var(--cl-ink); }
+html[data-look="code"] body::before { background: none; }
+/* night: the reactor's light from above, a breath of Stark gold and hot-rod red low in the corners, depth below */
+html[data-look="code"][data-theme="dark"] body::before {
+  background:
+    radial-gradient(520px 420px at 50% -6%, rgba(63,184,242,.16), transparent 70%),
+    radial-gradient(900px 640px at 50% -10%, rgba(12,63,120,.85), transparent 62%),
+    radial-gradient(700px 520px at 85% 8%, rgba(8,36,72,.7), transparent 65%),
+    radial-gradient(520px 420px at 0% 100%, rgba(28,9,7,.9), transparent 70%),
+    radial-gradient(520px 420px at 100% 100%, rgba(24,17,7,.9), transparent 70%),
+    linear-gradient(180deg, transparent 60%, rgba(0,0,0,.45));
+}
+
+/* ── surfaces: glass at night, a white card with a hairline by day ── */
+html[data-look="code"] .glass {
+  background: var(--cl-glass);
+  -webkit-backdrop-filter: var(--cl-blur); backdrop-filter: var(--cl-blur);
+  box-shadow: var(--cl-rim), var(--cl-shadow);
+}
+html[data-look="code"]:not([data-theme="dark"]) .glass { box-shadow: inset 0 0 0 1px var(--cl-hair); }
+html[data-look="code"] #sidebar, html[data-look="code"] #titlebar { border-radius: 18px; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-look="code"][data-theme="dark"] .glass { background: var(--cl-surface); }
+}
+
+/* ── the session list (sidebar): the app's list rows ── */
+html[data-look="code"] .sec-h { font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--cl-muted); }
+html[data-look="code"] .sitem { border-radius: 10px; padding: 7px 9px; font-size: 15px; font-weight: 500; color: var(--cl-ink); }
+html[data-look="code"] .sitem .sub { font: 12px/1.3 ui-monospace, "SF Mono", Menlo, monospace; color: var(--cl-muted); }
+html[data-look="code"] .sitem:hover { background: var(--cl-well); }
+html[data-look="code"] .sitem.active {
+  background: var(--accent-soft); color: var(--cl-ink); font-weight: 600;
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--cl-arc) 28%, transparent);
+}
+html[data-look="code"] .sitem.active .ic { color: var(--cl-arc); }
+html[data-look="code"] .newchat { border-radius: 10px; background: var(--accent-soft); color: var(--cl-arc); font-weight: 600; }
+html[data-look="code"] .side-foot { border-top: 1px solid var(--cl-hair); }
+html[data-look="code"] .side-foot .who { font-size: 13px; }
+html[data-look="code"] .iconbtn { border-radius: 10px; color: var(--cl-ink2); }
+html[data-look="code"] .iconbtn:hover { background: var(--cl-well); color: var(--cl-ink); }
+html[data-look="code"] .dot.run { background: var(--cl-arc); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* ── the navigation bar ── */
+html[data-look="code"] #titlebar { min-height: 48px; }
+html[data-look="code"] #titlebar .tb-title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+/* status chips: the app's StatusPill (a tinted capsule) */
+html[data-look="code"] .branch, html[data-look="code"] .tag, html[data-look="code"] .route-chip {
+  border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--cl-ink2);
+  background: rgba(127,140,160,.14); box-shadow: inset 0 0 0 .5px rgba(127,140,160,.28);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html[data-look="code"] .branch { font: 600 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace; }
+html[data-look="code"] .tag.temp { color: var(--cl-brass); background: color-mix(in srgb, var(--cl-brass) 14%, transparent); }
+html[data-look="code"] .kbdhint { border-radius: 999px; box-shadow: inset 0 0 0 .5px var(--cl-hair2); }
+
+/* ── empty state ── */
+html[data-look="code"] #empty h1 { font-size: 28px; font-weight: 700; letter-spacing: -.3px; }
+html[data-look="code"] #empty p.lead { font-size: 16px; color: var(--cl-ink2); }
+html[data-look="code"] .sugg button {
+  border-radius: 18px; padding: 14px 16px; font-size: 15px;
+  background: var(--cl-glass); -webkit-backdrop-filter: var(--cl-blur); backdrop-filter: var(--cl-blur);
+  box-shadow: var(--cl-rim);
+}
+html[data-look="code"]:not([data-theme="dark"]) .sugg button { box-shadow: inset 0 0 0 1px var(--cl-hair); }
+html[data-look="code"] .sugg button span { color: var(--cl-muted); font-size: 13px; }
+
+/* ── the conversation: no bubbles, each entry a left-aligned block under an eyebrow ── */
+html[data-look="code"] #transcript { gap: 16px; }
+html[data-look="code"] .msg.user { align-items: flex-start; }
+html[data-look="code"] .msg::before {
+  order: -1; display: flex; align-items: center; gap: 7px; margin: 0 0 5px;
+  font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  text-transform: uppercase; letter-spacing: 0;
+}
+html[data-look="code"] .msg.user::before { content: "You"; color: var(--cl-muted); }
+html[lang^="fr"][data-look="code"] .msg.user::before { content: "Vous"; }
+/* "EDEN" in the reactor's ice, after the 9px orb (a glossy sphere at night, a fine dial by day) */
+html[data-look="code"] .msg.assistant::before {
+  content: "Eden"; color: var(--cl-core);
+  padding-left: 16px;
+  background: radial-gradient(circle 4.5px at 4.5px 50%, #f2fbff 0, #a4e4ff 22%, #3fb8f2 55%, #0a3d84 96%, transparent 100%) no-repeat;
+}
+html[data-look="code"]:not([data-theme="dark"]) .msg.assistant::before {
+  background: radial-gradient(circle at 4.5px 50%, var(--cl-arc) 0 1.4px, transparent 1.6px 3.3px, var(--cl-arc) 3.4px 4.4px, transparent 4.6px) no-repeat;
+}
+html[data-look="code"]:not(#eden-look) .msg.user .bubble {
+  background: transparent !important; color: var(--cl-ink2) !important; box-shadow: none !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+  border-radius: 0 !important; padding: 0; max-width: 100%;
+  font-size: 16px; line-height: 1.45;
+}
+html[data-look="code"]:not(#eden-look) .msg.user .bubble::before { content: none !important; }
+html[data-look="code"]:not(#eden-look) .msg.user .bubble .utext { color: var(--cl-ink2) !important; }
+html[data-look="code"]:not(#eden-look) .msg.user .bubble a { color: var(--cl-arc) !important; }
+html[data-look="code"]:not(#eden-look) .msg.user .bubble .more { color: var(--cl-arc) !important; background: var(--cl-well); }
+html[data-look="code"]:not(#eden-look) .msg.user .bubble .more:focus-visible { outline-color: var(--cl-arc); }
+html[data-look="code"]:not(#eden-look) .msg.user .bubble .ctxchip,
+html[data-look="code"]:not(#eden-look) .msg.user .bubble .attach {
+  background: var(--cl-well); color: var(--cl-ink2); border: 0; box-shadow: none;
+}
+html[data-look="code"] .msg.user .u-imgs { justify-content: flex-start; }
+html[data-look="code"] .msg.user .u-img { border-radius: 12px; }
+html[data-look="code"] .steered { align-self: flex-start; color: var(--cl-arc); }
+html[data-look="code"] .msg.user .msg-acts { justify-content: flex-start; }
+html[data-look="code"] .msg.assistant .bubble {
+  background: transparent; box-shadow: none; border-radius: 0; padding: 0;
+  font-size: 16px; line-height: 1.5; color: var(--cl-ink);
+}
+html[data-look="code"] .msg-head { margin-left: 0; }
+html[data-look="code"] .msg-acts .iconbtn { color: var(--cl-muted); }
+html[data-look="code"] .notice, html[data-look="code"] .stopped { font-size: 13px; font-style: italic; color: var(--cl-muted); margin-left: 0; }
+html[data-look="code"] .followup-btn { border-radius: 10px; font-size: 14px; }
+html[data-look="code"] .followup-btn:hover, html[data-look="code"] .followup-btn:focus-visible { background: var(--cl-well); }
+html[data-look="code"] .edit-box { border-radius: 18px; background: var(--cl-surface); }
+
+/* ── tool steps: one monospaced line on a 10px rounded well ── */
+html[data-look="code"] .tool, html[data-look="code"] .artlink {
+  border-radius: 10px; background: var(--cl-well); box-shadow: none; margin: 6px 0;
+}
+html[data-look="code"] .tool-head { padding: 8px 12px; gap: 8px; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--cl-ink2); }
+html[data-look="code"] .tool-head .tname { font-weight: 600; color: var(--cl-ink2); }
+html[data-look="code"] .tool-head .ic { width: 12px; height: 12px; color: var(--cl-muted); }
+html[data-look="code"] .tool-head .tsum { color: var(--cl-muted); font-size: 12px; }
+html[data-look="code"] .tool-body > div { font-size: 12px; }
+html[data-look="code"] .tstat.done { background: var(--cl-signal); }
+html[data-look="code"] .tstat.run { background: var(--cl-arc); }
+html[data-look="code"] .tstat.fail { background: var(--cl-alert); }
+html[data-look="code"] .thinking { font-size: 13px; color: var(--cl-muted); }
+html[data-look="code"] .thinking .think-ic { color: var(--cl-arc); }
+html[data-look="code"] .think-body > div { border-left: 1px solid var(--cl-hair2); }
+/* cards that need a decision or carry a run: the app's glass cards (radius 18) */
+html[data-look="code"] .perm, html[data-look="code"] .research, html[data-look="code"] .fr-card {
+  border-radius: 18px; background: var(--cl-glass);
+  -webkit-backdrop-filter: var(--cl-blur); backdrop-filter: var(--cl-blur);
+  box-shadow: var(--cl-rim);
+}
+html[data-look="code"]:not([data-theme="dark"]) :is(.perm, .research, .fr-card) { box-shadow: inset 0 0 0 1px var(--cl-hair); }
+/* a card waiting on you is brass-edged, as in the app */
+html[data-look="code"] .perm:not(.approved) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cl-brass) 40%, transparent); }
+html[data-look="code"] .src { border-radius: 999px; background: var(--cl-well); box-shadow: none; font-size: 12px; }
+html[data-look="code"] .cap { border-radius: 999px; }
+html[data-look="code"] .cap.primary { background: var(--cl-arc); color: var(--cl-on-arc); box-shadow: none; }
+
+/* ── code: the monospaced footnote on a well ── */
+html[data-look="code"] .cblock, html[data-look="code"] .codeblk { border-radius: 12px; background: var(--cl-well); box-shadow: inset 0 0 0 .5px var(--cl-hair); }
+html[data-look="code"] .cblock pre { font-size: 13px; }
+html[data-look="code"] .md code { background: var(--cl-well); }
+html[data-look="code"] .cblock pre code, html[data-look="code"] .codeblk code { background: none; }
+html[data-look="code"] .md a, html[data-look="code"] sup.cite { color: var(--cl-arc); }
+
+/* ── the composer: one 52px capsule, + on the left, a 36px round send ── */
+html[data-look="code"]:not(#eden-look) .jc-composer {
+  border-radius: 26px; border: 0 !important; min-height: 52px; padding: 8px 6px 8px 10px;
+  background: var(--cl-glass) !important;
+  -webkit-backdrop-filter: var(--cl-blur) !important; backdrop-filter: var(--cl-blur) !important;
+  box-shadow: var(--cl-rim), var(--cl-shadow) !important;
+}
+html[data-look="code"]:not([data-theme="dark"]):not(#eden-look) .jc-composer { box-shadow: inset 0 0 0 1px var(--cl-hair2) !important; }
+/* typing tints the glass reactor-blue, as the app does while you compose */
+html[data-look="code"]:not(#eden-look) .jc-composer:focus-within {
+  box-shadow: inset 0 .8px 0 color-mix(in srgb, var(--cl-arc) 60%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--cl-arc) 42%, transparent), var(--cl-shadow) !important;
+}
+html[data-look="code"][data-theme="dark"]:not(#eden-look) .jc-composer:focus-within {
+  background: linear-gradient(180deg, rgba(92,200,247,.10), rgba(92,200,247,.04)) !important;
+}
+html[data-look="code"] .jc-composer-top textarea { font-size: 16px; color: var(--cl-ink); }
+html[data-look="code"] .jc-composer-top textarea::placeholder { color: var(--cl-muted); }
+html[data-look="code"]:not(#eden-look) .jc-composer .jc-composer-row > :is(.jc-pill, #jc-ctx, #jc-plus) {
+  border: 0; color: var(--cl-ink2);
+  background: rgba(127,140,160,.14); box-shadow: inset 0 0 0 .5px rgba(127,140,160,.28);
+}
+html[data-look="code"] .jc-composer-row > .jc-pill { font-size: 12px; font-weight: 600; }
+html[data-look="code"]:not(#eden-look) .jc-send {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--cl-arc) !important; color: var(--cl-on-arc) !important; box-shadow: none !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+html[data-look="code"]:not(#eden-look) .jc-send::before { content: none !important; }
+html[data-look="code"]:not(#eden-look) .jc-send:hover { filter: brightness(1.08); }
+html[data-look="code"]:not(#eden-look) .jc-send:disabled { opacity: 1; background: var(--cl-well) !important; color: var(--cl-muted) !important; }
+html[data-look="code"]:not(#eden-look) .jc-send.stop { background: var(--cl-ink); color: var(--cl-bg); }
+html[data-look="code"] .jc-popover { border-radius: 18px; }
+html[data-look="code"] .jc-statusline { color: var(--cl-muted); }
+
+/* ── buttons ── */
+html[data-look="code"] .btn { border-radius: 12px; }
+
+/* ── phones: the app's 20px margins; a solid capsule while typing, as mobile.css does ── */
+@media (max-width: 640px) {
+  html[data-look="code"] #transcript { padding-left: 12px; padding-right: 12px; }
+  html[data-look="code"]:not(#eden-look) .jc-composer:focus-within { background: var(--cl-surface) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  html[data-look="code"] #sidebar.open { background: var(--cl-surface); }
+  html[data-look="code"] .sugg { grid-template-columns: 1fr; }
+}

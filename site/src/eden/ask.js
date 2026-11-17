@@ -35,6 +35,7 @@ import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/servi
 import { CLIENTS, SCOPED, makeScopedToken, parseConnectCode, parseScopedToken } from '../accounts/scoped.js';
 import { ApiError, webAllowed } from '../accounts/util.js';
 import { hostedConfig } from './chat.js';
+import { meterGoogle } from './credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
 import { currentSession } from './session.js';
 import { json, page, problem, sameOrigin, withHeaders } from './web.js';
 
@@ -418,6 +419,7 @@ async function ask(request, env, ctx) {
     } finally {
       reader.cancel().catch(() => {}); // a failed answer: Claude's stream ends here too
       const usd = costOf(meter.model || model, meter.usage({ input: inputTokens }));
+      if (usd > 0) meterGoogle(env, null, { model: meter.model || model, usd, bucket: hold.bucket, feature: 'ask' }); // Gemini's answers only
       if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta: { feature: 'ask', product: 'messenger' } }).catch((error) => console.error('eden ask: spend failed', error && error.message));
       await release();
     }

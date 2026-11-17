@@ -318,3 +318,39 @@ test('R3C-13: a published page anyone can open carries a Report link to support'
   assert.match(decodeURIComponent(out), /https:\/\/askeden\.com\/p\/abc123/);
   assert.match(withReportLink('<h1>No body tag</h1>', 'https://askeden.com', 'abc123'), /Report<\/a>$/);
 });
+
+test('an App Store purchase on an account with an iPhone link-out Stripe subscription: the Stripe one is refunded and cancelled', async () => {
+  const session = await browser(A);
+  const facts = (id, via) => ({ id, status: 'active', customer: 'cus_1', price: 'price_1PlusMonthlyTest', plus: true, period_end: Date.now() + 30 * DAY, renews: true, via });
+  await call(env, A, 'stripe-event', { id: 'evt_link_1', type: 'customer.subscription.created', created: Math.floor(Date.now() / 1000), livemode: false, subscription: facts('sub_link', 'ios_link') });
+  assert.equal((await planOf(session)).source, 'stripe');
+  const calls = [];
+  const subs = { sub_link: { id: 'sub_link', status: 'active', latest_invoice: { id: 'in_1', amount_paid: 1000, payment_intent: 'pi_1' } } };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    const method = (init.method || 'GET').toUpperCase();
+    calls.push({ method, path: url.pathname, form: init.body ? new URLSearchParams(init.body) : null, key: new Headers(init.headers).get('idempotency-key') });
+    const sub = /^\/v1\/subscriptions\/(sub_\w+)$/.exec(url.pathname);
+    if (sub) {
+      if (method === 'DELETE') subs[sub[1]].status = 'canceled';
+      return Response.json(subs[sub[1]]);
+    }
+    if (url.pathname === '/v1/refunds') return Response.json({ id: 're_1' });
+    throw new Error(`unexpected fetch ${method} ${url.href}`);
+  };
+  try {
+    assert.equal((await linkTx(session, await signedJws(edenTx(A)))).status, 200);
+    const refund = calls.find((c) => c.path === '/v1/refunds');
+    assert.equal(refund.form.get('payment_intent'), 'pi_1');
+    assert.equal(refund.key, 'eden-both-refund-sub_link');
+    assert.ok(calls.some((c) => c.method === 'DELETE' && c.path === '/v1/subscriptions/sub_link'));
+    assert.equal(subs.sub_link.status, 'canceled');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // A web (not ios_link) Stripe subscription beside App Store Plus: untouched, as before.
+  await call(env, B, 'web-signin', { account_id: B, create: true, device: { name: 'web' } });
+  await call(env, B, 'stripe-event', { id: 'evt_web_1', type: 'customer.subscription.created', created: Math.floor(Date.now() / 1000), livemode: false, subscription: facts('sub_web', null) });
+  assert.deepEqual(await call(env, B, 'stripe-both', {}), { subscription: null });
+});

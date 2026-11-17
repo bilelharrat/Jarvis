@@ -338,6 +338,7 @@ export default {
     'month end': 'fin du mois', 'Spent of the monthly budget': 'Dépensé sur le budget mensuel',
     'Loading this month…': 'Chargement du mois…', 'This month’s spend isn’t available.': 'Les dépenses de ce mois ne sont pas disponibles.',
     'Included AI this month': 'IA incluse ce mois-ci', 'This month': 'Ce mois-ci',
+    'Included AI this period': 'IA incluse sur cette période', 'This week': 'Cette semaine', 'This period': 'Cette période', // ALLOWANCE_V2
     'Autopilot: on track, routing as you set it': `Pilote automatique${NB}: dans les clous, routage tel que vous l’avez réglé`,
     'Your included AI isn’t known yet.': 'Votre IA incluse n’est pas encore connue.',
     'No monthly budget: the autopilot is off. Set one in Settings › Routing.': `Aucun budget mensuel${NB}: le pilote automatique est désactivé. Définissez-en un dans Réglages › Routage.`,

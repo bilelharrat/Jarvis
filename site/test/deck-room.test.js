@@ -247,7 +247,7 @@ test('the Worker lets in the owner and seats, from askeden.com only, and never t
   const me = await browserOf(owner);
   const c = { id: 'conv1', title: 'Q3', deckVersions: [] };
   const room = await client.startRoom(c, { post: post(me), origin: ORIGIN });
-  assert.match(room.links.edit, /^https:\/\/askeden\.com\/chat\/#deck-room&room=[\w-]{22}&key=[\w-]{43}&seat=[\w-]{32}$/);
+  assert.match(room.links.edit, /^https:\/\/askeden\.com\/deck#deck-room&room=[\w-]{22}&key=[\w-]{43}&seat=[\w-]{32}$/);
   const edit = client.readRoomLink(new URL(room.links.edit).hash), view = client.readRoomLink(new URL(room.links.view).hash);
   const id = room.id;
   // the share's data is ciphertext; nothing of the key reached the server
@@ -356,4 +356,21 @@ test('two people edit one deck through the Worker and the room: edits, comments 
   await flush(10);
   assert.ok(statuses.bo.includes('closed:revoked') && statuses.cy.includes('closed:revoked'), JSON.stringify(statuses));
   for (const x of [A, B, C, pa, pb]) x.close();
+});
+
+test('a deck link: /deck (and the first links’ /chat) go to Eden signed in, to the sign-in signed out, and never carry the key', async () => {
+  const owner = await phone();
+  const me = await browserOf(owner);
+  for (const p of ['/deck', '/chat', '/chat/']) {
+    const out = await hit(p);
+    assert.equal(out.status, 302, p);
+    assert.equal(new URL(out.headers.get('location'), ORIGIN).pathname + new URL(out.headers.get('location'), ORIGIN).search, '/signin?return=%2Fdeck', `${p} signed out`);
+    const inn = await hit(p, { session: me });
+    assert.equal(inn.status, 302, p);
+    assert.equal(new URL(inn.headers.get('location'), ORIGIN).pathname, '/', `${p} signed in`);
+    assert.ok(!/#/.test(inn.headers.get('location')) && !/#/.test(out.headers.get('location')), 'no #fragment of its own: the browser keeps the link’s');
+  }
+  const signin = await import('node:fs').then((f) => f.readFileSync(new URL('../public/signin/signin.js', import.meta.url), 'utf8'));
+  assert.match(signin, /if \(\/\^#deck-room&\/\.test\(location\.hash\)\) \{\n {2}try \{ sessionStorage\.setItem\('eden\.pendingRoom', location\.hash\); \}/, 'the sign-in keeps the link in this tab');
+  assert.equal(client.STASH, 'eden.pendingRoom', 'the same key on both sides');
 });

@@ -41,7 +41,7 @@ export const validSharedId = (id) => ID.test(String(id));
 export const SHARED_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 // What /s/ may serve of Eden's files (share.html's modules and their imports; askeden's
 // src/__tests__/share.test.ts checks the list against the imports). Public: no secrets in them.
-export const SHARED_FILES = new Set(['share.css', 'share-view.js', 'app-lock.js', 'share-render.js', 'share-model.js', 'markdown.js', 'util.js', 'md-plain.js', 'privacy-rules.js', 'i18n.js', 'i18n-fr.js']);
+export const SHARED_FILES = new Set(['share.css', 'share-view.js', 'app-lock.js', 'share-render.js', 'share-model.js', 'markdown.js', 'cite-marks.js', 'util.js', 'md-plain.js', 'privacy-rules.js', 'i18n.js', 'i18n-fr.js']);
 const NOINDEX = { 'x-robots-tag': 'noindex, nofollow, noarchive', 'referrer-policy': 'no-referrer' };
 
 const view = (h) => ({
@@ -407,7 +407,7 @@ export async function sharedChatsApi(request, env, who, path) {
 }
 
 const asset = (env, request, path) => env.ASSETS.fetch(new Request(new URL(path, request.url), request));
-const edenDir = (request) => (/\b(?:EdenApp|EdenEdu)\//.test(request.headers.get('user-agent') || '') && !/\bEdenBeta\//.test(request.headers.get('user-agent') || '') ? '/eden-ios' : '/eden');
+const edenDir = (request) => (/\bEdenEdu\//.test(request.headers.get('user-agent') || '') ? '/eden-ios' : '/eden');
 const gone = () => withHeaders(json({ error: 'This shared chat isn’t here: it was revoked, it expired, or the link is wrong.', code: 'not_found' }, 404), NOINDEX);
 
 /**

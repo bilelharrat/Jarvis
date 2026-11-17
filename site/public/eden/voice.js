@@ -24,7 +24,7 @@ import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
 import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S, punctuateSpeech } from './voice-text.js';
 import { speechLang } from './i18n.js';
 import { IN_APP } from './native.js';
-import { deadline, talkStep, talkText, talkCapped, talkShouldPause, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
+import { deadline, talkStep, talkText, talkCapped, talkShouldPause, staleConnection, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
 
 const prefs = { autoRead: false, ...store.get('jchat:voice', {}) };
 // The iPhone app crashed when a reply was read aloud (owner's screen recording, 2026-10-13; not reproduced in the simulator), so
@@ -40,8 +40,17 @@ const MIC_BLOCKED = 'Eden can’t use the microphone. Allow it for this site in 
 /* ---------- audio out ---------- */
 let actx = null;
 let outLevel = null; // what's playing, for the talk meter
+/**
+ * What the page's sound is to the iPhone (Safari 16.4+, and the Eden app's web view): Web Audio starts as "ambient",
+ * which the ring/silent switch mutes, so on an iPhone in silent mode Read aloud and Talk played nothing at all (2026-11-05).
+ * "playback" plays like a video does; Talk is "play-and-record" (the mic and the voice together); "auto" once it's quiet.
+ */
+function audioSession(type) {
+  try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { /* not this browser */ }
+}
 function audio() {
   if (IN_APP) return null;
+  audioSession(talk.on ? 'play-and-record' : 'playback'); // before the context exists: it starts in the right session
   if (!actx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
@@ -50,7 +59,9 @@ function audio() {
     outLevel.fftSize = 512;
     outLevel.connect(actx.destination);
   }
-  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  // "suspended" (no gesture yet) and, on an iPhone, "interrupted" (a call, Siri, another app's sound, the app sent to the
+  // background): either way it plays nothing until resumed, and "interrupted" was never resumed before.
+  if (actx.state !== 'running' && actx.state !== 'closed') actx.resume().catch(() => {});
   return actx;
 }
 
@@ -64,8 +75,14 @@ async function fetchVoice(text, signal) {
   const late = () => new Error('The voice didn’t answer in time.');
   try {
     let res;
+    const sentAt = Date.now();
     try {
-      res = await rawFetch(path, init);
+      try { res = await rawFetch(path, init); }
+      catch (e) {
+        // refused at once on a stale kept-alive connection: it never reached the server (resilience.js)
+        if (!staleConnection(e, sentAt, { signal: d.signal, online: navigator.onLine })) throw e;
+        res = await rawFetch(path, init);
+      }
     } catch (e) {
       if (d.timedOut()) throw late();
       if (e.name === 'AbortError') throw e;
@@ -139,6 +156,7 @@ const speaker = {
     Object.assign(this, { id: null, jobs: [], ended: false, source: null, waiting: false, ctrl: null, onDone: null, playing: false });
     if (src) { try { src.stop(); } catch { /* not started */ } }
     reader = null;
+    if (!talk.on) audioSession('auto'); // quiet again: other apps' sound comes back
     if (reason === 'error') toast((err && err.message) || 'The voice stopped.');
     paintSpeak();
     if (done) done(reason, err);
@@ -486,6 +504,7 @@ async function openTalk() {
   audio(); // unlocked by this click, so the reply can play later
   talkBox().hidden = false;
   Object.assign(talk, { on: true, error: '', you: '', reply: '', ends: 0, floor: 0.01, loudFrames: 0, capped: 0, back: document.activeElement });
+  audioSession('play-and-record'); // the mic and his voice at once (an iPhone in silent mode still hears him)
   document.documentElement.classList.add('talking');
   setTalk('listening');
   $('talkX').focus();
@@ -524,6 +543,7 @@ function closeTalk() {
   talk.box.setAttribute('aria-modal', 'true');
   talk.box.style.removeProperty('left'); talk.box.style.removeProperty('top');
   document.documentElement.classList.remove('talking');
+  audioSession('auto');
   const back = talk.back && document.contains(talk.back) ? talk.back : $('deck-input');
   if (back) back.focus();
   return true;

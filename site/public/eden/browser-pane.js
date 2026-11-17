@@ -14,7 +14,7 @@
 // picture (JPEG frames over a WebSocket, drawn on a canvas); clicks, scrolling and keys go back.
 // What pages say is data: shown as pictures, and as text only when the viewer hands it to chat.
 
-import { $, el, ico, toast, isMobile, isTouch, copyText, whileVisible } from './util.js';
+import { $, el, ico, svgEl, toast, isMobile, isTouch, copyText, whileVisible } from './util.js';
 import { API_BASE, isMock } from './api.js';
 import { openMenu } from './composer.js';
 import { IN_APP_SHELL as IN_APP, openAppBrowser } from './native.js';
@@ -31,6 +31,7 @@ let pane = null; // the section, made on first open
 let mode = '';
 let bridge = null;
 let stopMode = () => {};
+let forceCloud = false; // Eden browsing by itself: its cloud browser, even in an app with a browser of its own
 
 const local = () => { try { return localStorage; } catch { return null; } };
 
@@ -44,8 +45,9 @@ export function initBrowserPane(hooks = {}) {
   if (btn) btn.addEventListener('click', () => toggleBrowser());
   if (wasOpen(local())) toggleBrowser(true, { quiet: true });
   // Eden at the controls (chat.js, browser-agent.js): the panel opens by itself; Take over from a chat card.
-  addEventListener('eden:browser-open', () => { if (!browserOpen()) toggleBrowser(true, { quiet: true }); });
-  addEventListener('eden:browser-takeover', () => { if (!browserOpen()) toggleBrowser(true, { quiet: true }); cloud.send({ t: 'agent', op: 'pause' }); });
+  // (In Ask Eden for Mac and Windows the panel switches to the cloud browser Eden is driving.)
+  addEventListener('eden:browser-open', () => { useCloud(true); if (!browserOpen()) toggleBrowser(true, { quiet: true }); });
+  addEventListener('eden:browser-takeover', () => { useCloud(true); if (!browserOpen()) toggleBrowser(true, { quiet: true }); cloud.send({ t: 'agent', op: 'pause' }); });
 }
 
 /** Open or close it (force: true or false); remembered for this viewer. */
@@ -60,7 +62,13 @@ export function toggleBrowser(force, { quiet = false } = {}) {
   keepOpen(local(), on);
   if (on) { build(); start(); if (!quiet) focusAddress(); } else stop();
 }
-export function closeBrowser() { if (!browserOpen()) return false; toggleBrowser(false); const b = $('btnBrowser'); if (b) b.focus(); return true; }
+/** The cloud browser (on: Eden is driving it), or the app's own browser again (off). Only in an app with one. */
+function useCloud(on) {
+  if (!bridge || !bridge.local || forceCloud === on) return;
+  forceCloud = on;
+  if (browserOpen() && pane) { stop(); start(); }
+}
+export function closeBrowser() { if (!browserOpen()) return false; endAsk(); toggleBrowser(false); const b = $('btnBrowser'); if (b) b.focus(); return true; }
 
 
 /* ---------- the panel's frame (Eden Secretary's browser: tabs, then the bar) ---------- */
@@ -76,18 +84,29 @@ function build() {
   const shield = el('button', { type: 'button', class: 'bd-shield', hidden: true, title: 'Ad and tracker blocking', 'aria-pressed': 'true', onclick: () => act('shield') }, el('span', 'bd-shield-ico', ico('shield', 13)), el('span', 'bd-blocked', ''));
   const star = el('button', { type: 'button', class: 'bd-star', hidden: true, title: 'Bookmark this page · ⌘D', 'aria-label': 'Bookmark this page', 'aria-pressed': 'false', onclick: () => act('bookmark') }, '☆');
   const suggest = el('ul', { class: 'bd-suggest', id: 'brSuggest', role: 'listbox', hidden: true });
-  const form = el('form', { class: 'bd-url', role: 'search', onsubmit: (e) => { e.preventDefault(); go(addr.value); } }, site, addr, shield, star);
+  const reload2 = el('button', { type: 'button', class: 'bd-url-reload', title: 'Reload', 'aria-label': 'Reload', onclick: () => act(P.loading ? 'stop' : 'reload') }, ico('retry', 15));
+  const form = el('form', { class: 'bd-url', role: 'search', onsubmit: (e) => { e.preventDefault(); go(addr.value); } }, site, addr, shield, star, reload2);
   addr.addEventListener('focus', () => { addr.value = P.url || addr.value; addr.select(); });
   addr.addEventListener('blur', () => { setTimeout(() => hideSuggest(), 150); addr.value = barText(P.url); });
   addr.addEventListener('input', () => suggestNow());
   addr.addEventListener('keydown', onAddrKey);
   const zoom = el('button', { type: 'button', class: 'bd-zoom', hidden: true, title: 'Reset zoom · ⌘0', onclick: () => act('zoom', 0) }, '');
-  const ai = el('button', { type: 'button', class: 'bd-ask', title: 'Ask Eden about this page', 'aria-haspopup': 'menu', onclick: (e) => aiMenu(e.currentTarget) }, ico('spark', 14), el('span', 'bd-ask-t', 'Ask Eden'));
+  const ai = el('button', { type: 'button', class: 'bd-ask', title: 'Ask Eden about this page', 'aria-haspopup': 'menu', onclick: (e) => aiMenu(e.currentTarget) }, edenMark(14), el('span', 'bd-ask-t', 'Ask Eden'));
   const wide = iconBtn('expand', 'Wide · ⌘⇧E', () => toggleWide());
   const lib = iconBtn('list', 'Bookmarks and history · ⌘Y', () => act('library', 'bookmarks'));
   const more = iconBtn('more', 'More', (e) => moreMenu(e.currentTarget));
   more.setAttribute('aria-haspopup', 'menu');
   const progress = el('div', { class: 'bd-progress', hidden: true }, el('i', ''));
+  // On a phone (browser.css): Done and Tabs in the bar, Reload inside the address, Back and Ask Eden
+  // floating at the bottom, and the Ask Eden bar along the bottom while the chat shows under it.
+  const done = el('button', { type: 'button', class: 'bd-done', onclick: () => closeBrowser() }, 'Done');
+  const tabsBtn = el('button', { type: 'button', class: 'bd-tabsbtn', title: 'Tabs', 'aria-label': 'Tabs', 'aria-haspopup': 'menu', onclick: (e) => tabsMenu(e.currentTarget) }, el('span', 'bd-tabsn', '1'));
+  const backF = el('button', { type: 'button', class: 'bd-backf', hidden: true, title: 'Back', 'aria-label': 'Back', onclick: () => act('back') }, ico('chevl', 19));
+  const askF = el('button', { type: 'button', class: 'bd-askf', hidden: true, 'aria-label': 'Ask Eden about this page', onclick: () => askHere() }, edenMark(20), el('span', '', 'Ask Eden'));
+  const askBar = el('div', { class: 'bd-askbar', role: 'toolbar', 'aria-label': 'Ask Eden' },
+    el('span', 'bd-askbar-mark', edenMark(14)), el('b', '', 'Ask Eden'), el('span', 'br-sp'),
+    el('button', { type: 'button', class: 'bd-askbar-chat', onclick: () => closeBrowser() }, 'Open in chat'),
+    el('button', { type: 'button', class: 'bd-askbar-x', title: 'Back to the page', 'aria-label': 'Back to the page', onclick: () => endAsk() }, ico('chevd', 14)));
   const close = el('button', { type: 'button', class: 'iconbtn br-close', title: 'Close browser · ⌘⇧B', 'aria-label': 'Close browser', onclick: () => closeBrowser() }, ico('x', 15));
   const tabs = el('div', { class: 'bd-tabs', role: 'tablist', 'aria-label': 'Tabs' });
   const strip = el('div', 'bd-strip', tabs, wide, close);
@@ -102,11 +121,18 @@ function build() {
   findIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); act('find', { q: findIn.value, dir: e.shiftKey ? -1 : 1 }); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); } });
   const slot = el('div', { class: 'browser-slot', 'aria-label': 'Page' });
   const downloads = el('ul', { class: 'bd-downloads', hidden: true, 'aria-label': 'Downloads' });
+  // On a phone (browser.css): the bar is clear glass over a blurred picture of the page's top
+  // (reflect: the page is a picture from the cloud, so it can't scroll under the bar itself), its
+  // controls light or dark by what's under them; Back, the keyboard and Ask Eden have a glass row
+  // under the page (tools), so nothing of Eden's covers the page (Google's Verify sat under them).
+  const reflect = el('canvas', { class: 'bd-reflect', width: '48', height: '6', 'aria-hidden': 'true' });
+  const reflectB = el('canvas', { class: 'bd-reflect', width: '48', height: '6', 'aria-hidden': 'true' });
+  const tools = el('div', { class: 'bd-tools', role: 'toolbar', 'aria-label': 'Page' }, reflectB, backF, el('span', 'br-sp'), askF);
   pane = el('section', { id: 'browserPane', class: 'glass', 'aria-label': 'Browser' },
     strip,
-    el('div', 'browser-bar', back, fwd, reload, form, zoom, ai, lib, more, progress),
-    suggest, find, slot, downloads);
-  Object.assign(P, { back, fwd, reload, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, find, findIn, findCount, slot, downloads, wide, url: '', loading: false });
+    el('div', 'browser-bar', reflect, done, back, fwd, reload, form, zoom, ai, lib, tabsBtn, more, progress),
+    suggest, find, slot, downloads, tools, askBar);
+  Object.assign(P, { back, fwd, reload, reload2, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, tabsBtn, backF, askF, tools, reflect, reflectB, find, findIn, findCount, slot, downloads, wide, url: '', loading: false });
   $('center').after(pane); // its own full-height column beside the title bar and chat, like the inspector (browser.css)
   edgeResize(pane);
 }
@@ -127,6 +153,32 @@ async function fullScreen() {
     if (navigator.keyboard && navigator.keyboard.lock) await navigator.keyboard.lock(['KeyT', 'KeyW', 'KeyN', 'KeyL', 'KeyR', 'Escape']).catch(() => {});
   } catch { toast('Full screen isn’t available here'); }
 }
+/** Eden's mark (DESIGN.md §1: two interlocking chevrons, site/public/jarvis/eden-logo.svg), in the text colour. */
+function edenMark(size) {
+  const s = svgEl('svg', { class: 'ic bd-mark', viewBox: '40 80 416 425', 'aria-hidden': 'true', fill: 'currentColor', stroke: 'currentColor', 'stroke-width': '18', 'stroke-linejoin': 'round' });
+  s.style.width = `${size}px`; s.style.height = `${size}px`;
+  s.append(svgEl('polygon', { points: '211,93 314,90 444,236 343,353 249,352 333,251' }), svgEl('polygon', { points: '252,235 160,346 282,491 186,494 52,350 151,234' }));
+  return s;
+}
+/** Ask Eden from a phone: the page goes with the next message, and the chat shows under the page
+ * (the browser moves up, as in the iPhone app); ⌄ or Open in chat end it. */
+function askHere() {
+  if (cloud.state && cloud.state.url) cloud.send({ t: 'pagetext', for: 'ask' });
+  document.body.classList.add('browser-asking');
+}
+function endAsk() { document.body.classList.remove('browser-asking'); }
+/** The tabs, from the Tabs button (a phone's bar has no room for the tab strip). */
+function tabsMenu(anchor) {
+  const s = cloud.state || {};
+  const tabs = s.tabs || [];
+  openMenu(anchor, [
+    ...tabs.map((t) => ({ label: String(t.title || shownUrl(t.url) || 'New tab').slice(0, 60), checked: t.id === s.active, run: () => cloud.send({ t: 'tab', op: 'select', id: t.id }) })),
+    ...(tabs.length ? ['-'] : []),
+    { label: 'New tab', run: () => act('tab', { op: 'new' }) },
+    { label: 'Close this tab', disabled: !s.active, run: () => cloud.send({ t: 'tab', op: 'close', id: s.active }) },
+  ]);
+}
+
 function iconBtn(icon, label, run, cls = '') {
   return el('button', { type: 'button', class: `bd-icon ${cls}`.trim(), title: label, 'aria-label': label.replace(/ · .*$/, ''), onclick: run }, ico(icon, 15));
 }
@@ -145,6 +197,7 @@ function setUrl(url) {
   P.url = url || '';
   P.site.classList.toggle('secure', isSecure(url));
   P.site.hidden = !url;
+  P.reload2.hidden = !url;
   if (document.activeElement !== P.addr) P.addr.value = barText(url);
 }
 let loadT0 = 0, loadRaf = 0, loadDone = 0;
@@ -168,6 +221,9 @@ function setLoading(on) {
   P.reload.replaceChildren(ico(on ? 'x' : 'retry', 15));
   P.reload.title = on ? 'Stop' : 'Reload · ⌘R';
   P.reload.setAttribute('aria-label', on ? 'Stop' : 'Reload');
+  P.reload2.replaceChildren(ico(on ? 'x' : 'retry', 15));
+  P.reload2.setAttribute('aria-label', on ? 'Stop' : 'Reload');
+  P.reload2.title = on ? 'Stop' : 'Reload';
 }
 function setShield({ ready, on, blocked }) {
   P.shield.hidden = !ready;
@@ -187,12 +243,14 @@ function drawTabs(list, onSelect, onClose, onNew) {
 }
 
 function start() {
-  mode = paneMode({ bridge });
+  mode = paneMode({ bridge: forceCloud ? null : bridge });
   pane.dataset.mode = mode;
   P.slot.replaceChildren();
+  P.tools.querySelectorAll('.bd-kbd').forEach((n) => n.remove());
+  pane.classList.remove('reflecting', 'bd-onlight', 'bd-onlight-b');
   P.downloads.replaceChildren();
   P.downloads.hidden = true;
-  P.ai.hidden = mode === 'app';
+  P.ai.hidden = mode === 'app' && !bridge.pageText;
   P.lib.hidden = mode === 'app';
   P.star.hidden = true;
   P.zoom.hidden = true;
@@ -271,28 +329,68 @@ function closeFind() {
 
 /* ---------- menus ---------- */
 
+function appMoreMenu(anchor) {
+  const s = appState || {};
+  const page = Boolean(s.url) && !s.error;
+  openMenu(anchor, [
+    { label: 'New tab', key: MAC ? '⌘T' : 'Ctrl+T', run: () => bridge.tab('new') },
+    ...(bridge.find ? [{ label: 'Find in page…', key: MAC ? '⌘F' : 'Ctrl+F', disabled: !page, run: openFind }] : []),
+    ...(bridge.zoom ? [
+      { label: 'Zoom in', key: MAC ? '⌘+' : 'Ctrl++', disabled: !page, run: () => act('zoom', 1) },
+      { label: 'Zoom out', key: MAC ? '⌘−' : 'Ctrl+−', disabled: !page, run: () => act('zoom', -1) },
+      { label: 'Actual size', key: MAC ? '⌘0' : 'Ctrl+0', disabled: !page || (Number(s.zoom) || 1) === 1, run: () => act('zoom', 0) },
+    ] : []),
+    '-',
+    { label: 'Copy address', disabled: !s.url, run: () => copyText(s.url) },
+    ...(bridge.outside ? [{ label: 'Open in your browser', disabled: !s.url, run: () => bridge.outside() }] : []),
+    { label: pane.classList.contains('full') ? 'Back to the side' : 'Wide', key: MAC ? '⌘⇧E' : 'Ctrl+Shift+E', run: () => toggleWide() },
+    ...(bridge.clear ? [{ label: 'Clear browsing data…', run: () => openMenu(P.more, [
+      { heading: 'Clear cookies, sign-ins and saved site data?' },
+      { label: 'Clear', run: () => { Promise.resolve(bridge.clear()).then(() => toast('Browsing data cleared')).catch(() => {}); } },
+    ]) }] : []),
+    '-',
+    { label: 'Use Eden’s cloud browser', note: 'The one Eden uses when it browses for you', run: () => useCloud(true) },
+    { label: `This ${MAC ? 'Mac' : 'computer'}’s browser`, note: 'Your own connection: Google works without a check', disabled: true },
+  ]);
+}
 function moreMenu(anchor) {
+  if (mode === 'app' && bridge && bridge.local) { appMoreMenu(anchor); return; }
   const s = cloud.state || {};
   const page = Boolean(s.url);
+  // A phone's bar has only Done, the address, Tabs and this: the rest of the bar lives here.
+  const phone = isMobile() ? [
+    { label: 'Forward', disabled: !s.canForward, run: () => act('forward') },
+    { label: s.bookmarked ? 'Remove bookmark' : 'Bookmark this page', disabled: !page, run: () => act('bookmark') },
+    { label: 'Summarize this page', disabled: !page, run: () => { cloud.send({ t: 'pagetext', for: 'summarize' }); document.body.classList.add('browser-asking'); } },
+    { label: 'Use the selected text', disabled: !page, run: () => { cloud.wantSelection = true; cloud.send({ t: 'copy' }); document.body.classList.add('browser-asking'); } },
+    '-',
+  ] : [];
+  const wide = !phone.length; // a computer: zoom, Wide and Full screen too (a phone pinches, and is all screen already)
   openMenu(anchor, [
+    ...phone,
     { label: 'New tab', key: '⌘T', run: () => act('tab', { op: 'new' }) },
     { label: 'Find in page…', key: '⌘F', disabled: !page, run: openFind },
-    { label: 'Zoom in', key: '⌘+', disabled: !page, run: () => act('zoom', 1) },
-    { label: 'Zoom out', key: '⌘−', disabled: !page, run: () => act('zoom', -1) },
-    { label: 'Actual size', key: '⌘0', disabled: !page || s.zoom === 1, run: () => act('zoom', 0) },
+    ...(wide ? [
+      { label: 'Zoom in', key: '⌘+', disabled: !page, run: () => act('zoom', 1) },
+      { label: 'Zoom out', key: '⌘−', disabled: !page, run: () => act('zoom', -1) },
+      { label: 'Actual size', key: '⌘0', disabled: !page || s.zoom === 1, run: () => act('zoom', 0) },
+    ] : []),
     '-',
     { label: 'Bookmarks', run: () => act('library', 'bookmarks') },
     { label: 'History', key: '⌘Y', run: () => act('library', 'history') },
     '-',
     { label: 'Copy address', disabled: !page, run: () => copyText(s.url) },
     { label: 'Open in your browser', disabled: !page, run: () => openOutside(s.url) },
-    { label: pane.classList.contains('full') ? 'Back to the side' : 'Wide', key: '⌘⇧E', run: () => toggleWide() },
-    { label: document.fullscreenElement ? 'Exit full screen' : 'Full screen', note: document.fullscreenElement ? '' : '⌘T and ⌘W work here too', disabled: !pane.requestFullscreen || isMobile(), run: () => fullScreen() },
+    ...(wide ? [
+      { label: pane.classList.contains('full') ? 'Back to the side' : 'Wide', key: '⌘⇧E', run: () => toggleWide() },
+      { label: document.fullscreenElement ? 'Exit full screen' : 'Full screen', note: document.fullscreenElement ? '' : '⌘T and ⌘W work here too', disabled: !pane.requestFullscreen, run: () => fullScreen() },
+    ] : []),
     { label: 'Clear browsing data…', run: () => clearData() },
     '-',
     { label: 'Block ads and trackers', switch: s.adblock !== false, run: () => cloud.send({ t: 'adblock', on: s.adblock === false }) },
-    { label: `Search with ${ENGINES[s.engine] || 'DuckDuckGo'}`, sub: () => Object.entries(ENGINES).map(([id, name]) => ({ label: name, checked: (s.engine || 'duckduckgo') === id, run: () => cloud.send({ t: 'engine', id }) })) },
+    { label: `Search with ${ENGINES[s.engine] || 'DuckDuckGo'}`, sub: () => Object.entries(ENGINES).map(([id, name]) => ({ label: name, note: id === 'google' ? 'Asks the cloud browser to prove it’s a person' : '', checked: (s.engine || 'duckduckgo') === id, run: () => cloud.send({ t: 'engine', id }) })) },
     '-',
+    ...(bridge && bridge.local ? [{ label: `Use this ${MAC ? 'Mac' : 'computer'}’s browser`, note: 'Your own connection: Google works without a check', run: () => useCloud(false) }] : []),
     { label: 'Close the cloud browser', disabled: !s.running, run: () => cloud.send({ t: 'end' }) },
     { label: 'A browser in the cloud, for you only', note: Number.isFinite(s.minutesLeft) ? `${s.minutesLeft} browser minutes left this month` : '', disabled: true },
   ]);
@@ -310,6 +408,16 @@ function siteMenu(anchor) {
   ]);
 }
 function aiMenu(anchor) {
+  if (mode === 'app') {
+    const s = appState || {};
+    const page = Boolean(s.url) && !s.error;
+    openMenu(anchor, [
+      { label: 'Ask about this page', note: 'The page’s text goes with your next message', disabled: !page, run: () => localPageToChat('ask') },
+      { label: 'Summarize this page', disabled: !page, run: () => localPageToChat('summarize') },
+      { label: 'Use the selected text', disabled: !page || !bridge.selection, run: () => localSelectionToChat() },
+    ]);
+    return;
+  }
   const s = cloud.state || {};
   openMenu(anchor, [
     { label: 'Ask about this page', note: 'The page’s text goes with your next message', disabled: !s.url, run: () => cloud.send({ t: 'pagetext', for: 'ask' }) },
@@ -333,15 +441,117 @@ function openOutside(url) {
 
 /* ---------- in the Eden Secretary app: Eden Secretary's own browser in the slot ---------- */
 
+// In Ask Eden for Mac and Windows (bridge.local: JARVIS V1/app/eden/local-browser.js) it's the app's own
+// browser, on the person's own connection: Google and the sites that turn the cloud browser away just work.
+// The panel draws the new tab page and a page that failed (the app's view steps off for those); find,
+// zoom and Ask Eden go through the bridge. When Eden browses by itself (chat.js's eden:browser-open), the
+// panel switches to the cloud browser it drives (useCloud), and More › Use this computer’s browser comes back.
+let appState = null;
+/** A site on the new tab page: its logo (its letter when it has none) and its name. */
+function ntpTile(b) {
+  const title = String(b.title || '').trim();
+  const name = title && title.length <= 22 ? title : siteOf(b.url); // a long page title: the site's name
+  return el('button', { type: 'button', class: 'bd-ntp-mark', title: title || b.url, onclick: () => act('go', b.url) },
+    el('span', 'bd-ntp-i', iconSrc(b.icon) ? el('img', { src: iconSrc(b.icon), alt: '', width: '22', height: '22', draggable: 'false' }) : ((name || '•').trim()[0] || '•').toUpperCase()),
+    el('span', { 'data-no-i18n': '' }, name));
+}
+/** The page on show in the app's browser, to the chat (as the cloud browser's pagetext does). */
+async function localPageToChat(kind) {
+  if (!bridge || !bridge.pageText) return;
+  const m = await Promise.resolve(bridge.pageText()).catch(() => ({ error: 'Couldn’t read this page.' }));
+  if (!m || m.error) { toast((m && m.error) || 'Couldn’t read this page.'); return; }
+  const block = { title: `Page: ${m.title || siteOf(m.url)}`.slice(0, 80), text: `${m.title || ''}\n${m.url}\n\n${m.text || ''}`.trim() };
+  if (kind === 'summarize' && H.sendMessage) { H.sendMessage(`Summarize this page: ${m.title || m.url}`, [], { context: [block] }); return; }
+  if (H.addContext) H.addContext(block);
+  if (H.focusComposer) H.focusComposer();
+}
+async function localSelectionToChat() {
+  const s = appState || {};
+  const text = bridge && bridge.selection ? String(await Promise.resolve(bridge.selection()).catch(() => '') || '') : '';
+  if (!text.trim()) { toast('Select some text on the page first'); return; }
+  if (H.addContext) H.addContext({ title: `From ${siteOf(s.url) || 'the page'}`.slice(0, 70), text });
+  if (H.focusComposer) H.focusComposer();
+}
+let appCommand = () => {};
+let commandsWired = false;
 function startApp() {
-  const slot = el('div', { class: 'br-slot', 'aria-label': 'Page' }, el('span', 'br-slot-note', 'The page shows here when nothing of Eden’s is over it.'));
-  P.slot.append(slot);
+  const isLocal = Boolean(bridge.local);
+  const slot = el('div', { class: 'br-slot', 'aria-label': 'Page' }, isLocal ? null : el('span', 'br-slot-note', 'The page shows here when nothing of Eden’s is over it.'));
+  const cover = el('div', { class: 'bd-cover', 'aria-live': 'polite' });
+  // The page as it was, while something of Eden's is over the slot (the app's view is off it then).
+  const snap = el('img', { class: 'bd-snap', alt: '', hidden: true, draggable: 'false' });
+  P.slot.append(slot, snap, cover);
+  appState = null;
   setNav({ addr: true, reload: true });
   act = (action, arg) => {
     if (['go', 'back', 'forward', 'reload', 'stop'].includes(action)) bridge.nav(action, typeof arg === 'string' ? arg : '');
     else if (action === 'shield' && bridge.shields) bridge.shields();
     else if (action === 'tab') bridge.tab(arg.op, arg.id);
+    else if (action === 'find' && bridge.find) {
+      Promise.resolve(bridge.find(arg.q, arg.dir, Boolean(arg.fresh))).then((r) => {
+        P.findCount.textContent = arg.q ? (r && r.n ? `${r.i} of ${r.n}` : 'No matches') : '';
+      }).catch(() => {});
+    } else if (action === 'zoom' && bridge.zoom) bridge.zoom(arg);
   };
+  // The new tab page and a page that failed: drawn here (the app's view is off the slot for them).
+  let shownKey = '';
+  const drawCover = (s) => {
+    if (!isLocal) return;
+    const recent = !s.url && Array.isArray(s.recent) ? s.recent.slice(0, 8) : [];
+    const key = s.error ? `e:${s.error.url}:${s.error.message}` : !s.url ? `ntp:${recent.map((r) => `${r.url}|${r.icon ? 1 : 0}`).join(',')}` : '';
+    if (key === shownKey) return;
+    shownKey = key;
+    if (!key) { cover.replaceChildren(); return; }
+    if (s.error) {
+      cover.replaceChildren(el('div', 'br-card bd-fail', el('span', 'bd-fail-ico', ico('globe', 22)), el('b', '', 'Can’t open this page'), el('p', '', String(s.error.message || '')),
+        el('span', { class: 'bd-fail-u', 'data-no-i18n': '' }, shownUrl(s.error.url) || ''),
+        el('div', 'br-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => act('reload') }, 'Try again'))));
+      return;
+    }
+    // The cloud browser's new tab page (the same look): what was typed survives a redraw (a logo arriving).
+    const was = cover.querySelector('.bd-ntp-q');
+    const typedSoFar = was ? was.value : '';
+    const hadFocus = !was || document.activeElement === was;
+    const q = el('input', { type: 'search', class: 'bd-ntp-q', placeholder: 'Search Google or type an address', 'aria-label': 'Search or enter address', enterkeyhint: 'go', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+    q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(q.value); } });
+    cover.replaceChildren(el('div', 'bd-ntp',
+      el('div', 'bd-ntp-orb', ico('globe', 26)),
+      q,
+      recent.length ? el('div', 'bd-ntp-sec', el('h3', '', 'Recent'), el('div', 'bd-ntp-marks', ...recent.map(ntpTile))) : null,
+      el('p', 'bd-ntp-note', `Browsing from this ${MAC ? 'Mac' : 'computer'}, on your own connection.`)));
+    if (typedSoFar) q.value = typedSoFar;
+    if (hadFocus) requestAnimationFrame(() => { if (document.activeElement !== P.addr) q.focus({ preventScroll: true }); });
+  };
+  const keysHere = (e) => {
+    const sc = shortcut(e, MAC);
+    if (!sc) return;
+    if (e.target === P.addr && ['back', 'forward'].includes(sc)) return;
+    const s = appState || {};
+    const list = s.tabs || [];
+    const at = list.findIndex((t) => t.active);
+    const pick = (i) => { const t = list[(i + list.length) % list.length]; if (t) bridge.tab('select', t.id); };
+    const run = {
+      address: () => { P.addr.focus(); P.addr.select(); }, newtab: () => bridge.tab('new'), closetab: () => { const t = list[at]; if (t) bridge.tab('close', t.id); },
+      reload: () => act('reload'), back: () => act('back'), forward: () => act('forward'), find: () => openFind(),
+      zoomin: () => act('zoom', 1), zoomout: () => act('zoom', -1), zoomreset: () => act('zoom', 0), wide: () => toggleWide(),
+      nexttab: () => pick(at + 1), prevtab: () => pick(at - 1),
+    }[sc] || (/^tab\d$/.test(sc) ? () => pick(sc === 'tab9' ? list.length - 1 : Number(sc.slice(3)) - 1) : null);
+    if (!run) return;
+    e.preventDefault(); e.stopPropagation(); run();
+  };
+  if (isLocal) pane.addEventListener('keydown', keysHere);
+  // ⌘ keys while the page has the keyboard come from the app: the browser's own, or the panel's as if typed here.
+  const command = (c) => {
+    if (!alive || !c || typeof c !== 'object') return;
+    if (c.t === 'address') { P.addr.focus(); P.addr.select(); }
+    else if (c.t === 'find') openFind();
+    else if (c.t === 'ask-page') localPageToChat('ask');
+    else if (c.t === 'ask' && c.text && H.addContext) { H.addContext({ title: `From ${siteOf(c.url) || 'the page'}`.slice(0, 70), text: String(c.text) }); if (H.focusComposer) H.focusComposer(); }
+    else if (c.t === 'snapshot' && /^data:image\/jpeg;base64,/.test(String(c.url || ''))) { snap.src = c.url; snap.hidden = false; }
+    else if (c.t === 'key') document.dispatchEvent(new KeyboardEvent('keydown', { key: String(c.key || ''), code: String(c.code || ''), shiftKey: !!c.shift, metaKey: MAC, ctrlKey: !MAC, bubbles: true, cancelable: true }));
+  };
+  if (bridge.onCommand && !commandsWired) { bridge.onCommand((c) => appCommand(c)); commandsWired = true; }
+  appCommand = command;
   let shown = false, raf = 0, alive = true;
   const rect = () => { const r = slot.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; };
   // Eden's own layers (the palette, a sheet, a menu, a waiting task's card) are drawn by this
@@ -352,7 +562,7 @@ function startApp() {
     for (const fx of [0.04, 0.5, 0.96]) {
       for (const fy of [0.04, 0.5, 0.96]) {
         const hit = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy);
-        if (hit && hit !== slot && !slot.contains(hit)) return true;
+        if (hit && hit !== slot && !slot.contains(hit) && !cover.contains(hit)) return true;
       }
     }
     return false;
@@ -362,7 +572,7 @@ function startApp() {
     if (!alive) return;
     const r = rect();
     const want = r.width > 40 && r.height > 40 && !covered() && document.visibilityState === 'visible';
-    if (want && !shown) { shown = true; bridge.show(r); } else if (want) bridge.bounds(r);
+    if (want && !shown) { shown = true; Promise.resolve(bridge.show(r)).then(() => { if (shown) snap.hidden = true; }); } else if (want) bridge.bounds(r);
     else if (!want && shown) { shown = false; bridge.hide(); }
   };
   const soon = () => { if (!raf) raf = requestAnimationFrame(place); };
@@ -372,10 +582,12 @@ function startApp() {
   mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden'] });
   addEventListener('resize', soon);
   document.addEventListener('visibilitychange', soon);
-  bridge.onState((s) => { if (alive) drawApp(s); });
+  bridge.onState((s) => { if (alive) { drawApp(s); if (s && typeof s === 'object') drawCover(s); } });
   Promise.resolve(bridge.open(true)).then(() => { soon(); bridge.state(); });
   return () => {
     alive = false;
+    appCommand = () => {};
+    pane.removeEventListener('keydown', keysHere);
     ro.disconnect(); mo.disconnect();
     removeEventListener('resize', soon);
     document.removeEventListener('visibilitychange', soon);
@@ -387,6 +599,12 @@ function startApp() {
 
 function drawApp(s) {
   if (!s || typeof s !== 'object') return;
+  appState = s;
+  if (s.local) {
+    const z = Number(s.zoom) || 1;
+    P.zoom.hidden = z === 1;
+    P.zoom.textContent = zoomLabel(z);
+  }
   setUrl(String(s.url || ''));
   setNav({ back: !!s.canBack, fwd: !!s.canForward, reload: true, addr: true });
   setLoading(!!s.loading);
@@ -419,20 +637,24 @@ function startCloud() {
         ? el('button', { type: 'button', class: 'cap', onclick: () => { send({ t: 'agent', op: 'resume' }); dispatchEvent(new CustomEvent('eden:browser-resume')); } }, 'Resume')
         : el('button', { type: 'button', class: 'cap', onclick: () => send({ t: 'agent', op: 'pause' }) }, 'Take over'));
   };
-  P.slot.append(canvas, sink, cover, banner, kbd, agentBar);
+  P.slot.append(canvas, sink, cover, banner, agentBar);
+  P.tools.insertBefore(kbd, P.askF); // the keyboard button: in the row under the page, never over it
   setNav({ addr: true });
   const box = () => viewSize(P.slot.getBoundingClientRect(), densityOf(window), isTouch());
   let shownDpr = densityOf(window);
+  let shownW = 0; // the width (CSS pixels) the server makes frames for: every frame fills it (frameBox)
 
   const send = (m) => { if (cloud.ws && cloud.ws.readyState === 1) { cloud.ws.send(JSON.stringify(m)); return true; } return false; };
   cloud.send = send;
 
   const card = (title, text, ...buttons) => cover.replaceChildren(el('div', 'br-card', ico('globe', 22), el('b', '', title), text ? el('p', '', text) : null, buttons.length ? el('div', 'br-acts', ...buttons) : null));
   const btn = (label, run, primary = false) => el('button', { type: 'button', class: `btn${primary ? ' primary' : ''}`, onclick: run }, label);
-  const tile = (b) => el('button', { type: 'button', class: 'bd-ntp-mark', title: b.url, onclick: () => act('go', b.url) },
-    el('span', 'bd-ntp-i', iconSrc(b.icon) ? el('img', { src: iconSrc(b.icon), alt: '', width: '22', height: '22', draggable: 'false' }) : ((b.title || siteOf(b.url)).trim()[0] || '•').toUpperCase()),
-    el('span', { 'data-no-i18n': '' }, b.title || siteOf(b.url)));
+  const tile = ntpTile;
   const newTabPage = (s) => {
+    // What was typed in it survives a redraw (a new bookmark or the month's minutes changing mid-typing).
+    const was = cover.querySelector('.bd-ntp-q');
+    const typedSoFar = was ? was.value : '';
+    const hadFocus = was && document.activeElement === was;
     const marks = (s.bookmarks || []).slice(0, 8);
     const recent = (s.recent || []).filter((r) => !marks.some((b) => siteOf(b.url) === r.site)).slice(0, 8);
     const ntpQ = el('input', { type: 'search', class: 'bd-ntp-q', placeholder: `Search ${ENGINES[s.engine] || 'DuckDuckGo'} or type an address`, 'aria-label': 'Search or enter address', enterkeyhint: 'go', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
@@ -444,7 +666,8 @@ function startCloud() {
       marks.length ? el('div', 'bd-ntp-sec', el('h3', '', 'Bookmarks'), el('div', 'bd-ntp-marks', ...marks.map(tile))) : null,
       recent.length ? el('div', 'bd-ntp-sec', el('h3', '', 'Recent'), el('div', 'bd-ntp-marks', ...recent.map(tile))) : null,
       el('p', 'bd-ntp-note', `A private browser in the cloud, ads and trackers blocked.${Number.isFinite(s.minutesLeft) ? ` ${s.minutesLeft} browser minutes left this month.` : ''}`)));
-    if (!isTouch()) requestAnimationFrame(() => { if (document.activeElement !== P.addr) ntpQ.focus({ preventScroll: true }); });
+    if (typedSoFar) ntpQ.value = typedSoFar;
+    if (hadFocus || !isTouch()) requestAnimationFrame(() => { if (document.activeElement !== P.addr) { ntpQ.focus({ preventScroll: true }); if (typedSoFar) ntpQ.setSelectionRange(typedSoFar.length, typedSoFar.length); } });
   };
   const failPage = (f) => cover.replaceChildren(el('div', 'br-card bd-fail',
     el('div', 'bd-fail-ico', ico('globe', 24)), el('b', '', f.title || 'Couldn’t open that page'), el('p', '', f.text || ''),
@@ -460,6 +683,11 @@ function startCloud() {
     setUrl(s.url || '');
     setNav({ back: s.canBack, fwd: s.canForward, reload: Boolean(s.url) });
     setLoading(s.loading);
+    const nTabs = Math.max(1, (s.tabs || []).length);
+    P.tabsBtn.firstChild.textContent = String(nTabs);
+    P.tabsBtn.setAttribute('aria-label', nTabs === 1 ? 'Tabs: 1 open' : `Tabs: ${nTabs} open`);
+    P.backF.hidden = !s.canBack;
+    P.askF.hidden = !s.url || Boolean(s.failed);
     setShield({ ready: Boolean(s.url), on: s.adblock && s.siteAdblock, blocked: s.blocked });
     P.star.hidden = !s.url;
     P.star.textContent = s.bookmarked ? '★' : '☆';
@@ -472,15 +700,24 @@ function startCloud() {
     drawTabs(tabList, (id) => { if (id) send({ t: 'tab', op: 'select', id }); }, (id) => { if (id) send({ t: 'tab', op: 'close', id }); }, () => act('tab', { op: 'new' }));
     if (!s.running) warm = false;
     canvas.hidden = !tab || !tab.url || Boolean(s.failed);
+    if (canvas.hidden) { pane.classList.remove('reflecting', 'bd-onlight', 'bd-onlight-b'); P.slot.style.backgroundColor = ''; } // no page under the bar: Eden's own glass
+    pane.classList.toggle('ntp', !tab || !tab.url); // a new tab: its own field, not the bar's (browser.css)
     if (s.minutesLeft === 0 && !s.running) { ntpKey = ''; card('No browser minutes left this month', s.plus ? 'They come back on the 1st.' : 'They come back on the 1st, or get more with Eden Plus.'); }
     else if (s.failed) { ntpKey = ''; failPage(s.failed); }
     else if (!tab || !tab.url) {
       // Drawn again only when what it shows changed (typing in its box survives state updates).
-      const key = JSON.stringify([s.running, s.engine, s.minutesLeft, (s.bookmarks || []).map((b) => [b.url, !!b.icon]), (s.recent || []).map((r) => [r.url, !!r.icon])]);
+      const key = JSON.stringify([s.engine, s.minutesLeft, (s.bookmarks || []).map((b) => [b.url, !!b.icon]), (s.recent || []).map((r) => [r.url, !!r.icon])]);
       if (key !== ntpKey || !cover.querySelector('.bd-ntp')) { ntpKey = key; newTabPage(s); }
     } else { ntpKey = ''; if (!cover.querySelector('.bd-dialog')) cover.replaceChildren(); }
-    banner.hidden = !s.wall || canvas.hidden;
-    if (!banner.hidden) banner.replaceChildren(ico('shield', 14), el('span', '', `${siteOf(s.url)} may turn away cloud browsers.`), el('button', { type: 'button', class: 'cap', onclick: () => openOutside(s.url) }, 'Open in my browser'));
+    // Google's robot check (the server's googleSorry): Google flags the cloud browser's Cloudflare
+    // address, so the person passes the check on the page, or opens Google in their own browser.
+    const google = null; // owner 2026-11-13: no note over Google's check (it covered Verify)
+    banner.hidden = (!s.wall && !google) || canvas.hidden;
+    banner.classList.toggle('bottom', Boolean(google)); // never over the check itself
+    if (!banner.hidden && google) {
+      banner.replaceChildren(ico('shield', 14), el('span', '', 'Google wants to check you’re a person. Tick “I’m not a robot” on the page to search.'),
+        el('button', { type: 'button', class: 'cap', onclick: () => openOutside(google.google || 'https://www.google.com/') }, 'Google in my browser'));
+    } else if (!banner.hidden) banner.replaceChildren(ico('shield', 14), el('span', '', `${siteOf(s.url)} may turn away cloud browsers.`), el('button', { type: 'button', class: 'cap', onclick: () => openOutside(s.url) }, 'Open in my browser'));
     kbd.hidden = !isTouch() || canvas.hidden;
   };
 
@@ -488,14 +725,42 @@ function startCloud() {
   // acked once drawn, so the server sends no more than the viewer can show). A frame is drawn at
   // its own pixels (2x on Retina), sized to the CSS pixels it was made for: never stretched.
   let next = null, paintRaf = 0, decoding = Promise.resolve();
+  let pageY = 0; // the page's scroll (server 'scroll' messages)
+  const TOP_INSET = 62; // the islands' height on a phone (browser.css)
+  // The bar's glass on a phone: the page's top rows, tiny and blurred by CSS, behind the bar; its
+  // brightness picks light or dark controls (bd-onlight), checked at most twice a second.
+  const rctx = P.reflect.getContext('2d', { willReadFrequently: true });
+  const bctx = P.reflectB.getContext('2d', { willReadFrequently: true });
+  const bright = (c, cv) => { const d = c.getImageData(0, 0, cv.width, cv.height).data; let sum = 0; for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; return sum / (d.length / 4) > 150; };
+  // The space above a page at its top (behind the islands) wears the page's own top colour, so it reads as the site.
+  const topColour = () => { const d = rctx.getImageData(0, 0, P.reflect.width, 1).data; let r = 0, g = 0, b = 0; const n = d.length / 4; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; } P.slot.style.backgroundColor = `rgb(${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`; };
+  let toneAt = 0;
+  const mirror = (bmp) => {
+    if (!isMobile()) return;
+    const rows = Math.max(1, Math.round(bmp.height * 0.06));
+    rctx.drawImage(bmp, 0, 0, bmp.width, rows, 0, 0, P.reflect.width, P.reflect.height);
+    bctx.drawImage(bmp, 0, bmp.height - rows, bmp.width, rows, 0, 0, P.reflectB.width, P.reflectB.height);
+    pane.classList.add('reflecting');
+    const now = performance.now();
+    if (now - toneAt < 500) return;
+    toneAt = now;
+    pane.classList.toggle('bd-onlight', bright(rctx, P.reflect)); // the top islands: what's under them
+    topColour();
+    pane.classList.toggle('bd-onlight-b', bright(bctx, P.reflectB)); // the bottom ones: the page's bottom
+  };
   const paint = () => {
     paintRaf = 0;
     const bmp = next; next = null;
     if (!bmp) return;
     if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
-    const fb = frameBox(bmp.width, bmp.height, shownDpr);
+    const fb = frameBox(bmp.width, bmp.height, shownDpr, shownW);
     canvas.style.width = `${fb.width}px`; canvas.style.height = `${fb.height}px`;
     ctx2d.drawImage(bmp, 0, 0);
+    // A phone: a page at its top starts below the floating islands and slides under them as it
+    // scrolls (as Safari's does); clicks follow, since they're read from the canvas's own place.
+    const inset = isMobile() ? Math.max(0, TOP_INSET - pageY) : 0;
+    canvas.style.top = inset ? `${inset}px` : '';
+    mirror(bmp);
     bmp.close();
   };
   const frame = (buf) => {
@@ -517,6 +782,7 @@ function startCloud() {
     switch (m.t) {
       case 'state': draw(m); break;
       case 'cursor': if (!touch) canvas.style.cursor = cursorCss(m.c); break;
+      case 'scroll': pageY = Math.max(0, Number(m.y) || 0); break;
       case 'hit': if (hitWait && hitWait.id === m.id) { hitWait.done(m); hitWait = null; } break;
       case 'suggest': if (document.activeElement === P.addr && m.q === P.addr.value) showSuggest(m.rows); break;
       case 'find': P.findCount.textContent = m.q ? (m.n ? `${m.i} of ${m.n}${m.n >= 1000 ? '+' : ''}` : 'No matches') : ''; break;
@@ -815,7 +1081,7 @@ function startCloud() {
 
   // ── size: the cloud browser's viewport is the panel's, at the screen's density ──
   let sizeT = 0;
-  const resized = () => { clearTimeout(sizeT); sizeT = setTimeout(() => { shownDpr = densityOf(window); send({ t: 'resize', ...box() }); }, 90); };
+  const resized = () => { clearTimeout(sizeT); sizeT = setTimeout(() => { shownDpr = densityOf(window); const b = box(); shownW = b.w; send({ t: 'resize', ...b }); }, 90); };
   const ro = new ResizeObserver(resized);
   ro.observe(P.slot);
   let dprMq = matchMedia(`(resolution: ${densityOf(window)}dppx)`);
@@ -840,7 +1106,7 @@ function startCloud() {
     ws.binaryType = 'arraybuffer';
     cloud.ws = ws;
     let opened = false;
-    ws.onopen = () => { opened = true; attempt = 0; shownDpr = densityOf(window); send({ t: 'hello', ...box() }); };
+    ws.onopen = () => { opened = true; attempt = 0; shownDpr = densityOf(window); const b = box(); shownW = b.w; send({ t: 'hello', ...b }); };
     ws.onmessage = (ev) => { if (cloud.ws === ws) onMsg(ev); };
     ws.onclose = () => {
       if (cloud.ws !== ws) return;
@@ -883,7 +1149,7 @@ class MockSocket {
   close() { this.readyState = 3; }
   emit(m) { if (this.readyState === 1 && this.onmessage) this.onmessage({ data: typeof m === 'string' || m instanceof ArrayBuffer ? m : JSON.stringify(m) }); }
   tab() { return this.s.tabs.find((t) => t.id === this.s.active); }
-  state() { const t = this.tab(); Object.assign(this.s, { url: t ? t.url : '', title: t ? t.title : '', canBack: Boolean(t && t.i > 0) }); this.emit({ t: 'state', ...this.s }); }
+  state() { const t = this.tab(); Object.assign(this.s, { url: t ? t.url : '', title: t ? t.title : '', canBack: Boolean(t && t.i > 0), notice: t && /\/\/(www\.)?google\.[a-z.]+\/search/.test(t.url) ? { kind: 'google-check', google: t.url } : null }); this.emit({ t: 'state', ...this.s }); } // as the real one: Google checks the cloud browser
   async paint() {
     const t = this.tab();
     if (!t || !t.url) return;

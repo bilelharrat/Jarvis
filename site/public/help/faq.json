@@ -1361,7 +1361,6 @@
     "label": "Open Tasks",
     "command": "Tasks"
    },
-   "tour": "auto",
    "img": [
     "tasks"
    ]
@@ -1377,8 +1376,7 @@
     "approval",
     "notification",
     "push"
-   ],
-   "tour": "auto"
+   ]
   },
   {
    "id": "workflows",
@@ -1397,8 +1395,7 @@
    "open": {
     "label": "Open Workflows",
     "command": "Workflows"
-   },
-   "tour": "auto"
+   }
   },
   {
    "id": "spaces",
@@ -2144,8 +2141,7 @@
    "open": {
     "label": "Open Tasks",
     "command": "Tasks"
-   },
-   "tour": "auto"
+   }
   },
   {
    "id": "err-delegate-ended",

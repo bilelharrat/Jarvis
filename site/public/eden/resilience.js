@@ -33,6 +33,21 @@ export function deadline(ms, parent, { extend } = {}) {
 }
 
 /**
+ * A request the browser refused at once, with no answer at all (Safari "Load failed", Chrome "Failed to fetch"),
+ * on a network that's up: the browser sent it on a kept-alive connection that had gone stale while the page sat
+ * idle, so it never reached the server, and browsers don't send a POST again by themselves. That's the instant
+ * "Can't reach the server" on a good Wi-Fi (owner's user, 2026-11-05). Worth one more try, at once: a TypeError
+ * (not Stop, not a deadline), within RETRY_STALE_MS of sending, while the browser thinks it's online.
+ */
+export const RETRY_STALE_MS = 4_000;
+export function staleConnection(e, startedAt, { signal, now = Date.now(), online = true } = {}) {
+  if (!e || e.name !== 'TypeError') return false;
+  if (signal && signal.aborted) return false;
+  if (online === false) return false;
+  return now - startedAt < RETRY_STALE_MS;
+}
+
+/**
  * `p`, or `fallback` when `signal` aborts or `ms` passes first (a pre-send check that mustn't hold
  * up the send, and that Stop ends at once). `p` keeps running; its result is then ignored.
  */
@@ -214,3 +229,16 @@ export function unpackDraftFiles(slot, chat) {
 
 /** Bidi override and isolate controls (U+202A–202E, U+2066–2069): a shared prompt or file name that reads differently from what it is. */
 export const stripBidi = (s) => String(s == null ? '' : s).replace(/[‪-‮⁦-⁩]/g, '');
+
+/* ---------- a reply cut off by the page going away ---------- */
+
+/**
+ * Whether a reply's stream broke because the page went away (the iPhone app pauses its page when it's closed, the phone
+ * locks or another app opens, and askeden.com stops a turn whose connection is gone) or the device went offline, since the
+ * reply was sent at `since`. chat.js then starts the reply again once the page is back (owner, 2026-11-06).
+ * page: { awayAt: when the page last went to the background, hidden, online }.
+ */
+export function droppedWhileAway(e, since, page) {
+  const drop = Boolean(e && e.name === 'TypeError' && /network|fetch|load failed|connection/i.test(e.message || ''));
+  return drop && Boolean(page) && (page.awayAt >= since || page.hidden === true || page.online === false);
+}

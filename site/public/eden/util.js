@@ -88,7 +88,7 @@ export const EFFORT_SHORT = { none: 'None', minimal: 'Minimal', low: 'Low', medi
 export function effortLabel(e) { return EFFORT_LABEL[e] || (e ? `${e} effort` : ''); }
 
 export function shortModel(name) {
-  return String(name || '').replace(/^Claude /, '').replace(/ \(preview\)$/, '');
+  return String(name || '').replace(/^Claude /, '').replace(/^[A-Za-z0-9_-]+\//, '').replace(/ \(preview\)$/, '');
 }
 
 /**
@@ -164,11 +164,31 @@ export function lazy(load, assets = []) {
 }
 
 let toastT;
+// A toast sits 12 px above the chat's composer when one is on screen (on a wide window its usual 28 px from the
+// bottom overlapped the composer's lower edge); elsewhere it keeps its place from the stylesheet.
+function clearOfComposer(t) {
+  if (!t.style) return;
+  t.style.bottom = '';
+  const comp = document.getElementById?.('deck-composer');
+  if (!comp || !comp.getClientRects || !comp.getClientRects().length || typeof innerHeight !== 'number') return;
+  const r = comp.getBoundingClientRect();
+  if (!r.height || r.top >= innerHeight || r.bottom <= 0) return;
+  const need = Math.ceil(innerHeight - r.top + 12);
+  if (need > (parseFloat(getComputedStyle(t).bottom) || 0)) t.style.bottom = `${need}px`;
+  // the composer can grow or move while the toast shows (a long prefilled prompt, the route bar appearing): follow it
+  if (!composerWatch && typeof ResizeObserver === 'function') {
+    composerWatch = new ResizeObserver(() => { const tt = $('toast'); if (tt && tt.classList.contains('show')) clearOfComposer(tt); });
+    composerWatch.observe(comp);
+    composerWatch.observe(document.documentElement);
+  }
+}
+let composerWatch = null;
 export function toast(msg, action) {
   const t = $('toast');
   t.replaceChildren(document.createTextNode(msg));
   if (action) t.append(el('button', { type: 'button', onclick: () => { t.classList.remove('show'); action.run(); } }, action.label));
   t.classList.add('show');
+  clearOfComposer(t);
   clearTimeout(toastT);
   toastT = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2600);
 }
@@ -258,7 +278,8 @@ export const isMobile = () => matchMedia('(max-width:640px)').matches;
  *  Not while Eden's iPad app has a hardware keyboard attached (the app marks the page .eden-kbd). */
 // Eden Mail on its own (askeden.com/mail, from askedenmail.com): only Mail, full window, no chat around it (panels.js, mail.css).
 // ?mock=1&mailonly=1 shows the same on the sample data.
-export const MAIL_ONLY = typeof location !== 'undefined' && (location.pathname === '/mail' || (/[?&]mock=1\b/.test(location.search) && /[?&]mailonly=1\b/.test(location.search)));
+// Mail alone: askeden.com/mail, or Eden Mail's own address (askedenmail.com, with MAIL_APP on: the server's worker.js)
+export const MAIL_ONLY = typeof location !== 'undefined' && (location.pathname === '/mail' || /(^|\.)askedenmail\.com$/.test(location.hostname) || (/[?&]mock=1\b/.test(location.search) && /[?&]mailonly=1\b/.test(location.search)));
 if (MAIL_ONLY && typeof document !== 'undefined') document.documentElement.classList.add('mail-only');
 export const isTouch = () => !(typeof document !== 'undefined' && document.documentElement.classList.contains('eden-kbd'))
   && matchMedia('(hover:none), (pointer:coarse)').matches;

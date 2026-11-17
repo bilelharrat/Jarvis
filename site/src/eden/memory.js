@@ -27,6 +27,8 @@ import { call, limited } from '../accounts/index.js';
 import { ApiError } from '../accounts/util.js';
 import { openWith, sealWith, tokenSecret } from '../accounts/tokens.js';
 import { providerUrl } from '../accounts/user-keys.js';
+import { envKeyTiers } from '../accounts/service-ai.js';
+import { withPool } from './key-pool.js';
 
 export const MAX_ITEMS = 200;
 export const MAX_CHARS = 300;
@@ -702,14 +704,15 @@ export async function memoryForTurn(env, who, { prompt, temporary = false, sourc
  * → the 'memory' event to show, or null. Never throws. `charge(usd)` counts its cost.
  */
 export async function extractMemory(env, who, { prompt, state, source = null, base = null, charge = () => {}, fetch: f = (u, i) => fetch(u, i) }) {
-  const key = String(env.GEMINI_API_KEY || '').trim();
-  if (!key || /^(off|0|false|no)$/i.test(String(env.EDEN_GEMINI ?? '').trim()) || !worthExtracting(prompt)) return null;
+  const keys = envKeyTiers(env, 'GEMINI_API_KEY'); // the service's plain Gemini keys (service-ai.js), never vertex://
+  if (!keys.length || /^(off|0|false|no)$/i.test(String(env.EDEN_GEMINI ?? '').trim()) || !worthExtracting(prompt)) return null;
   try {
     const safePool = (state.items || []).filter((x) => !sensitive(x.text));
     const shown = selectMemories(safePool, prompt, SHOWN_TO_EXTRACTOR);
     const url = providerUrl(base, `https://generativelanguage.googleapis.com/v1beta/models/${EXTRACT_MODEL}:generateContent`);
-    const response = await f(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(extractionRequest(prompt, shown)), signal: AbortSignal.timeout(EXTRACT_MS) });
-    if (!response.ok) return null;
+    const signal = AbortSignal.timeout(EXTRACT_MS); // one time limit for every key tried
+    const response = await withPool('gemini', keys, (key) => f(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(extractionRequest(prompt, shown)), signal }), { signal, env });
+    if (!response || !response.ok) return null;
     const data = await response.json();
     const u = data.usageMetadata || {};
     await charge({ inputTokens: u.promptTokenCount || 0, outputTokens: u.candidatesTokenCount || 0, reasoningTokens: u.thoughtsTokenCount || 0 });

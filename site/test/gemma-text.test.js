@@ -220,11 +220,15 @@ async function today(session) {
 const owner = () => {
   env.GEMMA_TEXT_MODE = 'owner';
 };
-/** A cold judge is pinged, never waited on: one turn warms it. */
+/** A cold judge is pinged, never waited on: one turn warms it (a shadow turn only with GEMMA_SHADOW_WAKE=on, gemma-spend.js). */
 const warm = async (session) => {
   const keep = gemma;
+  const wake = env.GEMMA_SHADOW_WAKE;
   gemma = { verdict: 'escalate' };
+  env.GEMMA_SHADOW_WAKE = 'on';
   await turn(session);
+  if (wake === undefined) delete env.GEMMA_SHADOW_WAKE;
+  else env.GEMMA_SHADOW_WAKE = wake;
   gemma = keep;
   judgeCalls.length = 0;
   logs.length = 0;
@@ -310,8 +314,8 @@ test('shadow: the page is fetched and judged beside EVES; the answer is byte-ide
   const cold = await turn(session);
   assert.equal(stable(cold), base);
   assert.equal(logs[0].error, 'cold', 'cold judge: logged, nothing waited on it');
-  logs.length = 0;
-  evidenceCalls = 0;
+  assert.ok(!judgeCalls.some((c) => c.path === '/health'), 'a shadow turn never wakes a cold judge (no ping)');
+  await warm(session); // GEMMA_SHADOW_WAKE=on: the old ping
   const raw = await turn(session);
   assert.equal(stable(raw), base, 'Gemma says supported, EVES unverifiable: the shadow answer is still EVES’s');
   assert.equal(evidenceCalls, 1, 'EVES’s web check ran as today');

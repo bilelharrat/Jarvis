@@ -2,6 +2,8 @@
 //
 //   GEMMA_JUDGE_MODE  off (default) | shadow | owner          [vars]
 //   GEMMA_JUDGE_URL   the Modal web endpoint, no trailing /judge   (secret)
+//                     several copies: comma-separated (same model and config at each). Calls are spread over the warm
+//                     ones by the key pool (key-pool.js) and move to the next on 429/5xx/network; one URL = as before.
 //   GEMMA_JUDGE_KEY / GEMMA_JUDGE_SECRET  a Modal proxy-auth token, sent as Modal-Key / Modal-Secret   (secrets)
 //
 // shadow: every website turn's checked claims are also sent to the judge in the background (ctx.waitUntil); its verdict is
@@ -12,8 +14,13 @@
 // The iPhone and Edu apps (UA EdenApp/ or EdenEdu/, as pages.js isIosAppRequest) never reach the judge, not even a ping.
 // Evidence is the text EVES's own web check already produced for the claim (no page is fetched for the judge).
 // A cold judge is never waited on: the turn goes on as today and at most one warm-up ping a minute is sent in the background.
+// Only an owner turn sends that ping: a shadow turn runs only on a judge that is already warm, never waking it
+// (gemma-spend.js; GEMMA_SHADOW_WAKE=on: shadow turns ping as before 2026-11-10).
 
-export const APP_UA = /^(?!.*\bEdenBeta\/).*\b(?:EdenApp|EdenEdu)\//; // not a TestFlight beta (EdenBeta/): that gets the website's features
+import { withPool } from './key-pool.js';
+import { COLD_PING_MS, mayWake, meterJudge, shadowCapped } from './gemma-spend.js';
+
+export const APP_UA = /\b(?:EdenApp|EdenEdu)\//; // website-only experiments: the iPhone and Edu apps stay off
 const MODES = new Set(['off', 'shadow', 'owner']);
 export const GEMMA_TIMEOUT_MS = 6_000;
 const PING_EVERY_MS = 60_000;
@@ -25,21 +32,31 @@ const SETTLED = new Set(['supported', 'contradicted']);
 // The web check's stock summaries carry no evidence of their own (vendor/verify.js)
 const EMPTY_SUMMARY = /^(?:Sources confirm it\.|Sources show it is wrong\.|The web search found no clear evidence either way\.|The web check gave no usable answer\.)$/;
 
-// Per isolate: Workers isolates share no memory, so each one learns warmth on its own (a cold isolate pings, never waits).
-const state = { warmUntil: 0, lastPing: 0 };
+const POOL = 'gemma-judge'; // the key pool's name for the judge URLs (GET /api/admin/lb shows fingerprints only)
+
+// Per isolate and per judge URL: Workers isolates share no memory, so each one learns warmth on its own (a cold isolate
+// pings, never waits).
+const state = new Map(); // base URL → { warmUntil, lastPing }
+const urlState = (u) => {
+  let s = state.get(u);
+  if (!s) state.set(u, (s = { warmUntil: 0, lastPing: 0 }));
+  return s;
+};
+const warmNow = (u) => Date.now() < (state.get(u)?.warmUntil ?? 0);
 export function resetGemmaJudge() {
-  state.warmUntil = 0;
-  state.lastPing = 0;
+  state.clear();
 }
+
+/** The judge's base URLs from GEMMA_JUDGE_URL (comma-separated), without a trailing / or /judge. */
+export const judgeUrls = (env) => [...new Set(String((env && env.GEMMA_JUDGE_URL) || '').split(',').map((u) => u.trim().replace(/\/+$/, '').replace(/\/judge$/, '')).filter(Boolean))];
 
 export function gemmaMode(env, request) {
   if (request && APP_UA.test(request.headers.get('user-agent') || '')) return 'off';
-  if (!env || !env.GEMMA_JUDGE_URL || !env.GEMMA_JUDGE_KEY || !env.GEMMA_JUDGE_SECRET) return 'off';
+  if (!judgeCreds(env)) return 'off';
   const m = String(env.GEMMA_JUDGE_MODE ?? 'off').trim().toLowerCase();
   return MODES.has(m) ? m : 'off';
 }
 
-const base = (env) => String(env.GEMMA_JUDGE_URL).replace(/\/+$/, '').replace(/\/judge$/, '');
 const headers = (env) => ({ 'content-type': 'application/json', 'Modal-Key': env.GEMMA_JUDGE_KEY, 'Modal-Secret': env.GEMMA_JUDGE_SECRET });
 
 export async function claimHash(text) {
@@ -55,33 +72,66 @@ export function evidenceRows(v) {
   return [s.slice(0, MAX_ROW)];
 }
 
-export const judgeIsWarm = () => Date.now() < state.warmUntil;
-export const judgeCreds = (env) => Boolean(env && env.GEMMA_JUDGE_URL && env.GEMMA_JUDGE_KEY && env.GEMMA_JUDGE_SECRET);
+/** Is any judge URL warm (env given: any of its URLs; none: any this isolate knows)? */
+export const judgeIsWarm = (env) => (env ? judgeUrls(env) : [...state.keys()]).some(warmNow);
+export const judgeCreds = (env) => Boolean(env && judgeUrls(env).length && env.GEMMA_JUDGE_KEY && env.GEMMA_JUDGE_SECRET);
 
+/** Warm-up pings for the judge URLs that are cold (at most one a minute each); warm ones are left alone. */
 export function ping(env, ctx) {
   const now = Date.now();
-  if (now - state.lastPing < PING_EVERY_MS) return;
-  state.lastPing = now;
-  const p = fetch(`${base(env)}/health`, { headers: headers(env), signal: AbortSignal.timeout(PING_TIMEOUT_MS) })
-    .then(async (r) => {
-      const j = r.ok ? await r.json().catch(() => null) : null;
-      if (j && j.ok && j.loaded) state.warmUntil = Date.now() + WARM_FOR_MS;
-    })
-    .catch(() => undefined);
-  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p);
+  for (const u of judgeUrls(env)) {
+    const s = urlState(u);
+    if (now < s.warmUntil || now - s.lastPing < PING_EVERY_MS) continue;
+    s.lastPing = now;
+    const p = fetch(`${u}/health`, { headers: headers(env), signal: AbortSignal.timeout(PING_TIMEOUT_MS) })
+      .then(async (r) => {
+        const j = r.ok ? await r.json().catch(() => null) : null;
+        if (j && j.ok && j.loaded) s.warmUntil = Date.now() + WARM_FOR_MS;
+        const ms = Date.now() - now;
+        meterJudge(env, ctx, { ms, woke: ms >= COLD_PING_MS, feature: 'gemma-wake' }); // a slow answer: it started the GPU (an estimate)
+      })
+      .catch(() => undefined);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p);
+  }
 }
 
-/** One POST /judge for a turn's claims. Resolves { ok, results?, error, ms }; never throws. */
+/**
+ * One POST /judge for a turn's claims. Resolves { ok, results?, error, ms }; never throws.
+ * Several URLs: only the warm ones take the call (a cold one would hold it until the timeout; none warm: all of them),
+ * spread by the key pool, moving to the next on 429/5xx/network. The timeout covers the whole walk.
+ */
 export async function judge(env, claims, signal, timeoutMs = GEMMA_TIMEOUT_MS, { coolOnTimeout = true } = {}) {
   const t0 = Date.now();
   const timeout = AbortSignal.timeout(timeoutMs);
   const sig = signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, signal]) : timeout;
-  try {
-    const r = await fetch(`${base(env)}/judge`, { method: 'POST', headers: headers(env), body: JSON.stringify({ claims, lazy_second: true }), signal: sig, redirect: 'manual' });
-    if (!r.ok) {
-      state.warmUntil = 0;
-      return { ok: false, error: `http_${r.status}`, ms: Date.now() - t0 };
+  const all = judgeUrls(env);
+  const warm = all.filter(warmNow);
+  const cool = (u) => {
+    urlState(u).warmUntil = 0;
+  };
+  let at = null; // the URL last called
+  const call = async (u) => {
+    at = u;
+    try {
+      const res = await fetch(`${u}/judge`, { method: 'POST', headers: headers(env), body: JSON.stringify({ claims, lazy_second: true }), signal: sig, redirect: 'manual' });
+      if (!res.ok) cool(u);
+      return res;
+    } catch (e) {
+      // a request cut by a short caller budget (gemma-text.js) says the judge is slow, not that it is cold
+      if (!timeout.aborted || coolOnTimeout) cool(u);
+      throw e;
     }
+  };
+  try {
+    const list = warm.length ? warm : all;
+    const r = await withPool(POOL, list, call, { signal: sig, env });
+    if (!r) {
+      // stopped before any call (signal already aborted): label and cool as a cut fetch did with one URL
+      if (sig.aborted && list.length === 1 && (!timeout.aborted || coolOnTimeout)) cool(list[0]);
+      const error = timeout.aborted ? 'timeout' : signal && signal.aborted ? 'stopped' : 'network';
+      return { ok: false, error, ms: Date.now() - t0 };
+    }
+    if (!r.ok) return { ok: false, error: `http_${r.status}`, ms: Date.now() - t0 };
     let j;
     try {
       j = await r.json();
@@ -89,15 +139,13 @@ export async function judge(env, claims, signal, timeoutMs = GEMMA_TIMEOUT_MS, {
       j = null;
     }
     if (!j || !Array.isArray(j.results)) {
-      state.warmUntil = 0;
+      cool(at);
       return { ok: false, error: 'bad_json', ms: Date.now() - t0 };
     }
-    state.warmUntil = Date.now() + WARM_FOR_MS;
+    urlState(at).warmUntil = Date.now() + WARM_FOR_MS;
     return { ok: true, results: j.results, config: typeof j.config === 'string' ? j.config : null, ms: Date.now() - t0 };
-  } catch (e) {
+  } catch {
     const error = timeout.aborted ? 'timeout' : signal && signal.aborted ? 'stopped' : 'network';
-    // a request cut by a short caller budget (gemma-text.js) says the judge is slow, not that it is cold
-    if (error !== 'timeout' || coolOnTimeout) state.warmUntil = 0;
     return { ok: false, error, ms: Date.now() - t0 };
   }
 }
@@ -134,13 +182,16 @@ export function gemmaSession(request, env, ctx, whoIsOwner, { shadow = true } = 
         if (!live && !shadow) return out; // not in this turn's shadow sample (GEMMA_SHADOW_SHARE)
         const evt = live ? 'gemma_owner' : 'gemma_shadow';
         const hashes = await Promise.all(usable.map((it) => claimHash(it.claim)));
-        if (Date.now() >= state.warmUntil) {
-          ping(env, ctx);
-          console.log(JSON.stringify({ evt, cold: true, used: false, claims: usable.length, eves: usable.map((it) => it.v.verdict) }));
+        const wake = mayWake(env, live); // gemma-spend.js: a shadow turn never wakes a cold judge (GEMMA_SHADOW_WAKE=on: as before)
+        if (!judgeIsWarm(env)) {
+          if (wake) ping(env, ctx);
+          console.log(JSON.stringify({ evt, cold: true, used: false, claims: usable.length, eves: usable.map((it) => it.v.verdict), ...(wake ? {} : { woke: false }) }));
           return out;
         }
+        if (wake) ping(env, ctx); // warms any other judge copy that is cold (one URL: nothing to do)
         const claims = usable.map((it, k) => ({ id: String(k), claim: it.claim.slice(0, 1000), type: it.kind || null, evidence: it.rows }));
         const report = (r) => {
+          meterJudge(env, ctx, { ms: r.ms, paid: live, feature: live ? 'gemma-owner' : 'gemma-shadow' }); // GPU time, an estimate (spend-counter.js)
           if (!r.ok) {
             console.log(JSON.stringify({ evt, cold: false, used: false, error: r.error, ms: r.ms, claims: usable.length }));
             return;
@@ -156,7 +207,10 @@ export function gemmaSession(request, env, ctx, whoIsOwner, { shadow = true } = 
         };
         if (!live) {
           // shadow: the answer never waits on the judge
-          const p = judge(env, claims).then(report, () => undefined);
+          // SPEND_CAP_MODAL_USD reached today (CREDIT_PACER=on, gemma-spend.js): no shadow call, only a log line
+          const p = shadowCapped(env)
+            .then((capped) => (capped ? console.log(JSON.stringify({ evt, cold: false, used: false, capped: true, claims: usable.length })) : judge(env, claims).then(report)))
+            .catch(() => undefined);
           if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p);
           return out;
         }

@@ -71,6 +71,8 @@ run_worker_first = true
 #   npx wrangler secret put FISH_API_KEY
 # and these are the daily allowances in characters (src/worker.js LIMITS has the defaults).
 [vars]
+CALENDAR_ORIGIN = "https://edencalendar.com"   # Eden Calendar sign-in handoff (/hand/calendar, calendar-handoff.js; live 82f5d0c2, 2026-11-13)
+NOTES_ORIGIN = "https://notes.askeden.com"   # Eden Pulse sign-in handoff (live since c38d58a1, 2026-11-12)
 # Eden for Education at its own address (src/worker.js route): "askedenedu.com", with its routes above;
 # askeden.com/edu and edu.askeden.com then forward to it.
 EDU_HOST = "askedenedu.com"
@@ -95,6 +97,11 @@ DAREDEVIL_HOST = "edendaredevil.com"
 # Eden Mail's page at its own address (src/worker.js route): "askedenmail.com"; the app stays at askeden.com/mail.
 # On (2026-10-14): askedenmail.com is a site on this Cloudflare account.
 MAIL_HOST = "askedenmail.com"
+# "on": the Mail app itself lives at askedenmail.com (its own sign-in) and askeden.com/mail forwards there (owner, 2026-11-14).
+# Registered for askedenmail.com on 2026-11-15 (Google client, Apple Services ID com.askeden.eden.web, Microsoft app "Eden Mail" 24546a4d-…):
+# Google OAuth client (/api/web/google/callback, /api/chat/google/callback), Apple Services ID (domain + /api/web/apple/callback),
+# Microsoft app (/api/chat/microsoft/callback).
+MAIL_APP = "on"
 # Eden Router at its own address (src/worker.js route): "edenrouter.com", with its routes above; askedenrouter.com forwards to it.
 # The owner approved the page and its numbers on 2026-10-14.
 ROUTER_HOST = "edenrouter.com"
@@ -109,6 +116,9 @@ TRAVEL_HOST = "askedentravel.com" # on (owner, 2026-10-28)
 # owner, ADMIN_EMAILS) see it until TRAVEL_BETA is removed (src/travel/beta.js).
 EDEN_TRAVEL = "1"
 TRAVEL_BETA = "1"
+# Eden Mail with several accounts (askeden ROADMAP Y; src/eden/mailboxes.js): ON since 2026-11-08 (705a64f5).
+MAIL_MULTI = "on" # live since 2026-11-08 (705a64f5; owner: "Deploy it")
+# MAIL_MULTI_MAX = "10" # mailboxes per Eden account, the first Gmail included (owner to decide per plan)
 TRAVEL_GOOGLE_OPEN_USD = "5"
 TRAVEL_GOOGLE_ACCOUNT_USD = "15"
 TRAVEL_GOOGLE_DAILY_USD = "60" # owner, 2026-10-29: $5 an open, $15 an account a day, $60 in all a day
@@ -145,7 +155,7 @@ MESSENGER_IPHONE_URL = ""
 # EDEN_KIMI = "off" switch one off with its key in place. EDEN_MODELS = "all": every registry
 # model not deprecated. Then the highest effort, the longest reply and conversation, web searches
 # a search turn may make (twice that for research). Model ids are the Model Router's.
-EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,gpt-6.1-sol,gemini-4-argon,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3"
+EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,gpt-6.1-sol,gpt-6.1-terra,gemini-4-carbon,gemini-4-argon,gemini-4-hydrogen,gemini-3.8-flash,gemini-3.5-flash-lite"
 EDEN_MAX_EFFORT = "high"
 EDEN_MAX_TOKENS = "131072"
 EDEN_MAX_INPUT_TOKENS = "1000000"
@@ -207,12 +217,16 @@ OWNER_DOMAINS = "askeden.com" # verified emails here may make their account whil
 # EVES Strong accuracy mode on askeden.com (src/eden/checks.js, src/eden/eves.js). Website-only: any request from the
 # iPhone/Edu app (User-Agent matching /\b(?:EdenApp|EdenEdu)\//) stays on the existing path.
 EVES_STRONG = "on"
-EVES_ANCHOR = "gpt"
+EVES_ANCHOR = "gemini"   # Gemini 4 Hydrogen with Google Search is the default main answer (owner, 2026-11-13); was "claude"
 EVES_PREMISE = "on"
+EVES_SLIM = "on"      # three models (GPT-6.1 Sol searched answer + Claude/Gemini searching lanes); owner 2026-11-12
 EVES_NO_EARLY_CUT = "on"
 EVES_HEDGE_UNRESOLVED = "on"
 EVES_EVIDENCE_CROSS = "on"
 EVES_EVIDENCE_SEARCH = "perplexity"
+EVES_SEARCH_CHARGE = "on" # owner 2026-11-13: EVES's Perplexity searches come out of the account's allowance
+ALLOWANCE_V2 = "on" # owner 2026-11-14 (src/accounts/allowance.js); PLANS_V2 stays off until the 12 Stripe prices exist
+# PLANS_V2 = "on"
 SEARCH_FALLBACK = "on"
 VERTEX_PROJECT = "gen-lang-client-0068133515"
 VERTEX_LOCATION = "global"
@@ -328,6 +342,16 @@ class_name = "AudienceRoom"
 [[migrations]]
 tag = "v11"
 new_sqlite_classes = ["AudienceRoom"]
+
+# The bonus pool for Ultra, Platinum and Eden Black (src/accounts/bonus-pool.js): one global object, paid only by AI
+# that expired unused; the owner's switches on /admin › Usage Bonus. Runs only with ALLOWANCE_V2 and PLANS_V2 on.
+[[durable_objects.bindings]]
+name = "BONUS_POOL"
+class_name = "BonusPool"
+
+[[migrations]]
+tag = "v12"
+new_sqlite_classes = ["BonusPool"]
 
 # Browser Rendering (Workers Paid: 10 browser hours and 10 concurrent browsers a month included).
 [browser]

@@ -85,9 +85,12 @@ test('the front page: download for Mac and for Windows; J.A.R.V.I.S. Daredevil i
     assert.ok(html.includes(`href="${href}"`), href);
   }
   assert.match(html, /Download for Windows/);
-  assert.doesNotMatch(html, /daredevil/i);   // the owner's call (2026-10-09): the blind edition has its own page and is not advertised here
+  // the owner's call (2026-10-09): the blind edition has its own page and is not advertised here; since 2026-11-13 (owner: "all
+  // the apps" in the Ask Eden galaxy) Eden Daredevil appears only as its ring link to edendaredevil.com
+  const noGalaxy = html.replace(/<!-- The Ask Eden galaxy[\s\S]*?<section class="galaxy-band"[\s\S]*?<\/section>/, '');
+  assert.doesNotMatch(noGalaxy, /daredevil/i);
   // its policy allows no inline script and no inline style (default-src 'none'; script-src 'self' for the language script; style-src 'self')
-  assert.doesNotMatch(html, /<script(?! src="\/lang\/site-i18n\.js" data-page="home"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)/);
+  assert.doesNotMatch(html, /<script(?! src="\/lang\/site-i18n\.js" data-page="home"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)(?! src="\/home\/plans\.js" defer><\/script>)/);
   assert.doesNotMatch(html, /\sstyle=/);
   assert.doesNotMatch(html, /<style/);
   assert.match(html, /<html lang="en">/);

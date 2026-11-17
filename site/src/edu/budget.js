@@ -357,7 +357,7 @@ export async function coursePayer(env, who, courseId, { request = null, own = fa
       const c = await fromCourse();
       if (c.ok) { source = 'course'; return { ok: true, bucket: 'edu-crs', left: sized(c.left), allowance_left: sized(c.left), budget: c.left, markup: 1, credits_usd: 0, source }; }
       const f = await fromFree();
-      if (f.ok) { source = 'free'; return { ok: true, bucket: 'edu-free', left: sized(f.left), allowance_left: sized(f.left), budget: EDU_FREE.dailyUSD, markup: 1, credits_usd: 0, source }; }
+      if (f.ok) { source = 'free'; return { ok: true, bucket: 'edu-free', left: sized(f.left), allowance_left: sized(f.left), budget: EDU_FREE.dailyUSD, today_left: f.today_left, markup: 1, credits_usd: 0, source }; } // today_left: the GCP credit pacer halves the day at amber (eden/credit-pacer.js)
       throw usedUp(f.why);
     }
     if (op === 'hold-ai') {

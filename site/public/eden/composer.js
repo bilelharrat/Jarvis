@@ -21,7 +21,8 @@ import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calenda
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
 import { imagesAvailable, videosAvailable } from './image-mode.js';
-import { IN_APP } from './native.js';
+import { IN_APP, PHONE } from './native.js';
+import { privacyOn, setPrivacy, localStatus, chosenModel, setLocalModel } from './privacy.js';
 import { followUpSuggestions, extractReplyTopic } from './render.js';
 import { formatScheduledTime, runScheduledCodeTaskNow, cancelScheduledCodeTask, scheduleTaskDialog } from './code.js';
 import { stripBidi, putDraft, getDraft, storeDrafts, packDraftFiles, unpackDraftFiles, DRAFT_KEY, DRAFT_FILES_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
@@ -101,7 +102,7 @@ const SLASH_CHAT = [
   ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['image', 'Image mode: Eden draws a picture'], ['video', 'Video mode: Eden makes a short video'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
   ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
-  ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
+  ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['crew', 'Eden Crew: a crew on your Mac delivers an outcome: /crew what to deliver'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
   ['canvas', 'Open the canvas'], ['rename', 'Rename: /rename New name'], ['export', 'Save the chat as Markdown'], ['pin', 'Pin or unpin this chat'],
   ['copy', 'Copy the last reply'], ['clear', 'Start over in a new chat'],
   ['route', 'Route console'], ['split', 'Split view: up to 10 chats side by side · /split close'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
@@ -282,7 +283,7 @@ function suggestions() {
   if (inp.value === '?') return { kind: 'keys', items: KEYS.map(([key, help]) => ({ label: key, help, value: '' })) };
   if (/^\/[\w.:-]*$/.test(v)) {
     const q = v.slice(1).toLowerCase();
-    const list = [...SLASH_CHAT.filter(([n]) => (n === 'image' ? imagesAvailable() : n === 'video' ? videosAvailable() : true)), ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))];
+    const list = [...SLASH_CHAT.filter(([n]) => (n === 'image' ? imagesAvailable() : n === 'video' ? videosAvailable() : n === 'split' ? !/\b(?:iPhone|iPod)\b/.test(navigator.userAgent || '') : true)), ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))]; // no split view on an iPhone (split-view.js SPLIT_OFF)
     return { kind: 'slash', items: list.filter(([n]) => n.startsWith(q)).map(([name, help]) => ({ label: `/${name}`, help, value: name })).slice(0, 40) };
   }
   const m = v.match(/(?:^|\s)@([\w./-]*)$/);
@@ -384,13 +385,8 @@ function renderGhostSuggestion(s = suggestions()) {
   const streaming = c && state.streams.has(c.id);
   let match = null;
   if (!streaming && !inp.value.includes('\n') && inp.selectionStart === inp.value.length) {
-    if (!inp.value && $('cc-slash').hidden) {
-      const nodes = c ? path(c) : [];
-      const lastAsst = [...nodes].reverse().find((n) => n.role === 'assistant' && !n.streaming && !n.error);
-      const followUps = lastAsst ? followUpSuggestions(c, lastAsst) : [];
-      const top = followUps[0] || '';
-      if (top && top !== dismissedGhost) match = { typed: '', rest: top, full: top };
-    } else if (s && s.kind === 'smart' && s.items.length) {
+    // Not in an empty box any more (owner, 2026-11-06, "less busy"): the follow-up chips under the reply offer those.
+    if (inp.value && s && s.kind === 'smart' && s.items.length) {
       const item = s.items[pickIndex >= 0 ? pickIndex : 0] || s.items.find((x) => x.prefix);
       if (item && item.prefix !== false && item.value !== dismissedGhost) match = { typed: item.label, rest: item.help, full: item.value };
     }
@@ -515,14 +511,14 @@ function recallMessage(step) {
 }
 
 /* ---------- the orb and the drawer ---------- */
-const COMPOSER_OPEN_KEY = IN_APP ? 'jc-composer-open' : 'jc-composer-web-open';
-let composerExpanded = !IN_APP;
-let composerPinned = !IN_APP;
+// Less busy (owner, 2026-11-06): the options row (mode, model, level, EVES) starts closed everywhere; the orb opens it, and a
+// right-click pins it open. A new key for the web, so everyone starts from the new default once; a pin someone chose stays.
+const COMPOSER_OPEN_KEY = IN_APP ? 'jc-composer-open' : 'jc-composer-web-open-v2';
+let composerExpanded = false;
+let composerPinned = false;
 try {
-  const savedPin = localStorage.getItem('jc-composer-pinned');
-  composerPinned = savedPin === null ? !IN_APP : savedPin === '1';
-  const savedOpen = localStorage.getItem(COMPOSER_OPEN_KEY);
-  composerExpanded = composerPinned || (savedOpen === null ? !IN_APP : savedOpen === '1');
+  composerPinned = localStorage.getItem('jc-composer-pinned') === '1';
+  composerExpanded = composerPinned || localStorage.getItem(COMPOSER_OPEN_KEY) === '1';
 } catch { /* private mode */ }
 function setComposerExpanded(v, { focus = true } = {}) {
   composerExpanded = v;
@@ -542,7 +538,7 @@ function grow() {
 const TEXT_FILE = /\.(md|markdown|txt|log|json|jsonl|csv|tsv|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|m?js|cjs|tsx?|jsx|vue|svelte|py|pyi|rb|go|rs|java|kt|kts|swift|m|mm|c|h|cc|cpp|hpp|cs|php|pl|lua|r|dart|scala|sh|bash|zsh|fish|sql|graphql|proto|env\.example|gitignore|dockerfile|makefile|gradle|plist|strings|diff|patch)$/i;
 const TEXT_TYPES = ['application/json', 'application/xml', 'application/javascript', 'application/x-yaml', 'application/yaml', 'application/toml', 'application/x-sh', 'application/sql'];
 const DOC_FILE = /\.(pdf|epub|docx|pptx)$/i; // documents: their text is read here (course-extract.js) and attached as text
-const SHEET_FILE = /\.(xlsx|xlsm|xls)$/i; // Excel workbooks: opened in the spreadsheet canvas & attached as context
+const SHEET_FILE = /\.(xlsx|xlsm|xlsb|xls|xlt|xltx|xltm|xlw|xlam|xla|ods|fods|slk|sylk|dif)$/i; // every Excel workbook type (sheet-io.mjs KINDS): opened in the spreadsheet canvas & attached as context
 const MAX_DOC = 50 * 1024 * 1024 * 1024; // the file itself: up to 50 GB virtually unlimited document scale
 function fileKind(file) {
   if (isVideo(file)) return 'video';
@@ -642,7 +638,7 @@ async function addVideo(file) {
 export function addFile(file) {
   if (!file) return;
   const kind = fileKind(file);
-  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos, Excel (.xlsx, .xls), PDF, EPUB, Word, PowerPoint, and text or code files.`); return; }
+  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos, Excel (.xlsx, .xlsm, .xlsb, .xls and the rest) or OpenDocument (.ods), PDF, EPUB, Word, PowerPoint, and text or code files.`); return; }
   const held = [...attachments, ...reading];
   if (held.length >= MAX_FILES) { toast('Up to 12 attachments per message.'); return; }
   if (kind === 'video') { addVideo(file); return; }
@@ -964,11 +960,61 @@ function modeMenu() {
 /* ---------- model: the router, or a model of yours (an override) ---------- */
 export function modelMenu() {
   const o = currentOverride();
+  const isPriv = privacyOn();
   const code = state.current && state.current.kind === 'code';
   const models = (state.meta && state.meta.models) || [];
   const byProv = {};
   for (const m of models) (byProv[m.provider] = byProv[m.provider] || []).push(m);
-  const items = [{ icon: 'router', label: 'Model Router (auto)', note: code ? 'Claude Code’s default model' : 'Picks the model for each message', checked: !o, run: () => setOverride(null) }];
+  const items = [{
+    icon: 'router',
+    label: 'Model Router (auto)',
+    note: code ? 'Claude Code’s default model' : 'Picks the model for each message',
+    checked: !o && !isPriv,
+    run: () => { if (isPriv) setPrivacy(false); setOverride(null); },
+  }];
+  if (!code) {
+    const loc = localStatus();
+    const privModels = (loc && loc.models) || [];
+    if (privModels.length) {
+      const curPriv = chosenModel();
+      const deviceModels = privModels.filter((m) => m.id === 'apple-on-device' || m.server === 'on-device');
+      const macModels = privModels.filter((m) => m.id !== 'apple-on-device' && m.server !== 'on-device' && m.server !== 'deepinfra');
+      const bridgeModels = privModels.filter((m) => m.server === 'deepinfra');
+      if (deviceModels.length) {
+        items.push({ heading: `Private · On this ${PHONE} (Apple Intelligence)` });
+        for (const m of deviceModels) {
+          items.push({
+            label: `On this ${PHONE}`,
+            note: 'Apple Intelligence · 100% on-device',
+            checked: isPriv && !!curPriv && curPriv.id === m.id,
+            run: () => { setLocalModel(m.id); if (!privacyOn()) setPrivacy(true); },
+          });
+        }
+      }
+      if (macModels.length) {
+        items.push({ heading: `Private · On ${state.meta && state.meta.hosted ? 'your' : 'this'} Mac (100% Local GPU)` });
+        for (const m of macModels) {
+          items.push({
+            label: m.id,
+            note: `${m.serverName || 'Local'} · 100% local`,
+            checked: isPriv && !!curPriv && curPriv.id === m.id,
+            run: () => { setLocalModel(m.id); if (!privacyOn()) setPrivacy(true); },
+          });
+        }
+      }
+      if (bridgeModels.length) {
+        items.push({ heading: 'Private · Cloud Bridge (Zero-Retention)' });
+        for (const m of bridgeModels) {
+          items.push({
+            label: m.id,
+            note: 'DeepInfra · Zero data retention',
+            checked: isPriv && !!curPriv && curPriv.id === m.id,
+            run: () => { setLocalModel(m.id); if (!privacyOn()) setPrivacy(true); },
+          });
+        }
+      }
+    }
+  }
   // Code mode runs Claude Code, which drives Claude only: Claude's models first and nothing
   // greyed out above them (askeden.com listed them last, below the menu's fold); else as served.
   let groups = Object.entries(byProv);
@@ -976,19 +1022,19 @@ export function modelMenu() {
   for (const [p, list] of groups) {
     items.push({ heading: PROVIDER_NAMES[p] || p });
     for (const m of list) items.push({
-      label: m.name, checked: !!o && o.model === m.id,
+      label: m.name, checked: !isPriv && !!o && o.model === m.id,
       // askeden.com: whose key the model runs on (meta's keySource, accounts/user-keys.js)
       note: !m.available ? (m.needsKey ? m.reason || 'Add your Anthropic API key in Settings to use Claude' : 'Unavailable') : m.keySource === 'user' ? 'your key' : m.keySource === 'service' ? 'included' : m.note ? m.note : code && p !== 'anthropic' ? 'Code mode runs Claude' : m.tier === 'frontier' ? 'Frontier' : m.tier === 'fast' ? 'Fast' : '',
       // askeden.com: Claude is bring-your-own-key: its locked models open the keys settings instead
       disabled: (!m.available && !m.needsKey) || (code && p !== 'anthropic'),
       muted: !!m.needsKey, title: m.needsKey ? m.reason : undefined,
-      run: () => (m.needsKey ? H.openSettings(0) : setOverride(m.id)),
+      run: () => { if (m.needsKey) { H.openSettings('keys'); return; } if (isPriv) setPrivacy(false); setOverride(m.id); },
     });
   }
   if (!models.length) items.push({ label: state.metaError ? 'The model list didn’t load' : 'Loading models…', disabled: true });
   else if (code && !byProv.anthropic) items.push({ label: 'No Claude model is available for Code mode yet', disabled: true });
   if (code && Object.keys(byProv).some((p) => p !== 'anthropic')) items.push({ label: 'GPT, Gemini and Kimi answer chats; Code mode runs on Claude', disabled: true, muted: true });
-  items.push('-', { icon: 'key', label: 'Models & API keys…', run: () => H.openSettings(0) });
+  items.push('-', { icon: 'key', label: 'Models & API keys…', run: () => H.openSettings('keys') });
   openMenu($('jc-model'), items);
 }
 
@@ -1129,9 +1175,11 @@ function plusMenu() {
     ] },
     ...(c && c.kind === 'code' ? [{ icon: 'clock', label: 'Schedule timed task…', note: 'Resume or run at a set time (e.g. 2:00 AM)', run: () => scheduleTaskDialog(c) }] : []),
     { icon: 'clock', label: 'Temporary chat', note: 'Not saved', switch: !!(c && c.temp), keepOpen: false, run: () => H.newTemp() },
+    // "Use the browser" lives here now (owner, 2026-11-06: the Browser chip in the composer said nothing to anyone); /browse too
+    ...(document.getElementById('jc-browse') ? [{ icon: 'globe', label: 'Use the browser', note: 'Eden drives a cloud browser for your messages', switch: browseMode(), keepOpen: false, run: () => { setBrowseMode(!browseMode()); toast(browseMode() ? 'Eden will use the browser for your messages' : 'Browser off: Eden uses it only when a message needs it'); } }] : []),
     '-',
     { icon: 'slash', label: 'Commands', key: '/', run: showSlash },
-    { icon: 'gear', label: 'Settings', key: '⌘,', run: () => H.openSettings(0) },
+    { icon: 'gear', label: 'Settings', key: '⌘,', run: () => H.openSettings('general') },
   ]);
 }
 /* ---------- Eden Travel's own address (travel-standalone): the + beside the box, for the trip ---------- */
@@ -1150,7 +1198,7 @@ function travelMenu() {
     { icon: 'plane', label: 'Track a flight', note: 'Delays, gate and terminal', run: () => setComposerText('Track flight ') },
     { icon: 'research', label: 'Book on the provider’s site', note: 'Eden fills their checkout; you pay them', switch: browsing, keepOpen: false, run: () => $('jc-browse').click() },
     '-',
-    { icon: 'gear', label: 'Settings', note: 'Model and voice', run: () => H.openSettings(0) },
+    { icon: 'gear', label: 'Settings', note: 'Model and voice', run: () => H.openSettings('general') },
   ]);
 }
 
@@ -1217,14 +1265,33 @@ export function renderComposer() {
   $('jc-mode-label').textContent = m.label;
   btn.dataset.mode = m.css || m.id;
   btn.title = `${m.label}: ${m.note} (⌘⇧M or ⇧⇥ to switch)`;
+  // The mode in the message box itself when it isn't plain Chat (owner, 2026-11-06): seen at a glance, one click back to Chat.
+  const tag = $('jc-mode-tag');
+  if (tag) {
+    const on = !code && m.id !== 'chat';
+    tag.hidden = !on;
+    if (on && tag.dataset.mode !== m.id) { $('jc-mode-tag-ic').replaceChildren(icon(m.icon, 13)); $('jc-mode-tag-l').textContent = m.label; tag.dataset.mode = m.id; }
+    if (on) { tag.title = `${m.label}: ${m.note}. Click to go back to Chat`; tag.setAttribute('aria-label', `${m.label} mode. Back to Chat`); }
+  }
   const o = currentOverride();
   const om = o && modelInfo(o.model);
-  $('jc-model-label').textContent = o ? (om ? shortModel(om.name) : o.model) : code ? 'Claude Code' : 'Model Router';
-  $('jc-model').classList.toggle('routed', !o);
-  $('jc-model').title = `Model: ${o ? (om ? om.name : o.model) : 'Model Router (auto)'} (⌘⇧I)`;
+  const isPriv = !code && privacyOn(c);
+  const curPriv = isPriv ? chosenModel() : null;
+  if (isPriv && curPriv) {
+    const privName = curPriv.id === 'apple-on-device' || curPriv.server === 'on-device'
+      ? `On this ${PHONE}`
+      : shortModel(curPriv.id);
+    $('jc-model-label').textContent = privName;
+    $('jc-model').classList.remove('routed');
+    $('jc-model').title = `Private model: ${curPriv.id} (${curPriv.serverName || 'Private'}). Click to switch private or cloud models (⌘⇧I)`;
+  } else {
+    $('jc-model-label').textContent = o ? (om ? shortModel(om.name) : o.model) : code ? 'Claude Code' : 'Model Router';
+    $('jc-model').classList.toggle('routed', !o);
+    $('jc-model').title = `Model: ${o ? (om ? om.name : o.model) : 'Model Router (auto)'} (⌘⇧I)`;
+  }
   // effort: only for an override (the router picks it otherwise)
   const eff = $('jc-effort');
-  eff.hidden = !o || !om || !om.efforts || om.efforts.length < 2;
+  eff.hidden = isPriv || !o || !om || !om.efforts || om.efforts.length < 2;
   if (!eff.hidden) {
     const list = om.efforts;
     const i = Math.max(0, list.indexOf(o.effort));
@@ -1234,7 +1301,7 @@ export function renderComposer() {
   }
   // the router's ✦ chip
   const chip = $('jc-router');
-  chip.hidden = !!o || code;
+  chip.hidden = isPriv || !!o || code;
   const p = state.preview;
   chip.classList.toggle('loading', !!(p && p.loading));
   if (p && p.pick) { $('jc-router-label').textContent = shortModel(p.pick.name); $('jc-router-sub').textContent = `${EFFORT_SHORT[p.pick.effort] || p.pick.effort} · ~${fmtCost(p.pick.costUSD)}`; }
@@ -1662,16 +1729,33 @@ export function initComposer(handlers) {
   $('split').addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); comp.classList.add('drag'); } });
   $('split').addEventListener('dragleave', (e) => { if (!$('split').contains(e.relatedTarget)) comp.classList.remove('drag'); });
   $('split').addEventListener('drop', (e) => { if (e.dataTransfer.files.length) { e.preventDefault(); comp.classList.remove('drag'); [...e.dataTransfer.files].forEach(addFile); } });
+  // …and anywhere else in the window (owner, 2026-11-06: "I couldn't drag and drop it"): a file let go over the sidebar, the
+  // top bar or a panel was the browser's, which opened or downloaded it. Places with their own drop (mail compose, course
+  // upload, import, a chat dragged into split view) handle it first and stop it, so they never come here.
+  document.addEventListener('dragover', (e) => {
+    if (e.defaultPrevented || !e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    comp.classList.add('drag');
+  });
+  document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) comp.classList.remove('drag'); }); // left the window
+  document.addEventListener('drop', (e) => {
+    if (e.defaultPrevented || !e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    comp.classList.remove('drag');
+    [...e.dataTransfer.files].forEach(addFile);
+  });
   $('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; });
 
   const browseBtn = $('jc-browse');
   if (browseBtn) {
-    const showBrowse = () => { browseBtn.setAttribute('aria-pressed', String(browseMode())); browseBtn.classList.toggle('on', browseMode()); };
+    const showBrowse = () => { browseBtn.setAttribute('aria-pressed', String(browseMode())); browseBtn.classList.toggle('on', browseMode()); browseBtn.hidden = !browseMode(); };
     browseBtn.addEventListener('click', () => { setBrowseMode(!browseMode()); toast(browseMode() ? 'Eden will use the browser for your messages' : 'Browser off: Eden uses it only when a message needs it'); });
     addEventListener('eden:browse-mode', showBrowse);
     showBrowse();
   }
   $('jc-mode-btn').addEventListener('click', () => { if (menuOpenFor($('jc-mode-btn'))) closeMenu(); else modeMenu(); });
+  if ($('jc-mode-tag')) $('jc-mode-tag').addEventListener('click', () => { setMode('chat'); input().focus(); });
   $('jc-model').addEventListener('click', () => { if (menuOpenFor($('jc-model'))) closeMenu(); else modelMenu(); });
   $('jc-plus').addEventListener('click', () => { if (menuOpenFor($('jc-plus'))) closeMenu(); else plusMenu(); });
   $('jc-effort').addEventListener('click', openEffort);

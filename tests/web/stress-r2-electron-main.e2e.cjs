@@ -180,8 +180,8 @@ childProcess.execFile = function (...args) {
 // so it never fetches them.
 {
   const { ElectronBlocker } = require(path.join(APP_DIR, 'node_modules', '@ghostery', 'adblocker-electron'));
-  fs.mkdirSync(app.getPath('userData'), { recursive: true });
-  fs.writeFileSync(path.join(app.getPath('userData'), 'adblock-engine.bin'), ElectronBlocker.parse('||ads.example^').serialize());
+  fs.mkdirSync(path.join(app.getPath('userData'), 'adblock'), { recursive: true });
+  fs.writeFileSync(path.join(app.getPath('userData'), 'adblock', 'engine.bin'), ElectronBlocker.parse('||ads.example^').serialize());
 }
 
 // ── hostile pages, on a server of the test's own ──

@@ -6,6 +6,7 @@
 import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys, fileType, fmtTimestamp } from './util.js';
 import { state, ui, path, siblings, parentOf, summarizeInput, nodeText, attachmentData, persona, isBilelAccount } from './state.js';
 import { renderMarkdown, CANVAS_LANGS } from './markdown.js';
+import { isGoogleRedirect } from './cite-marks.js'; // Gemini's redirect links: the site's name until the real address is known
 import { parseEmailDraft } from './md-plain.js';
 import { ratedBadge } from './router.js';
 import { whereBadge } from './privacy.js';
@@ -30,6 +31,7 @@ import { deckPart } from './deck-card.js'; // Q14: slide decks
 import { sheetPart } from './sheet-entry.js'; // Q15: inline Excel workbooks
 import { createActivityThread, updateActivityThread } from './activity-thread.js';
 import { progressView } from './progress-model.js';
+import { crewCard } from './crew.js'; // Eden Crew: its card in the chat
 
 // The essay writer (essay.js, askeden.com in a browser only; never in the app): Eden's essay text while it streams is drawn
 // in the open essay (essay.js essayPreview), one reply at a time; the chat shows a note and the count, not the text twice.
@@ -50,8 +52,16 @@ const TOOL_ICONS = { Read: 'doc', Grep: 'search', Glob: 'search', LS: 'folder', 
 
 // Keep disclosure controls and the trace body alive through streaming message redraws.
 const activityViews = new WeakMap();
+/**
+ * A finished reply with nothing to open under "Answered …" (no search, tool, source, thinking or problem): the pill goes once
+ * it's done (owner, 2026-11-06, "less busy"). Its route is still in ⋯ › Route console, its time in the team's ⋯.
+ */
+function quietDone(node) {
+  if (!node || node.streaming || node.error || node.finish === 'aborted') return false;
+  return !(node.parts || []).some((p) => p.type === 'tool') && !(node.citations || []).length && !String(node.thinking || '').trim() && !(node.warnings && node.warnings.length);
+}
 function liveTurnProgress(c, node) {
-  if (IN_APP || !node || node.role !== 'assistant' || (node.eves && !node.eves.skipped)) return null;
+  if (IN_APP || !node || node.role !== 'assistant' || (node.eves && !node.eves.skipped) || quietDone(node)) return null;
   const progress = progressView(node, Date.now());
   if (!progress) return null;
   const stream = c && state.streams.get(c.id);
@@ -105,6 +115,19 @@ function answerElapsedMs(node) {
     return node.doneAt - node.startedAt;
   }
   return null;
+}
+
+/**
+ * A reply's ⋯: the actions used now and then, in a small menu under the row (app.js `more` opens and closes it). The
+ * buttons are the same ones as before, so their clicks are handled where they always were; each shows its name here.
+ */
+function moreMenu(items, team) {
+  if (!items.length && !team.length) return null;
+  return el('span', 'msg-more',
+    el('button', { type: 'button', class: 'iconbtn', 'data-act': 'more', 'aria-haspopup': 'true', 'aria-expanded': 'false', title: 'More', 'aria-label': 'More actions' }, ico('more')),
+    el('div', { class: 'msg-more-pop glass', role: 'group', 'aria-label': 'More actions', hidden: true },
+      ...items,
+      team.length ? el('div', { class: 'msg-more-team', 'data-no-i18n': '' }, el('div', 'msg-more-h', 'Team only'), ...team) : null));
 }
 
 function bilelTimerBadge(node) {
@@ -208,11 +231,14 @@ function userMessage(c, node, last) {
   if (text || bubble.querySelector('.ctxchip') || (!pics.length && !files.length)) wrap.append(bubble); // a picture alone has no empty bubble
   const evc = c.kind === 'code' ? null : evesCheckBlock(node, () => ui.updateMessage(c, node, { keepScroll: true })); // a pasted text / document checked
   if (evc) wrap.append(evc);
+  // Edit in the row; Copy (and Check with EVES, where it's offered) behind ⋯ when there's more than Copy (2026-11-06, less busy)
+  const copyBtn = el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy message' }, ico('copy'));
+  const check = c.kind === 'code' ? null : evesCheckButton(node);
   wrap.append(el('div', 'msg-acts',
     pager(c, node, 'Branch'),
-    el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy message' }, ico('copy')),
-    c.kind === 'code' ? null : evesCheckButton(node),
-    c.kind === 'code' ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'edit', title: 'Edit and resend (new branch)', 'aria-label': 'Edit and resend' }, ico('edit'))));
+    check ? null : copyBtn,
+    c.kind === 'code' ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'edit', title: 'Edit and resend (new branch)', 'aria-label': 'Edit and resend' }, ico('edit')),
+    check ? moreMenu([copyBtn, check], []) : null));
   return wrap;
 }
 
@@ -245,7 +271,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   }
   const bubble = el('div', 'bubble');
   const research = node.mode === 'research';
-  const hasProgressPill = !IN_APP && !research && Boolean((node.eves && !node.eves.skipped) || progressView(node, Date.now()));
+  const hasProgressPill = !IN_APP && !research && Boolean((node.eves && !node.eves.skipped) || (!quietDone(node) && progressView(node, Date.now())));
   { const strip = (!hasProgressPill || isFlagged(node)) ? sourceStrip(node) : null; if (strip) bubble.append(strip); } // what this reply read from outside (H8; folded into the progress pill unless flagged)
   const isVaultServed = Boolean((node.route && Array.isArray(node.route.notes) && node.route.notes.some((n) => /EVES Immutable Vault/i.test(n))) || (node.verification && node.verification.label && /EVES Vault/i.test(node.verification.label.text || '')));
   if ((IN_APP || node.mode === 'research') && node.autoSearched && !isVaultServed && node.role === 'assistant' && !(node.route && (node.route.image || node.route.video))) bubble.append(el('div', { class: 'auto-search', style: 'display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;opacity:.85' }, ico('globe', 14), el('span', 'chip-s', node.streaming && !(node.parts && node.parts.length) ? 'Searching the web…' : 'Searched the web'))); // auto-search (autosearch-rules.js)
@@ -319,10 +345,12 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     else if (part.type === 'perm') bubble.append(part.approval ? approvalCard(c, node, part.approval, { perm: i }) : permCard(c, part, i));
     else if (part.type === 'note') bubble.append(el('div', 'notice', part.text));
     else if (part.type === 'mac') bubble.append(macCard(c, node, part)); // what Eden read on the Mac (files.js)
+    else if (part.type === 'crew') bubble.append(crewCard(c, node, part)); // Eden Crew on the Mac (crew.js)
   }
   if (ESSAYS && !node.streaming && previewing === node.id) livePreview(node, null); // the reply ended: the real change lands (tools-ui.js)
   if ((IN_APP || research) && node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive && !pics && !vids) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
-  if (sources.length && !research) bubble.append(sourceList(sources));
+  // with the numbers in the text (cite-marks.js), the list folds to one "Sources · n" line that opens on a tap
+  if (sources.length && !research) bubble.append(sourceList(sources, bubble.querySelector('.md sup.cite') ? node : null)); // numbers showing in the text, not a [1] in code
   if (node.grounding && !node.streaming) bubble.append(groundingStrip(node.grounding)); // Eden for Education (courses.js)
   if (!node.streaming) {
     const arts = artifactsIn(nodeText(node));
@@ -354,21 +382,30 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   const evc = c.kind === 'code' || lane ? null : evesCheckBlock(node, () => ui.updateMessage(c, node, { keepScroll: true })); // "Check with EVES" result
   if (evc) wrap.append(evc);
   if (!node.streaming) {
+    // Less busy (owner, 2026-11-06): Copy, Read aloud and Try again stay in the row; the rest goes behind ⋯ (moreMenu),
+    // the team's own tools (👍/👎, Accurate / Flag hallucination, the timer) at its end.
+    const more = [
+      c.kind === 'code' || lane ? null : evesCheckButton(node, nodeText(node)),
+      lane ? null : strongerButton(c, node),
+      lane ? null : reopenButton(c, node),
+      // a reply long enough to be essay text: into the essay writer, without the chat around it (essay.js pasteIntoEssay; website only)
+      !ESSAYS || lane || c.kind === 'code' || countWords(withoutEssayBlocks(nodeText(node))) < 60 ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'to-essay', title: 'Paste into essay: just the essay, in its format', 'aria-label': 'Paste into essay' }, ico('edit')),
+      node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null,
+      // H2: 👍 / 👎 teach the router (learned.js): for everyone, in ⋯; under "Team only" for the owner's accounts
+      ...(lane || isBilelAccount() ? [] : feedbackButtons(c, node) || []),
+    ].filter(Boolean);
+    const team = [
+      ...(lane || !isBilelAccount() ? [] : feedbackButtons(c, node) || []),
+      c.kind === 'code' || lane ? null : evesRateControls(node, { inline: true }),
+      bilelTimerBadge(node),
+    ].filter(Boolean);
     wrap.append(el('div', 'msg-acts',
       lane ? null : pager(c, node, 'Draft'),
       el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy reply' }, ico('copy')),
-      c.kind === 'code' || lane ? null : evesCheckButton(node, nodeText(node)),
-      // a reply long enough to be essay text: into the essay writer, without the chat around it (essay.js pasteIntoEssay; website only)
-      !ESSAYS || lane || c.kind === 'code' || countWords(withoutEssayBlocks(nodeText(node))) < 60 ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'to-essay', title: 'Paste into essay: just the essay, in its format', 'aria-label': 'Paste into essay' }, ico('edit')),
-      lane || !parseEmailDraft(nodeText(node)) ? null : el('button', { type: 'button', class: 'cap', 'data-act': 'open-mail', title: 'Open this draft in Eden’s Mail composer to review and send' }, ico('mail', 14), 'Open in Mail'),
-      lane ? null : strongerButton(c, node),
-      lane ? null : reopenButton(c, node),
-      lane ? null : feedbackButtons(c, node), // H2: 👍 / 👎 teach the router (learned.js)
       nodeText(node).trim() && !IN_APP ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
       c.kind === 'code' || lane ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'regen', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Try again', 'aria-label': 'Try again' }, ico('retry')),
-      node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null,
-      c.kind === 'code' || lane ? null : evesRateControls(node, { inline: true }),
-      bilelTimerBadge(node)));
+      lane || !parseEmailDraft(nodeText(node)) ? null : el('button', { type: 'button', class: 'cap', 'data-act': 'open-mail', title: 'Open this draft in Eden’s Mail composer to review and send' }, ico('mail', 14), 'Open in Mail'),
+      moreMenu(more, team)));
     if (last && !lane && !node.error && node.finish !== 'aborted') {
       const followUps = followUpSuggestions(c, node);
       if (followUps.length) {
@@ -712,9 +749,21 @@ export function followUpSuggestions(c, node) {
   return unique;
 }
 
-function sourceList(sources) {
-  return el('div', 'sources', ...sources.map((s, i) => el('button', { type: 'button', class: 'src', 'data-cite': String(i + 1), title: s.url, 'data-no-i18n': '' }, `${i + 1} · ${hostOf(s.url)}${s.title ? ` — ${s.title}` : ''}`)));
+function sourceList(sources, folded = null) {
+  const list = el('div', 'sources', ...sources.map((s, i) => {
+    // a Gemini redirect link (older replies): its title is the site's name, so that's what it shows, once
+    const site = isGoogleRedirect(s.url) && /^[\w.-]+\.[a-z]{2,}$/i.test(String(s.title || '').trim()) ? String(s.title).trim().replace(/^www\./, '') : hostOf(s.url);
+    const bare = String(s.title || '').trim().replace(/^www\./, '');
+    const title = bare && site !== bare && !site.endsWith(`.${bare}`) ? ` — ${s.title}` : ''; // Gemini's titles are just the site's name
+    return el('button', { type: 'button', class: 'src', 'data-cite': String(i + 1), title: s.url, 'data-no-i18n': '' }, `${i + 1} · ${site}${title}`);
+  }));
+  if (!folded) return list;
+  const fold = el('details', 'sources-fold', el('summary', '', `Sources · ${sources.length}`), list);
+  if (folded._sourcesOpen) fold.open = true; // stays as the person left it across redraws
+  fold.addEventListener('toggle', () => { folded._sourcesOpen = fold.open; });
+  return fold;
 }
+
 export function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return String(u || ''); } }
 
 /** Canvas-able blocks in a reply: ```html, ```svg, ```artifact. */
@@ -922,7 +971,7 @@ export function emptyState(c, { onSuggest }) {
     el('h1', p && !code ? { 'data-no-i18n': '' } : '', code ? `Code in ${c.project ? c.project.name : 'a project'}` : p ? p.name : 'What can I help with?'),
     el('p', 'lead', code ? 'Eden plans, reads, edits and runs commands in this project through Claude Code. Approvals show here.'
       : c && c.temp ? 'Temporary chat: nothing is saved. Each message is routed to the best model for it.'
-      : 'Each message goes to the model that fits it best — routed by the rules and rated by Gemini — with the cost on every reply.'));
+      : 'Each question goes to the AI platform that is optimal for the task.'));
   const SUGG = code
     ? [['Explain this project', 'Read the layout and summarize how it fits together'], ['Find and fix a bug', 'Look for failing tests and fix the cause'], ['Plan a feature', noKeys('Switch to Plan mode first (⇧Tab)')], ['Review my changes', 'Check the uncommitted diff for problems']]
     : [['Draft a reply', 'Write a short, friendly email declining a meeting'], ['Build something', 'Make an HTML page with a bouncing ball animation'], ['Compare options', 'Make a table comparing three note-taking apps'], ['Research', 'What changed in web accessibility rules this year? (Research mode)']];

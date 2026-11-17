@@ -219,6 +219,16 @@ test('daily caps: questions, screenshots, Eden’s own budget; and the per-minut
   assert.ok(env.USER_RATE.keys.every((k) => k.startsWith('help:')));
 });
 
+test('new accounts on one network share its cap (4 × per account), one object or sharded', async () => {
+  for (const shards of [undefined, '8']) {
+    env = makeEnv({ HELP_DAILY_MESSAGES: '1', ...(shards ? { VOICE_QUOTA_SHARDS: shards } : {}) });
+    const from = { headers: { 'x-jarvis-chat': '1', 'cf-connecting-ip': '203.0.113.9' } };
+    const codes = [];
+    for (let i = 0; i < 6; i++) codes.push((await ask(await signedIn(`apple-net-${shards}-${i}`), { question: 'Your Mac is offline' }, from)).status);
+    assert.deepEqual(codes, [200, 200, 200, 200, 429, 429], `shards ${shards}`);
+  }
+});
+
 test('Help is free: the account’s allowance and usage don’t move, and nothing of the question is stored', async () => {
   const session = await signedIn();
   const before = await (await hit('/api/web/account', { session })).json();

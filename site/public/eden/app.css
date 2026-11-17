@@ -190,12 +190,31 @@ body.col-resize iframe{pointer-events:none}
 .attach .thumb{width:30px;height:22px;border-radius:5px;background:linear-gradient(135deg,#8ec9f2,#3b6ea5 60%,#1d3a5f);box-shadow:inset 0 1px 0 rgba(255,255,255,.4);object-fit:cover;flex:none}
 .msg.assistant .bubble{background:var(--content);border-radius:var(--r-lg);padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline);overflow-wrap:anywhere;min-width:0}
 .msg.assistant .bubble:has(> .eden-pics:only-child),.msg.assistant .bubble:has(> .eden-pic-wait:only-child){background:transparent;padding:0;box-shadow:none;width:fit-content;max-width:100%}
+/* The reply bubble's glass, everywhere (owner, 2026-11-06): Eden's own card colour (var(--content), above), with the edge of Eden
+   Code's reply glass (EdenTheme.swift GGlass): a 1 px light rim, a shine along the top edge that fades out, a soft lifted shadow.
+   Website, iPhone, iPad and the Mac app. Not the Code look (no bubble there) or a picture-only reply (no bubble); share.css
+   mirrors it for shared chats. */
+html:not([data-look="code"]) .msg.assistant .bubble:not(:has(> .eden-pics:only-child)):not(:has(> .eden-pic-wait:only-child)){position:relative;box-shadow:inset 0 0 0 1px rgba(255,255,255,.55),0 6px 18px rgba(40,60,120,.10);--rg-top:rgba(255,255,255,.95)}
+html[data-theme="dark"]:not([data-look="code"]) .msg.assistant .bubble:not(:has(> .eden-pics:only-child)):not(:has(> .eden-pic-wait:only-child)){box-shadow:inset 0 0 0 1px rgba(255,255,255,.10),0 6px 18px rgba(0,0,0,.35);--rg-top:rgba(255,255,255,.22)}
+html:not([data-look="code"]) .msg.assistant .bubble:not(:has(> .eden-pics:only-child)):not(:has(> .eden-pic-wait:only-child))::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;background:linear-gradient(180deg,var(--rg-top) 0%,rgba(255,255,255,0) 18%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 .msg-acts{display:flex;gap:4px;opacity:0;transition:opacity .2s;margin-top:6px;justify-content:flex-end;align-items:center}
 .msg.assistant .msg-acts{justify-content:flex-start}
 .msg:hover .msg-acts,.msg:focus-within .msg-acts,.msg.last .msg-acts{opacity:1}
 @media (hover:none){.msg-acts{opacity:1}}
 .msg-acts .iconbtn{width:26px;height:26px;color:var(--text3)}
 .msg-acts svg{width:14px;height:14px}
+.msg.more-open .msg-acts{opacity:1}
+/* a reply's ⋯ (render.js moreMenu): the same buttons, each with its name, in a small menu under the row */
+.msg-more{position:relative;display:inline-flex}
+.msg-more-pop{position:absolute;top:calc(100% + 4px);left:0;z-index:30;min-width:270px;padding:5px;border-radius:12px;display:flex;flex-direction:column;gap:1px}
+.msg-more-pop[hidden]{display:none}
+.msg-more-pop .iconbtn{width:100%;height:auto;min-height:30px;padding:5px 9px;justify-content:flex-start;gap:9px;border-radius:8px;color:var(--text2);font-size:13px;text-align:left;white-space:nowrap}
+.msg-more-pop .iconbtn::after{content:attr(aria-label)}
+.msg-more-pop .iconbtn:hover,.msg-more-pop .iconbtn:focus-visible{background:var(--content);color:var(--text)}
+.msg-more-team{display:flex;flex-wrap:wrap;align-items:center;gap:2px;border-top:.5px solid var(--hairline);margin-top:4px;padding-top:4px}
+.msg-more-team .msg-more-h{width:100%;font-size:11px;color:var(--text3);padding:2px 9px 3px}
+.msg-more-team .iconbtn.fb{width:auto;flex:1 1 45%}
+.msg-more-team .eves-rate-bar,.msg-more-team .bilel-timer{margin:2px 6px!important}
 .msg-followups{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-width:min(640px,100%)}
 .followup-btn{display:flex;align-items:center;gap:9px;width:100%;padding:7px 11px;border:0;border-radius:11px;background:transparent;color:var(--text2);font:inherit;font-size:13px;line-height:1.35;text-align:left;cursor:pointer;box-shadow:inset 0 0 0 .5px var(--hairline);transition:background .15s ease,color .15s ease,transform .15s var(--spring)}
 .followup-btn:hover,.followup-btn:focus-visible{background:var(--content);color:var(--text);transform:translateX(2px);outline:none}
@@ -319,6 +338,9 @@ body.col-resize iframe{pointer-events:none}
 .res-rail.live i{width:40%;animation:rail 1.6s ease-in-out infinite}
 @keyframes rail{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-size:.72em}
+sup.cite-sep{font-size:.72em;color:var(--text3)}
+/* a finger-sized tap area around each number on a touch screen, without moving the text (the popup shows the full link) */
+@media (hover:none) and (pointer:coarse){sup.cite{position:relative;padding:0 3px;-webkit-tap-highlight-color:transparent}sup.cite::after{content:"";position:absolute;inset:-12px 0}} /* taller only: a wider area would cover the number beside it */
 .sources{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .src{font-size:11px;color:var(--text2);background:var(--content);padding:4px 9px;border-radius:12px;box-shadow:inset 0 0 0 .5px var(--hairline);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .research .src{background:var(--content)}
@@ -357,6 +379,15 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 .fr-link.quiet{color:var(--text3);font-weight:500;margin-left:auto}
 .bubble>.sources .src{background:var(--content2)}
 .src:hover{color:var(--accent)}
+/* the source list folded to one line when the numbers are in the text (render.js sourceList; owner 2026-11-06) */
+.sources-fold{margin-top:10px}
+.sources-fold>summary{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 10px;border-radius:12px;font-size:11.5px;color:var(--text2);background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline);cursor:pointer;list-style:none;user-select:none}
+.sources-fold>summary::-webkit-details-marker{display:none}
+.sources-fold>summary::after{content:"›";font-size:14px;line-height:1;transition:transform .2s}
+.sources-fold[open]>summary::after{transform:rotate(90deg)}
+.sources-fold>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sources-fold>.sources{margin-top:8px}
+.sources-fold>.sources .src{background:var(--content2)}
 
 /* drafts pager */
 .drafts{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);margin:0 6px;font-variant-numeric:tabular-nums}
@@ -1414,6 +1445,18 @@ span.f-ic.ft-pdf{background:#f2545b}span.f-ic.ft-sheet{background:#22a95e}span.f
 .ecp-glass-name{font-size:12.5px;font-weight:600;color:var(--text)}
 .ecp-glass-desc{font-size:11px;color:var(--text2);line-height:1.3}
 
+/* The activity thread's skeleton, for the web and the app alike. The web and app looks below each restyle it fully; this is only
+   so a stylesheet that lost one of them (on 2026-11-06 askeden.com shipped an app.css without the app's look, and the iPhone app
+   showed a numbered HTML list with "Estimated $0.0036Stop") still shows a tidy line and steps. */
+.activity-thread [hidden] { display:none !important; }
+.activity-head { display:flex; align-items:center; gap:8px; width:100%; border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.activity-title { flex:1; min-width:0; }
+.activity-list { list-style:none; margin:0; padding:0; }
+.activity-body:empty { display:none; }
+.activity-footer { display:flex; align-items:center; gap:8px; }
+.activity-meta { flex:1; min-width:0; }
+.activity-stop { border:0; background:none; color:inherit; font:inherit; cursor:pointer; }
+
 /* Shared activity thread (option 4): web only; regular chat and EVES use the same component. */
 html:not(.eden-app) .activity-thread {
   --at-muted:#636369; --at-blue:#096bc7; --at-glass:rgba(255,255,255,.62); --at-rim:rgba(255,255,255,.8);
@@ -1484,6 +1527,7 @@ html:not(.eden-app) .activity-meta { flex:1; min-width:0; overflow-wrap:anywhere
 html:not(.eden-app) .activity-stop { min-width:40px; min-height:40px; padding:0 8px; border:0; background:none; color:var(--at-muted); font:inherit; cursor:pointer; }
 html:not(.eden-app) .activity-warning { margin:8px 0; font-size:12px; line-height:1.5; color:var(--at-muted); white-space:pre-line; overflow-wrap:anywhere; }
 html:not(.eden-app) .activity-thread [hidden] { display:none !important; }
+html:not(.eden-app) .activity-count, html:not(.eden-app) .activity-bar { display:none; } /* the app's step count and bar (below) */
 html:not(.eden-app) .activity-thread button:focus-visible { outline:2px solid var(--at-blue); outline-offset:-3px; }
 @media (prefers-reduced-motion:reduce) { html:not(.eden-app) .activity-chevron { transition:none; } }
 @media (prefers-reduced-transparency:reduce) { html:not(.eden-app) .activity-glass { background:var(--content); backdrop-filter:none; -webkit-backdrop-filter:none; } }
@@ -1630,3 +1674,106 @@ html:not(.eden-app)[data-chat-glass][data-theme="dark"] .msg.user .bubble .ctxch
   color:#38bdf8;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
 }
+
+/* Activity thread in the app (.eden-app, owner's pick 2026-11-05: docs/design/progress-app, "B + C"):
+   one quiet glass line with a step count and a bar; tapping it opens the steps as a timeline. A finished
+   EVES run gives way to its badge (warnings stay). The web's version above is unchanged. */
+html.eden-app .activity-thread { --pt-muted:var(--text2,#8e8e93); --pt-faint:var(--text3,#8e8e93); margin:2px 0 10px; }
+html.eden-app .activity-thread [hidden] { display:none !important; }
+html.eden-app .activity-head { display:flex; align-items:center; gap:9px; width:100%; min-height:40px; padding:0 14px; border-radius:20px;
+  border:1px solid var(--hairline); background:var(--glass); -webkit-backdrop-filter:blur(30px) saturate(180%); backdrop-filter:blur(30px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--rim); color:var(--text); font:inherit; font-size:14px; text-align:left; cursor:pointer; }
+html.eden-app .activity-mark { width:8px; height:8px; flex:none; border-radius:50%; background:var(--done,#8e8e93); }
+html.eden-app .activity-thread[data-phase="work"] .activity-mark { background:var(--run,#30d158); box-shadow:0 0 0 3px rgba(48,209,88,.18); }
+html.eden-app .eves-activity .activity-mark { display:none; }
+html.eden-app .eves-activity .activity-head::before { content:"EVES"; flex:none; font:600 10.5px ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; color:var(--pt-faint); }
+html.eden-app .activity-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+html.eden-app .activity-count, html.eden-app .activity-time { flex:none; color:var(--pt-faint); font:12px ui-monospace,'SF Mono',Menlo,monospace; }
+html.eden-app .activity-thread:not(.eves-activity) .activity-count { display:none; }
+html.eden-app .activity-chevron { flex:none; color:var(--pt-faint); font-size:17px; transition:transform .2s cubic-bezier(.32,.72,0,1); }
+html.eden-app .activity-head[aria-expanded="true"] .activity-chevron { transform:rotate(90deg); }
+html.eden-app .activity-bar { display:flex; gap:3px; margin:8px 4px 0; }
+html.eden-app .activity-thread:not(.eves-activity) .activity-bar,
+html.eden-app .activity-thread[data-phase="over"] .activity-bar { display:none; }
+html.eden-app .activity-bar i { flex:1; height:3px; border-radius:2px; background:var(--hairline); }
+html.eden-app .activity-bar i[data-status="done"] { background:var(--run,#30d158); }
+html.eden-app .activity-bar i[data-status="active"] { background:var(--accent); }
+html.eden-app .activity-bar i[data-status="stopped"] { background:var(--warn,#ff9f0a); }
+html.eden-app .activity-bar i[data-status="skipped"] { background:repeating-linear-gradient(90deg,var(--hairline) 0 3px,transparent 3px 6px); }
+/* the steps: a timeline */
+html.eden-app .activity-list { list-style:none; margin:14px 0 0 10px; padding:0 0 0 16px; border-left:1.5px solid var(--hairline); display:flex; flex-direction:column; gap:11px; }
+html.eden-app .activity-step { position:relative; font-size:14px; line-height:1.35; color:var(--pt-muted); overflow-wrap:anywhere; }
+html.eden-app .activity-dot { position:absolute; left:-22px; top:4px; width:10px; height:10px; border-radius:50%; overflow:hidden; color:transparent; font-size:0;
+  background:var(--content,#1e1e20); border:1.5px solid var(--pt-faint); }
+html.eden-app .activity-step[data-status="done"] .activity-dot { background:var(--done,#8e8e93); border-color:var(--done,#8e8e93); }
+html.eden-app .activity-step[data-status="active"] { color:var(--text); font-weight:600; }
+html.eden-app .activity-step[data-status="active"] .activity-dot { background:var(--run,#30d158); border-color:var(--run,#30d158); box-shadow:0 0 0 4px rgba(48,209,88,.18); }
+html.eden-app .activity-step[data-status="pending"] { color:var(--pt-faint); }
+html.eden-app .activity-step[data-status="stopped"] .activity-dot { background:var(--warn,#ff9f0a); border-color:var(--warn,#ff9f0a); }
+html.eden-app .activity-step[data-status="skipped"] { color:var(--pt-faint); }
+html.eden-app .activity-step[data-status="skipped"] .activity-dot { border-style:dashed; }
+/* a skipped stage says so out loud, never looks done */
+html.eden-app .activity-step[data-status="skipped"] .sr-only { position:static; width:auto; height:auto; margin:0; clip:auto; overflow:visible; white-space:normal; }
+html.eden-app .activity-body { margin-top:4px; font:400 12px/1.5 ui-monospace,'SF Mono',Menlo,monospace; color:var(--pt-faint); }
+html.eden-app .activity-body:empty { display:none; }
+html.eden-app .activity-body p { margin:0 0 4px; }
+html.eden-app .activity-trace { max-height:160px; overflow:auto; white-space:pre-wrap; margin:4px 0; }
+html.eden-app .activity-sources .g-strip { margin:4px 0 0; }
+html.eden-app .eves-activity .eves-dots { list-style:none; margin:2px 0 0; padding:0; display:flex; flex-direction:column; gap:2px; }
+html.eden-app .eves-activity .eves-ldot { display:flex; gap:10px; }
+html.eden-app .eves-activity .eves-ldot .pdot { display:none; }
+html.eden-app .eves-activity .eves-ldot .nm { min-width:9.5em; color:var(--pt-muted); }
+html.eden-app .eves-activity .eves-note { margin:8px 4px 0; font-size:12px; line-height:1.5; color:var(--pt-faint); }
+/* cost and Stop under the line */
+html.eden-app .activity-footer { display:flex; align-items:center; gap:8px; margin:6px 6px 0; font-size:12px; color:var(--pt-faint); }
+html.eden-app .activity-meta { flex:1; min-width:0; overflow-wrap:anywhere; }
+html.eden-app .activity-stop { min-height:32px; padding:0 4px; border:0; background:none; color:var(--pt-muted); font:inherit; font-weight:600; cursor:pointer; }
+html.eden-app .activity-warning { margin:8px 4px 0; font-size:12px; line-height:1.5; color:var(--warn,#ff9f0a); white-space:pre-line; overflow-wrap:anywhere; }
+/* finished: a normal reply keeps a faint line; EVES hands over to its badge (only a warning stays) */
+html.eden-app .activity-thread[data-phase="over"] .activity-head { background:transparent; box-shadow:none; color:var(--pt-muted); }
+html.eden-app .activity-thread[data-phase="over"] .activity-footer { display:none; }
+html.eden-app .eves-activity[data-phase="over"] .activity-glass,
+html.eden-app .eves-activity[data-phase="over"] .eves-note { display:none; }
+html.eden-app .activity-head:focus-visible, html.eden-app .activity-stop:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { html.eden-app .activity-chevron { transition:none; } }
+@media (prefers-reduced-transparency:reduce) { html.eden-app .activity-head { background:var(--content); -webkit-backdrop-filter:none; backdrop-filter:none; } }
+
+
+/* Less busy (owner, 2026-11-06): the title bar keeps the title, privacy, ⋯, the inspector and the browser (the owner kept those
+   two). Split view, search and Help are in ⋯ (app.js narrowItems) and their shortcuts; split view comes back while it's on. */
+#titlebar > :is(#btnSplit,#btnPalette,#btnHelp){display:none}
+#titlebar > #btnSplit[aria-pressed="true"],#titlebar > #btnSplit.active{display:flex}
+/* (2026-11-06, continued) No logo beside the chat's title; the Mac's status in the sidebar only when something needs you
+   (Eden waiting for your approval there, or a Mac that was connected and dropped); the theme is in Settings › Appearance. */
+#titlebar > .orb{display:none}
+#jarvisState:not(.wait):not(.dropped){display:none}
+.side-foot #btnTheme{display:none}
+/* "? for shortcuts" only while the empty message box has focus (2026-11-06, less busy) */
+#cc-mode{opacity:0;transition:opacity .15s}
+body:has(#deck-input:focus:placeholder-shown) #cc-mode{opacity:1}
+/* the mode in the message box (composer.js renderComposer): "Search ×", one click back to Chat */
+.jc-mode-tag{display:inline-flex;align-items:center;gap:5px;flex:none;align-self:center;height:26px;padding:0 8px 0 9px;margin-right:2px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font:inherit;font-size:12.5px;font-weight:550;cursor:pointer;border:0}
+.jc-mode-tag .jc-mode-tag-ic{display:inline-flex}
+.jc-mode-tag .jc-mode-tag-x{opacity:.65;font-size:14px;line-height:1;margin-left:1px}
+.jc-mode-tag:hover .jc-mode-tag-x{opacity:1}
+.msg.user .msg-more-pop{left:auto;right:0}
+/* The mic and Talk are plain icons, no circle (owner, 2026-11-06): Send stays the one filled circle. A light round wash on
+   hover only, and the red ring while dictating (voice.css .live) still shows that it's listening. */
+html .jc-composer .jc-composer-top :is(.jc-dictate,.jc-talk):not(.live){background:transparent;box-shadow:none}
+html .jc-composer .jc-composer-top :is(.jc-dictate,.jc-talk):not(.live):hover{background:rgb(var(--c-ink) / .08)}
+
+/* Settings (2026-11-06): what most people never need folds away under "Spending details", "Custom color", "Set up Gmail…" */
+#setBody .set-more{margin-top:12px;border-radius:12px}
+#setBody .set-more > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;padding:8px 4px;font-size:13px;font-weight:550;color:var(--text2)}
+#setBody .set-more > summary::-webkit-details-marker{display:none}
+#setBody .set-more > summary::before{content:'›';display:inline-block;width:12px;transition:transform .15s;color:var(--text3)}
+#setBody .set-more[open] > summary::before{transform:rotate(90deg)}
+#setBody .set-more > summary:hover{color:var(--text)}
+#setBody .set-more-in{padding:2px 0 6px}
+#setBody .ecp-card .set-more{margin-top:6px}
+#setBody .set-part + .set-part{margin-top:22px}
+#setBody .set-part-h{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);font-weight:600;margin:18px 0 8px 4px}
+/* the account is in Settings › Accounts & memory now: no separate Account button in Settings' header */
+#settingsSheet #btnAccount{display:none!important}
+#setBody .acct-embed{padding:0}
+#setBody .acct-embed{width:auto}

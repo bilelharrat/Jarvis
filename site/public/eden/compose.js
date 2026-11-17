@@ -18,6 +18,9 @@ import { routeSettings } from './router.js';
 import { state } from './state.js';
 import { carryMarks, close as markClose, leadingMarks, MARKS_NOTE, open as markOpen, parseInline, stripMarks } from './compose-marks.js';
 import { voiceFor, voiceOn, recordEdit, addNote, prefs as mailPrefs, getKit, addFollowUp, openMailSettings, askCheap, addOffer, mailAI, privateMail } from './mailkit.js';
+// Several mail accounts (ROADMAP Y, askeden.com's MAIL_MULTI): From picks the account; a window's calls go to its mailbox
+import { PRIMARY, isExtra, wireBox, boxName, homeBoxOf } from './mail-merge.js';
+import { loadMailboxes, mailboxes, multiOn, mailboxById, setLastFrom, kindName } from './mail-accounts.js';
 import { freeSlots, slotText } from './mail-plan.js';
 import { checkDraft, datesIn, DRAFT_CHECK_SYSTEM, parseDraftIssues, toneCheck } from './mail-check.js';
 import { parseIcs, icsToDraft } from './calendar-rules.js';
@@ -40,7 +43,8 @@ const CAPS = {
   gmail: { label: 'Gmail', html: true, bcc: true, attach: true, schedule: true, threading: true, autosave: true },
   mac: { label: 'Mail on your Mac', html: false, bcc: false, attach: false, schedule: false, threading: false, autosave: false },
 };
-const K = { geom: 'eden:compose:geom', open: 'eden:compose:open', tools: 'eden:compose:tools', recent: 'eden:mail:recent' };
+// geom2 (2026-11-07): the window starts at Gmail's size; sizes saved under the old key (often the 380px minimum) are dropped once.
+const K = { geom: 'eden:compose:geom2', open: 'eden:compose:open', tools: 'eden:compose:tools', recent: 'eden:mail:recent' };
 const KIND = { to: 'To', cc: 'Cc', bcc: 'Bcc' };
 const MODE_TITLE = { new: 'New message', reply: 'Reply', replyAll: 'Reply all', forward: 'Forward', draft: 'Draft' };
 
@@ -61,8 +65,9 @@ function arrayIn(j, keys = ['messages', 'results', 'items', 'emails', 'accounts'
   return [];
 }
 const str = (v) => (v === undefined || v === null ? '' : Array.isArray(v) ? v.map(str).filter(Boolean).join(', ') : typeof v === 'object' ? (v.name && v.email ? `${v.name} <${v.email}>` : v.email || v.name || v.address || '') : String(v));
-async function gmail(action, args = {}) {
-  const r = await api.gmail(action, args);
+/** A Gmail action; `box` is the window's mailbox (none or 'primary': the first Gmail). */
+async function gmail(action, args = {}, box) {
+  const r = await api.gmail(action, args, wireBox(box));
   if (r && r.error) throw new Error(r.error);
   return r && typeof r === 'object' && 'result' in r ? r.result : r;
 }
@@ -349,6 +354,8 @@ const sigText = (sig) => { const d = document.createElement('div'); d.append(san
 
 /* ================= sources: Gmail status, Mac accounts ================= */
 const src = { google: null, mac: null, sendAs: null, sendAsFor: '' };
+/** A new window's mailbox when none was named: the first Gmail, else (no Gmail at all) the first working mail account. */
+const homeBox = () => (multiOn() ? homeBoxOf({ gmail: !!(src.google && src.google.connected), boxes: mailboxes() }) : PRIMARY);
 async function refreshSources() {
   try { src.google = await api.googleStatus(); } catch { src.google = null; }
   // From aliases: Gmail's send-as addresses (users.settings.sendAs.list, covered by gmail.readonly)
@@ -357,6 +364,7 @@ async function refreshSources() {
       try { const r = await gmail('sendAs'); src.sendAs = ((r && r.sendAs) || []).filter((s) => s && s.email); src.sendAsFor = src.google.email; } catch { src.sendAs = src.sendAs || []; }
     }
   } else { src.sendAs = null; src.sendAsFor = ''; }
+  await loadMailboxes(); // the other mail accounts, when several are on (else []); with no Gmail they're the only ones
   if (H.jarvisAvailable && H.jarvisAvailable()) {
     if (!src.mac) {
       try {
@@ -373,8 +381,13 @@ function fromOptions() {
   const out = [];
   if (src.google && src.google.connected) {
     const primary = (src.sendAs || []).find((s) => s.isPrimary);
-    out.push({ key: 'gmail:', source: 'gmail', account: '', label: primary && primary.name ? `${primary.name} <${src.google.email}>` : src.google.email || 'Gmail', sub: 'Gmail' });
-    for (const s of gmailAliases()) out.push({ key: `gmail:${s.email.toLowerCase()}`, source: 'gmail', account: s.email.toLowerCase(), label: aliasLabel(s), sub: s.isDefault ? 'Gmail alias, Gmail’s default' : 'Gmail alias' });
+    const many = multiOn() && mailboxes().length > 1;
+    out.push({ key: 'gmail:', source: 'gmail', account: '', mailbox: PRIMARY, label: primary && primary.name ? `${primary.name} <${src.google.email}>` : src.google.email || 'Gmail', sub: many ? boxName(mailboxById(PRIMARY)) : 'Gmail' });
+    for (const s of gmailAliases()) out.push({ key: `gmail:${s.email.toLowerCase()}`, source: 'gmail', account: s.email.toLowerCase(), mailbox: PRIMARY, label: aliasLabel(s), sub: s.isDefault ? 'Gmail alias, Gmail’s default' : 'Gmail alias' });
+  }
+  // each other mail account (mail-accounts.js), by its address and name; with no Gmail, every one
+  if (multiOn() && (!(src.google && src.google.connected) || mailboxes().length > 1)) {
+    for (const b of mailboxes()) if (isExtra(b.id) && b.status !== 'reconnect') out.push({ key: `gmail@${b.id}:`, source: 'gmail', account: '', mailbox: b.id, label: b.email || boxName(b), sub: b.label || kindName(b.kind || b.provider) });
   }
   if (src.mac) {
     if (!src.mac.length) out.push({ key: 'mac:', source: 'mac', account: '', label: 'Default account', sub: 'Mail on your Mac' });
@@ -382,11 +395,13 @@ function fromOptions() {
   }
   return out;
 }
-const selfEmail = (w) => (w.source === 'gmail' ? w.account || (src.google && src.google.email) || '' : ((src.mac || []).find((a) => a.id === w.account) || {}).email || '').toLowerCase();
+/** The address a Gmail window's mailbox sends from (an alias aside). */
+const boxEmail = (mailbox) => (isExtra(mailbox) ? (mailboxById(mailbox) || {}).email || '' : (src.google && src.google.email) || '');
+const selfEmail = (w) => (w.source === 'gmail' ? w.account || boxEmail(w.mailbox) : ((src.mac || []).find((a) => a.id === w.account) || {}).email || '').toLowerCase();
 /** The owner's own addresses for this window's source (reply all leaves them all out). */
-const selfEmails = (w) => new Set([selfEmail(w), ...(w.source === 'gmail' ? [(src.google && src.google.email) || '', ...(src.sendAs || []).map((s) => s.email)] : [])].map((e) => e.toLowerCase()).filter(Boolean));
+const selfEmails = (w) => new Set([selfEmail(w), ...(w.source === 'gmail' ? [(src.google && src.google.email) || '', ...(src.sendAs || []).map((s) => s.email), ...mailboxes().map((b) => b.email || '')] : [])].map((e) => e.toLowerCase()).filter(Boolean));
 // signatures are per address: a Gmail alias has its own defaults (and "Import from Gmail" fills them in)
-const accountKey = (source, account) => (source === 'gmail' ? `gmail:${account || (src.google && src.google.email) || ''}` : `mac:${account || 'default'}`);
+const accountKey = (source, account, mailbox) => (source === 'gmail' ? `gmail:${account || boxEmail(mailbox)}` : `mac:${account || 'default'}`);
 
 /* ================= recipients autocomplete ================= */
 const contactCache = new Map();
@@ -505,6 +520,9 @@ class Compose {
     this.id = o.id && /^cw[0-9a-f]+$/.test(o.id) ? o.id : uid('cw');
     this.source = o.source === 'mac' ? 'mac' : 'gmail';
     this.account = o.account || '';
+    // the Gmail account it's written from (mail.js picks the one an email came to), and the one its original email is in
+    this.mailbox = this.source === 'gmail' && isExtra(o.mailbox) ? o.mailbox : homeBox();
+    this.origBox = this.source === 'gmail' && isExtra(o.origBox) ? o.origBox : this.mailbox;
     this.mode = MODE_TITLE[o.mode] ? o.mode : 'new';
     this.draftId = o.draftId || null;
     this.thread = o.thread || {};
@@ -754,7 +772,7 @@ class Compose {
     this.ed.addEventListener('input', () => { if (this.img) this.placeImg(); });
     this.bindImgHandle();
     this.ed.addEventListener('click', (e) => { const a = e.target.closest('a'); if (a && (e.metaKey || e.ctrlKey)) { e.preventDefault(); const u = safeUrl(a.getAttribute('href') || '', ['http:', 'https:', 'mailto:']); if (u) window.open(u, '_blank', 'noopener'); } });
-    this.fromSel.addEventListener('change', () => { const o = fromOptions().find((x) => x.key === this.fromSel.value); if (o) this.setSource(o.source, o.account); });
+    this.fromSel.addEventListener('change', () => { const o = fromOptions().find((x) => x.key === this.fromSel.value); if (o) this.setSource(o.source, o.account, o.mailbox); });
     // drag and drop
     let depth = 0;
     r.addEventListener('dragenter', (e) => { if ([...e.dataTransfer.types].includes('Files')) { depth++; this.drop.hidden = false; } });
@@ -781,7 +799,8 @@ class Compose {
   place(index) {
     const saved = store.get(K.geom, null);
     const dt = dockTop(), c = centerBox();
-    const w = clamp(saved && saved.w ? saved.w : 560, 380, Math.max(380, innerWidth - 24));
+    // Gmail's compose width (540); up to 640 tall, less when the window is short
+    const w = clamp(saved && saved.w ? saved.w : 540, 380, Math.max(380, innerWidth - 24));
     const h = clamp(saved && saved.h ? saved.h : 640, 320, Math.max(320, dt - 24));
     let x = saved && Number.isFinite(saved.x) ? saved.x : c.right - w - 12;
     let y = saved && Number.isFinite(saved.y) ? saved.y : dt - 12 - h;
@@ -1374,7 +1393,7 @@ class Compose {
       try {
         let id;
         if (a.file) id = await uploadBlob(a.file, a.name, a.mime, (n) => { a.sent = n; this.renderAtts(); });
-        else if (a.gmailRef) { const r = await gmail('uploadFromGmail', { ...a.gmailRef, name: a.name, mime: a.mime }); id = r.uploadId; a.size = r.size || a.size; }
+        else if (a.gmailRef) { const r = await gmail('uploadFromGmail', { ...a.gmailRef, name: a.name, mime: a.mime }, this.origBox); id = r.uploadId; a.size = r.size || a.size; }
         else throw new Error('Eden no longer has it: attach it again');
         if (this.closed || !this.atts.includes(a)) { freeUpload(id); return; }
         a.uploadId = id;
@@ -1431,22 +1450,38 @@ class Compose {
   }
 
   /* ---------- source, capabilities, From ---------- */
+  fromKey() { return this.source === 'gmail' && isExtra(this.mailbox) ? `gmail@${this.mailbox}:${this.account}` : `${this.source}:${this.account}`; }
   paintFrom() {
     const opts = fromOptions();
-    const key = `${this.source}:${this.account}`;
+    const key = this.fromKey();
+    if (isExtra(this.mailbox) && !opts.some((o) => o.key === key)) opts.unshift({ key, source: 'gmail', account: this.account, mailbox: this.mailbox, label: boxEmail(this.mailbox) || 'Another Gmail account', sub: 'not available' });
     if (!opts.some((o) => o.key === key)) opts.unshift({ key, source: this.source, account: this.account, label: this.source === 'gmail' ? this.account || (src.google && src.google.email) || 'Gmail (not connected)' : this.account || 'Default account', sub: this.source === 'gmail' && this.account ? 'Gmail alias' : CAPS[this.source].label });
     this.fromSel.replaceChildren(...opts.map((o) => el('option', { value: o.key }, `${o.label} · ${o.sub}`)));
     this.fromSel.value = key;
     this.fromSel.disabled = opts.length < 2;
+    // several accounts: the account's colour by From, as in Mail's list (mail-accounts.js)
+    if (!this.fromDot) { this.fromDot = el('span', { class: 'mbx-dot cw-from-dot', 'aria-hidden': 'true' }); this.fromSel.before(this.fromDot); }
+    const box = this.source === 'gmail' && multiOn() ? mailboxById(this.mailbox) : null;
+    this.fromDot.className = `mbx-dot cw-from-dot mbx-${(box && box.color) || 'indigo'}`;
+    this.fromDot.hidden = !box;
   }
-  setSource(source, account) {
-    const prevKey = accountKey(this.source, this.account);
+  setSource(source, account, mailbox) {
+    const prevKey = accountKey(this.source, this.account, this.mailbox);
+    const box = source === 'gmail' && isExtra(mailbox) ? mailbox : PRIMARY;
+    if (this.source === 'gmail' && box !== this.mailbox && this.draftId) {
+      // a draft lives in one account's Drafts: the next save writes it to the new account's instead
+      const old = { id: this.draftId, box: this.mailbox };
+      this.draftId = null;
+      this.sv.dirty = true;
+      gmail('deleteDraft', { id: old.id }, old.box).catch(() => undefined);
+    }
+    this.mailbox = box;
     const hadAutoSig = this.sigId && sigFor(prevKey, this.mode !== 'new') && sigFor(prevKey, this.mode !== 'new').id === this.sigId;
     this.source = source;
     this.account = account || '';
     this.root.dataset.source = source;
     if (!this.caps.html && !this.plain) this.setPlain(true, { quiet: true });
-    if (hadAutoSig || !this.sigId) this.applySig(sigFor(accountKey(source, this.account), this.mode !== 'new'));
+    if (hadAutoSig || !this.sigId) this.applySig(sigFor(accountKey(source, this.account, this.mailbox), this.mode !== 'new'));
     if (!this.caps.threading) this.setQuote([...this.quote.childNodes], false);
     loadContacts(source);
     this.paintCaps();
@@ -1474,13 +1509,14 @@ class Compose {
     if (this.sendError) notes.push(el('div', 'cw-note err', el('span', '', el('b', '', this.sendCheck ? 'Before you send: ' : 'Not sent. '), this.sendError), el('button', { type: 'button', class: 'cap', onclick: () => { this.sendError = null; this.paintCaps(); } }, 'Dismiss')));
     if (this.loadError) notes.push(el('div', 'cw-note err', this.loadError));
     this.notes.replaceChildren(...notes);
-    this.bSendMore.disabled = !c.schedule;
-    this.bSendMore.title = c.schedule ? 'Schedule send' : 'Mail on your Mac can’t schedule';
+    const extra = this.source === 'gmail' && isExtra(this.mailbox);
+    this.bSendMore.disabled = !c.schedule || extra;
+    this.bSendMore.title = extra ? (src.google && src.google.connected ? 'Scheduled send works from your first Gmail account for now' : 'Scheduled send needs a Gmail account for now: add one in Mail › Accounts') : c.schedule ? 'Schedule send' : 'Mail on your Mac can’t schedule';
     this.paintFrom();
   }
   async cancelSchedule() {
     if (!this.scheduled) return;
-    try { await gmail('cancelScheduled', { id: this.scheduled.id }); this.scheduled = null; this.paintCaps(); toast('Schedule cancelled: the email stays in Drafts'); }
+    try { await gmail('cancelScheduled', { id: this.scheduled.id }, PRIMARY); this.scheduled = null; this.paintCaps(); toast('Schedule cancelled: the email stays in Drafts'); }
     catch (e) { toast(`Couldn’t cancel: ${e.message}`); }
   }
 
@@ -1576,7 +1612,7 @@ class Compose {
       this.source === 'gmail'
         ? el('button', { type: 'button', role: 'menuitem', class: 'cw-mi', onclick: async () => { this.closePop(); this.sv.dirty = true; const ok = await this.saveNow({ force: true }); toast(ok ? 'Saved to Gmail Drafts' : `Couldn’t save: ${this.sv.error || 'try again'}`); } }, 'Save draft now')
         : el('button', { type: 'button', role: 'menuitem', class: 'cw-mi', onclick: () => { this.closePop(); this.openInMail(); } }, 'Open in Mail on your Mac as a draft'),
-      el('button', { type: 'button', role: 'menuitem', class: 'cw-mi', disabled: !this.caps.schedule, onclick: () => { this.closePop(); this.schedulePicker(this.bSendMore); } }, 'Schedule send…'),
+      el('button', { type: 'button', role: 'menuitem', class: 'cw-mi', disabled: !this.caps.schedule || (this.source === 'gmail' && isExtra(this.mailbox)), onclick: () => { this.closePop(); this.schedulePicker(this.bSendMore); } }, 'Schedule send…'),
       el('button', { type: 'button', role: 'menuitem', class: 'cw-mi', onclick: () => { this.closePop(); manageSignatures(this); } }, 'Signatures…'),
       el('div', 'cw-msep'),
       el('button', { type: 'button', role: 'menuitem', class: 'cw-mi danger', onclick: () => { this.closePop(); this.discard(); } }, 'Discard draft'),
@@ -1691,7 +1727,7 @@ class Compose {
     if (!this.threadCtx) {
       this.threadCtx = (async () => {
         try {
-          const t = await gmail('thread', { id: this.thread.threadId });
+          const t = await gmail('thread', { id: this.thread.threadId }, this.origBox);
           const msgs = ((t && t.messages) || []).filter((m) => m.id !== this.origId);
           if (!msgs.length) return [];
           const self = selfEmails(this);
@@ -1962,14 +1998,14 @@ class Compose {
   }
   /** A Gmail call with this window's payload; when Eden's server has lost the uploads (410: it restarted), upload them again and retry once. */
   async withUploads(action, extra = {}) {
-    try { return await gmail(action, { ...this.payload(), ...extra }); }
+    try { return await gmail(action, { ...this.payload(), ...extra }, this.mailbox); }
     catch (e) {
       if (e.status !== 410) throw e;
       this.imgUploads.clear(); // the inline images then travel inside the request
       await Promise.all(this.atts.map((a) => this.upload(a)));
       const lost = this.atts.filter((a) => a.state !== 'ready');
       if (lost.length) throw new Error(`Eden lost ${lost.map((a) => a.name).join(', ')} (its server restarted): attach ${lost.length === 1 ? 'it' : 'them'} again`);
-      return gmail(action, { ...this.payload(), ...extra });
+      return gmail(action, { ...this.payload(), ...extra }, this.mailbox);
     }
   }
   collect() {
@@ -2078,7 +2114,7 @@ class Compose {
     const macTooLong = this.source === 'mac' && b.text.length > MAC_SEND_CHARS;
     const row = (k, v, own = true) => (v ? el('div', 'cw-rv-r', el('span', 'k', k), el('span', own ? { class: 'v', 'data-no-i18n': '' } : 'v', v)) : null);
     const names = (k) => this.recip[k].map(fmtAddr).join(', ');
-    const from = this.source === 'gmail' ? (this.fromSel.selectedOptions[0] && this.fromSel.value === `gmail:${this.account}` ? this.fromSel.selectedOptions[0].textContent.replace(/ · .*$/, '') : this.account || (src.google && src.google.email) || t('your Gmail')) : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : t('Mail on your Mac')}`;
+    const from = this.source === 'gmail' ? (this.fromSel.selectedOptions[0] && this.fromSel.value === this.fromKey() ? this.fromSel.selectedOptions[0].textContent.replace(/ · .*$/, '') : this.account || boxEmail(this.mailbox) || t('your Gmail')) : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : t('Mail on your Mac')}`;
     const macTo = this.source === 'mac' ? this.macPayload() : null;
     const preview = el('div', { class: 'cw-rv-body', tabindex: '0', 'aria-label': t('Message preview'), 'data-no-i18n': '' });
     if (b.html) {
@@ -2209,13 +2245,14 @@ class Compose {
           }
           let sent;
           try { sent = await this.withUploads('send', { confirm: true }); } finally { this.receiptUrl = null; }
+          if (multiOn()) setLastFrom(this.mailbox);
           if (this.offered && this.offered.length && sent && sent.threadId) addOffer({ threadId: sent.threadId, title: this.subj.value.replace(/^(re|fwd?):\s*/i, '').trim() || 'Meeting', minutes: this.offeredMinutes || 30, attendees: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.email), slots: this.offered.map((x) => ({ start: x.start.toISOString(), end: x.end.toISOString() })) });
           if (rcpt && rcpt.id) postJSON('/api/chat/receipts', { action: 'sent', id: rcpt.id, thread: (sent && sent.threadId) || undefined }).catch(() => {});
           this.draftId = null;
           this.freeUploads();
           const days = Number(this.followUp) || 0;
           if (days && sent && sent.threadId) {
-            addFollowUp({ source: 'gmail', threadId: sent.threadId, subject: this.subj.value.trim() || '(no subject)', to: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.name || a.email), sentAt: new Date().toISOString(), dueAt: new Date(Date.now() + days * 86_400_000).toISOString() });
+            addFollowUp({ source: 'gmail', box: this.mailbox, threadId: sent.threadId, subject: this.subj.value.trim() || '(no subject)', to: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.name || a.email), sentAt: new Date().toISOString(), dueAt: new Date(Date.now() + days * 86_400_000).toISOString() });
             toast(`Message sent. Eden reminds you if nobody replies in ${days === 7 ? 'a week' : `${days} day${days === 1 ? '' : 's'}`}.`);
           } else toast('Message sent');
         }
@@ -2248,7 +2285,7 @@ class Compose {
     this.closePop(); this.hideSug();
     if (this.ai.busy) this.stopAI();
     if (this.source === 'gmail') {
-      if (this.isEmpty() && this.draftId) { const id = this.draftId; clearTimeout(this.sv.timer); gmail('deleteDraft', { id }).catch(() => undefined); this.destroy(); return; }
+      if (this.isEmpty() && this.draftId) { const id = this.draftId; clearTimeout(this.sv.timer); gmail('deleteDraft', { id }, this.mailbox).catch(() => undefined); this.destroy(); return; }
       if (!this.isEmpty() && (this.sv.dirty || this.sv.inflight)) {
         this.paintSave('saving');
         const ok = await this.saveNow({ force: true });
@@ -2272,7 +2309,7 @@ class Compose {
     if (this.sv.inflight) { try { await this.sv.inflight; } catch { /* */ } }
     const id = this.draftId;
     if (id && this.source === 'gmail') {
-      try { await gmail('deleteDraft', { id }); } catch (e) { toast(`Couldn’t delete the draft: ${e.message}`); return; }
+      try { await gmail('deleteDraft', { id }, this.mailbox); } catch (e) { toast(`Couldn’t delete the draft: ${e.message}`); return; }
     }
     this.destroy();
     toast('Draft discarded', { label: 'Undo', run: () => { const w = openCompose({ ...snap, draftId: null, restore: true }); w.atts = atts; for (const a of atts) if (a.state !== 'ready') w.upload(a); w.renderAtts(); w.changed(); } });
@@ -2307,7 +2344,7 @@ class Compose {
     const html = this.plain ? null : this.ed.innerHTML.replace(/ class="cw-img-on"/g, '');
     const quote = this.quote.innerHTML;
     return {
-      id: this.id, source: this.source, account: this.account, mode: this.mode, draftId: this.draftId, thread: this.thread,
+      id: this.id, source: this.source, account: this.account, mailbox: this.mailbox, origBox: this.origBox, mode: this.mode, draftId: this.draftId, thread: this.thread,
       orig: this.orig ? { ...this.orig, text: String(this.orig.text || '').slice(0, 20_000) } : null,
       to: this.recip.to.map(fmtAddr), cc: this.recip.cc.map(fmtAddr), bcc: this.recip.bcc.map(fmtAddr), subject: this.subj.value,
       plain: this.plain, text: this.plain ? this.pt.value : null, html: html && html.length < 300_000 ? html : null, quote: quote.length < 200_000 ? quote : '',
@@ -2325,7 +2362,7 @@ class Compose {
     this.loadError = null;
     this.saveEl.textContent = 'Opening…';
     let d;
-    try { d = await gmail('getDraft', { id }); } catch (e) { this.loadError = `Couldn’t open the draft: ${e.message}`; this.paintCaps(); this.saveEl.textContent = ''; return false; }
+    try { d = await gmail('getDraft', { id }, this.mailbox); } catch (e) { this.loadError = `Couldn’t open the draft: ${e.message}`; this.paintCaps(); this.saveEl.textContent = ''; return false; }
     this.draftId = d.draftId || id;
     this.thread = { threadId: d.threadId || undefined, inReplyTo: d.inReplyTo || undefined, references: d.references || undefined };
     this.scheduled = d.scheduled || null;
@@ -2355,7 +2392,7 @@ class Compose {
     for (const a of d.attachments || []) {
       if (!a.attachmentId) continue;
       if (a.contentId && pending().some((img) => img.getAttribute('data-cid') === a.contentId)) {
-        gmail('attachment', { messageId: d.id, attachmentId: a.attachmentId }).then((r) => {
+        gmail('attachment', { messageId: d.id, attachmentId: a.attachmentId }, this.mailbox).then((r) => {
           for (const img of pending()) if (img.getAttribute('data-cid') === a.contentId) { img.setAttribute('src', `data:${a.mime};base64,${r.data}`); img.removeAttribute('data-pending'); }
           this.renderAtts();
         }).catch(() => undefined);
@@ -2401,7 +2438,7 @@ export function emailContext(m) {
 export function openCompose(opts = {}) {
   ensureLayer();
   const mode = opts.restore ? opts.mode : opts.draftId ? 'draft' : opts.mode || 'new';
-  const source = opts.source || (src.google && src.google.connected ? 'gmail' : H.jarvisAvailable && H.jarvisAvailable() ? 'mac' : 'gmail');
+  const source = opts.source || ((src.google && src.google.connected) || multiOn() ? 'gmail' : H.jarvisAvailable && H.jarvisAvailable() ? 'mac' : 'gmail');
   // the same draft or reply twice → bring the open window forward
   const same = wins.find((w) => (opts.draftId && w.draftId === opts.draftId) || (opts.message && opts.message.id && w.origId === opts.message.id && w.mode === mode));
   if (same && !opts.restore) { same.restoreWin(); return same; }
@@ -2436,7 +2473,7 @@ export function openCompose(opts = {}) {
       const self = selfEmails(w);
       const notSelf = (a) => a.email && !self.has(a.email.toLowerCase());
       // like Gmail: reply from the alias the message was sent to
-      if (source === 'gmail' && !opts.account) {
+      if (source === 'gmail' && !opts.account && w.mailbox === PRIMARY) {
         const mine = new Set(gmailAliases().map((x) => x.email.toLowerCase()));
         const hit = [...(m.to || []), ...(m.cc || [])].flatMap(splitAddresses).map(parseAddress).find((a) => mine.has(a.email.toLowerCase()));
         if (hit) w.account = hit.email.toLowerCase();
@@ -2469,7 +2506,7 @@ export function openCompose(opts = {}) {
     }
     if (!w.caps.html) w.plain = true;
     w.ed.hidden = w.plain; w.pt.hidden = !w.plain;
-    const sig = sigFor(accountKey(w.source, w.account), reply);
+    const sig = sigFor(accountKey(w.source, w.account, w.mailbox), reply);
     w.setBody({ nodes: opts.body ? (opts.md && !w.plain ? mdToNodes(opts.body) : textToNodes(opts.md ? stripMd(opts.body) : opts.body)) : [blankLine()], text: opts.md ? stripMd(opts.body || '') : opts.body || '', sig });
     w.sv.dirty = false;
   }
@@ -2486,7 +2523,12 @@ export function openCompose(opts = {}) {
   if (opts.ai === 'reply' && w.orig) setTimeout(() => w.runAI('reply', opts.aiPrompt || ''), 50);
   // an Auto Draft opened: what Eden wrote, so the owner's edits are learned from like any other draft
   if (opts.aiDraft && opts.body) { w.aiDraft = { text: w.messageText(), kind: 'auto', to: (w.recip.to.find((a) => a.valid) || {}).email || '', situation: opts.aiDraft.situation || null }; w.cNotMe.hidden = false; w.aiStatus('Eden wrote this ahead, in your style. Read it over before you send.'); }
-  refreshSources().then(() => { if (!w.closed) w.paintFrom(); });
+  refreshSources().then(() => {
+    if (w.closed) return;
+    // no Gmail at all: a window that started on it (sources not read yet) moves to the first mail account
+    if (w.source === 'gmail' && w.mailbox === PRIMARY && !w.draftId && homeBox() !== PRIMARY) w.setSource('gmail', '', homeBox());
+    else w.paintFrom();
+  });
   loadContacts(w.source);
   return w;
 }
@@ -2508,7 +2550,7 @@ function ensureLayer() {
 /* ================= signatures dialog ================= */
 function manageSignatures(win) {
   const data = sigStore.get();
-  const key = win ? accountKey(win.source, win.account) : null;
+  const key = win ? accountKey(win.source, win.account, win.mailbox) : null;
   let cur = data.list[0] || null;
   const listBox = el('div', { class: 'cw-sig-list', role: 'listbox', 'aria-label': 'Signatures' });
   const name = el('input', { type: 'text', maxlength: '60', placeholder: 'e.g. Work', 'aria-label': 'Signature name' });

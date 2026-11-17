@@ -32,10 +32,9 @@ const isChat = (c) => !c || c.kind !== 'code';
 
 /** The local models as the server sees them (meta.local), or why there are none. */
 export function localStatus() {
-  const phone = state.meta && state.meta.local;
-  if (phone && phone.onDevice) return phone; // the Eden iPhone app answers private chats itself (native.js)
   const s = state.meta && state.meta.local;
-  if (hosted()) return s && s.viaMac ? s : { available: false, reason: IN_APP ? APP_REASON : HOSTED_REASON, models: [], servers: [] }; // the Mac's, through its link
+  if (s && s.onDevice) return s; // the Eden iPhone app answers private chats itself (native.js)
+  if (hosted()) return s && (s.viaMac || s.available || (s.models && s.models.length)) ? s : { available: false, reason: IN_APP ? APP_REASON : HOSTED_REASON, models: [], servers: [] }; // the Mac's, through its link (or DeepInfra zero-retention)
   return s || { available: false, reason: state.meta ? NO_LOCAL_MODEL : 'Checking…', models: [], servers: [] };
 }
 
@@ -49,10 +48,17 @@ export function privacyOn(c = state.current) {
   return draft ?? !!state.settings.privacyDefault;
 }
 
-function chosenModel() {
+export function chosenModel() {
   const s = localStatus();
   const want = state.settings.localModel;
   return (s.models || []).find((m) => m.id === want) || (s.models || [])[0] || null;
+}
+
+export function setLocalModel(id) {
+  state.settings.localModel = id;
+  saveSettings();
+  paint();
+  if (H.renderComposer) H.renderComposer();
 }
 
 /**
@@ -83,15 +89,20 @@ export async function checkLocal() {
     .finally(() => { checking = null; });
   const s = await checking;
   paint();
+  if (H.renderComposer) H.renderComposer();
   return s;
 }
 
 function apply(c, on) {
   if (c) { c.privacy = on; if (!on) c.lastRoute = null; saveConversation(c); } else draft = on;
   paint();
+  if (H.renderComposer) H.renderComposer();
   if (H.schedulePreview) H.schedulePreview(); // the routing preview stops (or starts) with it
   if (!on) { toast('Privacy off: this chat is routed to cloud models again'); return; }
-  toast(onPhone() ? ph('Private: this chat stays on this iPhone') : 'Private: this chat stays on your Mac');
+  const cur = chosenModel();
+  const isBridge = cur && cur.server === 'deepinfra';
+  const isDevice = cur && (cur.id === 'apple-on-device' || cur.server === 'on-device');
+  toast(isBridge ? 'Private: answered via Zero-Retention bridge' : (isDevice || onPhone() ? ph('Private: this chat stays on this iPhone') : 'Private: this chat stays on your Mac'));
   checkLocal().then((s) => { if (privacyOn() && !s.available) toast(s.reason || NO_LOCAL_MODEL); });
 }
 
@@ -147,22 +158,26 @@ export function paint() {
 function modelPicker(s) {
   const models = s.models || [];
   const cur = chosenModel();
-  if (models.length < 2) return el('b', '', cur ? cur.id : '');
+  if (models.length < 2) return el('b', '', cur ? (cur.id === 'apple-on-device' ? ph('On this iPhone') : cur.id) : '');
   const sel = el('select', { 'aria-label': 'Model for private chats' });
-  const localGroup = el('optgroup', { label: 'On this Mac (100% Local GPU)' });
+  const deviceGroup = el('optgroup', { label: ph('On this iPhone (Apple Intelligence)') });
+  const localGroup = el('optgroup', { label: `On ${hosted() ? 'your' : 'this'} Mac (100% Local GPU)` });
   const bridgeGroup = el('optgroup', { label: 'Cloud Bridge (Zero-Retention)' });
 
   for (const m of models) {
+    const isDevice = m.id === 'apple-on-device' || m.server === 'on-device';
     const isBridge = m.server === 'deepinfra';
-    const o = el('option', { value: m.id }, `${m.id} · ${m.serverName}`);
+    const label = isDevice ? `${ph('On this iPhone')} · Apple Intelligence` : `${m.id} · ${m.serverName}`;
+    const o = el('option', { value: m.id }, label);
     if (cur && m.id === cur.id) o.selected = true;
-    (isBridge ? bridgeGroup : localGroup).append(o);
+    (isDevice ? deviceGroup : isBridge ? bridgeGroup : localGroup).append(o);
   }
+  if (deviceGroup.children.length) sel.append(deviceGroup);
   if (localGroup.children.length) sel.append(localGroup);
   if (bridgeGroup.children.length) sel.append(bridgeGroup);
 
   if (models.length >= 2) {
-    sel.addEventListener('change', () => { state.settings.localModel = sel.value; saveSettings(); paint(); });
+    sel.addEventListener('change', () => setLocalModel(sel.value));
   }
   return sel;
 }
@@ -175,13 +190,18 @@ function paintBar() {
   if (privacyOn(c)) {
     const s = localStatus();
     bar.className = 'privacy-bar on';
-    if (s.available && s.onDevice) {
+    if (s.available && s.onDevice && (s.models || []).length < 2) {
       bar.replaceChildren(ico('lock', 13), el('span', 'pb-t', ph('Private · answered on this iPhone by Apple’s on-device model')));
     } else if (s.available) {
       const cur = chosenModel();
       const one = (s.models || []).length < 2 && cur;
+      const isDevice = cur && (cur.id === 'apple-on-device' || cur.server === 'on-device');
       const isBridge = cur && cur.server === 'deepinfra';
-      const prefix = isBridge ? 'Private · answered via Zero-Retention bridge by ' : `Private · answered on ${hosted() ? 'your' : 'this'} Mac by `;
+      const prefix = isDevice
+        ? ph('Private · answered on this iPhone by ')
+        : isBridge
+          ? 'Private · answered via Zero-Retention bridge by '
+          : `Private · answered on ${hosted() ? 'your' : 'this'} Mac by `;
       bar.replaceChildren(...[ico('lock', 13), el('span', 'pb-t', prefix), modelPicker(s), one ? el('span', 'pb-sub', ` in ${one.serverName}`) : null].filter(Boolean));
     } else {
       bar.className = 'privacy-bar on warn';
@@ -229,8 +249,8 @@ export function privacySettings() {
     el('button', { type: 'button', class: 'cap', onclick: async () => { await checkLocal(); redraw(); } }, 'Check again'));
   sec.append(el('h3', '', 'Privacy'),
     el('div', 'icard',
-      switchRow('Private by default', 'New chats stay on this Mac: a local model answers, never a cloud one.', !!state.settings.privacyDefault, (v) => {
-        state.settings.privacyDefault = v; saveSettings(); paint(); toast(v ? 'New chats start private' : 'New chats are routed to cloud models');
+      switchRow('Private by default', 'New chats start in privacy mode (answered on this device, on your Mac, or via Zero-Retention bridge).', !!state.settings.privacyDefault, (v) => {
+        state.settings.privacyDefault = v; saveSettings(); paint(); if (H.renderComposer) H.renderComposer(); toast(v ? 'New chats start private' : 'New chats are routed to cloud models');
       }),
       switchRow('Suggest privacy for sensitive messages', 'Checked in this browser as you type (passwords, keys, ID, card and bank numbers, health details). Nothing is sent anywhere to decide.', state.settings.sensitiveCheck !== false, (v) => {
         state.settings.sensitiveCheck = v; saveSettings(); paintBar();
@@ -258,4 +278,5 @@ export function initPrivacy(handlers = {}) {
     input.addEventListener('input', check);
   }
   paint();
+  if (privacyOn()) setTimeout(() => checkLocal(), 0);
 }

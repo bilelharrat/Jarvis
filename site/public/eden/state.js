@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS = {
   providers: {}, // id -> false when switched off (missing = on)
   classifier: 'always', subscriptionClaude: true,
   override: null, // { model, effort }
-  evesModel: 'gemini-3.8-flash',
+  evesModel: 'gemini-4-hydrogen',
   theme: 'system',
   queueFollowUps: true, // true: Return queues while busy; false: Return steers into the running step right away (⌘↩ / Steer always steers)
 };

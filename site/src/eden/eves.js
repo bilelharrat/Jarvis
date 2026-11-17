@@ -11,13 +11,15 @@
 
 import { call } from '../accounts/index.js';
 import { ApiError } from '../accounts/util.js';
+import { allowPaid, meterGoogle, pacerAllow } from './credit-pacer.js'; // the GCP credit pacer: counts and refuses only, never changes EVES's models
+import { meterProvider, providersCapCheck } from './spend-counter.js'; // SPEND_CAP_<PROVIDER>_USD (CREDIT_PACER=on only) and Perplexity's spend
 import { isOwnerEmail } from '../accounts/owner-emails.js';
 import { gemmaSession, shadowSampled, withGemmaVerdict } from './gemma-judge.js';
 import { gemmaTextSession } from './gemma-text.js';
 import { searchFallback, searchFallbackOn } from './search-fallback.js';
 import { lookupEvesVault, putEvesFlag, putEvesVault, seedEvesVault } from '../news/store.js';
 import { record as recordStat } from '../stats/stats.js';
-import { EVIDENCE_RETRY_MS, PREMISE_EVIDENCE_MAX, PREMISE_SYSTEM, STRONG_ANCHOR_USES, STRONG_SECOND_USES, alreadyRejectsPremise, checkModels, evesAnchorMode, evesEvidenceSearchMode, evesStrongFixes, evesStrongMode, hostedAsk, parsePremises, perplexitySearchAsk, premisePrompt, premiseTurn, strongSecondPick } from './checks.js';
+import { EVIDENCE_RETRY_MS, PREMISE_EVIDENCE_MAX, PREMISE_SYSTEM, STRONG_ANCHOR_USES, STRONG_SECOND_USES, alreadyRejectsPremise, hasSycophancyChallenge, sycophancyGuardNote, checkModels, evesAnchorMode, evesEvidenceSearchMode, evesStrongFixes, evesStrongMode, hostedAsk, parsePremises, perplexitySearchAsk, premisePrompt, premiseTurn, strongSecondPick } from './checks.js';
 import { OPENAI_SEARCH_USD, autoModels, computedWhere, fitCall, hasVision, maxTokensOf, metered, modelOf, ratesOf, streamCall, usageUSD } from './providers.js';
 import { withMaxOutputTokens } from './vendor/providers.js';
 import { effortLabel } from './vendor/model-router.js';
@@ -33,7 +35,14 @@ import {
   TYPICAL_LANE_SHARE,
   aimedAtJudge,
   allAbstain,
+  aboutEarlierYear,
   applyCorrections,
+  EVES_LANE_PROVIDERS,
+  FACTUAL_KINDS,
+  classifyByRules,
+  classifyQuestion,
+  evesLanesFor,
+  geminiClassifyAsk,
   assessQueryImmutability,
   assessRisk,
   buildClarificationAutoReply,
@@ -57,6 +66,7 @@ import {
   packQuantizedVector,
   partlyCheckedLabel,
   premiseNote,
+  freshnessNote,
   reanswerWithSearch,
   runChecks,
   unletter,
@@ -94,6 +104,9 @@ function getMemoryVault(env) {
   }
   return v;
 }
+
+/** EVES_SEARCH_CHARGE=on: EVES's Perplexity searches come out of the account's allowance (owner, 2026-11-13). */
+export const evesSearchCharge = (env) => String((env && env.EVES_SEARCH_CHARGE) || '').trim().toLowerCase() === 'on';
 
 export function clearHostedEvesVault(env) {
   if (env && typeof env === 'object') hostedMemoryVaults.delete(env);
@@ -167,7 +180,43 @@ async function embedVaultQuestion(env, question) {
 }
 const FAMILY_NAMES = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini', kimi: 'Kimi', meta: 'Muse', mistral: 'Mistral', deepseek: 'DeepSeek' };
 const NUMBER_WORDS = ['no', 'one', 'two', 'three'];
-const ANCHOR_SYSTEM = 'Answer the question concisely and factually in at most 200 words (or a compact bullet list). Use web search when it helps. If you cannot find the answer, say you do not know.';
+const ANCHOR_SYSTEM = 'Answer the question concisely and factually in at most 200 words (or a compact bullet list). Use web search when it helps. If you cannot find the answer, say you do not know. Answer about exactly what was asked: never swap in a different song, person, title or thing and answer about that instead.';
+/**
+ * Inline source links as OpenAI's web search writes them, "([site](url))" after the words they back: out of the text, and
+ * back as marks ({ after: the words before it, urls }) and sources. Links elsewhere in a sentence are left as they are.
+ */
+export function inlineCitations(text) {
+  const src = String(text || '');
+  const re = /[ \t]?\(\[([^\]\n]{1,120})\]\((https?:\/\/[^\s)]+)\)\)/g;
+  const tidy = (u) => u.replace(/([?&])utm_source=openai&?/, '$1').replace(/[?&]$/, '');
+  const marks = [];
+  const sources = [];
+  let out = '';
+  let last = 0;
+  for (let m = re.exec(src); m; m = re.exec(src)) {
+    out += src.slice(last, m.index);
+    last = m.index + m[0].length;
+    const url = tidy(m[2]);
+    if (!sources.some((x) => x.url === url)) sources.push({ title: m[1].trim(), url });
+    const line = out.slice(out.lastIndexOf('\n') + 1).replace(/\s+$/, '');
+    const after = line.slice(-80);
+    if (after.trim().length >= 6) {
+      const prev = marks[marks.length - 1];
+      if (prev && prev.after === after) prev.urls.push(url); // "([a](..)) ([b](..))": one place, two numbers
+      else marks.push({ after, urls: [url] });
+    }
+  }
+  return { text: out + src.slice(last), marks, sources };
+}
+
+/** The second searched answer's whole time, its fallback included (2026-11-10: a stalled Gemini search held EVES 2 to 3 minutes). */
+const SECOND_ANSWER_MS = 25_000;
+/** How long after the first searched answer the second is still waited for, on a settled-fact question with no conflict. */
+const SECOND_AFTER_ANCHOR_MS = 4_000;
+/** The premise check's whole time from its start, beside the answers (its late result is dropped, not waited for). */
+const PREMISE_WAIT_MS = 20_000;
+/** When the checking stops at the latest, from the turn's start: past it the answer goes out "partly checked". */
+const RUN_DEADLINE_MS = 50_000;
 /** EVES_STRONG: a searched answer's priced output (the anchor at medium effort thinks more than at low). */
 const STRONG_ANSWER_OUT = 4_000;
 const ownerOf = async (env, who) => {
@@ -378,6 +427,20 @@ function shapeEvesPins(pins, evesModel) {
 function compareEvesLanes(helpers, cfg, prompt, extras, pins, evesModel) {
   let current = helpers.compareLanes(cfg, prompt, extras, pins);
   const want = typeof evesModel === 'string' && evesModel.trim() ? evesModel.trim() : 'gemini-3.8-flash';
+  // EVES's lane router (askeden src/verify/eves-lanes.ts, owner 2026-11-10): each provider's best model and effort for this
+  // question from the router's rows, the most reliable on facts first, within a lane's time and cost; the EVES model
+  // takes its provider's lane. It replaces the fixed fast trio below (Sonnet without thinking, GPT-6 Sol and Flash at
+  // low), which stays only as the fallback when the router can't fill two lanes.
+  if (!pins && current.result && Array.isArray(current.result.rows)) {
+    const rows = current.result.rows.map((r) => ({ ...r, retired: Boolean(r.lifecycle && r.lifecycle !== 'active') }));
+    const providers = EVES_LANE_PROVIDERS.filter((p) => cfg.models.some((m) => m.provider === p));
+    // the question's kind (askeden eves-classify.ts rules; instant): a factual one gets the measured lanes (eves-lanes.ts
+    // EVES_FACTUAL_LANES, 2026-11-11), code, maths, advice or writing the quality router; an unclear one counts as factual
+    const cls = classifyByRules(prompt);
+    const kind = cls.confidence === 'unsure' && !FACTUAL_KINDS.has(cls.kind) ? 'other' : cls.kind;
+    const picks = evesLanesFor(kind, rows, { factual: premiseTurn(prompt), pinned: want, providers });
+    if (picks.length >= 2) return helpers.compareLanes(cfg, prompt, extras, picks.map((p) => ({ model: p.row.model, effort: p.row.effort })));
+  }
   if (!pins && current.lanes.length >= 2) {
     let nextWanted = current.lanes.map((l) => ({ model: l.model, effort: l.effort }));
     let changed = false;
@@ -548,9 +611,32 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   if (validModels && validModels.some((x) => !cfg.models.some((m) => m.id === x.model))) {
     throw new ApiError(422, 'not_here', 'One of those models can’t be used with the providers you have on.');
   }
+  // Today's date and the pushback rule, as on the Mac (askeden src/verify/eves.ts). Without the date every lane, the search
+  // anchor and the second searched answer answered as of their training year (2026-11-10: "#1 scoring defense in Harbaugh's
+  // first year" for this season's Chargers, "the Vikings view J.J. McCarthy as their future" weeks after his trade). The page
+  // sends its own date line (web/chat/chat.js nowNote) since that fix; the server adds the dated freshness rule itself either way (an older app sends none).
+  const today = new Date();
+  const pushback = (() => {
+    const lastMsg = body.messages[body.messages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'user') return '';
+    const image = Boolean(lastMsg.attachments && lastMsg.attachments.some((a) => a.kind === 'image'));
+    const text = String(helpers.messageText(lastMsg) || '').trim();
+    const prior = body.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+    return sycophancyGuardNote(hasSycophancyChallenge(text, prior, { imageOnly: image && !text, image }));
+  })();
+  body.system = [body.system, freshnessNote(today), pushback].filter(Boolean).join('\n\n');
+  // A current question (risk class 'recent': a season, roster, standings, trade, result): the searched answer searches first
+  // and keeps to this season's sources. "Use web search when it helps" let it answer the Chargers' ranking from 2024.
+  const turnReasons = () => assessRisk(question, { mode: 'chat', history: body.messages.slice(-7, -1).map((m) => ({ role: m.role, content: helpers.messageText(m) })) }).reasons;
+  const currentRule = () => {
+    return turnReasons().includes('recent')
+      ? `This question is about something current. Search the web before answering, rely only on recent sources that describe the situation as of ${today.toISOString().slice(0, 10)}, never on older seasons or your memory, and say the date your facts are from.`
+      : '';
+  };
+  const anchorSystem = (extra = '') => [ANCHOR_SYSTEM, freshnessNote(today), currentRule(), pushback, extra].filter(Boolean).join('\n');
   const system = helpers.systemPrompt(body);
   const inputTokens = helpers.inputEstimate(body.messages, system);
-  const allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
+  const allow = await pacerAllow(env, await call(env, who.account, 'allow-ai', { eden: true }, who.token)); // credit-pacer.js: as it was unless CREDIT_PACER=on and unpaid
   const last = body.messages[body.messages.length - 1];
   const question = helpers.messageText(last).trim() || 'Describe the attached image.';
   const sessionTokens = Math.max(0, inputTokens - Math.ceil(question.length / 3.5));
@@ -567,6 +653,10 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   const isMetered = (l) => metered(cfg.keys, l.provider || (modelOf(l.model) || {}).provider);
   const anyMetered = lanes.some(isMetered) || (picks.cheap && metered(cfg.keys, picks.cheap.model.provider)) || (picks.strong && metered(cfg.keys, picks.strong.model.provider)) || (picks.search && metered(cfg.keys, picks.search.model.provider));
   if (anyMetered && !allow.ok) throw new ApiError(402, 'no_allowance', allow.why);
+  // spend-counter.js: an unpaid turn that would call a provider whose SPEND_CAP_<PROVIDER>_USD is used up today is refused
+  // before any call, never run on other models (CREDIT_PACER=on and a cap set only; a failing counter lets it through)
+  const usesPplx = Boolean(String(env.PERPLEXITY_API_KEY ?? '').trim()) && evesEvidenceSearchMode(env, request) !== 'gemini';
+  await providersCapCheck(env, [...lanes.filter(isMetered).map((l) => l.provider || (modelOf(l.model) || {}).provider), ...[picks.cheap, picks.strong, picks.search, strongExtras.second].filter((p) => p && metered(cfg.keys, p.model.provider)).map((p) => p.model.provider), ...(usesPplx ? ['perplexity'] : [])], { paid: allowPaid(allow) });
 
   const short = () => new ApiError(402, 'no_allowance', `Not enough of your included AI is left to run EVES across ${lanes.length} models. Ask one model, or wait for the allowance to renew.`);
   const left = allow.ok && Number.isFinite(allow.left) ? allow.left : allow.ok ? Infinity : 0;
@@ -607,7 +697,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   };
   /** checkEvidence for one claim, or (owner accounts, GEMMA_TEXT_MODE=owner) the judge's verdict when it settles it first. */
   const evidenceFor = (claim, kind, sentence, signal, asker = evidenceAsk) => {
-    const run = () => checkEvidence(asker, { claim, question, sentence }, { signal });
+    const run = () => checkEvidence(asker, { claim, question, sentence, now: today }, { signal });
     return gemmaText ? gemmaText.check({ claim, kind, sentence, signal }, run) : run();
   };
   const gemmaPass = async (items) => {
@@ -666,8 +756,9 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   });
 
   let counted = Promise.resolve();
-  const charge = (provider, usd, meta = { feature: 'eves' }) => {
+  const charge = (provider, usd, meta = { feature: 'eves' }, usage = null) => {
     if (hold && metered(cfg.keys, provider) && usd > 0) {
+      meterGoogle(env, ctx, { provider, model: meta && meta.model, usd, usage, bucket: hold.bucket, credits: allow.credits_usd, allow, feature: (meta && meta.feature) || 'eves' }); // credit-pacer.js (`usage`: priced by its date)
       counted = counted.then(() => call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta })).catch((error) => console.error('spend failed', error && error.message));
     }
   };
@@ -685,7 +776,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     tally: () => {},
     factor,
     ...(searchFallbackOn(env, request) ? { searchFallback: searchFallback({ models: checkPool, keys: cfg.keys, turnId: id }) } : {}),
-    ...(strong ? { anchorEffort: 'medium' } : {}),
+    ...(strong ? { anchorEffort: 'low' } : {}), // a valid level; the search request itself runs without thinking (checks.js withoutThinking)
   });
   // EVES_STRONG: GPT's web-search answer has its own AskModel (no Gemini quota fallback, no other model): the second
   // answer, or with EVES_ANCHOR=gpt the anchor (and Gemini's, through baseAsk, the second)
@@ -707,7 +798,41 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   // checkable premise or named thing (checks.js premiseTurn)
   const fixes = strong ? strongExtras.fixes : {};
   const premiseOn = !!fixes.premise && !!picks.cheap && !!picks.search && premiseTurn(question);
-  const noEarlyCut = !!fixes.noEarlyCut && premiseTurn(question);
+  // A live question (risk 'recent' or 'price': this season, a roster, a trade, a ranking, a price): models trained on the
+  // same old data agree on the same stale fact, so agreement proves nothing. Every lane is waited for (none cut as a
+  // straggler or by a quorum), the "they agree" shortcut is skipped, and the winner's own claims go to the web, agreed or
+  // not (2026-11-10: "the Vikings view J.J. McCarthy as their future" went out Verified with zero web checks).
+  // The question's kind (askeden eves-classify.ts): the rules now; an unclear question also goes to a small model
+  // (Gemini 3.5 Flash-Lite, minimal thinking, 1.2 s cap, ~$0.17 per 1,000) while the answers are written, and when it
+  // says 'current' the turn becomes live before the judge runs. An unclear trade/firing/split counts as current at once
+  // (the small model calls a 2025 event it doesn't know "history"; a search costs cents, a stale "Verified" costs trust).
+  const hist = body.messages.slice(-7, -1).map((m) => ({ role: m.role, content: helpers.messageText(m) }));
+  const rulesKind = classifyByRules(question, hist);
+  let liveTurn = (() => {
+    const r = turnReasons();
+    return r.includes('recent') || r.includes('price') || (rulesKind.kind === 'current' && rulesKind.confidence === 'sure') || (rulesKind.confidence === 'unsure' && rulesKind.reasons.includes('news-or-history'));
+  })();
+  let noEarlyCut = (!!fixes.noEarlyCut && premiseTurn(question)) || liveTurn;
+  const classifyPick = cfg.models.some((m) => m.id === 'gemini-3.5-flash-lite') && cfg.keys.gemini ? { model: modelOf('gemini-3.5-flash-lite'), effort: 'minimal' } : null;
+  const classifyAsk = classifyPick
+    ? (() => {
+        const viaSite = hostedAsk({ picks: { cheap: classifyPick }, keys: cfg.keys, base: cfg.base, requestFor, charge: (provider, usd) => charge(provider, usd, { feature: 'eves-check' }), tally: () => {}, factor, timeoutMs: 1_500 });
+        return (req) => viaSite({ system: req.system, user: req.user, tier: 'cheap', purpose: 'classify', maxTokens: 120, temperature: 0, signal: req.signal });
+      })()
+    : null;
+  // started in run() once EVES really runs (never for an answer the Vault serves): a model call only when the rules are unsure
+  const startKind = () => {
+    if (rulesKind.confidence !== 'unsure' || !classifyAsk || liveTurn) return;
+    classifyQuestion(question, hist, { ask: classifyAsk, now: today })
+      .then((k) => {
+        if (k && k.source === 'model' && k.kind === 'current' && !liveTurn) { // the model's call only, never the rules' fallback guess
+          liveTurn = true;
+          noEarlyCut = true;
+        }
+        if (k) console.log(JSON.stringify({ evt: 'eves_kind', kind: k.kind, source: k.source, ms: k.ms, turn: id }));
+      })
+      .catch(() => {});
+  };
   const hedgeOn = !!fixes.hedge;
   // EVES_HEDGE_UNRESOLVED: the evidence retry's AskModel, as `ask` with a longer per-call timeout
   const longAsk = hedgeOn
@@ -732,8 +857,15 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
   // EVES_EVIDENCE_SEARCH: move web evidence and premise checks onto Perplexity (/v1/responses, pro-search) or OpenAI so
   // Google's 1,500/day grounding quota isn't burned on 3–6 checks per turn. Falls back to the default ask on any error.
   const evSearchMode = evesEvidenceSearchMode(env, request);
-  const pplxRaw = perplexitySearchAsk(env, { charge: (provider, usd) => charge(provider, usd, { feature: 'eves-check' }) });
-  const pplxLongRaw = hedgeOn ? perplexitySearchAsk(env, { timeoutMs: EVIDENCE_RETRY_MS, charge: (provider, usd) => charge(provider, usd, { feature: 'eves-check' }) }) : null;
+  // Perplexity is always the service's own key (it isn't in cfg.keys, so `charge` above never sees it): its cost goes on the
+  // company spend counter (spend-counter.js, CREDIT_PACER warn/on). With EVES_SEARCH_CHARGE=on (owner, 2026-11-13) it also
+  // comes out of the account's allowance like every other EVES call; off, the allowance is not charged for it, as before.
+  const pplxCharge = (provider, usd) => {
+    meterProvider(env, ctx, { provider, usd, bucket: hold && hold.bucket, credits: allow.credits_usd, allow, feature: 'eves-check' });
+    if (hold && usd > 0 && evesSearchCharge(env)) counted = counted.then(() => call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta: { feature: 'eves-check', model: 'perplexity' } })).catch((error) => console.error('spend failed', error && error.message));
+  };
+  const pplxRaw = perplexitySearchAsk(env, { charge: pplxCharge });
+  const pplxLongRaw = hedgeOn ? perplexitySearchAsk(env, { timeoutMs: EVIDENCE_RETRY_MS, charge: pplxCharge }) : null;
   const pplxAsk = pplxRaw
     ? async (req) => {
         checksState.calls++;
@@ -761,7 +893,31 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     }
     return ask(req);
   };
-  const evidenceLongAsk = async (req) => {
+  // The turn's deadline (RUN_DEADLINE_MS from its start, set in run()): the slow retries below never run past it
+  // (2026-11-10 review: the hedge retry and the premise rewrite could still take a turn to about 90 s).
+  let deadlineAt = Infinity;
+  const untilDeadline = (signal, reserveMs = 0) => {
+    const left = deadlineAt - Date.now() - reserveMs;
+    if (left <= 0) throw new Error('out of time for this turn');
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), left);
+    if (signal) {
+      if (signal.aborted) ctl.abort();
+      else signal.addEventListener('abort', () => ctl.abort(), { once: true });
+    }
+    ctl.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+    return { signal: ctl.signal, done: () => clearTimeout(timer) };
+  };
+  const evidenceLongAsk = async (req0) => {
+    const bound = untilDeadline(req0.signal, 3_000);
+    const req = { ...req0, signal: bound.signal };
+    try {
+      return await evidenceLongAskRaw(req);
+    } finally {
+      bound.done();
+    }
+  };
+  const evidenceLongAskRaw = async (req) => {
     const primary = evSearchMode === 'perplexity' && pplxLongAsk ? pplxLongAsk : evSearchMode === 'openai' && gptAsk ? crossAsk : null;
     if (primary) {
       try {
@@ -778,7 +934,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     if (v.verdict === 'supported' && /\bcontradicts the claim\b/i.test(v.summary || '')) {
       v = { ...v, verdict: 'contradicted' };
     }
-    const w = await checkEvidence(crossCheckAsk, { claim, question }, { signal }).catch(() => null);
+    const w = await checkEvidence(crossCheckAsk, { claim, question, now: today }, { signal }).catch(() => null);
     if (!w || (w.verdict !== 'supported' && w.verdict !== 'contradicted') || w.verdict === v.verdict) return v;
     const { fixedSentence, lean, ...rest } = v;
     const sources = [...(v.sources || []), ...(w.sources || []).filter((x) => !(v.sources || []).some((y) => y.url === x.url))];
@@ -814,7 +970,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         },
       },
     );
-    if (r.usage) charge(model.provider, r.costUSD, { feature: 'eves', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens });
+    if (r.usage) charge(model.provider, r.costUSD, { feature: 'eves', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens }, r.usage);
     const f = metered(cfg.keys, model.provider) ? helpers.creditFactor(hold || allow) : 1;
     const costUSD = round6((r.costUSD || 0) * f);
     if (r.failure && !r.stopped) {
@@ -858,7 +1014,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       const user = searchedUser();
       const imgAtts = (last.attachments || []).filter((a) => a.kind === 'image');
       const anchorUses = fixes.noEarlyCut && premiseTurn(question) ? STRONG_ANCHOR_USES : STRONG_SECOND_USES;
-    const r = await anchorAsk({ system: ANCHOR_SYSTEM, user, tier: 'strong', purpose: 'anchor', search: true, ...(plan.anchorGpt ? { uses: anchorUses } : {}), maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, ...(imgAtts.length ? { attachments: imgAtts } : {}), signal: abort.signal });
+    const r = await anchorAsk({ system: anchorSystem(), user, tier: 'strong', purpose: 'anchor', search: true, ...(plan.anchorGpt ? { uses: anchorUses } : {}), maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, ...(imgAtts.length ? { attachments: imgAtts } : {}), signal: abort.signal });
       if (!String(r.text ?? '').trim()) return null;
       seenCitations(r.citations);
       return { lane: anchorLane, text: r.text, finish: 'stop', ms: Date.now() - t0, costUSD: round6((r.costUSD || 0) * anchorFactor()), citations: (r.citations ?? []).slice(0, 50) };
@@ -867,47 +1023,67 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     }
   };
   // EVES_STRONG: the second searched answer, same prompt and context as the anchor; a failure or a timeout is null (today's turn)
+  let secondStop = null;
+  let secondLetGo = false;
   const secondCall = async () => {
     if (!secondAsk || !ownAnchor) return null;
     const t0 = Date.now();
     const log = (ok, extra = {}) => console.log(JSON.stringify({ evt: 'eves_second', model: plan.second.model, ok, ms: Date.now() - t0, turn: id, ...extra }));
+    // its own cap (SECOND_ANSWER_MS), fallback included: the run waits for this answer, so it may never hold it longer
+    const cap = new AbortController();
+    const stopCap = () => cap.abort();
+    abort.signal.addEventListener('abort', stopCap, { once: true });
+    const capTimer = setTimeout(stopCap, SECOND_ANSWER_MS);
+    secondStop = stopCap; // let go early when it isn't needed (SECOND_AFTER_ANCHOR_MS)
     try {
       const imgAtts = (last.attachments || []).filter((a) => a.kind === 'image');
-      const r = await secondAsk({ system: ANCHOR_SYSTEM, user: searchedUser(), tier: 'strong', purpose: 'anchor', search: true, uses: STRONG_SECOND_USES, maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, ...(imgAtts.length ? { attachments: imgAtts } : {}), signal: abort.signal });
+      const r = await secondAsk({ system: anchorSystem(), user: searchedUser(), tier: 'strong', purpose: 'anchor', search: true, uses: STRONG_SECOND_USES, maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, ...(imgAtts.length ? { attachments: imgAtts } : {}), signal: cap.signal });
       if (!String(r.text ?? '').trim()) return (log(false, { why: 'empty' }), null);
       seenCitations(r.citations);
       log(true, { citations: (r.citations ?? []).length, usd: round6(r.costUSD || 0) });
       return { lane: secondLane, text: r.text, finish: 'stop', ms: Date.now() - t0, costUSD: round6((r.costUSD || 0) * secondFactor()), citations: (r.citations ?? []).slice(0, 50) };
     } catch (e) {
-      log(false, { why: clip((e && e.message) || 'failed', 120) });
+      log(false, { why: secondLetGo ? 'let go: the answer was in, no conflict, not a current question' : cap.signal.aborted && !abort.signal.aborted ? `capped at ${SECOND_ANSWER_MS / 1000}s` : clip((e && e.message) || 'failed', 120) });
       return null;
+    } finally {
+      clearTimeout(capTimer);
+      abort.signal.removeEventListener('abort', stopCap);
     }
   };
 
   // EVES_PREMISE: what the question takes for granted (one cheap call), each through the web evidence check
+  // the premise check has its own stop (PREMISE_WAIT_MS): when it isn't back in time it is let go, never waited for
+  const premiseCtrl = new AbortController();
+  abort.signal.addEventListener('abort', () => premiseCtrl.abort(), { once: true });
   const premiseCheck = async () => {
-    const r = await ask({ system: PREMISE_SYSTEM, user: premisePrompt(question), tier: 'cheap', purpose: 'premise', maxTokens: 500, temperature: 0, signal: abort.signal });
+    const sig = premiseCtrl.signal;
+    const r = await ask({ system: PREMISE_SYSTEM, user: premisePrompt(question), tier: 'cheap', purpose: 'premise', maxTokens: 500, temperature: 0, signal: sig });
     const claims = parsePremises(r.text).slice(0, PREMISE_EVIDENCE_MAX);
-    return Promise.all(claims.map(async (c, i) => ({ id: `premise:${i + 1}`, text: c.text, kind: c.kind, v: await evidenceFor(c.text, c.kind, undefined, abort.signal).then((v) => crossChecked(c.text, undefined, v, abort.signal)).catch(() => null) })));
+    return Promise.all(claims.map(async (c, i) => ({ id: `premise:${i + 1}`, text: c.text, kind: c.kind, v: await evidenceFor(c.text, c.kind, undefined, sig).then((v) => crossChecked(c.text, undefined, v, sig)).catch(() => null) })));
   };
   /** EVES_PREMISE: the kept answer written again by its own model, with Eden's note that a premise is false; null on a failure. */
   const rewriteAnchor = async (bad, prev, promoted) => {
     const t0 = Date.now();
+    let bound = null;
     try {
+      bound = untilDeadline(abort.signal, 15_000); // a rewrite needs room left for the checks after it; else the answer stays
       const note = premiseNote({ text: bad.text, reason: bad.v.summary, sources: bad.v.sources });
       const viaGpt = plan.anchorGpt && !promoted;
-      const r = await (viaGpt ? anchorAsk : baseAsk)({ system: `${ANCHOR_SYSTEM}\n\n${note}`, user: searchedUser(), tier: 'strong', purpose: 'anchor', search: true, ...(viaGpt ? { uses: STRONG_SECOND_USES } : {}), maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, signal: abort.signal });
+      const r = await (viaGpt ? anchorAsk : baseAsk)({ system: anchorSystem(`\n${note}`), user: searchedUser(), tier: 'strong', purpose: 'anchor', search: true, ...(viaGpt ? { uses: STRONG_SECOND_USES } : {}), maxTokens: Math.max(32_768, ANCHOR_OUTPUT_TOKENS), temperature: 0, signal: bound.signal });
       if (!String(r.text ?? '').trim()) return null;
       seenCitations(r.citations);
       const cites = [...(r.citations ?? []), ...(prev.citations ?? [])].filter((c, i, all) => all.findIndex((x) => x.url === c.url) === i);
       return { ...prev, text: r.text, ms: prev.ms + Date.now() - t0, costUSD: round6(prev.costUSD + (r.costUSD || 0) * (viaGpt ? anchorFactor : factor)()), citations: cites.slice(0, 50) };
     } catch {
       return null;
+    } finally {
+      if (bound) bound.done();
     }
   };
 
   const run = async () => {
     const started = Date.now();
+    deadlineAt = started + RUN_DEADLINE_MS;
     const ping = setInterval(() => {
       if (open) {
         try {
@@ -920,11 +1096,13 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
     const budget = { timedOut: false, timer: undefined };
     const startBudget = () => {
       if (budget.timer) return;
+      // counted from the turn's start (RUN_DEADLINE_MS), not from when checking begins: a slow search before the judge
+      // used to leave the whole checking budget still to run (2026-11-10: 3 to 4 minutes on askeden.com)
       budget.timer = setTimeout(() => {
         if (judgeCtrl.signal.aborted) return;
         budget.timedOut = true;
         judgeCtrl.abort();
-      }, EVES_TIME_BUDGET_MS);
+      }, Math.max(3_000, Math.min(EVES_TIME_BUDGET_MS, RUN_DEADLINE_MS - (Date.now() - started))));
     };
     const stopBudget = () => {
       if (budget.timer) clearTimeout(budget.timer);
@@ -1019,7 +1197,9 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         stage: 'answering',
         detail: `Asking ${plan.lanes.map((l) => l.modelName).join(', ')}${ownAnchor ? `, with ${anchorName}’s answer from a web search` : ''}`,
       });
+      startKind(); // the small classifier, beside the answers (no wait on it)
       const premiseP = premiseOn ? premiseCheck().catch(() => []) : null; // EVES_PREMISE, alongside the answers
+      const premiseStarted = Date.now();
       const userText = body.messages
         .filter((m) => m.role === 'user')
         .slice(-6)
@@ -1186,6 +1366,25 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             return res;
           })
         : null;
+      // The searched answer as a draft, as soon as it is in (the page shows it "being checked" until the checked answer
+      // replaces it): the person reads an answer in ~10-15 s instead of waiting for every check (2026-11-11).
+      anchorPromise.then((a) => {
+        if (a && a.text && a.text.trim() && !abort.signal.aborted && !isSlideDeckTurn && !isClarifyingQuestion(a.text)) write('eves_draft', { lane: anchorLane, text: a.text, citations: (a.citations || []).slice(0, 20) });
+      });
+      // The second searched answer is let go SECOND_AFTER_ANCHOR_MS after the first is in, unless the question is current
+      // or a number in the answers already conflicts: on a settled fact it rarely changes the outcome, and slow Google
+      // searches held turns 10-25 s for it (2026-11-11).
+      if (secondPromise) {
+        anchorPromise.then((a) => {
+          if (!a || secondSettled) return;
+          setTimeout(() => {
+            if (secondSettled || liveTurn || abort.signal.aborted || !secondStop) return;
+            if (anchorText && fastConsensusCheck([anchorText, ...doneTexts]).hasNumericConflict) return;
+            secondLetGo = true;
+            secondStop();
+          }, SECOND_AFTER_ANCHOR_MS);
+        });
+      }
       const live = (r) => !!r && r.text.trim() !== '' && (r.finish === 'stop' || r.finish === 'length');
       const lanePromises = lanes.map(async (l, i) => {
         const res = await runLane(i, l, lanePlans[i].request, laneCtrls[i].signal);
@@ -1304,7 +1503,16 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       let premiseAddition = null;
       let premiseRewritten = false;
       if (premiseP) {
-        premiseRows = await premiseP;
+        // waited for at most PREMISE_WAIT_MS from its start (2026-11-10: a stalled check and its fallback held a turn 40 s)
+        let premiseTimer;
+        const late = new Promise((resolve) => { premiseTimer = setTimeout(() => resolve(null), Math.max(0, PREMISE_WAIT_MS - (Date.now() - premiseStarted))); });
+        premiseRows = await Promise.race([premiseP, late]);
+        clearTimeout(premiseTimer);
+        if (premiseRows === null) {
+          premiseCtrl.abort();
+          premiseRows = [];
+          console.log(JSON.stringify({ evt: 'eves_premise_late', turn: id, ms: Date.now() - premiseStarted }));
+        }
         if (abort.signal.aborted) return;
         const bad = premiseRows.find((x) => x.v && x.v.verdict === 'contradicted' && Array.isArray(x.v.sources) && x.v.sources.length);
         if (bad && anchorRes && !alreadyRejectsPremise(anchorRes.text)) {
@@ -1523,7 +1731,7 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         // No web checks of the answers' raw disputed sentences before the judge (removed 2026-10-24): under the exact-key
         // rule above they are reused only when the judge copies a sentence word for word, so they mostly cost paid searches
         // and took the early slots the judge's own claims need (askeden/docs/verify/latency-plan-2026-10-24.md).
-        if (!anyFail) {
+        if (!anyFail && !liveTurn) {
           if (sameWords(texts)) {
             agreed = [];
             how = 'words';
@@ -1626,7 +1834,19 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             const judged = judgment.claims;
             const involves = (c) => c.by.includes(winner) || c.against.includes(winner);
             const addable = (c) => c.status === 'unique' && c.missingFromWinner && c.essential && c.by.length >= 2 && !involves(c);
-            const queue = [...judged.filter((c) => c.status === 'disputed' && involves(c)), ...judged.filter(addable).slice(0, 1)].slice(0, plan.evidence.maxCalls);
+            // live question: the winner's own claims, agreed or not, the most specific first (names, numbers, dates)
+            // never a claim about the answer's own date ("The year referenced is 2026"): checked against old pages it was
+            // "corrected" to 2024 (2026-11-10 replay)
+            const aboutItsDate = (c) => /^(?:the\s+)?(?:current\s+)?(?:year|season|date)\b|\b(?:referenced|mentioned|discussed)\s+(?:is|was)\b|^as of\b|\bit is (?:currently|now)\b/i.test(String(c.text).trim());
+            const liveCheck = (c) => liveTurn && c.status !== 'disputed' && c.by.includes(winner) && !aboutItsDate(c);
+            // on a live question, evidence only about an earlier year settles nothing (it turned "28th" into 2024's "first")
+            const staleEvidence = (v) => liveTurn && Boolean(v && aboutEarlierYear(`${v.summary} ${v.fixedSentence ?? ''}`, today));
+            const specific = (c) => (String(c.text).match(/\d|\b[A-Z][a-z]+/g) || []).length;
+            const queue = [
+              ...judged.filter((c) => c.status === 'disputed' && involves(c)),
+              ...judged.filter(liveCheck).sort((a, b) => specific(b) - specific(a)),
+              ...judged.filter(addable).slice(0, 1),
+            ].slice(0, plan.evidence.maxCalls);
             const matchedEarly = new Map();
             const reusedEntries = new Set();
             for (const c of queue) {
@@ -1689,11 +1909,13 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
             let unconfirmed = 0;
             const claims = judged.map((c) => {
               const v = checked.get(c.id);
-              const verdict = c.status === 'agreed' ? 'supported' : v ? v.verdict : c.status === 'disputed' ? 'unresolved' : 'unverifiable';
+              const verdict = staleEvidence(v) ? 'unverifiable' : v ? v.verdict : c.status === 'agreed' ? 'supported' : c.status === 'disputed' ? 'unresolved' : 'unverifiable';
               const s = sentenceFor(c, winner);
               if (c.status === 'disputed' && involves(c)) {
                 const makes = c.by.includes(winner);
-                const wrong = (makes && verdict === 'contradicted') || (!makes && verdict === 'supported');
+                // a claim about an earlier season doesn't make a sentence about now wrong (the lanes' stale memory)
+                const staleOther = liveTurn && !makes && aboutEarlierYear(c.text, today);
+                const wrong = !staleOther && ((makes && verdict === 'contradicted') || (!makes && verdict === 'supported'));
                 const right = (makes && verdict === 'supported') || (!makes && verdict === 'contradicted');
                 if (wrong && v) {
                   if (!s) unplaced++;
@@ -1703,7 +1925,14 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
                 } else if (!right && s) {
                   const cutShort = budget.timedOut && (!v || v.verdict === 'unresolved');
                   const why = !plan.evidence.maxCalls ? 'it couldn’t be checked on the web' : v ? 'the web check didn’t settle it' : 'it wasn’t checked on the web';
-                  if (hedgeOn) {
+                  if (hedgeOn && /\b(?:couldn[’']?t|could not|can[’']?t|cannot|unable to|not able to)\s+(?:verify|confirm|find)\b|\bnot sure\b|\bdon[’']?t know\b/i.test(s)) {
+                    // the sentence already says it isn't confirmed: "I couldn't verify this on the web: I couldn't confirm…" helped nobody
+                  } else if (hedgeOn && anchorOn && liveTurn && winner === anchorLane && !(makes ? c.against : c.by).includes(secondLane) && !(makes ? v?.lean === 'contradicted' : v?.lean === 'supported')) {
+                    // a live question: the searched answer's sentence, disputed only by models answering from memory (their
+                    // training predates it) and not leaned against by the check, stands with its sources (2026-11-10: "19th in
+                    // yards allowed… 28th in points", sourced, came out as "I couldn't verify this on the web: …")
+                    unconfirmed++;
+                  } else if (hedgeOn) {
                     // EVES_HEDGE_UNRESOLVED: a disputed claim the web couldn't settle (timed out or unresolved) is not stated as fact
                     corrections.push({ claimId: c.id, action: 'fix', replacement: `I couldn’t verify this on the web: ${s.trim()}`, reason: `Another model disputes this and ${why}, so it is not stated as fact.`, sentence: s });
                   } else if (cutShort) {
@@ -1715,6 +1944,12 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
                     else unconfirmed++;
                   } else corrections.push({ claimId: c.id, action: 'flag', reason: `The models disagree on this and ${why}.`, sentence: s });
                 }
+              } else if (liveCheck(c) && v && verdict === 'contradicted') {
+                // a claim every model made, which the web shows is out of date or wrong
+                if (!s) unplaced++;
+                else if (v.fixedSentence) corrections.push({ claimId: c.id, action: 'fix', replacement: v.fixedSentence, reason: `The web shows this is out of date or wrong: ${v.summary}`, sentence: s });
+                else if (anchorOn) corrections.push({ claimId: c.id, action: 'flag', reason: `The web shows this is out of date or wrong (${v.summary}) and there was no safe one-sentence fix, so it is marked.`, sentence: s });
+                else corrections.push({ claimId: c.id, action: 'strike', reason: `The web shows this is out of date or wrong (${v.summary}) and there was no safe one-sentence fix.`, sentence: s });
               } else if (addable(c) && verdict === 'supported' && v) {
                 corrections.push({ claimId: c.id, action: 'fix', replacement: c.text, reason: `${nameOf(c.by[0])} said this, ${nameOf(winner)} left it out, and the web supports it.` });
               }
@@ -1782,10 +2017,17 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         keptWhole = outcome.corrections.filter((c) => c.action === 'strike').length;
         summary += ' Removing the wrong sentences would have left no answer, so they are kept and marked unverified instead.';
       }
-      const corrected = fixed.applied.filter((c) => c.action !== 'flag' || c.claimId.startsWith('check:'));
+      // Claims the winner makes that the web contradicts: marking one is a correction, and one that couldn't be marked in the
+      // text is unplaced. Neither may end as "Verified" (2026-11-10: a web-contradicted sentence, flagged but not found in the
+      // text, left the stale claim unmarked under a "Verified" badge the page then drew red).
+      // …and the mirror: a claim the winner argues against that the web supports (2026-11-10 review)
+      const wrongIds = new Set(outcome.claims.filter((c) => (c.verdict === 'contradicted' && c.by.includes(outcome.winner)) || (c.verdict === 'supported' && (c.against || []).includes(outcome.winner))).map((c) => c.id));
+      const corrected = fixed.applied.filter((c) => c.action !== 'flag' || c.claimId.startsWith('check:') || wrongIds.has(c.claimId));
       const unresolved = outcome.claims.filter((c) => c.status === 'disputed' && (c.by.includes(outcome.winner) || c.against.includes(outcome.winner)) && c.verdict !== 'supported' && c.verdict !== 'contradicted');
       const refusedFixes = fixed.rejected.filter((c) => c.sentence && !fixed.notFound.includes(c)).length;
-      const unplaced = outcome.unplaced + fixed.notFound.filter((c) => c.action !== 'flag').length + refusedFixes + keptWhole;
+      const unplaced = outcome.unplaced + fixed.notFound.filter((c) => c.action !== 'flag' || wrongIds.has(c.claimId)).length + refusedFixes + keptWhole;
+      // only a claim the winner makes that the web contradicts, left uncorrected, earns "the web contradicts" (a refused hedge doesn't)
+      const contradictedLeft = [...wrongIds].filter((cid) => !corrected.some((c) => c.claimId === cid)).length;
       if (unplaced) summary += ` ${plural(unplaced, 'claim')} the web shows to be wrong couldn’t be corrected in place; read it with care.`;
       const verdict = {
         winner: outcome.winner,
@@ -1820,8 +2062,13 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
       addCites(win?.citations);
       if (anchorRes && anchorRes !== win) addCites(anchorRes.citations);
       for (const c of outcome.claims || []) addCites(c.evidence?.sources);
-      if (finalCitations.length) write('citations', { lane: 'final', sources: finalCitations });
-      for (const text of chunks(fixed.text)) write('text', { lane: 'final', text });
+      // GPT's web search writes its sources inline, "([site](url))": they become marks, a "[n]" after the words they back,
+      // as Eden's other answers show them (cite-marks.js), and the source list (2026-11-11, owner: "the same in-text
+      // citation format as the regular Eden outputs")
+      const inline = inlineCitations(fixed.text);
+      addCites(inline.sources);
+      for (const text of chunks(inline.text)) write('text', { lane: 'final', text });
+      if (finalCitations.length) write('citations', { lane: 'final', sources: finalCitations, ...(inline.marks.length ? { marks: inline.marks } : {}) });
       write('usage', {
         lane: 'final',
         inputTokens: checksState.inputTokens,
@@ -1856,6 +2103,13 @@ export async function hostedEves(request, env, ctx, who, cfg, helpers) {
         label = partlyCheckedLabel(summary);
       } else if (outcome.kind === 'fallback') {
         label = { kind: 'eves_disputed', text: 'Not verified: the check could not be completed', detail: summary, severity: 'warn' };
+      } else if (contradictedLeft) {
+        label = {
+          kind: 'issues_found',
+          text: `${plural(contradictedLeft, 'claim')} the web contradicts`,
+          detail: `${summary}${late}`,
+          severity: 'bad',
+        };
       } else if (unresolved.length || unplaced) {
         const u = unresolved.length + unplaced;
         const quiet = outcome.unconfirmed ? ' Some details could not be confirmed on the web; they are not marked in the text.' : '';
@@ -2025,6 +2279,7 @@ export async function hostedEvesFlag(request, env, ctx, who, cfg, helpers) {
   const charge = (provider, usd, meta = { feature: 'eves_repair' }) => {
     if (!usd || !metered(cfg.keys, provider)) return;
     repairCostUSD += usd;
+    meterGoogle(env, ctx, { provider, model: meta && meta.model, usd, paid: true, feature: 'eves-repair' }); // credit-pacer.js: only the owner and owner family (UNLIMITED) get here (isAuthorizedEvesReviewer), so paid
     ctx.waitUntil(call(env, who.account, 'spend', { usd, bucket: 'allowance', meta }).catch(() => {}));
   };
   const ask = hostedAsk({
@@ -2084,7 +2339,10 @@ export async function hostedEvesFlag(request, env, ctx, who, cfg, helpers) {
     }
   }
 
-  if (repaired && fixedAnswer && question) {
+  // Only a timeless question's fix goes into the Vault, as the thumbs-up path checks: a stored answer comes back labelled
+  // Verified, so a fixed answer about this season's roster or standings would go stale under that label (2026-11-10).
+  const fixImm = question ? assessQueryImmutability(question, { messageCount: 1, hasAttachments: false, hasSources: false, privacy: false, allowStandaloneInMultiTurn: true }) : { immutable: false };
+  if (repaired && fixedAnswer && question && fixImm.immutable) {
     const qFp = fingerprintQuestion(question);
     const vectorB64 = await embedVaultQuestion(env, question);
     const vaultEntry = {

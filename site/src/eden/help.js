@@ -17,19 +17,23 @@
 //   HELP_MAX_TOKENS          the longest answer (700)
 //   HELP_MODEL               the model (claude-haiku-4-5), on ANTHROPIC_API_KEY
 // plus EDEN_RATE (`help:<account>`, 20 a minute). The day's counts live in VoiceQuota objects of
-// their own (`help-messages`, `help-screenshots`, `help-budget`): that class is a generic daily
+// their own (`help-messages`, one object unless VOICE_QUOTA_SHARDS, then sharded by network; `help-screenshots`,
+// `help-budget`): that class is a generic daily
 // check-and-add (worker.js), so Help needs no new Durable Object or migration. Days are UTC.
 //
 // A question with no matching FAQ page is answered "I'm not sure" without asking the model.
 // The screenshot is untrusted (provenance.ts, bundled in vendor/google.js): the model is told
 // so, any text the page read off it is wrapped, and its metadata is stripped again here.
 
-import { limited } from '../accounts/index.js';
+import { call, limited } from '../accounts/index.js';
 import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/service-ai.js';
 import { ApiError } from '../accounts/util.js';
 import { currentSession } from './session.js';
 import { crossSite, json, page, problem, sameOrigin, withHeaders } from './web.js';
 import { createLedger } from './vendor/google.js';
+import { quotaShard, shareOf } from './quota-shard.js';
+import { datedScale } from './dated-prices.js'; // Help's budget at the call day's price (Gemini 3.8 Flash rises 2027-01-01)
+import { allowPaid, anthropicUsage, helpRefusal, meterGoogle, unpaidPace } from './credit-pacer.js'; // the GCP credit pacer: inert unless CREDIT_PACER is warn/on
 import {
   FAQ,
   HELP_DEFAULTS,
@@ -110,7 +114,7 @@ export async function helpApi(request, env, ctx, path) {
     const { session } = await currentSession(request, env);
     if (!session) throw new ApiError(401, 'signed_out', 'Sign in to ask Help. The Help pages work without signing in.');
     await limited(env, 'USER_RATE', `help:${session.account}`);
-    return json(await ask(request, env, session));
+    return json(await ask(request, env, session, ctx));
   } catch (error) {
     if (error instanceof ApiError) return problem(error.status, error.message, error.code, error.headers);
     if (error instanceof HelpRequestError) return problem(error.status, error.message, error.code);
@@ -134,10 +138,13 @@ async function readBody(request) {
 /** Takes `n` from a daily VoiceQuota object (worker.js): { ok, left }. Without the binding (tests of other parts), unlimited. */
 async function take(env, object, key, network, n, perKey, everyone = 1e15) {
   if (!env.VOICE_QUOTA) return { ok: true, left: null };
-  const stub = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName(object));
+  // the questions: one object, or sharded by network with VOICE_QUOTA_SHARDS (eden/quota-shard.js), so new accounts
+  // on one network still share one network cap; the rest stay one object
+  const shard = object === 'help-messages' ? quotaShard(env, object, network) : { name: object, n: 1 };
+  const stub = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName(shard.name));
   const answer = await stub.fetch('https://quota/take', {
     method: 'POST',
-    body: JSON.stringify({ install: key, network, chars: n, limits: { install: perKey, network: perKey * NETWORK_FACTOR, everyone } }),
+    body: JSON.stringify({ install: key, network, chars: n, limits: { install: perKey, network: perKey * NETWORK_FACTOR, everyone: shareOf(everyone, shard.n) } }),
   });
   const v = await answer.json();
   return { ok: Boolean(v.ok), which: v.which, left: typeof v.left === 'number' ? v.left : null };
@@ -145,8 +152,13 @@ async function take(env, object, key, network, n, perKey, everyone = 1e15) {
 
 const resetsAt = () => ({ 'retry-after': String(Math.max(60, Math.ceil((Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) + 86_400_000 - Date.now()) / 1000))) });
 
-async function ask(request, env, session) {
+async function ask(request, env, session, ctx = null) {
   const cfg = helpConfig(env);
+  // Help is free, so the GCP credit pacer (credit-pacer.js, CREDIT_PACER=on only) may pace it: red, no Help chat today; amber, half the
+  // questions. Never for a paying account (Plus, bought credits), asked only then. Its answers still count as unpaid (no one pays for Help).
+  const pace = await unpaidPace(env, { paid: async () => allowPaid(await call(env, session.account, 'allow-ai', { eden: true }, session.token).catch(() => null)) });
+  if (pace.refuse) throw helpRefusal(pace);
+  cfg.messages = pace.cap(cfg.messages);
   const req = parseHelpBody(await readBody(request));
   const network = `ip:${request.headers.get('cf-connecting-ip') || 'unknown'}`;
   const account = `a:${session.account}`;
@@ -185,7 +197,9 @@ async function ask(request, env, session) {
   const messages = [...req.history.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content }];
 
   // Eden's own budget for Help (not the person's allowance): the worst case, reserved up front
-  const worst = worstCaseUSD({ model: cfg.model, system, question: req.question + req.imageText, history: req.history, images: req.image ? 1 : 0, maxTokens: cfg.maxTokens });
+  // priced on today's (dated) price: the vendored table has one price per model, so it is scaled by the dated one over the
+  // table's own output price (a whole worst case of 1M output tokens and nothing else is exactly that price; dated-prices.js)
+  const worst = worstCaseUSD({ model: cfg.model, system, question: req.question + req.imageText, history: req.history, images: req.image ? 1 : 0, maxTokens: cfg.maxTokens }) * datedScale(cfg.model, worstCaseUSD({ model: cfg.model, maxTokens: 1e6 }));
   const budget = await take(env, 'help-budget', 'all', 'all', Math.ceil(worst * 1e6), 1e15, Math.round(cfg.budgetUSD * 1e6));
   if (!budget.ok) throw new ApiError(503, 'help_busy', 'Help’s chat is resting for today. The Help pages still work, and Contact support reaches a person.', resetsAt());
   if (!serviceAiReady(env)) throw new ApiError(503, 'not_set_up', 'Help’s chat isn’t set up here yet. The Help pages above still work.');
@@ -193,6 +207,7 @@ async function ask(request, env, session) {
   // No Anthropic key: the service's Gemini or OpenAI answers instead (service-ai.js).
   const fallback = serviceFallback(env);
   const reply = await callModel(env, request, { model: fallback ? fallback.model : cfg.model, max_tokens: cfg.maxTokens, system, messages });
+  meterGoogle(env, ctx, { model: reply.model || (fallback ? fallback.model : cfg.model), usage: anthropicUsage(reply.usage), paid: false, feature: 'help' }); // Google's answers only
   const checked = checkAnswer(reply.text, g.allowed, { lang });
   return { ...checked, pages, model: cfg.model, left };
 }
@@ -212,8 +227,8 @@ async function callModel(env, request, payload) {
   if (!upstream.ok) throw new ApiError(502, 'upstream', 'Help couldn’t answer just now. Try again in a moment.');
   const body = await upstream.json().catch(() => ({}));
   const text = (Array.isArray(body.content) ? body.content : []).filter((b) => b && b.type === 'text').map((b) => b.text).join('');
-  if (body.stop_reason === 'refusal') return { text: '' };
-  return { text };
+  if (body.stop_reason === 'refusal') return { text: '', usage: body.usage, model: body.model };
+  return { text, usage: body.usage, model: body.model };
 }
 
 export function modelUrl(env, request) {

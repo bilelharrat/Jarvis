@@ -1,6 +1,6 @@
-// Editing a deck together across devices (web only, OFF by default): the browser's side of a deck room on askeden.com
-// (JARVIS V1/site/src/eden/deck-room.js, built 2026-10-24, not deployed). Design: research_notes/slides-collab-design.md.
-// `roomEnabled()` is false unless localStorage 'eden.collab.room' = '1'. The tests use MockRoom, which follows the same
+// Editing a deck together across devices (web only): the browser's side of a deck room on askeden.com
+// (JARVIS V1/site/src/eden/deck-room.js, live since deploy 4b0a4322). Design: research_notes/slides-collab-design.md.
+// `roomEnabled()` is on at askeden.com hosts and off elsewhere (below). The tests use MockRoom, which follows the same
 // rules as the real room.
 //
 // The room is a shared chat in "collaborate" mode: its id is the share's id and its key the share's key (only ever in
@@ -27,7 +27,17 @@ export const ROOM_ID = /^[A-Za-z0-9_-]{22}$/;
 export const ROOM_KEY = /^[A-Za-z0-9_-]{43}$/;
 export const SEAT_TOKEN = /^[A-Za-z0-9_-]{22,43}$/;
 const VERSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
-export const roomEnabled = () => { try { return Boolean(globalThis.localStorage) && localStorage.getItem('eden.collab.room') === '1'; } catch { return false; } };
+// On at askeden.com (and its preview), where the room runs (deployed 2026-11, owner's go); off elsewhere (the local server
+// has no room). localStorage 'eden.collab.room' = '1' / '0' turns it on or off in one browser. In the iPhone app too (2026-11-07,
+// owner): since 2026-11-05 the app gets the whole website (native.js APP_BETA), and a deck link tapped on an iPhone opens
+// in the app (universal links), where this switch being off left the person on an empty page.
+const ROOM_HOST = /(^|\.)askeden\.com$/;
+/** This page is askeden.com (or its preview), where the deck room runs. */
+export const onRoomHost = () => { try { return ROOM_HOST.test(globalThis.location ? location.hostname : ''); } catch { return false; } };
+export const roomEnabled = () => {
+  try { const v = globalThis.localStorage && localStorage.getItem('eden.collab.room'); if (v === '1') return true; if (v === '0') return false; } catch { /* no storage */ }
+  return onRoomHost();
+};
 
 // ── sealing (the same AES-GCM as share-model.js, its own additional data) ──
 
@@ -54,6 +64,19 @@ export async function unseal(enc, keyText, kind, id = '') {
     const plain = await globalThis.crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(e.iv), additionalData: aad(kind, id) }, await cryptoKey(keyText), unb64u(e.ct));
     return JSON.parse(new TextDecoder().decode(plain));
   } catch { return null; }
+}
+
+/**
+ * A version's id on the wire: its own, else one made from when and how it was made (a deck from before versions had
+ * ids, 2026-10: the room skipped those, so a collaborator got an empty deck until the owner edited it). The same version
+ * gets the same id on every device (sync-model.js versionKey: at, kind, reply).
+ */
+export function wireId(v) {
+  if (v && typeof v.id === 'string' && VERSION_ID.test(v.id)) return v.id;
+  const text = `${(v && v.at) || 0}:${(v && v.kind) || ''}:${(v && v.nodeId) || ''}`;
+  let h = 0xcbf29ce484222325n;
+  for (const ch of text) h = BigInt.asUintN(64, (h ^ BigInt(ch.codePointAt(0))) * 0x100000001b3n); // FNV-1a
+  return `w${Number((v && v.at) || 0).toString(36)}${h.toString(36)}`.slice(0, 64);
 }
 
 /** A version from the room, checked: { id, at, kind: 'room', deck } (the deck cleaned), or null. */
@@ -106,7 +129,7 @@ export class RoomClient {
     let s;
     try { s = this.connectFn(); } catch { this.retry(); return; }
     this.socket = s;
-    s.onopen = () => { this.tries = 0; this.send({ t: 'hello', since: ((this.getConv() || {}).deckVersions || []).map((v) => v.id).filter(Boolean).slice(-200) }); };
+    s.onopen = () => { this.tries = 0; this.send({ t: 'hello', since: ((this.getConv() || {}).deckVersions || []).map(wireId).slice(-200) }); };
     s.onmessage = (e) => { const raw = typeof e.data === 'string' ? e.data : ''; this.queue = this.queue.then(() => this.receive(raw)).catch(() => {}); };
     s.onclose = (e) => {
       if (this.socket !== s) return;
@@ -149,7 +172,7 @@ export class RoomClient {
         if (typeof m.id !== 'string' || typeof m.enc !== 'string') return;
         this.has.add(m.id);
         const v = cleanVersion(await unseal(m.enc, this.key, 'version', m.id), m.id);
-        if (v && c && applyRoomMessage(c, { t: 'version', version: v })) this.onChange(c);
+        if (v && c && !(c.deckVersions || []).some((x) => wireId(x) === v.id) && applyRoomMessage(c, { t: 'version', version: v })) this.onChange(c); // (one this device has without an id: already here)
         return;
       }
       case 'comments': {
@@ -178,10 +201,11 @@ export class RoomClient {
   async push(c) {
     if (!this.open || this.role === 'viewer' || !c) return;
     if (this.role !== 'commenter') for (const v of c.deckVersions || []) {
-      if (!v.id || this.has.has(v.id) || !VERSION_ID.test(v.id)) continue;
-      this.has.add(v.id);
-      const enc = await seal({ id: v.id, at: v.at, deck: v.deck }, this.key, 'version', v.id);
-      this.send({ t: 'version', id: v.id, at: v.at || Date.now(), enc });
+      const id = wireId(v);
+      if (this.has.has(id) || !v.deck) continue;
+      this.has.add(id);
+      const enc = await seal({ id, at: v.at || 1, deck: v.deck }, this.key, 'version', id);
+      this.send({ t: 'version', id, at: v.at || 1, enc });
     }
     await this.pushComments(c);
   }
@@ -208,7 +232,7 @@ export function openRoom(c, { getConv, onChange, onStatus, WS = globalThis.WebSo
 /** A link that opens the deck room: the editor's address, then the room, the key and (for someone else) a seat token, after #. */
 export function roomLink(origin, { id, key, token = '' }) {
   const p = new URLSearchParams({ room: id, key, ...(token ? { seat: token } : {}) });
-  return `${String(origin).replace(/\/+$/, '')}/chat/#deck-room&${p}`;
+  return `${String(origin).replace(/\/+$/, '')}/deck#deck-room&${p}`; // askeden.com /deck: the app signed in, else the sign-in, which keeps the #fragment (site pages.js, signin.js)
 }
 /** The room in a link's #fragment, checked: { id, key, token } or null. */
 export function readRoomLink(hash) {
@@ -275,10 +299,10 @@ const random = (n) => b64u(globalThis.crypto.getRandomValues(new Uint8Array(n)))
  * with two seats, one that may edit and one that may only watch. `post(path, body)` sends JSON to Eden (api.js
  * postJSON). → `c.deckRoom` { id, key, owner: true, links: { edit, view } } (the conversation is changed; save it).
  */
-export async function startRoom(c, { post, origin = globalThis.location && globalThis.location.origin }) {
+export async function startRoom(c, { post, origin = globalThis.location && globalThis.location.origin, by = '' }) {
   const key = random(32);
   const seats = [{ id: random(6), role: 'collaborator', token: random(24) }, { id: random(6), role: 'viewer', token: random(24) }];
-  const blob = await seal({ kind: 'deck-room', title: String((c.deckVersions || []).at(-1)?.deck?.title || c.title || 'Slides').slice(0, 160) }, key, 'share');
+  const blob = await seal({ kind: 'deck-room', title: String((c.deckVersions || []).at(-1)?.deck?.title || c.title || 'Slides').slice(0, 160), ...(by ? { by: String(by).slice(0, 60) } : {}) }, key, 'share'); // what a joiner sees while joining (deck-comments.js)
   const res = await post('/api/chat/share', { blob, expires: null, mode: 'collaborate', collaborators: seats });
   if (!res || !ROOM_ID.test(res.id || '')) throw new Error('Eden couldn’t open the deck for editing together.');
   c.deckRoom = { id: res.id, key, owner: true, seats: seats.map((x) => ({ ...x, created: Date.now(), label: x.role === 'viewer' ? 'View link' : 'Edit link' })), links: { edit: roomLink(origin, { id: res.id, key, token: seats[0].token }), view: roomLink(origin, { id: res.id, key, token: seats[1].token }) } };
@@ -290,3 +314,34 @@ export async function stopRoom(c, { post }) {
   await post('/api/chat/shares/revoke', { id: c.deckRoom.id });
   delete c.deckRoom;
 }
+
+// ── opening a shared deck's link (deck-comments.js joins it; these rules are tested) ──
+export const STASH = 'eden.pendingRoom'; // the sign-in page (site public/signin/signin.js) writes the same key
+
+/**
+ * The deck link to open: from the address (`hash`) or kept by the sign-in in this tab (`stored`).
+ * → { link: { id, key, token? } | null, raw, bad } (`bad`: it looks like a deck link but something is missing).
+ */
+export function takeLink(hash, stored) {
+  for (const raw of [hash, stored]) {
+    if (typeof raw !== 'string' || !/^#deck-room&/.test(raw)) continue;
+    const link = readRoomLink(raw);
+    return { link, raw, bad: !link };
+  }
+  return { link: null, raw: '', bad: false };
+}
+
+/** The card's words. `kind`: joining, waiting, slow, revoked, incomplete, failed. */
+export function joinText(kind, { by = '', title = '' } = {}) {
+  const whose = by ? `${by}’s deck` : 'the shared deck';
+  const named = title ? `${whose} “${title}”` : whose;
+  switch (kind) {
+    case 'joining': return { head: `Joining ${named}…`, body: 'Opening it securely. The deck is encrypted; only people with the link can read it.' };
+    case 'waiting': return { head: `Waiting for ${by || 'the owner'} to open ${title ? `“${title}”` : 'the deck'}…`, body: 'Their copy is sent the next time they open it. You can leave this open.' };
+    case 'slow': return { head: `Still joining ${named}…`, body: 'This is taking longer than usual. Check your connection, then try again.' };
+    case 'revoked': return { head: 'This link no longer works', body: 'The owner stopped sharing this deck, or the link was changed. Ask them for a new link.' };
+    case 'incomplete': return { head: 'This link is incomplete', body: 'Part of it is missing: the part after # holds the key that opens the deck. Ask for the whole link, and open it without editing it.' };
+    default: return { head: 'Couldn’t open the shared deck', body: 'Something went wrong while joining. Try again in a moment.' };
+  }
+}
+

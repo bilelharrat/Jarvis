@@ -17,6 +17,14 @@ import { safeReturn } from './return.js';
 // state.js) before askeden.com says who signed in.
 try { localStorage.removeItem('jchat:account'); } catch { /* storage blocked */ }
 
+// A shared deck's link (/deck#deck-room&room=…&key=…&seat=…, askeden web/chat/deck-room.js) sent someone signed out
+// here, and its #fragment came along (the key: it never reaches the server). The sign-in ends on a path, which would
+// drop it, so it waits in this tab only (sessionStorage) for Eden's page (deck-join.js), which takes it and removes it.
+if (/^#deck-room&/.test(location.hash)) {
+  try { sessionStorage.setItem('eden.pendingRoom', location.hash); } catch { /* storage blocked: the link must be opened again */ }
+  history.replaceState(null, '', location.pathname + location.search); // the key out of the address bar and history
+}
+
 const $ = (id) => document.getElementById(id);
 const back = safeReturn(new URLSearchParams(location.search).get('return'));
 const POLL_MS = 2500;

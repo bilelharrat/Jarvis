@@ -507,7 +507,7 @@ export function noPlusSystem({ inTravelApp = false } = {}) {
 }
 
 // a model's id as the person reads it ("gemini-4-argon" → "Gemini 4 Argon")
-const MODEL_NAMES = { 'gemini-4-argon': 'Gemini 4 Argon', 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'claude-sonnet-5-5': 'Claude Sonnet 5.5' };
+const MODEL_NAMES = { 'gemini-4-argon': 'Gemini 4 Argon', 'gemini-4-hydrogen': 'Gemini 4 Hydrogen', 'gemini-3.8-flash': 'Gemini 3.8 Flash', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'claude-sonnet-5-5': 'Claude Sonnet 5.5' };
 export const modelName = (id) => MODEL_NAMES[String(id || '')] || String(id || 'the planner');
 
 export function tripsSystem({ now = new Date(), maps = 'standin', viewing = null, standalone = false } = {}) {

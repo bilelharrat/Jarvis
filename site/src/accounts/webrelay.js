@@ -91,6 +91,14 @@ export const MAC_ROUTES = new Set([
 export const MAC_OFFLINE =
   'Your Mac is offline. Eden Secretary and Code mode run on your Mac: open Eden Secretary there (with Eden running) and try again.';
 
+// What a Mac app answers itself, said when it opens its line (`x-eden-serves`, comma-separated):
+// Eden Code answers Eden Crew's calls (crew_*) in Eden Code (eden_code/eden_link.py HERE_TOOLS), with
+// no Eden Secretary and no Eden's server in between. Such a call goes only to a line that serves it
+// (the newest); every other request to the newest line of all, as before.
+export const SERVES = new Set(['crew']);
+export const CREW_NEEDS_EDEN_CODE =
+  'Eden Crew runs in Eden Code on your Mac. Open Eden Code there, signed in to your account, and try again.';
+
 const ID = /^[0-9a-f]{16}$/;
 const ID_BYTES = 16;
 const CONTENT_TYPE = /^[\w.+-]+\/[\w.+-]+(\s*;[\w\s=.+"-]*)?$/;
@@ -143,8 +151,25 @@ function prune(map, now, keep) {
 }
 
 
+/** What a line says it answers itself (SERVES only), from its `x-eden-serves` header. */
+export function servesOf(request) {
+  const said = String(request?.headers?.get?.('x-eden-serves') || '').slice(0, 200);
+  return [...new Set(said.split(',').map((s) => s.trim().toLowerCase()))].filter((s) => SERVES.has(s));
+}
+
+/** Which SERVES a Mac-only request needs: 'crew' for an Eden Crew call, else null (any line). */
+function needsOf(method, target, body) {
+  if (method !== 'POST' || target !== JARVIS_CALL) return null;
+  try {
+    const { tool } = JSON.parse(new TextDecoder().decode(body));
+    return typeof tool === 'string' && tool.startsWith('crew_') ? 'crew' : null;
+  } catch {
+    return null;
+  }
+}
+
 /** GET /relay/web (a Mac): its web channel; a new one replaces that Mac's older one. */
-export function webListen(account, device) {
+export function webListen(account, device, request = null) {
   if (device.kind !== 'mac') throw new ApiError(403, 'forbidden', 'Only a Mac answers for Eden on the web.');
   for (const old of account.socketsTagged(`web:${device.id}`)) {
     webClosed(account, old);
@@ -154,20 +179,21 @@ export function webListen(account, device) {
       // already closed
     }
   }
-  const { response, server } = account.upgrade(['web', `web:${device.id}`]);
+  const serves = servesOf(request);
+  const { response, server } = account.upgrade(['web', `web:${device.id}`, ...serves.map((s) => `web-serves:${s}`)]);
   try {
-    server.serializeAttachment?.({ mac: device.id, at: account.now() });
+    server.serializeAttachment?.({ mac: device.id, at: account.now(), serves });
   } catch {
     // the newest is still found, a little less surely
   }
   return response;
 }
 
-/** The Mac that answers: the newest web channel on the account. */
-function macSocket(account) {
+/** The Mac that answers: the newest web channel on the account (that serves `needs`, when given). */
+function macSocket(account, needs = null) {
   let best = null;
   let bestAt = -1;
-  for (const ws of account.socketsTagged('web')) {
+  for (const ws of account.socketsTagged(needs ? `web-serves:${needs}` : 'web')) {
     let at = 0;
     try {
       at = Number(ws.deserializeAttachment?.()?.at) || 0;
@@ -245,9 +271,11 @@ async function forward(account, device, request) {
     }
   }
 
-  const mac = macSocket(account);
+  const needs = needsOf(method, target, body);
+  const mac = macSocket(account, needs);
   if (!mac) {
     const { macs } = await online(account);
+    if (macs && needs === 'crew') throw new ApiError(503, 'needs_eden_code', CREW_NEEDS_EDEN_CODE);
     throw macs ? new ApiError(503, 'mac_offline', MAC_OFFLINE) : new ApiError(503, 'needs_mac', 'No Mac is linked to this account.');
   }
   // The short Eden Secretary status checks (askMacBy's probe) have room of their own, so a busy account still gets

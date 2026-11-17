@@ -38,8 +38,11 @@ function card(c, node) {
 }
 
 /** Puts the card under the reply it belongs to (app.js calls this for every message it draws). */
+// Off (owner, 2026-11-06, "less busy"): a first visit has the empty chat's starter cards; this card repeated them under the
+// first answer. The words stay in first-run-model.js; FIRST_ANSWER_CARD = true brings it back.
+const FIRST_ANSWER_CARD = false;
 export function decorateFirstRun(m, c, node) {
-  if (practice() || document.body.classList.contains('travel-standalone') || !showsFor(store.get(FIRST_KEY, null), c, node)) return m; // not on Eden Travel's own address
+  if (!FIRST_ANSWER_CARD || practice() || document.body.classList.contains('travel-standalone') || !showsFor(store.get(FIRST_KEY, null), c, node)) return m; // not on Eden Travel's own address
   const after = m.querySelector(':scope > .vf') || m.querySelector(':scope > .bubble');
   const box = card(c, node);
   if (after) after.after(box); else m.append(box);

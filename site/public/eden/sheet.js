@@ -163,7 +163,7 @@ export async function openSheetFile(file) {
 }
 
 export async function openUpload() {
-  const input = el('input', { type: 'file', accept: '.xlsx,.xls,.csv,.tsv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv', style: { display: 'none' } });
+  const input = el('input', { type: 'file', accept: '.xlsx,.xlsm,.xlsb,.xls,.xlt,.xltx,.xltm,.xlw,.xlam,.xla,.ods,.fods,.slk,.dif,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.spreadsheetml.template,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.ms-excel.sheet.binary.macroEnabled.12,application/vnd.ms-excel.template.macroEnabled.12,application/vnd.ms-excel.addin.macroEnabled.12,application/vnd.oasis.opendocument.spreadsheet,.csv,.tsv,text/csv', style: { display: 'none' } });
   input.addEventListener('change', async () => {
     const f = input.files && input.files[0];
     input.remove();

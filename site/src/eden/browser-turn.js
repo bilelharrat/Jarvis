@@ -23,6 +23,9 @@
 // untrusted: every snapshot reaches the model inside this turn's provenance blocks.
 
 import { ApiError } from '../accounts/util.js';
+import { withPool } from './key-pool.js';
+import { plainKeys } from './providers.js';
+import { meterGoogle } from './credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
 import { BROWSER_SYSTEM, MAX_STEPS, TOOLS, stepText, validateCall } from '../browser/agent-tools.js';
 
 export const TURN_USD = 0.25;
@@ -47,8 +50,9 @@ export function wantsBrowser(text, { panel = false } = {}) {
 const BROWSER_PROVIDERS = ['gemini', 'openai', 'anthropic', 'kimi'];
 
 /** The model that drives: the page's pick, else the hosted default, else the cheapest keyed model. */
-export function pickBrowserModel(all, { override = null, preferred = null, rates = () => [0, 0] } = {}) {
-  const models = all.filter((m) => BROWSER_PROVIDERS.includes(m.provider)); // the providers this file can drive (tools + screenshots)
+export function pickBrowserModel(all, { override = null, preferred = null, rates = () => [0, 0], usable = () => true } = {}) {
+  // the providers this file can drive (tools + screenshots), with a key it can send (`usable`: not only a vertex:// one)
+  const models = all.filter((m) => BROWSER_PROVIDERS.includes(m.provider) && usable(m.provider));
   if (!models.length) return null;
   if (override) { const m = models.find((x) => x.id === override); if (m) return m; }
   if (preferred) { const m = models.find((x) => x.id === preferred); if (m) return m; }
@@ -246,7 +250,9 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
   const stub = env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(who.account));
   const browser = async (body) => (await stub.fetch('https://browser/agent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
   const vision = hasVision(model);
-  const key = cfg.keys[model.provider].key;
+  // the plain keys (never vertex://), pool order: a step moves to the next key after 429/5xx/quota (key-pool.js)
+  const keys = plainKeys(cfg.keys[model.provider]);
+  if (!keys.length) throw new ApiError(422, 'no_provider', `${model.name} has no key the browser can use.`);
   const encoder = new TextEncoder();
   const abort = new AbortController();
   let controller;
@@ -297,14 +303,17 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
       }
       if (!transcript.length || transcript[transcript.length - 1].role !== 'user') transcript.push({ role: 'user', text: 'Carry on.', calls: [] });
       const callModel = async (t, { final }) => {
-        const http = buildToolRequest(model, key, { system, transcript: t, final });
-        const res = await fetch(viaBase(cfg.base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal: abort.signal });
+        const res = await withPool(model.provider, keys, (key) => {
+          const http = buildToolRequest(model, key, { system, transcript: t, final });
+          return fetch(viaBase(cfg.base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal: abort.signal });
+        }, { signal: abort.signal, ordered: true });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(`${model.name}: ${String((j.error && j.error.message) || j.message || `HTTP ${res.status}`).slice(0, 200)}`);
         const r = parseToolResponse(model.provider, j);
         const usd = usageUSD(model, { ...r.usage, webSearches: 0 });
         usage.inputTokens += r.usage.inputTokens; usage.outputTokens += r.usage.outputTokens; usage.reasoningTokens += r.usage.reasoningTokens;
         charged += usd;
+        if (!own && usd > 0) meterGoogle(env, ctx, { provider: model.provider, model: model.id, usage: { ...r.usage, webSearches: 0 }, usd, bucket: hold ? hold.bucket : allow.bucket, credits: allow && allow.credits_usd, allow, feature: 'browser' });
         if (!own && usd > 0) charges.push(call(env, who.account, 'spend', { usd, bucket: hold ? hold.bucket : allow.bucket, meta: { feature: 'browser', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens } }).catch((e) => console.error('spend failed', e && e.message)));
         return { ...r, costUSD: usd };
       };

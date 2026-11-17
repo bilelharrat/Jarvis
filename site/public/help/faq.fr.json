@@ -1619,7 +1619,6 @@
     "label": "Ouvrir Tâches",
     "command": "Tasks"
    },
-   "tour": "auto",
    "img": [
     "tasks"
    ]
@@ -1639,8 +1638,7 @@
     "autoriser",
     "accepter",
     "confirmation"
-   ],
-   "tour": "auto"
+   ]
   },
   {
    "id": "workflows",
@@ -1663,8 +1661,7 @@
    "open": {
     "label": "Ouvrir Automatisations",
     "command": "Workflows"
-   },
-   "tour": "auto"
+   }
   },
   {
    "id": "spaces",
@@ -2697,8 +2694,7 @@
    "open": {
     "label": "Ouvrir Tâches",
     "command": "Tasks"
-   },
-   "tour": "auto"
+   }
   },
   {
    "id": "err-delegate-ended",

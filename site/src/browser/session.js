@@ -18,7 +18,7 @@
 
 import {
   CAST, CLOSED, ENGINES, FrameFlow, LIMITS, RATES, REFUSED, Bucket, addUse, addVisit, addressAllowed, allowance,
-  botWall, closeReason, cursorOf, hostOf, iconData, keyEvent, minutesLeft, mouseEvent, navFailure, recentSites,
+  botWall, closeReason, googleSorry, googlePass, cursorOf, hostOf, iconData, keyEvent, minutesLeft, mouseEvent, navFailure, recentSites,
   requestVerdict, setTitle, siteOf, suggest, textInput, toUrl, toggleBookmark, viewport, zoomStep, ZOOM,
 } from './rules.js';
 import { runTool, takePending } from './agent.js';
@@ -116,6 +116,7 @@ export class BrowserSession {
     this.seq = 0;
     this.view = { w: 1024, h: 768, dpr: 1, touch: false };
     this.plus = false;
+    this.tier = null;
     this.flow = new FrameFlow();
     this.inputSeq = 0;
     this.restTimer = 0;
@@ -157,6 +158,7 @@ export class BrowserSession {
     }
     if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') return new Response('websocket only', { status: 426 });
     this.plus = request.headers.get('x-eden-plus') === '1';
+    this.tier = /^[a-z0-9]{1,16}$/.test(request.headers.get('x-eden-tier') || '') ? request.headers.get('x-eden-tier') : null; // PLANS_V2's plan (browser/api.js)
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
@@ -328,6 +330,7 @@ export class BrowserSession {
         if (!Object.hasOwn(ENGINES, String(msg.id))) return;
         prefs.engine = msg.id;
         await this.storage.put('prefs', prefs);
+        if (tab) tab.notice = null;
         return this.sendState();
       }
       case 'pagetext': {
@@ -441,7 +444,7 @@ export class BrowserSession {
     if (this.starting) return this.starting;
     this.starting = (async () => {
       const usage = await this.storage.get('usage');
-      const limit = allowance(this.env, this.plus);
+      const limit = allowance(this.env, this.plus, this.tier);
       if (minutesLeft(usage, limit, this.now()) <= 0) { this.send({ t: 'closed', why: 'allowance', message: CLOSED.allowance }); throw Object.assign(new Error('allowance'), { quiet: true }); }
       if (!this.env.BROWSER) { this.send({ t: 'closed', why: 'error', message: 'The cloud browser isn’t set up here.' }); throw Object.assign(new Error('no binding'), { quiet: true }); }
       let browser;
@@ -467,6 +470,9 @@ export class BrowserSession {
         const ok = addressAllowed(e.url);
         if (ok.ok) this.send({ t: 'download', url: ok.url, name: String(e.suggestedFilename || '').slice(0, 200) });
       });
+      // Google's pass from an earlier browser, if still good: no robot check again (when Google takes it).
+      const pass = googlePass(await this.storage.get('googlePass'), this.now());
+      if (pass.length) await bcdp.send('Storage.setCookies', { cookies: pass }).catch(() => {});
       // The page Browser Rendering opens with: closed; tabs are made by openTab.
       for (const p of await browser.pages()) await p.close().catch(() => {});
       await this.storage.setAlarm(this.now() + TICK_MS);
@@ -530,9 +536,10 @@ export class BrowserSession {
         this.sendState();
         return;
       }
-      this.navigated(tab, e.frame.url);
+      this.navigated(tab, e.frame.url).catch((err) => console.error('cloud browser navigated', String(err && err.message).slice(0, 200)));
     });
-    cdp.on('Page.navigatedWithinDocument', (e) => { if (e.frameId === tab.mainFrame) this.navigated(tab, e.url); });
+    // (navigated is async and these are CDP listeners: a failure is logged, never an unhandled rejection)
+    cdp.on('Page.navigatedWithinDocument', (e) => { if (e.frameId === tab.mainFrame) this.navigated(tab, e.url).catch((err) => console.error('cloud browser navigated', String(err && err.message).slice(0, 200))); });
     cdp.on('Page.javascriptDialogOpening', (e) => this.dialogOpened(tab, e));
     page.on('close', () => this.closed(tab.id));
     return tab;
@@ -555,6 +562,17 @@ export class BrowserSession {
   }
 
   async navigated(tab, url) {
+    // Google's robot check (google.*/sorry/): Google flags the cloud browser's Cloudflare address, and
+    // no free setting changes that (tested from Browser Run 2026-11-10: Startpage, Brave, DuckDuckGo,
+    // Ecosia and Mojeek turn it away too). The check is the person's way through (Google's pass is tied to
+    // the session's address), so the page stays (no jump elsewhere) and the panel says what to do.
+    // Once passed, Google's pass cookie is kept (googlePass) and put back in the next cloud browser;
+    // a kept pass Google no longer takes (shown the check again) is dropped.
+    const sorry = googleSorry(url);
+    const passed = !sorry && tab.notice && tab.notice.kind === 'google-check' && /^https:\/\/([a-z0-9-]+\.)*google\.[a-z.]+\//i.test(url);
+    if (sorry) { tab.notice = { kind: 'google-check', google: sorry.google }; await this.storage.put('googlePass', []); }
+    else if (tab.notice && /^https?:/.test(url)) tab.notice = null;
+    if (passed) await this.keepGooglePass();
     const was = tab.url;
     tab.url = url;
     if (/^https?:/.test(url)) {
@@ -567,6 +585,16 @@ export class BrowserSession {
       await this.storage.put('hist', addVisit((await this.storage.get('hist')) || [], { url, title: tab.title && was === url ? tab.title : '', at: this.now() }));
     }
     await this.sendState();
+  }
+
+  /** Google's robot-check pass, saved for the next cloud browser (only that cookie: googlePass). */
+  async keepGooglePass() {
+    if (!this.bcdp) return;
+    try {
+      const { cookies } = await this.bcdp.send('Storage.getCookies');
+      const pass = googlePass(cookies, this.now());
+      if (pass.length) await this.storage.put('googlePass', pass);
+    } catch { /* the browser closed meanwhile */ }
   }
 
   async titled(tab) {
@@ -606,6 +634,27 @@ export class BrowserSession {
     await this.storage.put(`icon:${site}`, data);
     tab.icon = data;
     return true;
+  }
+
+  /** Logos for new tab tiles of sites without one: https://site/favicon.ico, kept as iconFor keeps them. */
+  async tileIcons(sites) {
+    let got = false;
+    for (const site of sites.slice(0, 12)) {
+      if (this.icons.has(site)) continue;
+      this.icons.set(site, ''); // one try per site while this browser lasts
+      const ok = addressAllowed(`https://${site}/favicon.ico`);
+      if (!ok.ok) continue;
+      try {
+        const res = await this.fetchIcon(ok.url);
+        if (!res.ok || Number(res.headers.get('content-length') || 0) > 48 * 1024) continue;
+        const data = iconData(new Uint8Array(await res.arrayBuffer()), res.headers.get('content-type'));
+        if (!data) continue;
+        this.icons.set(site, data);
+        await this.storage.put(`icon:${site}`, data);
+        got = true;
+      } catch { /* no logo: its letter */ }
+    }
+    if (got) this.soonState();
   }
 
   fetchIcon(url) {
@@ -695,6 +744,7 @@ export class BrowserSession {
     if (!tab || !this.ws) return;
     await tab.cdp.send('Page.stopScreencast').catch(() => {});
     this.flow.reset();
+    tab.scrollY = undefined; // the panel hears this tab's scroll with its first frame
     const v = tab.viewport || viewport(this.view.w, this.view.h, tab.zoom, this.view.dpr);
     await tab.cdp.send('Page.startScreencast', { format: 'jpeg', quality: CAST.moving, maxWidth: Math.round(v.width * v.deviceScaleFactor), maxHeight: Math.round(v.height * v.deviceScaleFactor), everyNthFrame: 1 });
     this.restSoon(tab);
@@ -714,6 +764,7 @@ export class BrowserSession {
       return;
     }
     this.crispAt = 0;
+    this.scrollSoon(tab);
     this.send(bytesOf(e.data));
     if (this.flow.sent(e.sessionId)) tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {});
     this.restSoon(tab);
@@ -739,6 +790,25 @@ export class BrowserSession {
     this.flow.sent(null);
     this.crispAt = this.now();
     this.crispSeq = seq;
+  }
+
+  /**
+   * How far the page is scrolled (the panel's CSS pixels), sent when it changes: on a phone the panel
+   * keeps a page at its top clear of the floating controls and lets it slide under them as it scrolls.
+   * Read from the page as frames come (Chrome's frame metadata doesn't follow the page's own scroll):
+   * at most every 120 ms while they come, and once more just after they stop.
+   */
+  scrollSoon(tab) {
+    const check = () => {
+      tab.scrollAt = this.now();
+      this.evaluate(tab, 'Math.round(window.scrollY || 0)').then((v) => {
+        const y = Math.max(0, Math.round((Number(v) || 0) * (tab.zoom || 1)));
+        if (y !== tab.scrollY && tab.id === this.active) { tab.scrollY = y; this.send({ t: 'scroll', y }); }
+      }).catch(() => {});
+    };
+    clearTimeout(tab.scrollT);
+    if (!tab.scrollAt || this.now() - tab.scrollAt >= 120) check();
+    tab.scrollT = setTimeout(check, 150);
   }
 
   async evaluate(tab, expression) {
@@ -772,6 +842,13 @@ export class BrowserSession {
       } catch { /* closing */ }
     }
     const site = tab ? siteOf(tab.url) : '';
+    // The new tab page's tiles wear the sites' logos: kept ones from storage (this.icons is only this
+    // browser's), and a site never seen with one gets its /favicon.ico fetched once, then the state again.
+    const onNewTab = !tab || tab.url === NEW_TAB;
+    const tiles = [...(bookmarks || []).slice(0, 12).map((b) => siteOf(b.url)), ...(onNewTab ? recentSites(history || [], 8).map((r) => r.site) : [])].filter((x) => x && !this.icons.has(x));
+    const missing = [];
+    await Promise.all(tiles.map(async (x) => { const kept = await this.storage.get(`icon:${x}`); if (typeof kept === 'string' && kept) this.icons.set(x, kept); else missing.push(x); }));
+    if (missing.length) this.tileIcons(missing).catch(() => {});
     this.send({
       t: 'state',
       running: Boolean(this.browser),
@@ -790,8 +867,9 @@ export class BrowserSession {
       recent: tab && tab.url !== NEW_TAB ? [] : recentSites(history || [], 8).map((r) => ({ ...r, icon: this.icons.get(r.site) || '' })),
       failed: tab && tab.failed ? tab.failed : null,
       wall: Boolean(tab && tab.wall),
+      notice: tab && tab.notice ? tab.notice : null,
       engine: prefs.engine,
-      minutesLeft: Math.floor(minutesLeft(usage, allowance(this.env, this.plus), this.now())),
+      minutesLeft: Math.floor(minutesLeft(usage, allowance(this.env, this.plus, this.tier), this.now())),
       plus: this.plus,
     });
   }
@@ -804,7 +882,7 @@ export class BrowserSession {
     const usage = addUse(await this.storage.get('usage'), now - (this.lastTick || now), now);
     this.lastTick = now;
     await this.storage.put('usage', usage);
-    const why = closeReason({ now, startedAt: this.startedAt, lastInput: this.lastInput || now, connected: Boolean(this.ws), disconnectedAt: this.disconnectedAt, usage, limit: allowance(this.env, this.plus) });
+    const why = closeReason({ now, startedAt: this.startedAt, lastInput: this.lastInput || now, connected: Boolean(this.ws), disconnectedAt: this.disconnectedAt, usage, limit: allowance(this.env, this.plus, this.tier) });
     if (why) { await this.shutdown(why); return; }
     await this.storage.setAlarm(now + TICK_MS);
   }

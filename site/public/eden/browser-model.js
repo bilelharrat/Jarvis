@@ -148,8 +148,15 @@ export const densityOf = (win) => Math.min(2, Math.max(1, Number(win && win.devi
 /** The panel's size for the cloud browser: its CSS pixels, its density, and whether it's touched. */
 export const viewSize = (rect, dpr, touch = false) => ({ w: Math.max(240, Math.round(rect.width)), h: Math.max(240, Math.round(rect.height)), dpr, touch: !!touch });
 
-/** A frame's size on screen (CSS pixels): its pixels at the density it was drawn for, never stretched. */
-export const frameBox = (w, h, dpr) => ({ width: w / (dpr || 1), height: h / (dpr || 1) });
+/**
+ * A frame's size on screen (CSS pixels). The frame was made for the panel's width (cssW): it fills it,
+ * whatever its pixels. Chrome's moving frames come at 1x and the sharp one after a pause at the screen's
+ * density, so sizing by "pixels / density" drew every moving frame at half size: the page cropped in and
+ * out (owner, 2026-11-11, on Google). Without cssW: its pixels at the density, as before.
+ */
+export const frameBox = (w, h, dpr, cssW) => (cssW > 0 && w > 0
+  ? { width: cssW, height: Math.round((h * cssW) / w * 100) / 100 }
+  : { width: w / (dpr || 1), height: h / (dpr || 1) });
 
 /** Wheel messages between two frames, as one (deltas added, the latest place and keys). */
 export function mergeWheel(a, b) {

@@ -22,6 +22,9 @@ import {
 } from './split-view-model.js';
 
 export const SPLIT_KEY = 'jchat:split';
+/** No split view on an iPhone (owner, 2026-11-06): one chat fits its screen. An iPad keeps it (its app and Safari say "iPad"
+ *  or, in desktop mode, "Macintosh"). The menus, ⌘K, the keys and /split all leave it out there; a saved split isn't restored. */
+export const SPLIT_OFF = typeof navigator !== 'undefined' && /\b(?:iPhone|iPod)\b/.test(navigator.userAgent || '');
 export const SPLIT_SHORTCUT = '⌘⇧\\';
 export const SPLIT_HELP = 'Split view: up to 10 chats side by side · /split close';
 
@@ -629,6 +632,7 @@ function changed({ move = false } = {}) {
 }
 
 export function add(id = null, { where = null, focus = true, quiet = false } = {}) {
+  if (SPLIT_OFF) return null;
   claim();
   const curId = state.current ? state.current.id : null;
   if (id != null && id === curId && !R.on) {
@@ -1062,7 +1066,7 @@ function keep() {
 }
 
 export function restoreSplitState() {
-  if (R.restored) return;
+  if (R.restored || SPLIT_OFF) return;
   R.restored = true;
   const raw = store.get(SPLIT_KEY, null);
   if (!raw) return;
@@ -1092,6 +1096,7 @@ export function restoreSplitState() {
 }
 
 export function command(arg = '', from = R.focus) {
+  if (SPLIT_OFF) { toast('Split view is on iPad and computers, not iPhone.'); return true; }
   claim();
   if (R.on && R.panes[from] && R.focus !== from) setFocus(from);
   const { action, query } = splitCommand(arg);
@@ -1113,6 +1118,7 @@ export function command(arg = '', from = R.focus) {
 }
 
 export function handleSplitKey(e) {
+  if (SPLIT_OFF) return false;
   const act = keyAction(e);
   if (!act) return false;
   if (act === 'side') {
@@ -1192,7 +1198,7 @@ export function onConvDeleted(c) {
 }
 
 export function rowItem(c) {
-  if (!c || c.temp) return null;
+  if (!c || c.temp || SPLIT_OFF) return null;
   const curId = state.current ? state.current.id : null;
   if (!R.on && c.id === curId) return { label: 'Open in split view', note: 'Open here already', disabled: true };
   if (R.on && ids().includes(c.id)) return { label: 'Open in split view', note: 'In a pane already', disabled: true };
@@ -1201,6 +1207,7 @@ export function rowItem(c) {
 }
 
 export function splitMenuItems() {
+  if (SPLIT_OFF) return [];
   if (!R.on) return [{ label: 'Split view', note: 'Another chat beside this one', key: SPLIT_SHORTCUT, run: () => add(null) }];
   return [
     R.panes.length < MAX_PANES ? { label: 'Add a pane', note: 'Another chat beside these', key: SPLIT_SHORTCUT, run: () => add(null) } : null,
@@ -1213,6 +1220,7 @@ export function splitMenuItems() {
 }
 
 export function splitPaletteCommands() {
+  if (SPLIT_OFF) return [];
   return [
     { t: 'Split view: add a pane', s: SPLIT_SHORTCUT, i: 'side', run: () => add(null) },
     ...(R.on ? [
@@ -1289,6 +1297,7 @@ function land(chatId, t) {
 
 export function initSplitView(handlers) {
   H = handlers || {};
+  if (SPLIT_OFF) { document.documentElement.classList.add('no-split'); const b = $('btnSplit'); if (b) b.hidden = true; }
   const center = $('center');
   stage = $('sv-stage');
   ownNode = $('sv-own');

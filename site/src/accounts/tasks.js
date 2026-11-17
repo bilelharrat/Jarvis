@@ -38,6 +38,7 @@
 import { ApiError, WEB_PUSH_APPS, isPhone, isWebPushApp, json } from './util.js';
 import { costOf, priceOf } from './proxy.js';
 import { serviceAiReady, serviceFetch } from './service-ai.js';
+import { meterGoogle, pacedBackground } from '../eden/credit-pacer.js'; // the GCP credit pacer: inert unless CREDIT_PACER is warn/on
 import { GONE, MAX_PAYLOAD, pushReady, sendPush } from './apns.js';
 import { FCM_GONE, fcmReady, sendFcm } from './fcm.js';
 import { TOKEN_RECORD, openTokens } from './tokens.js';
@@ -699,7 +700,9 @@ export async function runTask(account, task, now) {
       record.wait_until = nextMonth(now);
       return record;
     }
-    const allow = await account.allowAi();
+    // the GCP credit pacer (CREDIT_PACER=on): a free account's run on Google's AI is skipped at red (and at amber past
+    // half the trial); it runs again at its next time. Paid accounts, other models, the pacer off: as it was.
+    const allow = await pacedBackground(account.env, await account.allowAi(), model);
     if (!allow.ok) {
       record.outcome = 'skipped';
       record.error = allow.why;
@@ -726,6 +729,7 @@ export async function runTask(account, task, now) {
     try {
       answer = await askModel(account.env, { system, user, schema: RUN_SCHEMA, maxTokens, model, fetch: backgroundFetch(account.env, task.local) });
     } finally {
+      if (answer && answer.costUSD > 0) meterGoogle(account.env, null, { model: answer.model || model, usd: answer.costUSD, bucket: hold.bucket, allow, feature: 'task-run' }); // Gemini's answers only
       if (answer && answer.costUSD > 0) await account.spend({ usd: answer.costUSD, bucket: hold.bucket });
       account.release({ hold: hold.hold });
     }
@@ -971,6 +975,7 @@ async function propose(env, who, args, { call, local }) {
   try {
     answer = await askModel(env, { system, user, schema: PROPOSAL_SCHEMA, maxTokens, model, fetch: backgroundFetch(env, local) });
   } finally {
+    if (answer && answer.costUSD > 0) meterGoogle(env, null, { model: answer.model || model, usd: answer.costUSD, bucket: hold.bucket, allow: hold, feature: 'tasks' }); // Gemini's answers only
     if (answer && answer.costUSD > 0) await call(env, who.account, 'spend', { usd: answer.costUSD, bucket: hold.bucket, meta: { feature: 'tasks' } }).catch(() => {});
     await call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
   }

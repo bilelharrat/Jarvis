@@ -14,7 +14,7 @@
 'use strict';
 
 const {
-  app, BrowserWindow, Menu, Notification, Tray, autoUpdater, globalShortcut, ipcMain, nativeImage, net, powerMonitor, screen, shell,
+  app, BrowserWindow, Menu, Notification, Tray, WebContentsView, autoUpdater, clipboard, globalShortcut, ipcMain, nativeImage, net, powerMonitor, screen, session, shell,
 } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -25,9 +25,12 @@ const { spawn } = require('child_process');
 const { backendCommand, BackendLog } = require('../backend-launch');
 const share = require('../backend-share');
 const { createUpdater, fetchFeed, feedFrom } = require('../features/updates');
+const localBrowser = require('./local-browser');
 
 const NAME = 'Ask Eden';
-const HOME_URL = 'https://askeden.com/';
+// ASK_EDEN_HOME (unpackaged runs only): Eden's page from elsewhere, e.g. http://localhost:5174/ to try a change.
+const HOME_URL = (!app.isPackaged && process.env.ASK_EDEN_HOME) || 'https://askeden.com/';
+const DEV_ORIGIN = HOME_URL.startsWith('https://askeden.com/') ? '' : new URL(HOME_URL).origin;
 const QUICK_KEYS = 'Alt+Space';
 const EDEN_PORT = 5174;
 const SIGN_IN_HOSTS = new Set(['appleid.apple.com', 'accounts.google.com']);
@@ -36,7 +39,7 @@ const SIGN_IN_HOSTS = new Set(['appleid.apple.com', 'accounts.google.com']);
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|Ask Eden|ask-eden-app)\/\S+/gi, '');
 
 app.setName(NAME);
-app.setPath('userData', path.join(app.getPath('appData'), NAME));
+app.setPath('userData', path.join(app.getPath('appData'), DEV_ORIGIN ? `${NAME} (dev)` : NAME)); // a dev run beside the installed app
 const DATA_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'Jarvis'); // the engine's (prefs.APP_SUPPORT)
 const OWN_DIR = path.join(os.homedir(), 'Library', 'Application Support', NAME); // this app's own folder (the bundled engine runs from it)
 const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', NAME);
@@ -63,7 +66,7 @@ app.on('second-instance', (_e, argv) => {
 // ── the web page in a window ──
 
 const isEdenSite = (url) => {
-  try { const u = new URL(url); return u.protocol === 'https:' && (u.hostname === 'askeden.com' || u.hostname.endsWith('.askeden.com')); } catch { return false; }
+  try { const u = new URL(url); if (DEV_ORIGIN && u.origin === DEV_ORIGIN) return true; return u.protocol === 'https:' && (u.hostname === 'askeden.com' || u.hostname.endsWith('.askeden.com')); } catch { return false; }
 };
 const staysIn = (url) => {
   if (isEdenSite(url)) return true;
@@ -124,7 +127,7 @@ function createMain() {
     if (win && !win.isDestroyed() && win.webContents.getURL().startsWith('file:')) win.loadURL(first).catch(() => {});
   });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } }); // stays in the menu bar
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => { browser.detach(win); win = null; });
   win.loadFile(path.join(__dirname, 'loading.html')).catch(() => {});
   pendingUrl = '';
 }
@@ -215,6 +218,9 @@ ipcMain.handle('eden:boot-sound', (e, on) => {
   if (typeof on === 'boolean') { try { fs.writeFileSync(BOOT_SOUND_FILE(), `${JSON.stringify({ on })}\n`); } catch { /* read-only: stays as it was */ } }
   return bootSoundOn();
 });
+// The browser in the page's browser panel: this Mac's own (local-browser.js), not Eden's cloud one.
+const browser = localBrowser.createLocalBrowser({ WebContentsView, session, Menu, shell, clipboard, isMac: true, recentFile: path.join(app.getPath('userData'), 'browser-recent.json') });
+localBrowser.install({ ipcMain, browser, fromPage: (e) => fromEden(e) && (!e.senderFrame || e.senderFrame === win.webContents.mainFrame), host: () => win });
 ipcMain.handle('eden:engine', (e) => (fromEden(e) ? { running: Boolean(engine), shared: Boolean(engine && engine.shared) } : null));
 
 // ── the Mac engine ──

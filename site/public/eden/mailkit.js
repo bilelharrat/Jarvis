@@ -96,7 +96,8 @@ export const mailAI = () => (privateMail() ? { privacy: true, ...(state.settings
 
 /* ---------------- a cheap model, for the style guide and instant replies ---------------- */
 
-const CHEAP = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+// Same order as Mail's MAIL_MODELS: 3.8 Flash first (best at the same price), Flash-Lite last, no 3.5 Flash.
+const CHEAP = ['gemini-4-hydrogen', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 function cheapModel() {
   for (const id of CHEAP) {
     const m = modelInfo(id);
@@ -306,7 +307,7 @@ const SHORTCUTS = [
   ['j / ↓', 'Next email'], ['k / ↑', 'Previous email'], ['Enter / o', 'Open'], ['u / Esc', 'Back to the list'],
   ['e', 'Done (archive)'], ['h', 'Remind me (snooze)'], ['s', 'Star'], ['⇧U / ⇧I', 'Mark unread / read'],
   ['r', 'Reply'], ['a', 'Reply all'], ['f', 'Forward'], ['c', 'New email'], ['/', 'Search'],
-  ['1–4', 'Important, Other, News, Calendar'], ['z', 'Undo'], ['?', 'These shortcuts'],
+  ['1–4', 'Important, Other, News, Calendar'], ['[', 'Collapse or show the sidebar'], ['z', 'Undo'], ['?', 'These shortcuts'],
 ];
 export function shortcutsNode() {
   return el('div', 'mk-keys', ...SHORTCUTS.map(([k, t]) => el('div', 'mk-key', el('kbd', '', k), el('span', '', t))));

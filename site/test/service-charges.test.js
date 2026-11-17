@@ -10,6 +10,7 @@ import { call } from '../src/accounts/index.js';
 import { MARKUP } from '../src/accounts/credits.js';
 import { parseToken } from '../src/accounts/util.js';
 import { embedUSD } from '../src/eden/embed.js';
+import { titleUSD } from '../src/eden/title.js';
 import { EXTRACT_MODEL } from '../src/eden/memory.js';
 import { modelOf, usageUSD } from '../src/eden/providers.js';
 import { forgetSessions } from '../src/eden/session.js';
@@ -22,6 +23,7 @@ const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 2e-6, `${msg}: expected 
 
 let env;
 let waits;
+let titleCalls = [];
 let spends; // every `spend` the account object took: { usd (what it was asked), charged (what it charged) }
 const ctx = { waitUntil: (p) => waits.push(p) };
 const realFetch = globalThis.fetch;
@@ -31,6 +33,7 @@ beforeEach(() => {
   forgetSessions();
   waits = [];
   spends = [];
+  titleCalls = [];
   Account.prototype.spend = async function spend(args) {
     const out = await realSpend.call(this, args);
     spends.push({ usd: Number(args.usd), charged: out.charged_usd });
@@ -41,6 +44,10 @@ beforeEach(() => {
     if (url === 'https://api.anthropic.com/v1/messages') return new Response(sseBody(claudeAnswer({ input: 1000, output: 2000 })), { headers: { 'content-type': 'text/event-stream' } });
     if (url.includes(`${EXTRACT_MODEL}:generateContent`)) {
       return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ action: 'add', text: 'Is a designer at Acme' }) }] } }], usageMetadata: { promptTokenCount: 30_000, candidatesTokenCount: 2_000 } });
+    }
+    if (url.includes('gemma-4-31b-it:generateContent')) {
+      titleCalls.push({ url, key: init.headers['x-goog-api-key'], body: JSON.parse(init.body) });
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'Fixing a useEffect loop' }] } }], usageMetadata: { promptTokenCount: 400, candidatesTokenCount: 6 } });
     }
     if (url.includes(':batchEmbedContents')) return Response.json({ embeddings: JSON.parse(init.body).requests.map(() => ({ values: [0.1, 0.2] })) });
     throw new Error(`unexpected fetch ${url}`);
@@ -128,4 +135,26 @@ test('the memory extractor beside a reply on the credits: cost × 1.40 once, the
   near(usage.data.costUSD, reply.usd * MARKUP.free, 'the reply shows the user’s price');
   const total = spends.reduce((n, s) => n + s.charged, 0);
   near(await balance(), Math.round((10 - total) * 1e6) / 1e6, 'the credits go down by what was charged');
+});
+
+test('a chat title on the credits: Gemma 4 31B on the service key, cost × the markup once', async () => {
+  const { session, balance } = await onCredits();
+  const r = await post('/api/chat/title', { user: 'why does my useEffect keep looping', reply: 'Because the effect sets state it depends on.' }, session);
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual(await r.json(), { title: 'Fixing a useEffect loop', model: 'gemma-4-31b-it' });
+  await settle();
+  assert.equal(titleCalls.length, 1);
+  assert.equal(titleCalls[0].key, 'test-gemini');
+  assert.match(titleCalls[0].body.contents[0].parts[0].text, /User: why does my useEffect keep looping\n\nAssistant: Because/);
+  const cost = titleUSD({ model: 'gemma-4-31b-it', inTokens: 400, outTokens: 6 });
+  assert.equal(spends.length, 1);
+  near(spends[0].usd, cost, '`spend` is given the provider cost');
+  near(await balance(), 10 - Math.round(cost * MARKUP.free * 1e6) / 1e6, 'the credits go down by cost × the markup');
+});
+
+test('a chat title needs the first message', async () => {
+  const { session } = await onCredits();
+  const r = await post('/api/chat/title', { reply: 'x' }, session);
+  assert.equal(r.status, 400);
+  assert.equal(titleCalls.length, 0);
 });

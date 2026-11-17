@@ -5,13 +5,18 @@ import { t } from './i18n.js';
 
 const setText = (node, value) => { if (node.textContent !== value) node.textContent = value; };
 const symbols = { done: '✓', active: '●', pending: '○', stopped: '!', skipped: '–' };
+// The iPhone and iPad app (.eden-app, app-lock.js) shows one quiet line that opens into the steps:
+// it starts closed, and adds a step count and a bar (app.css "activity thread in the app"; hidden on the web).
+const inApp = () => typeof document !== 'undefined' && document.documentElement.classList.contains('eden-app');
 
 export function createActivityThread({ id, onStop }) {
   const title = el('span', 'activity-title');
   const elapsed = el('span', { class: 'activity-time', 'data-no-i18n': '' });
+  const count = el('span', { class: 'activity-count', 'data-no-i18n': '' });
+  const bar = el('div', { class: 'activity-bar', 'aria-hidden': 'true' });
   const list = el('ol', { class: 'activity-list', id: `activity-${id}`, 'aria-label': t('Activity thread') });
   const head = el('button', { type: 'button', class: 'activity-head', 'data-act': 'activity-toggle', 'aria-expanded': 'true', 'aria-controls': list.id },
-    el('span', { class: 'activity-mark', 'aria-hidden': 'true' }), title, elapsed,
+    el('span', { class: 'activity-mark', 'aria-hidden': 'true' }), title, count, elapsed,
     el('span', { class: 'activity-chevron', 'aria-hidden': 'true' }, '›'));
   const body = el('div', 'activity-body');
   const warning = el('p', { class: 'activity-warning', hidden: true });
@@ -19,8 +24,8 @@ export function createActivityThread({ id, onStop }) {
   const stop = el('button', { type: 'button', class: 'activity-stop', 'data-act': 'activity-stop' }, t('Stop'));
   const footer = el('div', 'activity-footer', meta, stop);
   const root = el('section', { class: 'activity-thread', 'aria-label': t('Turn progress') },
-    el('div', 'activity-glass', head, list), warning, footer);
-  const view = { root, head, title, elapsed, list, body, warning, meta, stop, footer, rows: new Map(), phase: null, open: true };
+    el('div', 'activity-glass', head, bar, list), warning, footer);
+  const view = { root, head, title, count, bar, elapsed, list, body, warning, meta, stop, footer, rows: new Map(), phase: null, open: true };
   head.addEventListener('click', (event) => {
     event.stopPropagation();
     view.open = !view.open;
@@ -36,7 +41,7 @@ export function updateActivityThread(v, data) {
   // Explicit choices persist within a phase; the person can reopen a completed run.
   if (v.phase !== data.phase) {
     v.phase = data.phase;
-    v.open = data.phase === 'work';
+    v.open = data.phase === 'work' && !inApp();
   }
   v.head.setAttribute('aria-expanded', String(v.open));
   v.list.hidden = !v.open;
@@ -72,6 +77,13 @@ export function updateActivityThread(v, data) {
     // Do not detach/reinsert existing controls on a no-op redraw.
     if (v.list.children[index] !== item.li) v.list.insertBefore(item.li, v.list.children[index] || null);
   });
+  while (v.bar.children.length > data.rows.length) v.bar.lastChild.remove();
+  data.rows.forEach((row, index) => {
+    const seg = v.bar.children[index] || v.bar.appendChild(el('i'));
+    if (seg.dataset.status !== row.status) seg.dataset.status = row.status;
+  });
+  const at = data.rows.findIndex((row) => row.status === 'active');
+  setText(v.count, at >= 0 && data.rows.length > 1 ? `${at + 1}/${data.rows.length}` : '');
   const current = data.rows.find((row) => row.status === 'active')
     || [...data.rows].reverse().find((row) => row.status !== 'pending');
   const target = current && v.rows.get(current.id)?.li;

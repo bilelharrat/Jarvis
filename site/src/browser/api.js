@@ -19,9 +19,14 @@ export async function browserApi(request, env) {
     if (!session) throw new ApiError(401, 'signed_out', 'This browser is signed out of Eden. Reload the page to sign in.');
     await limited(env, 'BROWSER_RATE', session.account);
     let plus = false;
-    try { plus = Boolean((await call(env, session.account, 'get', {}, session.token)).plan?.active); } catch { /* the free allowance */ }
+    let tier = '';
+    try {
+      const plan = (await call(env, session.account, 'get', {}, session.token)).plan;
+      plus = Boolean(plan?.active);
+      tier = plus && typeof plan.tier === 'string' ? plan.tier : ''; // PLANS_V2's plan: its browser minutes (rules.js allowance)
+    } catch { /* the free allowance */ }
     const stub = env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(session.account));
-    return await stub.fetch('https://browser/ws', { headers: { upgrade: 'websocket', 'x-eden-plus': plus ? '1' : '0' } });
+    return await stub.fetch('https://browser/ws', { headers: { upgrade: 'websocket', 'x-eden-plus': plus ? '1' : '0', ...(tier ? { 'x-eden-tier': tier } : {}) } });
   } catch (error) {
     if (error instanceof ApiError) return problem(error.status, error.message, error.code, error.headers);
     console.error('cloud browser connect failed', error && error.message);

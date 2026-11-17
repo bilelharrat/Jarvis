@@ -26,8 +26,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/home/home.css">
+<link rel="stylesheet" href="/home/galaxy.css">
 <script src="/lang/site-i18n.js" data-page="home"></script>
 <script src="/home/features.js" defer></script>
+<script src="/home/plans.js" defer></script>
 <link rel="stylesheet" href="/home/paper-refinement.css">
 </head>
 <body data-marketing="home">
@@ -131,6 +133,7 @@
     </section>
   </div>
 
+
   <!-- Downloads. The addresses are the Worker's own (src/worker.js: /download/mac, /download/windows); no inline script and no inline style here (the page's policy allows neither). -->
   <section class="get" id="get" aria-labelledby="getH">
     <h2 id="getH">Get Ask Eden</h2>
@@ -200,6 +203,9 @@
         </ul>
         <a class="btn primary" href="/signin?return=%2F%23plus">Get Plus</a>
       </article>
+      <!-- PLANS_V2 (owner, 2026-11-13): /home/plans.js fills this with the Worker's plans (GET /api/web/config `plans`)
+           and hides the Plus card above; empty and hidden with the flag off or JavaScript off. -->
+      <div class="plans-v2" id="plansV2" hidden></div>
       <article class="plan wide">
         <h3>Pay as you go</h3>
         <p class="price"><b>$5</b><span>, $10 or $25</span></p>
@@ -212,8 +218,15 @@
         </ul>
         <a class="btn" href="/signin?return=%2F%23plus">Add credits</a>
       </article>
+      <!-- ENTERPRISE_CONTACT (owner, 2026-11-13): shown by /home/plans.js when /api/web/config says enterprise_contact. -->
+      <article class="plan enterprise" id="enterpriseCard" hidden>
+        <h3>Eden Enterprise</h3>
+        <p class="ent-lede">For teams and companies: shared AI budget, admin controls, invoicing. Contact us for pricing.</p>
+        <a class="btn" href="/enterprise">Contact us</a>
+      </article>
     </div>
-    <p class="fine">Plus is billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the <a href="/terms">Terms</a>).</p>
+    <p class="fine" id="plansFine">Plus is billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the <a href="/terms">Terms</a>).</p>
+    <p class="fine" id="plansV2Fine" hidden>Plans are billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the <a href="/terms">Terms</a>).</p>
   </section>
 
   <section class="guides-preview" id="guides-section" aria-labelledby="guidesH">
@@ -245,6 +258,42 @@
         </div>
         <span class="more">Read guide →</span>
       </a>
+    </div>
+  </section>
+
+  <!-- The Ask Eden galaxy: every Eden app around Ask Eden, each linking to its own site (the ring is /home/galaxy.css,
+       the same component as edenforbusiness.com's hero; logos in public/home/galaxy/). "Galaxy", never "ecosystem" (owner, 2026-11-13). -->
+  <section class="galaxy-band" id="galaxy" aria-labelledby="galaxyH">
+    <div class="galaxy-text">
+      <p class="kicker">Eden apps</p>
+      <h2 id="galaxyH">The Ask Eden galaxy</h2>
+      <p class="sub">Twelve Eden apps around one chat: for code, travel, your calendar, the news, mail, school, and checking what AI tells you. Each one opens its own site.</p>
+      <p class="galaxy-note">Eden Apollo, Eden’s browser, is coming to iPhone and iPad.</p>
+    </div>
+    <div class="ecosystem" role="region" aria-label="Ask Eden at the center of the Eden galaxy: twelve apps, each linking to its own site.">
+      <div class="track-outer-line"></div>
+      <div class="track-inner-line"></div>
+      <div class="orbit-dot dot-one"></div>
+      <div class="orbit-dot dot-two"></div>
+      <div class="orbit-dot dot-three"></div>
+      <div class="orbit-dot dot-four"></div>
+      <div class="ecosystem-center"><img src="/home/galaxy/eden-mark.svg" alt="" width="56" height="66"><span>Ask Eden</span></div>
+      <div class="orbit-ring ring-outer">
+        <a class="orbit-item o1" href="https://askedencode.com/" aria-label="Eden Code"><span class="orbit-logo-holder"><img src="/home/galaxy/code-logo.png" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Code</span><span class="orbit-tooltip">Eden Code</span></span></a>
+        <a class="orbit-item o2" href="https://askedentravel.com/" aria-label="Ask Eden Travel"><span class="orbit-logo-holder"><img src="/home/galaxy/travel-logo.svg" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Travel</span><span class="orbit-tooltip">Ask Eden Travel</span></span></a>
+        <a class="orbit-item o3" href="https://askedenedu.com/" aria-label="Eden for Education"><span class="orbit-logo-holder"><img src="/home/galaxy/education-logo.svg" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Education</span><span class="orbit-tooltip">Eden for Education</span></span></a>
+        <a class="orbit-item o4" href="https://edenrouter.com/" aria-label="Eden Router"><span class="orbit-logo-holder"><img src="/home/galaxy/router-logo.svg" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Router</span><span class="orbit-tooltip">Eden Router</span></span></a>
+        <a class="orbit-item o5" href="https://edencalendar.com/" aria-label="Eden Calendar"><span class="orbit-logo-holder"><img src="/home/galaxy/calendar-logo.svg" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Calendar</span><span class="orbit-tooltip">Eden Calendar</span></span></a>
+        <a class="orbit-item o6" href="https://edendaredevil.com/" aria-label="Eden Daredevil"><span class="orbit-logo-holder"><img src="/home/galaxy/daredevil-logo.png" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Daredevil</span><span class="orbit-tooltip">Eden Daredevil</span></span></a>
+      </div>
+      <div class="orbit-ring ring-inner">
+        <a class="orbit-item i1" href="https://askedenmail.com/" aria-label="Eden Mail"><span class="orbit-logo-holder"><img src="/home/galaxy/mail-logo.svg" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Mail</span><span class="orbit-tooltip">Eden Mail</span></span></a>
+        <a class="orbit-item i2 pos-eves" href="https://evesverification.com/" aria-label="EVES"><span class="orbit-logo-holder eves-pill-holder"><img src="/home/galaxy/eves-logo.svg" alt="" class="orbit-logo orbit-logo-eves" width="118" height="60"><span class="orbit-tooltip">EVES Verification</span></span></a>
+        <a class="orbit-item i3" href="https://edensecretary.com/" aria-label="Eden Secretary"><span class="orbit-logo-holder"><img src="/home/galaxy/secretary-logo.png" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Secretary</span><span class="orbit-tooltip">Eden Secretary</span></span></a>
+        <a class="orbit-item i4" href="https://askedennews.com/" aria-label="Eden News"><span class="orbit-logo-holder"><img src="/home/galaxy/news-logo.svg" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">News</span><span class="orbit-tooltip">Eden News</span></span></a>
+        <a class="orbit-item i5" href="https://messenger.askeden.com/" aria-label="Eden Messenger"><span class="orbit-logo-holder"><img src="/home/galaxy/messenger-logo.png" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Messenger</span><span class="orbit-tooltip">Eden Messenger</span></span></a>
+        <span class="orbit-item i6" tabindex="0" role="img" aria-label="Eden Apollo, coming to iPhone and iPad"><span class="orbit-logo-holder"><img src="/home/galaxy/apollo-logo.webp" alt="" class="orbit-logo" width="52" height="52"><span class="orbit-label">Apollo</span><span class="orbit-tooltip">Eden Apollo · coming to iPhone and iPad</span></span></span>
+      </div>
     </div>
   </section>
 

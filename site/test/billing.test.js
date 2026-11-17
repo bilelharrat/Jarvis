@@ -10,7 +10,7 @@ import worker from '../src/worker.js';
 import { call } from '../src/accounts/index.js';
 import { PLUS_PRODUCTS, parseToken } from '../src/accounts/util.js';
 import { PAST_DUE_GRACE_MS, combinePlans } from '../src/accounts/stripe-plan.js';
-import { billingConfig, billingProblem, stripeForm, verifyStripeSignature } from '../src/eden/billing.js';
+import { billingConfig, billingProblem, plusOffer, stripeForm, verifyStripeSignature } from '../src/eden/billing.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Identity, Link, namespace, rateLimiter } from './fakes.js';
 
@@ -32,17 +32,27 @@ function fakeStripe(input, init = {}) {
   const method = (init.method || 'GET').toUpperCase();
   const headers = new Headers(init.headers);
   const form = init.body ? new URLSearchParams(init.body) : null;
-  stripe.calls.push({ url: url.href, path: url.pathname, method, headers, form });
+  stripe.calls.push({ url: url.href, path: url.pathname, method, headers, form, body: init.body });
   if (headers.get('authorization') !== `Bearer ${env.STRIPE_SECRET_KEY}`) return Response.json({ error: { type: 'invalid_request_error' } }, { status: 401 });
   if (method === 'POST' && url.pathname === '/v1/checkout/sessions') {
     const key = headers.get('idempotency-key');
-    if (key && stripe.sessions.has(key)) return Response.json(stripe.sessions.get(key));
+    if (key && stripe.sessions.has(key)) {
+      // As Stripe: a reused key with other parameters is an idempotency_error, not a replay.
+      if (stripe.bodies.get(key) !== init.body) return Response.json({ error: { type: 'idempotency_error', message: 'Keys for idempotent requests can only be used with the same parameters they were first used with.' } }, { status: 400 });
+      return Response.json(stripe.sessions.get(key));
+    }
     const id = `cs_test_${++stripe.n}`;
     const session = { id, object: 'checkout.session', url: `${url.origin === 'https://api.stripe.com' ? 'https://checkout.stripe.com' : url.origin}/c/pay/${id}`, mode: form.get('mode') };
     stripe.sessions.set(key, session);
+    stripe.bodies.set(key, init.body);
     return Response.json(session);
   }
   if (method === 'POST' && url.pathname === '/v1/billing_portal/sessions') return Response.json({ id: 'bps_1', url: `https://billing.stripe.com/p/session/test_${form.get('customer')}` });
+  if (method === 'POST' && url.pathname === '/v1/refunds') {
+    const key = headers.get('idempotency-key');
+    if (!stripe.refunds.has(key)) stripe.refunds.set(key, { id: `re_${stripe.refunds.size + 1}`, payment_intent: form.get('payment_intent'), charge: form.get('charge') });
+    return Response.json(stripe.refunds.get(key));
+  }
   const sub = /^\/v1\/subscriptions\/(sub_\w+)$/.exec(url.pathname);
   if (sub && stripe.subs.has(sub[1])) {
     if (method === 'DELETE') stripe.subs.get(sub[1]).status = 'canceled';
@@ -54,7 +64,7 @@ function fakeStripe(input, init = {}) {
 
 beforeEach(() => {
   forgetSessions();
-  stripe = { calls: [], sessions: new Map(), subs: new Map(), n: 0 };
+  stripe = { calls: [], sessions: new Map(), bodies: new Map(), subs: new Map(), refunds: new Map(), n: 0 };
   globalThis.fetch = async (input, init) => fakeStripe(input, init);
   env = {
     TRIAL_BUDGET_USD: '1',
@@ -110,11 +120,12 @@ let eventN = 0;
 const event = (type, object, { created = nowS() + eventN, livemode = false, id } = {}) => ({ id: id || `evt_test_${++eventN}`, object: 'event', api_version: '2025-09-30.clover', type, created, livemode, data: { object } });
 
 /** A subscription as Stripe sends it; `items` keeps the period on its item (newer API versions). */
-function subscription({ id = 'sub_test1', account = A, status = 'active', end = Date.now() + 30 * DAY, cancel = false, price = PRICE, customer = 'cus_test1', oldShape = false } = {}) {
+function subscription({ id = 'sub_test1', account = A, status = 'active', end = Date.now() + 30 * DAY, cancel = false, price = PRICE, customer = 'cus_test1', oldShape = false, source = null, invoice } = {}) {
   const item = { id: 'si_1', object: 'subscription_item', price: { id: price, object: 'price' }, quantity: 1, ...(oldShape ? {} : { current_period_end: Math.floor(end / 1000) }) };
   return {
     id, object: 'subscription', customer, status, cancel_at_period_end: cancel, cancel_at: null,
-    metadata: account ? { account_id: account } : {}, items: { object: 'list', data: [item] },
+    metadata: account ? { account_id: account, ...(source ? { source } : {}) } : {}, items: { object: 'list', data: [item] },
+    ...(invoice ? { latest_invoice: invoice } : {}),
     ...(oldShape ? { current_period_end: Math.floor(end / 1000) } : {}),
   };
 }
@@ -568,4 +579,294 @@ test('the fake Stripe of dev and tests is used only from STRIPE_API_BASE on loop
   env.STRIPE_API_BASE = 'https://stripe.example.com';
   assert.equal((await post('/api/web/billing/checkout', {}, { session })).status, 503);
   assert.equal(stripe.calls.length, 1);
+});
+
+// ── the iPhone app's link-out to askeden.com's Checkout (STRIPE_US_LINKOUT, US storefront only) ──
+
+const APP_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 EdenApp/1.4';
+const appPost = (p, body, opts = {}) => post(p, body, { ...opts, headers: { 'user-agent': APP_UA, ...(opts.headers || {}) } });
+
+test('link-out config: absent until STRIPE_US_LINKOUT = "1" with billing ready; then the US only, fixed in code', async () => {
+  assert.equal('billing_link_out' in billingConfig(env), false);
+  assert.equal('billing_link_out' in billingConfig({ ...env, STRIPE_US_LINKOUT: 'yes' }), false);
+  assert.deepEqual(billingConfig({ ...env, STRIPE_US_LINKOUT: '1' }), { billing: true, billing_in_app: false, billing_link_out: ['USA'] });
+  assert.equal('billing_link_out' in billingConfig({ ...env, STRIPE_US_LINKOUT: '1', STRIPE_SECRET_KEY: '' }), false, 'billing not ready: no link');
+  assert.equal('billing_link_out' in billingConfig({ STRIPE_US_LINKOUT: '1' }), false);
+  assert.equal((await (await hit('/api/web/config')).json()).billing_link_out, undefined);
+  env.STRIPE_US_LINKOUT = '1';
+  assert.deepEqual((await (await hit('/api/web/config')).json()).billing_link_out, ['USA']);
+});
+
+test('link-out Checkout: refused without the flag, outside the app or the US storefront; else app return addresses, ios_link metadata, its own keys', async () => {
+  const session = await browser(A);
+  const body = { plan: 'monthly', via: 'ios_link', storefront: 'USA' };
+  const refused = async (b, opts) => {
+    const r = await (opts && opts.web ? post : appPost)('/api/web/billing/checkout', b, { session });
+    assert.equal(r.status, 403);
+    assert.equal((await r.json()).code, 'link_out_off');
+  };
+  await refused(body); // the flag off
+  env.STRIPE_US_LINKOUT = '1';
+  await refused(body, { web: true }); // not the app's user agent
+  await refused({ ...body, storefront: 'FRA' });
+  await refused({ ...body, storefront: 'usa' });
+  await refused({ plan: 'monthly', via: 'ios_link' });
+  assert.equal(stripe.calls.length, 0);
+  // Good: the app's own return page, named as a link-out.
+  const r = await appPost('/api/web/billing/checkout', body, { session });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.match((await r.json()).url, /^https:\/\/checkout\.stripe\.com\//);
+  const f = Object.fromEntries(stripe.calls[0].form);
+  assert.equal(f.success_url, `${ORIGIN}/api/web/billing/return?to=success&app=1`);
+  assert.equal(f.cancel_url, `${ORIGIN}/api/web/billing/return?to=cancelled&app=1`);
+  assert.equal(f.client_reference_id, A);
+  assert.equal(f['metadata[account_id]'], A);
+  assert.equal(f['metadata[source]'], 'ios_link');
+  assert.equal(f['subscription_data[metadata][source]'], 'ios_link');
+  assert.equal(f['subscription_data[metadata][account_id]'], A);
+  assert.ok(!Number.isNaN(Date.parse(f['metadata[link_at]'])));
+  const linkKey = stripe.calls[0].headers.get('idempotency-key');
+  // A second tap on the same plan (back from Safari without paying): the same key and the same body, so
+  // Stripe replays the session instead of refusing the key (the fake checks the body, as Stripe does).
+  const again = await appPost('/api/web/billing/checkout', body, { session });
+  assert.equal(again.status, 200, await again.clone().text());
+  assert.equal(stripe.calls[1].headers.get('idempotency-key'), linkKey);
+  assert.equal(stripe.calls[1].body, stripe.calls[0].body);
+  stripe.calls.splice(1);
+  // A web checkout for the same plan: another pending key, so neither session is replayed to the other.
+  const web = await post('/api/web/billing/checkout', { plan: 'monthly' }, { session });
+  assert.equal(web.status, 200);
+  assert.notEqual(stripe.calls[1].headers.get('idempotency-key'), linkKey);
+  assert.equal(stripe.calls[1].form.get('success_url'), `${ORIGIN}/api/web/billing/return?to=success`);
+  assert.equal(stripe.calls[1].form.get('metadata[source]'), null);
+  // Plus already (here from the App Store): 409 as on the web.
+  await call(env, A, 'notification', { transaction: { productId: PLUS_PRODUCTS[0], appAccountToken: A, transactionId: '1', originalTransactionId: '1', expiresDate: Date.now() + 10 * DAY, environment: 'Sandbox' } });
+  const plus = await appPost('/api/web/billing/checkout', body, { session });
+  assert.equal(plus.status, 409);
+  assert.equal((await plus.json()).code, 'already_plus');
+});
+
+test('link-out portal: the same checks, and a return address back into the app', async () => {
+  const session = await browser(A);
+  await completeCheckout();
+  const body = { via: 'ios_link', storefront: 'USA' };
+  const off = await appPost('/api/web/billing/portal', body, { session });
+  assert.equal(off.status, 403);
+  assert.equal((await off.json()).code, 'link_out_off');
+  env.STRIPE_US_LINKOUT = '1';
+  assert.equal((await appPost('/api/web/billing/portal', { ...body, storefront: 'FRA' }, { session })).status, 403);
+  const r = await appPost('/api/web/billing/portal', body, { session });
+  assert.equal(r.status, 200);
+  assert.equal(stripe.calls.at(-1).form.get('return_url'), `${ORIGIN}/api/web/billing/return?to=portal&app=1`);
+});
+
+test('back from a link-out in Safari (app=1): no meta refresh, one button into the app, fixed places only', async () => {
+  const back = async (q) => {
+    const r = await worker.fetch(new Request(`${ORIGIN}/api/web/billing/return${q}`, { headers: { 'sec-fetch-site': 'cross-site' } }), env, ctx);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
+    const html = await r.text();
+    assert.doesNotMatch(html, /http-equiv="refresh"/);
+    assert.match(html, /<h1>Back to Eden<\/h1>/);
+    return { href: /<a class="button" href="([^"]+)">Back to Eden<\/a>/.exec(html)[1], html };
+  };
+  const ok = await back('?to=success&app=1');
+  assert.equal(ok.href, 'askeden://plus?billing=success');
+  assert.match(ok.html, /Payment done\. Plus switches on in Eden in a moment\./);
+  assert.equal((await back('?to=cancelled&app=1')).href, 'askeden://plus?billing=cancelled');
+  assert.match((await back('?to=cancelled&app=1')).html, /Nothing was charged/);
+  assert.equal((await back('?to=portal&app=1')).href, 'askeden://plus?billing=portal');
+  assert.equal((await back('?to=https://evil.example&app=1')).href, 'askeden://plus');
+  assert.equal((await back('?to=constructor&app=1')).href, 'askeden://plus');
+  assert.equal((await back('?app=1')).href, 'askeden://plus');
+});
+
+test('settleBoth: an iPhone link-out subscription beside App Store Plus is refunded once and cancelled; a web one is left alone', async () => {
+  const session = await browser(A);
+  await call(env, A, 'notification', { transaction: { productId: PLUS_PRODUCTS[0], appAccountToken: A, transactionId: '9', originalTransactionId: '9', expiresDate: Date.now() + 20 * DAY, environment: 'Sandbox' } });
+  const invoice = { id: 'in_link1', object: 'invoice', amount_paid: 1000, payment_intent: 'pi_link1' };
+  const sub = subscription({ id: 'sub_link1', source: 'ios_link', invoice });
+  await completeCheckout(A, sub);
+  const refunds = stripe.calls.filter((c) => c.path === '/v1/refunds');
+  assert.equal(refunds.length, 1);
+  assert.equal(refunds[0].form.get('payment_intent'), 'pi_link1');
+  assert.equal(refunds[0].headers.get('idempotency-key'), 'eden-both-refund-sub_link1');
+  const cancel = stripe.calls.filter((c) => c.method === 'DELETE');
+  assert.equal(cancel.length, 1);
+  assert.equal(cancel[0].path, '/v1/subscriptions/sub_link1');
+  assert.equal(stripe.subs.get('sub_link1').status, 'canceled');
+  assert.equal((await env.ACCOUNTS.objects.get(A).storage.get('stripe_plan')).via, 'ios_link', 'subscriptionFacts records via');
+  // The same event again (Stripe retries), and customer.subscription.created too: no second refund.
+  await webhook(event('customer.subscription.created', { ...sub, status: 'active' }));
+  assert.equal(stripe.calls.filter((c) => c.path === '/v1/refunds').length, 1);
+  assert.equal(stripe.refunds.size, 1);
+  // Stripe's deleted: the App Store's alone.
+  await webhook(event('customer.subscription.deleted', stripe.subs.get('sub_link1')));
+  assert.equal((await planOf(session)).source, 'app_store');
+  // A web subscription (not ios_link) beside the App Store's: untouched, "both" as before.
+  const before = stripe.calls.length;
+  await webhook(event('customer.subscription.created', subscription({ id: 'sub_web1', invoice: { id: 'in_w', amount_paid: 1000, payment_intent: 'pi_w' } })));
+  assert.equal((await planOf(session)).source, 'both');
+  assert.equal(stripe.calls.slice(before).filter((c) => c.path === '/v1/refunds' || c.method === 'DELETE').length, 0);
+});
+
+test('settleBoth: a link-out subscription with no App Store Plus is kept; a later App Store purchase settles it', async () => {
+  const session = await browser(A);
+  const sub = subscription({ id: 'sub_link2', source: 'ios_link', invoice: { id: 'in_link2', object: 'invoice', amount_paid: 1000, charge: 'ch_link2' } });
+  await completeCheckout(A, sub);
+  assert.equal((await planOf(session)).source, 'stripe');
+  assert.equal(stripe.calls.filter((c) => c.path === '/v1/refunds' || c.method === 'DELETE').length, 0);
+  // stripe-both directly (Worker-only): App Store Plus arrives, now it names the subscription.
+  assert.deepEqual(await call(env, A, 'stripe-both', {}), { subscription: null });
+  await call(env, A, 'notification', { transaction: { productId: PLUS_PRODUCTS[0], appAccountToken: A, transactionId: '11', originalTransactionId: '11', expiresDate: Date.now() + 20 * DAY, environment: 'Sandbox' } });
+  assert.deepEqual(await call(env, A, 'stripe-both', {}), { subscription: 'sub_link2' });
+  const { settleBoth } = await import('../src/eden/billing.js');
+  assert.equal(await settleBoth(env, A), true);
+  const refund = stripe.calls.find((c) => c.path === '/v1/refunds');
+  assert.equal(refund.form.get('charge'), 'ch_link2');
+  assert.equal(stripe.subs.get('sub_link2').status, 'canceled');
+  // Called again: Stripe says it's cancelled already, nothing more.
+  assert.equal(await settleBoth(env, A), false);
+  assert.equal(stripe.calls.filter((c) => c.path === '/v1/refunds').length, 1);
+});
+
+// ── PLANS_V2: the six plans on Stripe (accounts/plans.js) ──
+
+const TIER_ENV = {
+  PLANS_V2: 'on',
+  STRIPE_PRICE_PLUS2: 'price_plus2Monthly', STRIPE_PRICE_PLUS2_YEARLY: 'price_plus2Yearly',
+  STRIPE_PRICE_PRO: 'price_proMonthly', STRIPE_PRICE_PRO_YEARLY: 'price_proYearly',
+  STRIPE_PRICE_MAX: 'price_maxMonthly,price_maxOlder',
+  STRIPE_PRICE_BLACK: 'price_blackMonthly', STRIPE_PRICE_BLACK_YEARLY: 'price_blackYearly',
+};
+
+test('plans: Checkout with a tier sells that plan’s price (monthly or yearly); no tier is today’s Plus exactly; a missing price or the flag off is 404', async () => {
+  Object.assign(env, TIER_ENV);
+  const session = await browser(A);
+  const buy = async (body) => post('/api/web/billing/checkout', body, { session });
+  const priceOf = (c) => c.form.get('line_items[0][price]');
+  let r = await buy({ tier: 'pro' });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.equal(priceOf(stripe.calls.at(-1)), 'price_proMonthly');
+  assert.match(stripe.calls.at(-1).headers.get('idempotency-key'), /-price_proMonthly$/, 'the price is part of the key');
+  r = await buy({ tier: 'pro', plan: 'yearly' });
+  assert.equal(r.status, 200);
+  assert.equal(priceOf(stripe.calls.at(-1)), 'price_proYearly');
+  r = await buy({ tier: 'max' });
+  assert.equal(priceOf(stripe.calls.at(-1)), 'price_maxMonthly', 'the first of the list is sold');
+  r = await buy({ tier: 'black', plan: 'yearly' });
+  assert.equal(priceOf(stripe.calls.at(-1)), 'price_blackYearly');
+  r = await buy({ tier: 'plus2' });
+  assert.equal(priceOf(stripe.calls.at(-1)), 'price_plus2Monthly', 'the new Plus');
+  for (const body of [{}, { tier: 'plus' }]) {
+    r = await buy(body);
+    assert.equal(r.status, 200);
+    assert.equal(priceOf(stripe.calls.at(-1)), 'price_plus2Monthly', 'no tier with PLANS_V2: the new Plus (today’s is closed to new subscribers)');
+  }
+  const n = stripe.calls.length;
+  for (const body of [{ tier: 'max', plan: 'yearly' }, { tier: 'ultra' }, { tier: 'platinum' }, { tier: 'legacy' }, { tier: 'bogus' }, { tier: 7 }]) {
+    r = await buy(body);
+    assert.equal(r.status, 404, JSON.stringify(body));
+    assert.equal((await r.json()).error, 'That plan isn’t on sale here.');
+  }
+  env.PLANS_V2 = 'off';
+  assert.equal((await buy({ tier: 'pro' })).status, 404, 'flag off: no tier is sold');
+  assert.equal(stripe.calls.length, n, 'Stripe never heard of the refused ones');
+  assert.equal((await buy({})).status, 200, 'today’s Plus still is');
+  assert.equal(priceOf(stripe.calls.at(-1)), PRICE, 'flag off: no tier is today’s Plus exactly');
+  env.PLANS_V2 = 'on';
+  const plus2 = env.STRIPE_PRICE_PLUS2;
+  delete env.STRIPE_PRICE_PLUS2;
+  const m = stripe.calls.length;
+  assert.equal((await buy({})).status, 404, 'PLANS_V2 with no new-Plus price: today’s Plus isn’t sold either');
+  assert.equal(plusOffer(env).web_purchase, false, 'and not offered');
+  env.STRIPE_PRICE_PLUS2 = plus2;
+  assert.deepEqual([plusOffer(env).web_purchase, plusOffer(env).price_usd, plusOffer(env).yearly_usd], [true, 10, 110], 'the offer is the new Plus’s prices');
+  assert.equal(stripe.calls.length, m);
+  env.STRIPE_PRICE_PLUS2 = plus2;
+});
+
+test('plans: link-out Checkout with a tier (US storefront in the app) sells it with ios_link metadata', async () => {
+  Object.assign(env, TIER_ENV, { STRIPE_US_LINKOUT: '1' });
+  const session = await browser(A);
+  const r = await post('/api/web/billing/checkout', { tier: 'pro', via: 'ios_link', storefront: 'USA' }, { session, headers: { 'user-agent': 'Mozilla/5.0 EdenApp/1.2' } });
+  assert.equal(r.status, 200, await r.clone().text());
+  const f = Object.fromEntries(stripe.calls.at(-1).form);
+  assert.equal(f['line_items[0][price]'], 'price_proMonthly');
+  assert.equal(f['metadata[source]'], 'ios_link');
+  assert.match(f.success_url, /app=1$/);
+});
+
+test('plans: the webhook takes a tier price as Plus and the account shows its tier; an unknown price isn’t taken', async () => {
+  Object.assign(env, TIER_ENV);
+  const session = await browser(A);
+  await completeCheckout(A, subscription({ price: 'price_maxOlder' }));
+  let plan = await planOf(session);
+  assert.equal(plan.active, true);
+  assert.equal(plan.name, 'plus', 'name stays plus for every paid tier');
+  assert.deepEqual([plan.tier, plan.label], ['max', 'Max']);
+  const usage = (await (await hit('/api/web/account', { session })).json()).usage;
+  assert.equal(usage.plus_usd, 28, 'Max’s AI, from the workbook');
+  assert.equal(usage.voice_daily, 50000);
+  // the flag off: still honoured (the flag gates selling, not honouring)
+  env.PLANS_V2 = 'off';
+  plan = await planOf(session);
+  assert.deepEqual([plan.active, plan.tier, plan.label], [true, 'max', 'Max']);
+  const other = await browser(B);
+  await completeCheckout(B, subscription({ id: 'sub_test2', account: B, customer: 'cus_test2', price: 'price_somethingElse' }));
+  assert.equal((await planOf(other)).active, false, 'an unknown price is not Plus');
+});
+
+test('plans: Change plan opens the portal’s update-confirm flow for the target price; same plan 409; App Store 409; no Stripe 404; flag off 404', async () => {
+  Object.assign(env, TIER_ENV);
+  const session = await browser(A);
+  const change = (body, s = session) => post('/api/web/billing/change', body, { session: s });
+  let r = await change({ tier: 'pro' });
+  assert.equal(r.status, 404);
+  assert.equal((await r.json()).code, 'no_billing');
+  await completeCheckout(A, subscription({ price: 'price_proMonthly' }));
+  r = await change({ tier: 'pro' });
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).code, 'same_plan');
+  r = await change({ tier: 'black', plan: 'yearly' });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.match((await r.json()).url, /^https:\/\/billing\.stripe\.com\//);
+  const f = Object.fromEntries(stripe.calls.at(-1).form);
+  assert.equal(stripe.calls.at(-1).path, '/v1/billing_portal/sessions');
+  assert.equal(f.customer, 'cus_test1');
+  assert.equal(f['flow_data[type]'], 'subscription_update_confirm');
+  assert.equal(f['flow_data[subscription_update_confirm][subscription]'], 'sub_test1');
+  assert.equal(f['flow_data[subscription_update_confirm][items][0][id]'], 'si_1');
+  assert.equal(f['flow_data[subscription_update_confirm][items][0][price]'], 'price_blackYearly');
+  assert.equal(f['flow_data[after_completion][type]'], 'redirect');
+  for (const body of [{ tier: 'ultra' }, { tier: 'max', plan: 'yearly' }, { tier: 'plus' }, {}]) assert.equal((await change(body)).status, 404, JSON.stringify(body));
+  env.PLANS_V2 = 'off';
+  assert.equal((await change({ tier: 'black' })).status, 404);
+  env.PLANS_V2 = 'on';
+  // an App Store plan changes in the App Store
+  const other = await browser(B);
+  await call(env, B, 'notification', { transaction: { productId: PLUS_PRODUCTS[0], appAccountToken: B, transactionId: '9', originalTransactionId: '9', expiresDate: Date.now() + 10 * DAY, environment: 'Production' } });
+  r = await change({ tier: 'pro' }, other);
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).code, 'app_store');
+});
+
+test('plans: config lists the plans only with PLANS_V2; web only where a monthly price is set; yearly only with its price; no key at all with the flags off', async () => {
+  const off = billingConfig(env);
+  for (const v of [undefined, 'off', 'yes']) assert.deepEqual(billingConfig({ ...env, PLANS_V2: v, ENTERPRISE_CONTACT: v }), off);
+  assert.equal('plans' in off || 'rollover' in off || 'enterprise_contact' in off, false);
+  Object.assign(env, TIER_ENV);
+  const { plans } = billingConfig(env);
+  assert.deepEqual(plans.map((p) => p.tier), ['plus2', 'pro', 'max', 'ultra', 'platinum', 'black']);
+  const by = Object.fromEntries(plans.map((p) => [p.tier, p]));
+  assert.deepEqual(plans.filter((p) => p.web).map((p) => p.tier), ['plus2', 'pro', 'max', 'black']);
+  assert.deepEqual([by.pro.yearly_usd, by.max.yearly_usd, by.black.yearly_usd, by.plus2.yearly_usd], [220, null, 4400, 110]);
+  assert.deepEqual([by.black.name, by.black.price_usd, by.black.ai_usd, by.black.answers, by.black.eves_strong, by.black.flash_day, by.black.flash_month, by.black.voice_day, by.black.browser_min], ['Eden Black', 400, 198, 5880, 395, 0, 0, 100000, 1200]);
+  assert.ok(plans.every((p) => p.flash_day === 0 && p.flash_month === 0), 'no Flash answers promised until FLASH_FALLBACK (not built)');
+  assert.deepEqual(by.ultra.app_products, { monthly: 'com.askeden.eden.ultra.monthly', yearly: 'com.askeden.eden.ultra.yearly' });
+  assert.equal(by.ultra.bonus_max_pct, 0, 'no bonus advertised without the pool');
+  const pooled = billingConfig({ ...env, ALLOWANCE_V2: 'on', BONUS_POOL: {}, PLAN_CAPS: '{"pro":{"ai_usd":11}}' });
+  assert.deepEqual(pooled.plans.map((p) => p.bonus_max_pct), [0, 0, 0, 20, 20, 20]);
+  assert.equal(pooled.plans[1].ai_usd, 11, 'the numbers come from PLAN_CAPS');
+  assert.equal(pooled.rollover, true);
 });

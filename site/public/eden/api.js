@@ -4,7 +4,7 @@
 import { nativeTransport } from './native.js';
 import { actingAnswer } from './acting.js';
 import { mockAllowed, isLocalServer } from './tour-model.js';
-import { deadline, singleFlight, approvalGap, DEADLINE } from './resilience.js';
+import { deadline, singleFlight, approvalGap, staleConnection, DEADLINE } from './resilience.js';
 
 // Practice mode (?practice=1) on any host: its storage is sandboxed. ?mock=1 alone only on a developer's own
 // machine (localhost, 127.0.0.1, ::1, *.localhost, *.test): on askeden.com or any real server the mock would
@@ -122,7 +122,8 @@ const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && ty
 async function approvalFor(path, body, signal) {
   const g = GUARDED[path];
   if (MOCK || !g || !body || !g[1].includes(body.action) || !globalThis.crypto || !crypto.subtle) return null;
-  const exact = JSON.parse(JSON.stringify({ action: body.action, args: body.args === undefined ? {} : body.args }));
+  // an extra mailbox (Eden Mail with several accounts) is part of what's approved: askeden.com's approvalHash does the same
+  const exact = JSON.parse(JSON.stringify({ action: body.action, args: body.args === undefined ? {} : body.args, ...(body.mailbox ? { mailbox: body.mailbox } : {}) }));
   const bytes = new TextEncoder().encode(`${g[0]}\n${canon(exact)}`);
   const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
   let res;
@@ -146,11 +147,20 @@ export const postJSON = (path, body, opts) => requestJSON(path, async (sig) => {
 export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, late = LATE, wait = 0 }) {
   // `headTimeout`: how long the server may take to start answering (a turn through the Mac); the
   // stream itself then runs as long as it needs (Stop still ends it: the caller's signal goes on).
+  const payload = JSON.stringify(body); // out of the try below: a body that can't be sent is a bug, never "Can’t reach the server"
   const d = headTimeout ? deadline(headTimeout, signal) : null;
   let res;
   try {
     // `wait` (s): askeden.com answers 504 mac_timeout at that point rather than holding the turn (a turn through the Mac)
-    res = await transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json', accept: 'text/event-stream', ...(wait ? { 'x-eden-wait': String(wait) } : {}) }), body: JSON.stringify(body), signal: d ? d.signal : signal });
+    const sig = d ? d.signal : signal;
+    const send = () => transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json', accept: 'text/event-stream', ...(wait ? { 'x-eden-wait': String(wait) } : {}) }), body: payload, signal: sig });
+    const sentAt = Date.now();
+    try { res = await send(); }
+    catch (e) {
+      // refused at once on a stale kept-alive connection: it never reached the server, so it's sent again once (resilience.js)
+      if (!staleConnection(e, sentAt, { signal: sig, online: navigator.onLine })) throw e;
+      res = await send();
+    }
   } catch (e) { if (d && d.timedOut()) { d.done(); throw lateError(late); } if (d) d.done(); if (e.name === 'AbortError') throw e; throw new ApiError(0, 'Can’t reach the server.'); }
   if (d) d.clear();
   if (!res.ok || !res.body) {
@@ -178,7 +188,8 @@ export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, 
     if (!data.length) return;
     let parsed;
     try { parsed = JSON.parse(data.join('\n')); } catch { parsed = { text: data.join('\n') }; }
-    onEvent(type, parsed);
+    // the page's own handling of an event failed: a bug here, not the network (chat.js says so plainly)
+    try { onEvent(type, parsed); } catch (e) { if (e && typeof e === 'object') e.inPage = true; throw e; }
   };
   try {
     for (;;) {
@@ -346,7 +357,10 @@ export const api = {
   researchEstimate: (body, signal) => postJSON('/api/chat/research/estimate', body, { signal }), // Q2: { searches, typicalUSD, maxUSD, fits, latencyS, models }
   compareStop: (id, lane) => postJSON('/api/chat/compare/stop', { id, lane }),
   code: (body, opts) => streamSSE('/api/chat/code', body, opts),
-  gmail: (action, args = {}) => postJSON('/api/chat/gmail', { action, args }),
+  // mailbox: an extra Gmail account's id (Eden Mail with several accounts, mail-merge.js); none is the first Gmail
+  gmail: (action, args = {}, mailbox) => postJSON('/api/chat/gmail', { action, args, ...(mailbox ? { mailbox } : {}) }),
+  mailAccounts: (opts) => getJSON('/api/chat/mail/accounts', opts), // { multi, max, accounts } on askeden.com with MAIL_MULTI on; 404 elsewhere
+  mailAccountsDo: (body) => postJSON('/api/chat/mail/accounts', body), // { action: add | edit | remove, … }
   googleStatus: (opts) => getJSON('/api/chat/google/status', opts),
   googleConfig: (clientId, clientSecret) => postJSON('/api/chat/google/config', { clientId, clientSecret }),
   googleConnect: (scope) => postJSON('/api/chat/google/connect', scope ? { scope } : {}), // scope (askeden.com: its own consent): gmail | calendar

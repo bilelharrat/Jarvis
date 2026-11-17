@@ -1006,21 +1006,18 @@ function readyDownloads() {
   for (const partition of parity.partitions()) session.fromPartition(partition).on('will-download', staging);
 }
 
-// ── Ad and tracker blocking: Ghostery's engine with EasyList, EasyPrivacy, uBlock Origin's
-// filters, privacy, badware, quick fixes and unbreak lists, and the cookie-banner and
-// annoyance lists. Requests are blocked here; inside the page, adblock.js runs uBlock's
+// ── Ad and tracker blocking: Ghostery's engine with the lists Brave Shields uses by
+// default and a few more (adblock-lists.json; adblock.js builds and refreshes it every few
+// hours). Requests are blocked here (adblock.js's network side: removeparam, malware pages,
+// CNAME uncloaking, blocked frames collapsed); inside the page, adblock.js runs uBlock's
 // scriptlets (which beat in-page ads like YouTube's) before the page's own scripts, hides
 // ads before the first paint and as they appear, applies procedural rules, and does it in
-// frames too. The compiled engine is cached and rebuilt from fresh lists daily (an old
-// copy is kept if the lists can't be fetched). Never on the Research Center, or a site the
-// user allowed. ──
-const ADBLOCK_DAY = 24 * 60 * 60 * 1000;
+// frames too. Never on the Research Center, or a site the user allowed. ──
 let blocker = null;
 let adblockReady = false;
 const blockedOn = new Map(); // webContents id -> blocked on its current page
 let blockedTotal = 0;
 let blockedTimer = null;
-const adblockFile = () => path.join(app.getPath('userData'), 'adblock-engine.bin');
 
 function shields() {
   const store = browserStore();
@@ -1038,23 +1035,6 @@ function pageOf(details) {
   try { if (details.webContents && !details.webContents.isDestroyed()) return details.webContents.getURL(); } catch {}
   return details.referrer || '';
 }
-// Some players retry a blocked ad request in a tight loop (CNN's, thousands a second). The
-// same request blocked again and again on a tab gets its refusal 2 s late: the loop crawls
-// instead of spinning the CPU, and it counts once.
-const repeats = new Map();
-function retrying(details) {
-  const id = details.webContents && !details.webContents.isDestroyed() ? details.webContents.id : 0;
-  const key = `${id}|${details.url.split('?')[0]}`;
-  const now = Date.now();
-  let seen = repeats.get(key);
-  if (!seen || now - seen.since > 3000) {
-    seen = { n: 0, since: now };
-    repeats.set(key, seen);
-    if (repeats.size > 5000) repeats.clear();
-  }
-  seen.n += 1;
-  return seen.n > 5;
-}
 function countBlocked(details) {
   blockedTotal += 1;
   const id = details.webContents && !details.webContents.isDestroyed() ? details.webContents.id : 0;
@@ -1062,55 +1042,20 @@ function countBlocked(details) {
   if (!blockedTimer) blockedTimer = setTimeout(() => { blockedTimer = null; sendBrowserState(); }, 400);
 }
 
-async function buildBlocker() {
-  const { ElectronBlocker, fullLists } = require('@ghostery/adblocker-electron');
-  const file = adblockFile();
-  const cached = () => { try { return ElectronBlocker.deserialize(new Uint8Array(fs.readFileSync(file))); } catch { return null; } };
-  let age = Infinity;
-  try { age = Date.now() - fs.statSync(file).mtimeMs; } catch {}
-  if (age < ADBLOCK_DAY) { const engine = cached(); if (engine) return engine; }
-  try {
-    const engine = await ElectronBlocker.fromLists(fetch, fullLists, {
-      enableCompression: true, loadExtendedSelectors: true, guessRequestTypeFromUrl: true,
-    });
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, engine.serialize());
-    fs.renameSync(tmp, file);
-    return engine;
-  } catch (err) {
-    console.error('adblock: lists unavailable, using the last copy', err && err.message);
-    return cached();
-  }
-}
-
 function readyAdblock() {
   if (adblockReady) return;
   adblockReady = true;
   const ses = session.fromPartition('persist:jarvis-browser');
-  ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-    if (!shielded(pageOf(details))) { callback({}); return; }
-    blocker.onBeforeRequest(details, (response) => {
-      if (!(response && (response.cancel || response.redirectURL))) { callback(response); return; }
-      if (retrying(details)) { setTimeout(() => callback(response), 2000); return; } // a retry loop, slowed
-      countBlocked(details);
-      callback(response);
-    });
+  const adblock = require('./adblock');
+  adblock.network(ses, { engine: () => blocker, shielded, pageOf, onBlocked: countBlocked });
+  // Inside the page (every frame, before its scripts).
+  adblock.attach(ses, { engine: () => blocker, shielded });
+  fs.rm(path.join(app.getPath('userData'), 'adblock-engine.bin'), { force: true }, () => {}); // the old engine's cache
+  adblock.keepFresh({
+    dir: path.join(app.getPath('userData'), 'adblock'),
+    onEngine: (engine) => { blocker = engine; sendBrowserState(); },
+    log: (line) => console.error(line),
   });
-  // Only a page's or a frame's own headers are ever changed here (their CSP, for $csp filters):
-  // the engine answers every other response with no change, so a page's pictures, scripts and
-  // the rest don't wait for this thread on their way in (tests/web/adblock-network.test.mjs).
-  ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'], types: ['mainFrame', 'subFrame'] }, (details, callback) => {
-    if (!shielded(pageOf(details))) { callback({}); return; }
-    blocker.onHeadersReceived(details, callback);
-  });
-  // Inside the page (every frame, before its scripts): adblock.js.
-  require('./adblock').attach(ses, { engine: () => blocker, shielded });
-  const refresh = async () => {
-    const engine = await buildBlocker();
-    if (engine) { blocker = engine; sendBrowserState(); }
-  };
-  refresh();
-  setInterval(refresh, ADBLOCK_DAY).unref();
 }
 
 function tabById(id) { return tabs.find((view) => view.webContents.id === Number(id)); }

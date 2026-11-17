@@ -14,6 +14,8 @@
 
 import { ApiError, json } from '../accounts/util.js';
 import { hasVision } from './vendor/providers.js';
+import { plainKeys } from './providers.js';
+import { withPool } from './key-pool.js';
 
 export const VIDEO = {
   maxBytes: 100 * 1024 * 1024,
@@ -114,12 +116,27 @@ export async function getFile(key, name, base = null) {
   return r.json();
 }
 
-/** Deletes the file at Google (best effort). */
+/**
+ * The file and the key that reads it ({ file, key }; null: gone): each plain key in turn, since a file belongs to the
+ * Google project whose key uploaded it (another project's key gets 403). `keys`: a key, a list or a providerKey entry.
+ */
+export async function findFile(keys, name, base = null) {
+  for (const key of plainKeys(keys)) {
+    const file = await getFile(key, name, base);
+    if (file) return { file, key };
+  }
+  return null;
+}
+
+/** Deletes the file at Google (best effort). `key`: a key, or a list tried until one deletes it. */
 export async function deleteFile(key, name, base = null) {
-  try {
-    await fetch(url(base, `/v1beta/${name}`), { method: 'DELETE', headers: { 'x-goog-api-key': key } });
-  } catch {
-    // it expires in 48 hours anyway
+  for (const k of plainKeys(key)) {
+    try {
+      const r = await fetch(url(base, `/v1beta/${name}`), { method: 'DELETE', headers: { 'x-goog-api-key': k } });
+      if (r.ok) return;
+    } catch {
+      // it expires in 48 hours anyway
+    }
   }
 }
 
@@ -159,15 +176,20 @@ export async function videoApi(request, env, who, { cfg, call, limited }) {
   if (why) throw new ApiError(why.startsWith('Send') ? 415 : 413, 'too_big', why);
   if (!size) throw new ApiError(411, 'bad_request', 'Send the video with its length (content-length).');
   const gk = cfg.keys.gemini;
+  let gkey = plainKeys(gk)[0]; // an API key, never the vertex:// credential (image.js geminiKey)
   const pool = videoModels(cfg.models.filter((m) => allow.ok || (gk && gk.source !== 'service')));
-  if (!gk || !pool.length) throw new ApiError(422, 'no_provider', NO_GEMINI);
+  if (!gkey || !pool.length) throw new ApiError(422, 'no_provider', NO_GEMINI);
   const name = String(request.headers.get('x-eden-name') || 'video').replace(/[^\w .()-]/g, '').slice(0, 120) || 'video';
-  // 1. Start a resumable upload.
-  const start = await fetch(url(cfg.base, '/upload/v1beta/files'), {
-    method: 'POST',
-    headers: { 'x-goog-api-key': gk.key, 'x-goog-upload-protocol': 'resumable', 'x-goog-upload-command': 'start', 'x-goog-upload-header-content-length': String(size), 'x-goog-upload-header-content-type': mime, 'content-type': 'application/json' },
-    body: JSON.stringify({ file: { display_name: name } }),
-  });
+  // 1. Start a resumable upload: the plain keys in pool order, the next on 429/5xx/quota (key-pool.js). The key
+  // that starts it owns the file, so it does the rest.
+  const start = await withPool('gemini', plainKeys(gk), (k) => {
+    gkey = k;
+    return fetch(url(cfg.base, '/upload/v1beta/files'), {
+      method: 'POST',
+      headers: { 'x-goog-api-key': k, 'x-goog-upload-protocol': 'resumable', 'x-goog-upload-command': 'start', 'x-goog-upload-header-content-length': String(size), 'x-goog-upload-header-content-type': mime, 'content-type': 'application/json' },
+      body: JSON.stringify({ file: { display_name: name } }),
+    });
+  }, { ordered: true });
   const upload = start.ok && start.headers.get('x-goog-upload-url');
   if (!upload) throw await failed(start, 'take the video');
   // 2. Stream the body on (a FixedLengthStream in the Worker, so nothing is buffered here).
@@ -185,14 +207,14 @@ export async function videoApi(request, env, who, { cfg, call, limited }) {
   if (!sent.ok) throw await failed(sent, 'take the video');
   const { file } = await sent.json();
   // 3. Processed, and within the plan's length by Google's own reading.
-  const f = await waitActive(gk.key, file, cfg.base).catch(async (e) => {
-    await deleteFile(gk.key, file.name, cfg.base);
+  const f = await waitActive(gkey, file, cfg.base).catch(async (e) => {
+    await deleteFile(gkey, file.name, cfg.base);
     throw e;
   });
   const seconds = fileSeconds(f, said);
   const over = videoProblem({ mime, size, seconds }, cap);
   if (over) {
-    await deleteFile(gk.key, f.name, cfg.base);
+    await deleteFile(gkey, f.name, cfg.base);
     throw new ApiError(413, 'too_big', over);
   }
   const model = pool[0];

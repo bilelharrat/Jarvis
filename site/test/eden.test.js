@@ -413,7 +413,7 @@ test('signed out, / is Eden\'s front page: sign in, and Download apps to the app
   assert.match(html, /href="\/signin"/);
   assert.match(html, /href="\/download"[^>]*>[\s\S]*Download apps/);
   for (const href of ['/help', '/privacy', '/terms']) assert.ok(html.includes(`href="${href}"`), href);
-  assert.doesNotMatch(html, /<script(?! src="\/lang\/site-i18n\.js" data-page="home"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)/);
+  assert.doesNotMatch(html, /<script(?! src="\/lang\/site-i18n\.js" data-page="home"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)(?! src="\/home\/plans\.js" defer><\/script>)/);
   const apps = fs.readFileSync(new URL('../public/jarvis/index.html', import.meta.url), 'utf8');
   assert.match(apps, /<a class="home" href="\/">Eden home<\/a>/);
 });

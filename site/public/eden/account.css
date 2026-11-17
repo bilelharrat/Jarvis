@@ -28,6 +28,8 @@
 .acct-meter .fill::after{content:"";position:absolute;inset:1px 6px auto;height:40%;border-radius:999px;background:linear-gradient(rgba(255,255,255,.55),rgba(255,255,255,0))}
 .acct-meter.low .fill{background:linear-gradient(90deg,#ffb340,var(--warn));box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 10px rgba(255,159,10,.35)}
 .acct-allow .acct-sub{margin-top:7px;font-variant-numeric:tabular-nums}
+.acct-allow-week .acct-sub + .acct-row-top{margin-top:14px} /* the week, then the period (ALLOWANCE_V2) */
+.acct-allow-week .acct-sub + .acct-sub{margin-top:3px}
 
 .acct-plus{display:flex;align-items:center;gap:12px;margin-top:10px;padding:12px 14px;border-radius:var(--r-md);
   background:linear-gradient(135deg,rgba(63,184,242,.12),rgba(22,119,201,.08));box-shadow:inset 0 0 0 .5px rgba(10,132,255,.25)}
@@ -49,6 +51,23 @@
 .acct-iap .acct-row-actions{margin-top:0}
 .acct-iap .acct-iap-terms{font-size:11px;color:var(--text3);line-height:1.45;margin-top:0}
 .acct-iap .acct-iap-terms a{color:inherit;text-decoration:underline}
+/* The six plans (PLANS_V2): a row each, Change plan's list, the App Store groups; Eden Enterprise (ENTERPRISE_CONTACT) */
+.acct-plans{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.acct-plans>.acct-plus{margin-top:0;align-items:flex-start}
+.acct-plans>.sp-note{margin:2px 0 0}
+.acct-plans>.acct-alt{font-size:11.5px;color:var(--text3);margin:0}
+.acct-plans[hidden]{display:none}
+.acct-tier b{font-size:14px}
+.acct-tier .acct-tier-price{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.acct-tier .acct-tier-line,.acct-tier-app .acct-tier-line{margin-top:2px;font-variant-numeric:tabular-nums}
+.acct-tier-line::before{content:"› ";color:var(--accent)}
+.acct-tiers-app{display:flex;flex-direction:column;gap:12px}
+.acct-tier-app{display:flex;flex-direction:column;gap:2px;padding-top:10px;border-top:.5px solid var(--sep)}
+.acct-tier-app:first-child{padding-top:0;border-top:0}
+.acct-tier-app b{font-size:13px}
+.acct-tier-app p{font-size:12px;color:var(--text2);line-height:1.45}
+.acct-tier-app .acct-plus-btns{margin-top:6px}
+.acct-ent{background:var(--content2,rgba(120,120,128,.06));box-shadow:inset 0 0 0 .5px var(--sep,rgba(0,0,0,.08))}
 .acct-auto{display:flex;align-items:flex-start;gap:10px;padding:10px 0 12px;border-top:.5px solid var(--sep);cursor:pointer;font-size:13px}
 .acct-auto input{margin-top:2px;flex:none}
 .acct-auto .grow{flex:1;min-width:0;line-height:1.45}

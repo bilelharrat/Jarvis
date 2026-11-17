@@ -40,6 +40,7 @@ const FILTERS = [
   'frame.test##+js(jarvis-flag, jarvisFrame, yes)',
   'allowed.test##+js(jarvis-flag, jarvisFirst, yes)',
   'allowed.test##.site-ad',
+  '||ads.test^',
 ].join('\n');
 
 const PAGE = `<!doctype html><html><head><script>
@@ -51,6 +52,7 @@ const PAGE = `<!doctype html><html><head><script>
 <div class="post" id="sponsored">Sponsored · Buy now</div><div class="post" id="normal">A friend's post</div>
 <div class="gone">remove me</div>
 <iframe src="http://frame.test:PORT/frame.html"></iframe>
+<img id="blocked-img" src="http://ads.test:PORT/ad.png" width="300" height="250"><iframe id="blocked-frame" src="http://ads.test:PORT/frame.html" width="300" height="250"></iframe>
 <script>setTimeout(() => {
   const ad = document.createElement('div'); ad.className = 'generic-ad'; ad.id = 'late'; document.body.append(ad);
   const post = document.createElement('div'); post.className = 'post'; post.id = 'late-post'; post.textContent = 'Sponsored, later'; document.body.append(post);
@@ -65,7 +67,7 @@ function serve() {
     const body = pathname === '/frame.html' ? FRAME : pathname === '/' ? PAGE : null;
     if (!body) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end(body.replace('PORT', String(port)));
+    res.end(body.replaceAll('PORT', String(port)));
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => { port = server.address().port; resolve(); }));
 }
@@ -128,6 +130,14 @@ test('Frames get their scriptlets and hiding too; the hand stays in the page', a
   win.destroy();
 });
 
+test('A blocked image or frame is collapsed, leaving no empty box', async () => {
+  const win = await open('site.test', 1500);
+  const r = await inPage(win, `({ img: ${display('#blocked-img')}, frame: ${display('#blocked-frame')} })`);
+  assert(r.img === 'none', `a blocked image left its box (${r.img})`);
+  assert(r.frame === 'none', `a blocked frame left its box (${r.frame})`);
+  win.destroy();
+});
+
 test('Nothing is changed on a page that isn’t shielded (an allowed site)', async () => {
   const win = await open('allowed.test');
   const r = await inPage(win, `({ first: document.documentElement.dataset.first, ad: ${display('.site-ad')} })`);
@@ -141,9 +151,12 @@ app.whenReady().then(async () => {
   const engine = ElectronBlocker.parse(FILTERS, { loadCosmeticFilters: true, loadExtendedSelectors: true, enableMutationObserver: true });
   engine.updateResources(JSON.stringify(RESOURCES), 'test');
   ses = session.fromPartition('persist:adblock-test');
-  require(path.join(APP, 'adblock.js')).attach(ses, {
-    engine: () => engine,
-    shielded: (page) => !/^https?:\/\/allowed\.test[:/]/.test(page),
+  const shielded = (page) => !/^https?:\/\/allowed\.test[:/]/.test(page);
+  const adblock = require(path.join(APP, 'adblock.js'));
+  adblock.attach(ses, { engine: () => engine, shielded });
+  adblock.network(ses, {
+    engine: () => engine, shielded,
+    pageOf: (d) => (d.resourceType === 'mainFrame' ? d.url : (d.webContents && d.webContents.getURL()) || d.referrer || ''),
   });
   await serve();
   let failed = 0;

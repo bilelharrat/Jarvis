@@ -4,6 +4,7 @@
 //   /, /index.html     Eden (public/eden/index.html), or signed out the front page (public/home/),
 //                      which links to the apps page at /download (public/jarvis/, worker.js)
 //   /home/home.css     the front page's stylesheet
+//   /home/galaxy.css, /home/galaxy/<logo>  the front page's galaxy ring of Eden apps and its logos
 //   /pricing           → /#pricing, the front page's plans
 //   /signin            the sign-in page (public/signin/): Apple, Google, or a code the iPhone
 //                      approves; signed in, back to / (or to `?return=`, public/signin/return.js)
@@ -40,6 +41,8 @@ import { tripLinkPage } from '../travel/triplink.js';
 import { calFeedPage } from '../travel/calsync.js';
 import { tripToIcs } from '../travel/ics.js';
 import { handPage, note as handNote, onTravelHost } from './site-handoff.js';
+import { notesHandPage } from './notes-handoff.js';
+import { calendarHandPage } from './calendar-handoff.js';
 import { EDEN_FILES, EDEN_HASHES } from './manifest.js';
 import { EDEN_FILES as EDEN_IOS_FILES, EDEN_HASHES as EDEN_IOS_HASHES } from './manifest-ios.js';
 import { isCaseStudySlug, isGuideSlug } from './seo.js';
@@ -48,6 +51,7 @@ import { EDEN_CSP, EDEN_PERMISSIONS, RUNNER_CSP, SESSION_COOKIE, SHEET_PICKER_CS
 import { safeReturn } from '../../public/signin/return.js';
 import { travelAccuracyPage } from '../travel/accuracy-page.js';
 import { travelGate } from '../travel/beta.js';
+import { enterpriseOn } from '../accounts/plans.js';
 
 // The legal pages: static text and the sign-in page's stylesheet, and the language script (/lang/, French), nothing else.
 const LEGAL_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -58,14 +62,18 @@ const HOME_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-s
 const FRONT_CSP = "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 // Eden Code's own site (askedencode.com, or askeden.com/eden-code): the same, plus Google Fonts for the serif and sans (as the apps page has).
 const CODE_CSP = "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+// Eden Enterprise's form (/enterprise, ENTERPRISE_CONTACT; leads/enterprise.js): FRONT_CSP plus Cloudflare Turnstile's
+// script and frame, on that page only (the front page's CSP stays as it is).
+export const ENTERPRISE_CSP = FRONT_CSP.replace("script-src 'self'", "script-src 'self' https://challenges.cloudflare.com").replace("frame-ancestors 'none'", "frame-src https://challenges.cloudflare.com; frame-ancestors 'none'");
+const ENTERPRISE_FILES = new Set(['enterprise.js', 'enterprise.css']);
 const SIGNIN_FILES = new Set(['signin.css', 'signin.js', 'return.js']);
 const LINK_FILES = new Set(['link.css', 'link.js']);
 // The site pages' French (public/lang/, site-i18n.js): the script, and one dictionary per page.
-const LANG_FILES = new Set(['site-i18n.js', ...['home', 'signin', 'link', 'jarvis', 'daredevil', 'router', 'privacy', 'terms', 'edu-home', 'edu-privacy', 'edu-terms', 'travel-home'].map((p) => `fr-${p}.js`)]);
+const LANG_FILES = new Set(['site-i18n.js', ...['home', 'signin', 'link', 'jarvis', 'daredevil', 'router', 'privacy', 'terms', 'edu-home', 'edu-privacy', 'edu-terms', 'travel-home', 'enterprise'].map((p) => `fr-${p}.js`)]);
 const EDEN = new Set(EDEN_FILES);
 const EDEN_IOS = new Set(EDEN_IOS_FILES);
 // A TestFlight beta ("EdenBeta/" in the user agent) is served as the website: the whole current Eden, not the frozen /eden-ios.
-const isIosAppRequest = (request) => /\b(?:EdenApp|EdenEdu)\//.test(request.headers.get('user-agent') || '') && !/\bEdenBeta\//.test(request.headers.get('user-agent') || '');
+const isIosAppRequest = (request) => /\bEdenEdu\//.test(request.headers.get('user-agent') || ''); // since 2026-11-05 (owner) the Eden iPhone app gets the whole website, like the TestFlight beta; only Eden for Education stays frozen
 const edenDir = (request) => (isIosAppRequest(request) ? '/eden-ios' : '/eden');
 
 const asset = (env, request, path) => env.ASSETS.fetch(new Request(new URL(path, request.url), request));
@@ -146,6 +154,10 @@ export async function edenPage(request, env, path) {
   // Ask Eden Travel's site (public/travel-home/): held until TRAVEL_HOST is set; then askedentravel.com serves it at its front (worker.js)
   // askeden.com's half of the travel address's sign-in (site-handoff.js); there, /signin is that sign-in
   if (path === '/hand') return handPage(request, env);
+  // askeden.com's half of Eden Notes' sign-in (its own Worker, NOTES_ORIGIN; notes-handoff.js)
+  if (path === '/hand/notes') return notesHandPage(request, env);
+  // askeden.com's half of Eden Calendar's sign-in (edencalendar.com, its own Worker, CALENDAR_ORIGIN; calendar-handoff.js)
+  if (path === '/hand/calendar') return calendarHandPage(request, env);
   if (path === '/signin' && onTravelHost(request, env)) {
     // signed in here already (Ask Eden Travel's iPhone app opens /signin first): the app, not a second sign-in
     const { session } = await currentSession(request, env);
@@ -183,15 +195,24 @@ export async function edenPage(request, env, path) {
   }
   // Eden Mail (public/mail-home/): signed out, its page (askedenmail.com's front, with MAIL_HOST set: worker.js); signed in,
   // the Eden app opened on Mail, full screen (app.js). The app stays on askeden.com, where Gmail's sign-in comes back.
+  // Eden Slides, editing together: a shared deck's link (/deck#deck-room&…, askeden web/chat/deck-room.js roomLink).
+  // Signed in, on to the Eden app at / (askeden deck-comments.js joins the deck); signed out, the sign-in, then back here.
+  // A redirect without a #fragment of its own keeps the link's (the key: it never reaches us; the sign-in page keeps it
+  // in that tab). /chat was the first links' address.
+  if (path === '/deck' || path === '/chat') {
+    const { session, stale } = await currentSession(request, env);
+    return byCookie(redirect(session ? '/' : '/signin?return=%2Fdeck'), stale);
+  }
   if (path === '/mail') {
     const { session, stale } = await currentSession(request, env);
-    const ownHost = env.MAIL_HOST && new URL(request.url).hostname === String(env.MAIL_HOST).toLowerCase();
+    // at askedenmail.com the page is always the page, until MAIL_APP puts the app there too (worker.js)
+    const ownHost = env.MAIL_HOST && env.MAIL_APP !== 'on' && new URL(request.url).hostname === String(env.MAIL_HOST).toLowerCase();
     if (!session || ownHost) return byCookie(page(await asset(env, request, '/mail-home/'), CODE_CSP), stale);
     const ios = isIosAppRequest(request);
     return byCookie(appPage(page(await asset(env, request, `${edenDir(request)}/`), EDEN_CSP, { permissions: EDEN_PERMISSIONS }), ios), false);
   }
   if (path === '/mail-home/mail-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
-  if (path === '/mail-home/icon.png' || path === '/mail-home/mail-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+  if (path === '/mail-home/icon.png' || path === '/mail-home/mail-logo.svg' || path === '/mail-home/mail-app.jpg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   // Eden Secretary's site (public/eden-secretary-home/): everyone; with SECRETARY_HOST set, edensecretary.com serves it at its front (worker.js)
   if (path === '/eden-secretary') return page(await asset(env, request, '/eden-secretary-home/'), CODE_CSP, { cache: 'public, max-age=300' });
   if (path === '/eden-secretary-home/eden-secretary-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
@@ -211,7 +232,16 @@ export async function edenPage(request, env, path) {
   if (path === '/eden-code-home/eden-code.png' || path === '/eden-code-home/eden-code-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (/^\/eden-code-home\/film-\d\.mp4$/.test(path)) return rangedAsset(env, request, path); // the chapters' films, once made
   if (/^\/eden-code-home\/film-\d\.jpg$/.test(path)) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
-  if (path === '/home/home.css' || path === '/home/paper-refinement.css' || path === '/home/features.js') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
+  // Eden Enterprise's form page and its files: only while ENTERPRISE_CONTACT is on (else 404, as if it weren't there)
+  if (path === '/enterprise' || /^\/enterprise\/[\w.-]+$/.test(path)) {
+    if (!enterpriseOn(env)) return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
+    if (path === '/enterprise') return page(await asset(env, request, '/enterprise/'), ENTERPRISE_CSP, { cache: 'public, max-age=300' });
+    if (!ENTERPRISE_FILES.has(path.slice('/enterprise/'.length))) return null;
+    return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
+  }
+  if (path === '/home/galaxy.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' }); // the galaxy ring of Eden apps (front page)
+  if (/^\/home\/galaxy\/[\w-]+\.(svg|png|webp)$/.test(path)) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); // its app logos (public/home/galaxy/)
+  if (path === '/home/home.css' || path === '/home/paper-refinement.css' || path === '/home/features.js' || path === '/home/plans.js') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   if (/^\/jarvis\/walk-\d\.mp4$/.test(path) || /^\/edu-home\/film-\d\.mp4$/.test(path)) return rangedAsset(env, request, path); // the front page's films (public/jarvis/walk-N.mp4) and /edu's (public/edu-home/film-N.mp4)
   if (/^\/edu-home\/film-\d\.jpg$/.test(path)) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); // their posters
   const langFile = /^\/lang\/([\w.-]+)$/.exec(path);

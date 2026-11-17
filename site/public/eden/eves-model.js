@@ -13,9 +13,9 @@
 /* ---------- the setting ---------- */
 
 export const EVES_MODES = ['off', 'on', 'auto'];
-export const DEFAULT_EVES_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_EVES_MODEL = 'gemini-4-hydrogen';
 export const EVES_MODEL_CHOICES = [
-  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', note: 'Default · fastest verification (~2.1s) with Google Search grounding' },
+  { id: 'gemini-4-hydrogen', name: 'Gemini 4 Hydrogen', note: 'Default · fast verification with Google Search grounding' },
   { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', note: 'Fastest Anthropic model (~1.9s) · crisp claim & NLI checking' },
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', note: 'Ultra-low latency (~1.6s) · low cost' },
   { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite', note: 'Sub-second light checks (~1.2s) · lowest cost' },
@@ -25,7 +25,7 @@ export const EVES_MODEL_CHOICES = [
   { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', note: 'Maximum reasoning depth (~11.0s)' },
   { id: 'auto', name: 'Router Automatic', note: 'Let the Model Router pick per check' },
 ];
-export const normalizeEvesModel = (v) => (typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_EVES_MODEL);
+export const normalizeEvesModel = (v) => (typeof v === 'string' && v.trim() && v.trim() !== 'gemini-3.8-flash' ? v.trim() : DEFAULT_EVES_MODEL);
 export const EVES_COST_NOTE = 'Costs about 4–5× a normal reply.';
 /** What the switch says it does, in plain words (tooltip and Settings). */
 export const EVES_HELP = `Eden asks several models, checks the facts they disagree on, and gives you one answer. ${EVES_COST_NOTE}`;
@@ -134,9 +134,22 @@ export function riskReasons(text) {
  * Even when mode is 'on', short greetings, acknowledgements ("hi", "ok", "thanks") and bare formatting nudges
  * skip EVES so they return immediately without running 3 models + claim judging.
  */
+// A picture or a video is made, never fact-checked (owner, 2026-11-06: with EVES on, "make a video of a dog" went to three
+// models and a judge). The server's own words for such a request (site src/eden/image.js wantsImage / wantsVideo), here.
+const MEDIA_NOUN = '(?:image|picture|pic|photo|photograph|drawing|illustration|painting|sketch|logo|icon|poster|wallpaper|banner|avatar|portrait|cartoon|render|artwork|art|video|clip|animation|movie|film|footage|reel|timelapse)';
+const MEDIA_ASK = new RegExp(String.raw`^\s*(?:\/(?:video|image|imagine|draw)\b|(?:(?:hey\s+)?eden[,:]?\s+)?(?:(?:can|could|would|will)\s+you\s+|please\s+|i\s+(?:want|need|would\s+like)\s+(?:you\s+to\s+)?)?(?:(?:generate|create|make|draw|paint|design|render|produce|sketch|illustrate|shoot|film|animate)\s+(?:me\s+|us\s+)?(?:a|an|some|the|\d+(?:[- ]second)?)?\s*(?:\w+\s+){0,3}?${MEDIA_NOUN}s?\b|draw\s+(?:me\s+)?(?:a|an)\s+\w+|animate\s+(?:a|an|the|this|my|it)\b))`, 'i');
+export function asksForMedia(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 2000) return false;
+  if (/^\s*(?:what|how|why|where|who|which|is|are|does|do|did|explain|describe|summari[sz]e|analy[sz]e|watch|read|look at|transcribe)\b/i.test(t)) return false;
+  if (/\b(?:slide\s*show|slideshow|slide\s*deck|slides|presentation|spreadsheet|workbook|excel)\b/i.test(t)) return false;
+  return MEDIA_ASK.test(t);
+}
+
 export function wantsEves({ mode, applies = { ok: true }, text = '', factual = () => false, risk = null } = {}) {
   const m = normalizeMode(mode);
   if (m === 'off' || !applies.ok) return null;
+  if (asksForMedia(text)) return null; // made, not checked
   if (String(text || '').trim() && isTrivialEvesTurn(text)) return null;
   if (m === 'on') return 'on';
   return riskReasons(text).length > 0 || !!factual(text) || !!(risk && risk.eves === 'auto') ? 'auto' : null;
@@ -202,7 +215,7 @@ export function tookWords(ms) {
 export const shortModel = (name) => String(name || '').replace(/^Claude /, '').replace(/ \(preview\)$/, '');
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 /** Inside the iPhone/Android app (native.js IN_APP, repeated here: this module has no imports). */
-const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '') && !/\bEdenBeta\//.test(navigator.userAgent || ''); // a TestFlight beta gets everything
+const IN_APP = false; // since 2026-11-05 (owner) the Eden iPhone app gets the whole website, like the TestFlight beta; only Eden for Education stays frozen
 
 /**
  * Why the checks are weaker when the answers don't come from enough different providers. Plain
@@ -784,7 +797,11 @@ export function badgeView(s, live = false) {
   if (open) parts.push(`${plural(open, 'claim', 'claims')} unverified`);
   if (counts.contradicted) parts.push(`${counts.contradicted} contradicted`);
   const l = s.verification && s.verification.label;
-  const kind = l && l.kind ? l.kind : open || counts.contradicted ? 'eves_disputed' : 'eves_verified';
+  let kind = l && l.kind ? l.kind : open || counts.contradicted ? 'eves_disputed' : 'eves_verified';
+  // The pill's word follows its colour: a contradicted or unverified claim never sits under "Verified" (2026-11-10: the
+  // server said eves_verified, a claim was contradicted, and the pill read "Verified" beside a red "!").
+  if (kind === 'eves_verified' && !vault && counts.contradicted) kind = 'issues_found';
+  else if (kind === 'eves_verified' && !vault && open) kind = 'eves_disputed';
   let severity = chipSeverity(kind, l && l.severity);
   if (open) severity = worse(severity, 'warn');
   if (counts.contradicted) severity = worse(severity, 'bad');

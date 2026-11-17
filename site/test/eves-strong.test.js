@@ -311,8 +311,9 @@ test('on: the anchor at medium effort, and a second answer from GPT with web sea
   env.EVES_STRONG = 'on';
   const raw = await turn(session);
   const onThinking = anchorCall().thinking;
-  assert.notDeepEqual(onThinking, offThinking, 'the anchor’s effort changed');
-  assert.match(JSON.stringify(onThinking), /medium|MEDIUM|\d{3,}/);
+  // changed 2026-11-10: every Gemini search runs without thinking, on or off (checks.js withoutThinking: at medium it stalled)
+  assert.deepEqual(onThinking, { thinkingBudget: 0 });
+  assert.deepEqual(offThinking, { thinkingBudget: 0 });
   const s = secondCalls();
   assert.equal(s.length, 1, 'one second searched answer');
   assert.equal(s[0].purpose, 'second', 'with the anchor’s own system prompt');
@@ -481,7 +482,7 @@ test('EVES_STRONG=on + EVES_ANCHOR=gpt: GPT-6.1 Sol with web search is the kept 
   assert.equal(g[0].effort, 'medium');
   assert.ok((g[0].tools || []).some((t) => /web_search/.test(t.type)));
   assert.equal(g[0].maxToolCalls, 2);
-  assert.deepEqual(geminiSearched().thinking?.thinkingLevel, 'MEDIUM', 'Gemini’s searched answer at medium');
+  assert.deepEqual(geminiSearched().thinking, { thinkingBudget: 0 }, 'Gemini’s searched answer without thinking (2026-11-10: at medium it stalled)');
   const v = await verdictOf(raw);
   assert.equal(v.anchor.model, 'gpt-6.1-sol');
   assert.equal(v.second.model, 'gemini-3.8-flash');
@@ -795,6 +796,31 @@ test('EVES_EVIDENCE_SEARCH=perplexity: runs web evidence checks on Perplexity wi
   assert.equal(await finalText(raw), RIGHT);
 });
 
+test('EVES_SEARCH_CHARGE=on: the Perplexity evidence check’s cost comes out of the account’s allowance; off, it doesn’t (as before)', async () => {
+  const session = await signedIn();
+  env.EVES_STRONG = 'on';
+  env.EVES_EVIDENCE_SEARCH = 'perplexity';
+  env.PERPLEXITY_API_KEY = 'pplx-test';
+  const used = async () => {
+    const u = (await (await hit('/api/web/account', { session })).json()).usage;
+    return Number(u.spent_usd || 0) + Number(u.trial_usd || 0) - Number(u.trial_left_usd || 0);
+  };
+  const delta = async () => {
+    Object.assign(fx, { anchor: WRONG, lanes: RIGHT, second: RIGHT, evidence: 'contradicted' });
+    const before = await used();
+    await turn(session);
+    return (await used()) - before;
+  };
+  delete env.EVES_SEARCH_CHARGE;
+  const off = await delta();
+  assert.equal(calls.filter((c) => c.who === 'pplx-evidence').length, 1);
+  env.EVES_SEARCH_CHARGE = 'on';
+  const on = await delta();
+  assert.equal(calls.filter((c) => c.who === 'pplx-evidence').length, 2);
+  assert.ok(Math.abs(on - off - 0.0017) < 1e-6, `on ${on} − off ${off} should be Perplexity’s $0.0017`);
+  delete env.EVES_SEARCH_CHARGE;
+});
+
 test('Vertex AI Gemini grounding: routes Gemini search calls to project gen-lang-client-0068133515 and fails over to GEMINI_API_KEY on error', async () => {
   const session = await signedIn();
   env.EVES_STRONG = 'on';
@@ -813,4 +839,56 @@ test('Vertex AI Gemini grounding: routes Gemini search calls to project gen-lang
   const raw2 = await turn(session);
   assert.ok(calls.filter((c) => c.who === 'gemini-search').length >= 1, 'fell back to AI Studio key');
   assert.equal(await finalText(raw2), RIGHT);
+});
+
+test('spend counter: EVES’s Perplexity checks go on the company counter (CREDIT_PACER=warn), not on the account', async () => {
+  const { VoiceQuota } = await import('../src/worker.js');
+  const { companySpendStatus, resetSpendCache } = await import('../src/eden/spend-counter.js');
+  const { resetPacerCache } = await import('../src/eden/credit-pacer.js');
+  resetSpendCache();
+  resetPacerCache();
+  const session = await signedIn();
+  env.VOICE_QUOTA = namespace(VoiceQuota, env);
+  env.CREDIT_PACER = 'warn';
+  env.EVES_STRONG = 'on';
+  env.EVES_EVIDENCE_SEARCH = 'perplexity';
+  env.PERPLEXITY_API_KEY = 'pplx-test';
+  fx.anchor = WRONG;
+  fx.lanes = RIGHT;
+  fx.second = RIGHT;
+  fx.evidence = 'contradicted';
+  const raw = await turn(session);
+  const n = calls.filter((c) => c.who === 'pplx-evidence').length;
+  assert.ok(n >= 1, 'a Perplexity check ran');
+  assert.equal(await finalText(raw), RIGHT, 'the answer is the same');
+  const p = (await companySpendStatus(env)).providers.find((x) => x.id === 'perplexity');
+  assert.ok(Math.abs(p.paidUSD + p.unpaidUSD - 0.0017 * n) < 1e-9, `Perplexity counted: ${JSON.stringify(p)}`);
+  assert.equal(p.calls, n);
+});
+
+test('spend counter: with SPEND_CAP_PERPLEXITY_USD used up (CREDIT_PACER=on), an unpaid EVES turn that would use Perplexity is refused before any call', async () => {
+  const { VoiceQuota } = await import('../src/worker.js');
+  const { SPEND_COPY, resetSpendCache } = await import('../src/eden/spend-counter.js');
+  const { resetPacerCache } = await import('../src/eden/credit-pacer.js');
+  resetSpendCache();
+  resetPacerCache();
+  const session = await signedIn();
+  env.VOICE_QUOTA = namespace(VoiceQuota, env);
+  env.CREDIT_PACER = 'on';
+  env.SPEND_CAP_PERPLEXITY_USD = '0';
+  env.EVES_STRONG = 'on';
+  env.EVES_EVIDENCE_SEARCH = 'perplexity';
+  env.PERPLEXITY_API_KEY = 'pplx-test';
+  calls.length = 0;
+  const res = await hit('/api/chat/eves', { method: 'POST', session, headers: { 'x-jarvis-chat': '1' }, body: { messages: [{ role: 'user', content: QUESTION }], mode: 'on', vault: false, models: TWO, settings: { level: 3 } } });
+  assert.equal(res.status, 402, await res.clone().text());
+  assert.equal((await res.json()).error, SPEND_COPY.model);
+  assert.equal(calls.length, 0, 'no model call, and no other model instead');
+  // the default search (Gemini): Perplexity isn't called, so its cap doesn't matter
+  resetSpendCache();
+  env.EVES_EVIDENCE_SEARCH = 'gemini';
+  const ok = await hit('/api/chat/eves', { method: 'POST', session, headers: { 'x-jarvis-chat': '1' }, body: { messages: [{ role: 'user', content: QUESTION }], mode: 'on', vault: false, models: TWO, settings: { level: 3 } } });
+  assert.equal(ok.status, 200);
+  await ok.text();
+  await drain();
 });

@@ -463,10 +463,10 @@ test('spaces: Plus to create; invite, join, budget per member, removal, and only
 
 // ── the Durable Object migrations ──
 
-test('migrations: v1–v11 in order, Space is new in v4, BrowserSession in v5, Course in v6, Promo in v7, NewsDesk in v8, RouterApi in v9, DeckRoom in v10 and AudienceRoom in v11 (SQLite), bound, and exported', async () => {
+test('migrations: v1–v12 in order, Space is new in v4, BrowserSession in v5, Course in v6, Promo in v7, NewsDesk in v8, RouterApi in v9, DeckRoom in v10, AudienceRoom in v11 and BonusPool in v12 (SQLite), bound, and exported', async () => {
   const toml = fs.readFileSync(path.join(SITE, 'wrangler.toml'), 'utf8');
   const tags = [...toml.matchAll(/\[\[migrations\]\]\s*\ntag = "(v\d+)"\s*\nnew_sqlite_classes = \[([^\]]*)\]/g)].map((m) => [m[1], m[2].replace(/"/g, '').split(',').map((x) => x.trim())]);
-  assert.deepEqual(tags, [['v1', ['VoiceQuota']], ['v2', ['Account', 'Link']], ['v3', ['Identity']], ['v4', ['Space']], ['v5', ['BrowserSession']], ['v6', ['Course']], ['v7', ['Promo']], ['v8', ['NewsDesk']], ['v9', ['RouterApi']], ['v10', ['DeckRoom']], ['v11', ['AudienceRoom']]]);
+  assert.deepEqual(tags, [['v1', ['VoiceQuota']], ['v2', ['Account', 'Link']], ['v3', ['Identity']], ['v4', ['Space']], ['v5', ['BrowserSession']], ['v6', ['Course']], ['v7', ['Promo']], ['v8', ['NewsDesk']], ['v9', ['RouterApi']], ['v10', ['DeckRoom']], ['v11', ['AudienceRoom']], ['v12', ['BonusPool']]]);
   assert.ok(!/deleted_classes|renamed_classes/.test(toml), 'no class is ever deleted or renamed');
   assert.match(toml, /name = "SPACES"\s*\nclass_name = "Space"/);
   assert.match(toml, /name = "BROWSER_SESSIONS"\s*\nclass_name = "BrowserSession"/);
@@ -485,6 +485,7 @@ test('migrations: v1–v11 in order, Space is new in v4, BrowserSession in v5, C
   assert.equal(typeof mod.RouterApi, 'function');
   assert.equal(typeof mod.DeckRoom, 'function');
   assert.equal(typeof mod.AudienceRoom, 'function');
+  assert.equal(typeof mod.BonusPool, 'function');
 });
 
 // ── account deletion: team spaces and delegations ──

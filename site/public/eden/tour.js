@@ -123,6 +123,8 @@ function enterPractice({ step = null, fresh = false } = {}) {
 
 /* ---------------- the welcome sheet (chapters) ---------------- */
 
+const AUTO_WELCOME = false; // see initTour
+
 let sheetEl = null;
 let sheetReturn = null;
 function closeSheet() {
@@ -681,7 +683,9 @@ export function initTour() {
   const p = load();
   // practice left for good: anything its page wrote while unloading goes too (a resumable tour keeps its sample data)
   if (!p.active) resetPractice();
-  if (M.shouldAutoStart({ progress: p, params, inApp: IN_APP, webdriver: !!navigator.webdriver })) {
+  // A first visit opens on the starter cards alone (owner, 2026-11-06, "less busy"): the welcome no longer opens by itself.
+  // "Take the tour" is in ⌘K, Settings › About and Help's pages.
+  if (AUTO_WELCOME && M.shouldAutoStart({ progress: p, params, inApp: IN_APP, webdriver: !!navigator.webdriver })) {
     // at once (the page focuses the message box as it starts), and never over someone who already went for the
     // message box: a tap, a key or text in it means they came to ask something; "Take the tour" is in ⌘K
     let touched = false;

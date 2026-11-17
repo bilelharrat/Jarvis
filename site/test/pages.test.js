@@ -78,8 +78,8 @@ async function signedIn() {
 const SIGNIN = /^default-src 'none'; script-src 'self' https:\/\/challenges\.cloudflare\.com; frame-src https:\/\/challenges\.cloudflare\.com; style-src 'self'; img-src 'self' data:;/;
 
 // The front, legal and Education pages run the language script (public/lang/site-i18n.js), never inline; the front page also runs the
-// films' script (public/home/features.js).
-const OTHER_SCRIPT = /<script(?! src="\/lang\/site-i18n\.js" data-page="[a-z-]+"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)/i;
+// films' script (public/home/features.js) and the plans' (public/home/plans.js: PLANS_V2 and ENTERPRISE_CONTACT, owner 2026-11-13).
+const OTHER_SCRIPT = /<script(?! src="\/lang\/site-i18n\.js" data-page="[a-z-]+"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)(?! src="\/home\/plans\.js" defer><\/script>)/i;
 const LANG_ONLY = /script-src 'self'; /;
 
 test('signed out, / is Eden\'s front page (its own CSP, only the language script), never cached, varying by cookie', async () => {
@@ -180,6 +180,38 @@ test('the front page has seven short films (six features and the accuracy chart)
   const all = await hit('/jarvis/walk-2.mp4');
   assert.equal(all.status, 200);
   assert.equal(all.headers.get('accept-ranges'), 'bytes');
+});
+
+test('the six plans and Eden Enterprise on the front page: hidden in the HTML, filled by /home/plans.js from the Worker\'s config; the form page has no inline script or style; French for every new string', async () => {
+  const html = read('public/home/index.html');
+  // flag off or no JavaScript: today's page (the containers are there, hidden)
+  assert.match(html, /<div class="plans-v2" id="plansV2" hidden><\/div>/);
+  assert.match(html, /<article class="plan enterprise" id="enterpriseCard" hidden>/);
+  assert.match(html, /<p class="fine" id="plansV2Fine" hidden>/);
+  assert.match(html, /<script src="\/home\/plans\.js" defer><\/script>/);
+  assert.match(html, /For teams and companies: shared AI budget, admin controls, invoicing\. Contact us for pricing\./);
+  assert.match(html, /<a class="btn" href="\/enterprise">Contact us<\/a>/);
+  assert.match(read('public/home/home.css'), /\.plans-v2\[hidden\],\.plan\[hidden\]/, 'a hidden card stays hidden under .plan{display:flex}');
+  const js = read('public/home/plans.js');
+  assert.match(js, /fetch\('\/api\/web\/config'/);
+  assert.match(js, /p\.web !== true/, 'only plans with a monthly Stripe price');
+  assert.match(js, /Unused AI carries over one month, then expires\./);
+  assert.match(js, /Bonus: up to \+/);
+  assert.doesNotMatch(js, /pool|other members/i, 'never where the bonus comes from');
+  assert.equal((await hit('/home/plans.js')).status, 200);
+  // the form page: one h1, labelled fields, the honeypot, no inline script or style
+  const ent = read('public/enterprise/index.html');
+  assert.doesNotMatch(ent, /\sstyle=|<script>[^<]/i);
+  assert.equal((ent.match(/<h1/g) || []).length, 1);
+  for (const [id, label] of [['entName', 'Name'], ['entEmail', 'Work email'], ['entCompany', 'Company'], ['entSize', 'Team size'], ['entMessage', 'Message']]) assert.match(ent, new RegExp(`<label for="${id}">${label}</label>`));
+  assert.match(ent, /name="website_url" tabindex="-1"/);
+  assert.match(ent, /<script src="\/lang\/site-i18n\.js" data-page="enterprise"><\/script>/);
+  // French: every new line of the cards, the card and the form
+  const frHome = read('public/lang/fr-home.js');
+  for (const s of ['Unused AI carries over one month, then expires.', 'For teams and companies: shared AI budget, admin controls, invoicing. Contact us for pricing.', "'Contact us'", "'/month'", 'Plans are billed monthly or yearly', 'answers or', 'Flash answers a day', 'minutes of Eden’s cloud browser a month', 'characters of Eden Secretary voice a day', 'Bonus: up to', '^Get (Plus|']) assert.ok(frHome.includes(s), `fr-home.js: ${s}`);
+  const frEnt = read('public/lang/fr-enterprise.js');
+  for (const s of ['Name', 'Work email', 'Company', 'Team size', 'Message', 'Send', 'Eden for your team', '1,000 people or more', 'Thanks\\. We’ll be in touch at']) assert.ok(frEnt.includes(s), `fr-enterprise.js: ${s}`);
+  for (const m of read('public/enterprise/enterprise.js').matchAll(/^ {4}\w+: '([^']+)',$/gm)) assert.ok(frEnt.includes(`'${m[1]}'`), `fr-enterprise.js: ${m[1]}`);
 });
 
 test('the front page names its company: the footer line and an "Ask Eden by" line, spelled as the legal pages spell it', () => {
@@ -650,8 +682,20 @@ test('Eden Mail: /mail is its page signed out and the app signed in; MAIL_HOST p
     assert.equal(res.status, 301, from);
     assert.equal(res.headers.get('location'), to, from);
   }
+  // askeden.com/mail stays the app while MAIL_APP is off
+  assert.equal(await (await worker.fetch(new Request(`${ORIGIN}/mail`, { headers: { cookie: `__Host-eden=${cookie}` } }), on, {})).text(), 'asset /eden/');
+  // MAIL_APP on: the app lives at askedenmail.com as its own origin, and askeden.com/mail forwards there
+  const app2 = { ...on, MAIL_APP: 'on' };
+  const moved = await worker.fetch(new Request(`${ORIGIN}/mail?x=1`), app2, {});
+  assert.equal(moved.status, 301);
+  assert.equal(moved.headers.get('location'), 'https://askedenmail.com/?x=1');
+  assert.equal(await (await worker.fetch(new Request('https://askedenmail.com/'), app2, {})).text(), 'asset /mail-home/'); // signed out: the page
+  assert.equal(await (await worker.fetch(new Request('https://askedenmail.com/', { headers: { cookie: `__Host-eden=${cookie}` } }), app2, {})).text(), 'asset /eden/'); // signed in: Mail
+  for (const p of ['/signin?return=%2Fmail', '/privacy']) assert.notEqual((await worker.fetch(new Request(`https://askedenmail.com${p}`), app2, {})).status, 301, p); // served here, not forwarded
+  assert.equal((await worker.fetch(new Request('https://www.askedenmail.com/x'), app2, {})).headers.get('location'), 'https://askedenmail.com/x');
+  // the page's buttons sign in where they are: askeden.com, or askedenmail.com once the app is there (forwarded to askeden.com until then)
   const page = read('public/mail-home/index.html');
-  assert.match(page, /href="https:\/\/askeden\.com\/signin\?return=%2Fmail"/);
+  assert.match(page, /href="\/signin\?return=%2Fmail"/);
   assert.doesNotMatch(page, /<script/);
   // signed in, /mail is Mail alone: no chat, sidebar or inspector around it, and it can't be closed (askeden web/chat)
   assert.match(read('public/eden/util.js'), /export const MAIL_ONLY = [^\n]*location\.pathname === '\/mail'/);
@@ -665,9 +709,10 @@ test('Eden Mail: /mail is its page signed out and the app signed in; MAIL_HOST p
   assert.equal(root('/'), '');
 });
 
-test('iPhone/iPad app (EdenApp/ in User-Agent) gets the exact Apple-submitted /eden-ios assets and meta.eves=false, while browsers get /eden and meta.eves=true', async () => {
+test('the Eden iPhone app (EdenApp/) gets the whole website like a browser (owner, 2026-11-05); Eden for Education (EdenEdu/) keeps the frozen /eden-ios', async () => {
   const session = await signedIn();
   const iosUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) Mobile/15E148 EdenApp/1.0';
+  const eduUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) Mobile/15E148 EdenEdu/1.0';
   env.assets.length = 0;
   const webRoot = await hit('/', { session });
   assert.equal(webRoot.status, 200);
@@ -676,12 +721,17 @@ test('iPhone/iPad app (EdenApp/ in User-Agent) gets the exact Apple-submitted /e
   env.assets.length = 0;
   const iosRoot = await hit('/', { session, headers: { 'user-agent': iosUA } });
   assert.equal(iosRoot.status, 200);
-  assert.deepEqual(env.assets, ['/eden-ios/']);
-  assert.notEqual(iosRoot.headers.get('etag'), webRoot.headers.get('etag'));
+  assert.deepEqual(env.assets, ['/eden/']);
+  assert.equal(iosRoot.headers.get('etag'), webRoot.headers.get('etag'));
 
   env.assets.length = 0;
   const iosJs = await hit('/app.js', { session, headers: { 'user-agent': iosUA } });
   assert.equal(iosJs.status, 200);
+  assert.deepEqual(env.assets, ['/eden/app.js']);
+
+  env.assets.length = 0;
+  const eduJs = await hit('/app.js', { session, headers: { 'user-agent': eduUA } });
+  assert.equal(eduJs.status, 200);
   assert.deepEqual(env.assets, ['/eden-ios/app.js']);
 });
 
@@ -753,4 +803,51 @@ test('Ask Eden Travel has its own site, held: without TRAVEL_HOST nothing is ser
   const fr = read('public/lang/fr-travel-home.js');
   const text = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
   for (const m of fr.matchAll(/^ {4}'([^']+)':/gm)) assert.ok(text.includes(m[1]) || html.includes(`"${m[1]}"`), `fr-travel-home.js: "${m[1]}" isn't on the page`);
+});
+
+test('Eden Enterprise’s page: 404 while ENTERPRISE_CONTACT is off; on, only /enterprise’s CSP allows Turnstile (the front page’s is unchanged); its files and French are served', async () => {
+  const front = (await hit('/')).headers.get('content-security-policy');
+  for (const p of ['/enterprise', '/enterprise/enterprise.js', '/enterprise/enterprise.css']) assert.equal((await hit(p)).status, 404, p);
+  env.ENTERPRISE_CONTACT = 'on';
+  const page = await hit('/enterprise');
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), 'asset /enterprise/');
+  const csp = page.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self' https:\/\/challenges\.cloudflare\.com;/);
+  assert.match(csp, /frame-src https:\/\/challenges\.cloudflare\.com;/);
+  assert.doesNotMatch(csp, /unsafe-inline/);
+  const frontOn = (await hit('/')).headers.get('content-security-policy');
+  assert.equal(frontOn, front, 'the front page’s CSP stays as it was');
+  assert.doesNotMatch(frontOn, /challenges\.cloudflare\.com/);
+  for (const p of ['/enterprise/enterprise.js', '/enterprise/enterprise.css', '/lang/fr-enterprise.js', '/home/plans.js']) {
+    const res = await hit(p);
+    assert.equal(await res.text(), `asset ${p}`, p);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff', p);
+  }
+  assert.notEqual(await (await hit('/enterprise/other.js')).text(), 'asset /enterprise/other.js', 'only its own files');
+});
+
+test('the front page\'s Ask Eden galaxy: twelve Eden apps in a ring, each linking to its own site (Apollo is coming), its CSS and logos served from this site, French for every string', async () => {
+  const html = read('public/home/index.html');
+  const sec = html.slice(html.indexOf('<section class="galaxy-band"'), html.indexOf('</section>', html.indexOf('<section class="galaxy-band"')));
+  assert.match(sec, /<h2 id="galaxyH">The Ask Eden galaxy<\/h2>/);
+  assert.ok(html.indexOf('id="galaxy"') > html.indexOf('id="pricing"') && html.indexOf('id="galaxy"') > html.indexOf('id="guides-section"') && html.indexOf('id="galaxy"') < html.indexOf('id="newsletter"'), 'low on the page: after the downloads, plans and guides, before the newsletter');
+  assert.equal((sec.match(/class="orbit-item /g) || []).length, 12);
+  const links = [...sec.matchAll(/<a class="orbit-item [^"]+" href="(https:\/\/[^"]+)" aria-label="[^"]+">/g)].map((m) => m[1]);
+  assert.equal(new Set(links).size, 11);
+  assert.match(sec, /<span class="orbit-item [^"]+" tabindex="0" role="img" aria-label="Eden Apollo, coming to iPhone and iPad">/);
+  assert.doesNotMatch(sec.replace(/class="[^"]*"/g, '').replace(/<!--[\s\S]*?-->/g, ''), /ecosystem/i); // visible copy says "galaxy" (owner, 2026-11-13)
+  assert.match(html, /<link rel="stylesheet" href="\/home\/galaxy\.css">/);
+  const css = await hit('/home/galaxy.css');
+  assert.equal(css.status, 200);
+  assert.equal(css.headers.get('x-content-type-options'), 'nosniff');
+  for (const src of new Set([...sec.matchAll(/src="(\/home\/galaxy\/[^"]+)"/g)].map((m) => m[1]))) {
+    assert.ok(fs.existsSync(path.join(SITE, 'public', src)), src);
+    const res = await hit(src);
+    assert.equal(res.status, 200, src);
+    assert.equal(await res.text(), `asset ${src}`, src);
+  }
+  assert.notEqual(await (await hit('/home/galaxy/../home.css')).text(), 'asset /home/galaxy/../home.css');
+  const fr = read('public/lang/fr-home.js');
+  for (const s of ['The Ask Eden galaxy', 'Eden apps', 'Twelve Eden apps around one chat', 'Eden Apollo, Eden’s browser, is coming to iPhone and iPad.', 'Ask Eden at the center of the Eden galaxy', 'Eden Apollo · coming to iPhone and iPad', "'Calendar'", "'News'", "'Travel'"]) assert.ok(fr.includes(s), `fr-home.js: ${s}`);
 });

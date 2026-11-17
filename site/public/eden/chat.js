@@ -24,7 +24,8 @@ import { noteVerification } from './verify.js'; // the label under a reply, and 
 import { applyReport, applyStep, capOf, verifiedResearch } from './research-model.js'; // Q2: research's progress steps and its budget cap
 import { replyLanguageNote } from './i18n.js'; // "reply in French" when the page is in French
 import { aiConsentBlocks, IN_APP } from './native.js'; // the iPhone app's AI consent: no cloud send without it
-import { untilStopped } from './resilience.js'; // the checks before a send: Stop ends them at once, a slow one is skipped (B2)
+import { untilStopped, droppedWhileAway } from './resilience.js'; // the checks before a send: Stop ends them at once, a slow one is skipped (B2)
+import { placeMarks } from './cite-marks.js'; // the server's marks: each source's [n] right after the words it backs
 import { buildBookIndex, queryBookIndex, HUGE_DOC_CHARS } from './book-index.mjs';
 
 const bookIndexCache = new Map(); // messageId:name -> BookIndex
@@ -44,8 +45,13 @@ function getOrBuildBook(msgId, att) {
 }
 
 /** `{ system }`: the persona's, plus the reply-language note when French is on; `{}` when both are empty. */
+/**
+ * EVES and Compare's system text: the persona, today's date with the live-facts rules (nowNote), the reply language.
+ * Without nowNote every EVES lane answered as of its training year and they agreed, so nothing was web-checked and a
+ * stale answer was labelled Verified (2026-11-10: "the Vikings view J.J. McCarthy as their future", weeks after his trade).
+ */
 function withLang(system) {
-  const s = [system, replyLanguageNote()].filter(Boolean).join('\n\n');
+  const s = [system, nowNote(), replyLanguageNote()].filter(Boolean).join('\n\n');
   return s ? { system: s } : {};
 }
 
@@ -294,7 +300,9 @@ function appendText(node, text) {
 export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'chat');
-  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false, verification: null, eves: null, research: null });
+  const sentAt = Date.now();
+  const clean = () => Object.assign(node, { parts: [], thinking: '', thinkMs: 0, thinkingLive: false, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false, verification: null, eves: null, research: null, fallbacks: undefined, resuming: false, citeMarks: undefined });
+  clean();
   if (refusalRetry) node.notes.push(`Retried with ${refusalRetry.name} — the first model declined`);
   const ov = override || currentOverride();
   const sig = settingsSig();
@@ -363,7 +371,8 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   };
   if (ctrl.signal.aborted) { node.finish = 'aborted'; endTurn(); return; } // stopped before it was sent
   ui.updateMessage(c, node);
-  try {
+  let resumed = false;
+  for (;;) try {
     await api.send(body, {
       signal: ctrl.signal,
       onEvent: (type, d) => {
@@ -407,7 +416,9 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
             break;
           case 'citations': {
             const seen = new Set((node.citations || []).map((s) => s.url));
-            for (const s of d.sources || []) if (s && s.url && !seen.has(s.url)) { node.citations.push({ title: s.title || '', url: s.url }); seen.add(s.url); }
+            for (const s of d.sources || []) if (s && s.url && !seen.has(s.url)) { node.citations.push({ title: s.title || '', url: s.url, ...(typeof s.via === 'string' ? { via: s.via } : {}), ...(Array.isArray(s.aka) && s.aka.length ? { aka: s.aka.filter((u) => typeof u === 'string') } : {}) }); seen.add(s.url); }
+            // each source's number right after the words it backs, like an essay (cite-marks.js; tapping one opens the source)
+            if (Array.isArray(d.marks) && d.marks.length) { node.citeMarks = [...(node.citeMarks || []), ...d.marks]; placeMarks(node.parts, d.marks, node.citations); } // kept: a repair's new words get them again (verify.js)
             break;
           }
           case 'usage': node.usage = d; break;
@@ -443,10 +454,30 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
         paint(c, node);
       },
     });
+    break;
   } catch (e) {
     if (ended) { /* after `done`: Stop (or a dropped connection) ends only the checks; the reply keeps how it finished */ }
     else if (e.name === 'AbortError') { node.finish = 'aborted'; if (evesRun) evesRun.stopped(); }
+    // The page went away mid-reply (the app closed, the phone locked) or went offline: once, start the reply again when it's
+    // back. Not a run that drove the cloud browser (it would start the browsing over): that one says it failed, as before.
+    else if (!resumed && !node.browserRun && droppedWhileAway(e, sentAt, pageNow())) {
+      resumed = true;
+      node.resuming = true;
+      paint(c, node);
+      try { await untilBack(ctrl.signal); } catch { node.resuming = false; node.finish = 'aborted'; if (evesRun) evesRun.stopped(); break; }
+      if (evesRun) { evesRun.stopped(); evesRun = null; } // the server picks EVES again for the new send, with a fresh run
+      const st = state.streams.get(c.id);
+      if (st) Object.assign(st, { kind: 'chat', abort: () => ctrl.abort(), stopLane: undefined });
+      clean();
+      node.notes.push('Started again: the connection dropped while the app was closed');
+      node.startedAt = Date.now();
+      phase = 'reply';
+      thinkStart = 0;
+      ui.updateMessage(c, node);
+      continue;
+    }
     else { node.error = failure(e); if (evesRun) evesRun.failed(node.error); }
+    break;
   }
   if (postTurn.get(c.id) === ctrl) postTurn.delete(c.id);
   endTurn();
@@ -471,10 +502,51 @@ addEventListener('eden:refusal-retry', (e) => { const { c, node } = e.detail || 
 
 /** The browser's bare "network error" when the stream breaks, said plainly. */
 function failure(e) {
+  // A TypeError the page itself threw while showing the reply (a property named "fetch…" or "connection…" matched the
+  // test below and read as a dropped connection on a good Wi-Fi, owner's user 2026-11-05): said as what it is, and logged.
+  if (e && e.inPage) {
+    console.error('Eden: showing the reply failed', e);
+    return 'Something went wrong showing this reply. Try again.';
+  }
   if (e && e.name === 'TypeError' && /network|fetch|load failed|connection/i.test(e.message || '')) {
     return LOCAL_SERVER ? 'The connection to the Eden server dropped before the reply finished. Is model-router-ui still running?' : 'The connection dropped before the reply finished. Check your connection, then retry.';
   }
   return (e && e.message) || String(e);
+}
+
+/*
+ * A reply whose connection drops because the page went away (owner, 2026-11-06: the iPhone app pauses its page when you
+ * close it, lock the phone or switch apps, and askeden.com stops a turn whose connection is gone) isn't a failure to show:
+ * the reply starts again by itself when the page is back on screen and online, once per reply. Stop still stops it, and
+ * the composer stays "replying" while it waits. Offline at the drop counts too: it goes again when the connection is back.
+ */
+let awayAt = typeof document !== 'undefined' && document.hidden ? Date.now() : 0;
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (document.hidden) awayAt = Date.now(); });
+  addEventListener('pagehide', () => { awayAt = Date.now(); });
+}
+/** The page as droppedWhileAway (resilience.js) reads it. */
+const pageNow = () => ({ awayAt, hidden: document.hidden, online: navigator.onLine !== false });
+/** Resolves once the page is on screen and online again (and a moment more, for the connection to come back); Stop rejects it. */
+function untilBack(signal, settle = 700) {
+  return new Promise((resolve, reject) => {
+    let timer = 0;
+    const ready = () => !document.hidden && navigator.onLine !== false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', check);
+      removeEventListener('online', check);
+      signal.removeEventListener('abort', stopped);
+    };
+    const go = () => { timer = 0; if (!ready()) return; cleanup(); resolve(); };
+    function check() { if (ready() && !timer) timer = setTimeout(go, settle); }
+    function stopped() { cleanup(); reject(new DOMException('Stopped', 'AbortError')); }
+    if (signal.aborted) { stopped(); return; }
+    signal.addEventListener('abort', stopped, { once: true });
+    document.addEventListener('visibilitychange', check);
+    addEventListener('online', check);
+    check();
+  });
 }
 
 const videoPayload = (a) => ({ kind: 'video', name: a.name, mime: a.mime, file: a.file, uri: a.uri, seconds: a.seconds });
@@ -556,10 +628,12 @@ function startReply(c, asst, user, text, { override } = {}) {
  * work and live in node.eves (eves-model.js), the final answer streams into the reply like any other, so
  * copy, speak, try again and the rest work on it; Stop stops every model (eves.js beginEves).
  */
-export async function runEves(c, node, plan) {
+export async function runEves(c, node, plan, { resumed = false } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'eves');
-  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: 'chat', provenance: null, approvals: [], steps: [], browserCard: null, browserRun: false, verification: null });
+  const sentAt = Date.now();
+  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: 'chat', provenance: null, approvals: [], steps: [], browserCard: null, browserRun: false, verification: null, resuming: false });
+  if (resumed) node.notes.push('Started again: the connection dropped while the app was closed');
   const turn = beginEves(node, plan, ctrl, () => paint(c, node));
   Object.assign(state.streams.get(c.id), { abort: turn.stop, stopLane: turn.stopLane });
   const settings = routeSettings(); // as it is now, not after the awaits below
@@ -583,6 +657,22 @@ export async function runEves(c, node, plan) {
       node.eves = null;
       toast(e.message);
       return runChat(c, node);
+    } else if (!resumed && droppedWhileAway(e, sentAt, pageNow())) {
+      // The page went away mid-check (the app closed, the phone locked) or went offline: once, run EVES again when it's back
+      // (as runChat does for a reply). Stop while it waits stops it.
+      node.resuming = true;
+      paint(c, node);
+      let back = true;
+      try { await untilBack(ctrl.signal); } catch { back = false; }
+      node.resuming = false;
+      if (back) {
+        turn.stopped();
+        turn.end();
+        endStream(c, node);
+        return runEves(c, node, plan, { resumed: true });
+      }
+      node.finish = 'aborted';
+      turn.stopped();
     } else turn.failed(failure(e));
   }
   turn.end();

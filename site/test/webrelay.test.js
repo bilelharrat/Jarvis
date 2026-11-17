@@ -8,7 +8,7 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { bytesToB64, parseToken } from '../src/accounts/util.js';
-import { APPROVAL_PENDING, MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, askMac, clientWait, frame, macRoute, unframe } from '../src/accounts/webrelay.js';
+import { APPROVAL_PENDING, CREW_NEEDS_EDEN_CODE, MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, askMac, clientWait, frame, macRoute, servesOf, unframe } from '../src/accounts/webrelay.js';
 import { PRIVACY_MAC_OFFLINE, PRIVACY_NEEDS_MAC } from '../src/eden/chat.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { CLAUDE_NEEDS_KEY, testOnlyServiceClaude } from '../src/eden/providers.js';
@@ -98,9 +98,9 @@ async function linkMac(phone, fill = 7) {
   return (await hit('/api/link/poll', { method: 'POST', browser: false, body: started })).json();
 }
 
-/** The Mac opens its web channel: the fake socket the object accepted. */
-async function connect(o, mac = o.mac) {
-  const response = await hit('/api/relay/web', { browser: false, token: mac.token, headers: { upgrade: 'websocket' } });
+/** The Mac opens its web channel: the fake socket the object accepted (`serves`: its x-eden-serves). */
+async function connect(o, mac = o.mac, serves = null) {
+  const response = await hit('/api/relay/web', { browser: false, token: mac.token, headers: { upgrade: 'websocket', ...(serves ? { 'x-eden-serves': serves } : {}) } });
   assert.equal(response.status, 200, await response.clone().text());
   const ws = o.account.ctx.getWebSockets(`web:${mac.device_id}`)[0];
   ws.read = 0;
@@ -876,4 +876,33 @@ test('R2C-14c: a request let go before it reached the relay never reaches the Ma
   assert.equal(late.status, 499);
   await settle();
   assert.equal(frames(ws).filter((f) => f.t === 'req').length, 0, 'nothing reached the Mac');
+});
+
+test('Eden Crew: its calls go only to a line that serves them (Eden Code), whichever Mac app connected last', async () => {
+  assert.deepEqual(servesOf(new Request('https://x/', { headers: { 'x-eden-serves': ' crew, Bogus ,CREW' } })), ['crew']);
+  assert.deepEqual(servesOf(new Request('https://x/')), []);
+  const o = await owner();
+  const code = await connect(o, o.mac, 'crew'); // Eden Code's line
+  const secretary = await connect(o, await linkMac(o.phone, 9)); // another Mac app, connected after it
+  const ask = (tool, args = {}) => chat('/api/chat/jarvis', o.session, { method: 'POST', body: { tool, arguments: args } });
+  const answer = (ws, text) => autoAnswer(o, ws, () => ({ chunks: [JSON.stringify({ text, is_error: false })] }));
+  answer(code, 'Eden Code');
+  answer(secretary, 'the newest line');
+
+  const plan = await ask('crew_plan', { brief: 'Compare three CRMs' });
+  assert.equal(plan.status, 200);
+  assert.equal((await plan.json()).text, 'Eden Code');
+  assert.equal((await ask('crew_status', { id: '1' })).status, 200);
+  assert.equal(secretary.sent.filter((m) => typeof m === 'string' && JSON.parse(m).t === 'req').length, 0, 'no crew call to the other app');
+  // Everything else goes to the newest line, as before.
+  assert.equal((await (await ask('search_notes', { query: 'crm' })).json()).text, 'the newest line');
+
+  // Eden Code's Mac signed out, only a line that doesn't serve crews: a crew call says to open Eden Code,
+  // and the other app isn't asked.
+  await hit(`/api/devices/${o.mac.device_id}`, { method: 'DELETE', browser: false, token: o.phone.token });
+  const before = secretary.sent.length;
+  const refused = await ask('crew_list');
+  assert.equal(refused.status, 503);
+  assert.deepEqual(await refused.json(), { error: CREW_NEEDS_EDEN_CODE, code: 'needs_eden_code' });
+  assert.equal(secretary.sent.length, before);
 });

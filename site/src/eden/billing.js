@@ -29,7 +29,9 @@
 import { call, callIdentity, limited, subHashOf } from '../accounts/index.js';
 import { AUTO, PACKS } from '../accounts/credits.js';
 import { redeemPromo } from '../accounts/promo.js';
-import { legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
+import { CHECKOUT, legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
+import { allowanceV2 } from '../accounts/allowance.js';
+import { PRICE_USD, YEARLY_USD, isV2Tier, plansConfig, plansV2, tierPrice, tierPricesAll } from '../accounts/plans.js'; // PLANS_V2: the six plans
 import { APPLE_ROOT_G3, verifyAppleJws } from '../accounts/storekit.js';
 import { playPurchase } from '../accounts/google-play.js';
 import { ApiError, EDEN_BUNDLE_ID, hex, isPlusPurchase, json, readJson, sameText, validAccountId } from '../accounts/util.js';
@@ -61,8 +63,8 @@ const priceList = (v) => String(v || '').split(/[\s,]+/).filter((p) => /^price_[
 /** The price ids STRIPE_PRICE_PLUS lists (commas): the first for new subscriptions. */
 const prices = (env) => priceList(env.STRIPE_PRICE_PLUS);
 const yearlyPrice = (env) => priceList(env.STRIPE_PRICE_PLUS_YEARLY)[0] || null;
-/** Every Plus price a subscription may have: today's, the yearly and the grandfathered. */
-const honoured = (env) => [...prices(env), ...priceList(env.STRIPE_PRICE_PLUS_YEARLY), ...legacyPrices(env)];
+/** Every Plus price a subscription may have: today's, the yearly, the grandfathered, and PLANS_V2's (STRIPE_PRICE_<PLAN>[_YEARLY], honoured whatever the flag). */
+const honoured = (env) => [...prices(env), ...priceList(env.STRIPE_PRICE_PLUS_YEARLY), ...legacyPrices(env), ...tierPricesAll(env)];
 /** The credit packs whose price is set: { 5: price_…, … }. */
 export function packPrices(env) {
   const out = {};
@@ -87,11 +89,25 @@ export function billingProblem(env) {
 export const billingReady = (env) => !billingProblem(env);
 
 /** /api/web/config's part: buy Plus on the web; and inside the Eden iOS app too (the owner's flag). */
-export function billingConfig(env) {
+export function billingConfig(env, bonus = null) {
   const on = billingReady(env);
   // Off: which check failed, in words (never a value), so the owner can see why without reading secrets.
-  return { billing: on, billing_in_app: on && String(env.STRIPE_IN_EDEN_APP || '') === '1', ...(on || !(env.STRIPE_SECRET_KEY || env.STRIPE_WEBHOOK_SECRET) ? {} : { billing_off: billingProblem(env) }) };
+  return { billing: on, billing_in_app: on && String(env.STRIPE_IN_EDEN_APP || '') === '1', ...(on || !(env.STRIPE_SECRET_KEY || env.STRIPE_WEBHOOK_SECRET) ? {} : { billing_off: billingProblem(env) }), ...(linkOutOn(env) ? { billing_link_out: [...LINK_OUT_STOREFRONTS] } : {}), ...plansConfig(env, bonus) }; // plans, rollover, enterprise_contact: only with their flags (accounts/plans.js)
 }
+
+// The Eden iPhone app's link to askeden.com's Checkout (STRIPE_US_LINKOUT = "1", off by default):
+// only in App Store storefronts whose rules allow a link with no fee. Fixed here, never read from
+// env, so a misconfiguration can't open another storefront. The key is absent while it's off, so
+// /api/web/config is what it was before.
+const LINK_OUT_STOREFRONTS = Object.freeze(['USA']);
+const linkOutOn = (env) => billingReady(env) && String(env.STRIPE_US_LINKOUT || '') === '1';
+/** A checkout or portal request from the iPhone app's link-out: the flag, the app itself, a US storefront. */
+function linkOutAllowed(request, env, body) {
+  return linkOutOn(env)
+    && /\bEdenApp\//.test(request.headers.get('user-agent') || '')
+    && typeof (body && body.storefront) === 'string' && LINK_OUT_STOREFRONTS.includes(body.storefront);
+}
+const LINK_OUT_OFF = () => new ApiError(403, 'link_out_off', 'Subscribing on askeden.com isn’t available here. Use the App Store.');
 
 /** GET /api/web/account's `plus`: how Plus is bought. */
 export function plusOffer(env) {
@@ -101,8 +117,10 @@ export function plusOffer(env) {
   return {
     web_purchase: true,
     how: 'stripe',
-    price_usd: legacy ? PLUS_LEGACY_PRICE_USD : PLUS_PRICE_USD,
-    yearly_usd: yearlyPrice(env) ? PLUS_YEARLY_PRICE_USD : null,
+    // PLANS_V2: a checkout with no tier sells the new Plus (plus2), so its prices are the ones offered (the iPhone's US link-out too).
+    ...(plansV2(env)
+      ? { web_purchase: Boolean(tierPrice(env, 'plus2', false)), price_usd: PRICE_USD.plus2, yearly_usd: tierPrice(env, 'plus2', true) ? YEARLY_USD.plus2 : null }
+      : { price_usd: legacy ? PLUS_LEGACY_PRICE_USD : PLUS_PRICE_USD, yearly_usd: yearlyPrice(env) ? PLUS_YEARLY_PRICE_USD : null }),
     credit_packs: packs,
     auto_topup: packs.includes(AUTO.amount),
   };
@@ -212,11 +230,14 @@ async function appleTransaction(request, env, who) {
     claimed = !token;
   }
   const account = await call(env, who.account, 'subscription-eden', { transaction, claimed, claim_hash: claimHash }, who.token);
+  // Plus from Stripe too: an iPhone link-out's is refunded and cancelled (settleBoth); Stripe's
+  // customer.subscription.deleted then leaves the App Store's alone.
+  if (account.plan && account.plan.source === 'both') await settleBoth(env, who.account);
   return { plan: account.plan, usage: account.usage };
 }
 
 export async function billingApi(request, env, who, op, { acting = null, origin = '' } = {}) {
-  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup', 'promo', 'apple', 'google'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (request.method !== 'POST' || !['checkout', 'portal', 'change', 'credits', 'autotopup', 'promo', 'apple', 'google'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
   if (op === 'apple') return json(await appleTransaction(request, env, who)); // the Eden iPhone app's App Store Plus: no Stripe needed
   if (op === 'google') return json(await playPurchase(request, env, who)); // Eden for Android's Google Play Plus (accounts/google-play.js)
   if (op === 'promo') { // a promo code: free Plus, no Stripe needed
@@ -254,19 +275,36 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
     if (!plusOffer(env).auto_topup) throw new ApiError(404, 'not_found', 'Auto top-up isn’t offered here.');
     return json(await call(env, who.account, 'stripe-autotopup', { enabled: body && body.enabled === true }, who.token)); // 409 no_card
   }
+  // via "ios_link": the Eden iPhone app's link to this Checkout, opened in Safari (US storefront only).
+  const linkOut = Boolean(body && body.via === 'ios_link');
+  if (linkOut && !linkOutAllowed(request, env, body)) throw LINK_OUT_OFF();
+  // Safari isn't signed in to askeden.com: the return page links back into the app (billingReturn app=1).
+  const app = linkOut ? '&app=1' : '';
+  if (op === 'change') return json(await changePlan(env, who, body, origin)); // PLANS_V2: another plan for a Stripe subscription
   if (op === 'checkout') {
     const yearly = body && body.plan === 'yearly';
-    const price = yearly ? yearlyPrice(env) : prices(env)[0];
+    // PLANS_V2: { tier } picks one of the six plans (accounts/plans.js). None (or "plus") is today's Plus with the flag
+    // off, exactly as before; with it on, today's Plus is closed to new subscribers, so it is the new Plus (plus2).
+    const asked = body && body.tier !== undefined && body.tier !== 'plus' ? body.tier : 'plus';
+    const tier = asked === 'plus' && plansV2(env) ? 'plus2' : asked;
+    if (tier !== 'plus' && !(plansV2(env) && isV2Tier(tier) && tierPrice(env, tier, yearly))) throw new ApiError(404, 'not_found', 'That plan isn’t on sale here.');
+    const price = tier !== 'plus' ? tierPrice(env, tier, yearly) : yearly ? yearlyPrice(env) : prices(env)[0];
     if (!price) throw new ApiError(404, 'not_found', 'Yearly Plus isn’t on sale here.');
-    const begun = await call(env, who.account, 'stripe-checkout', { origin: `${origin}#${yearly ? 'yearly' : 'monthly'}` }, who.token); // 409 already_plus
+    // The link-out's own pending key: a web session (web return addresses) is never replayed to the app, nor the other way.
+    const begun = await call(env, who.account, 'stripe-checkout', { origin: `${origin}#${yearly ? 'yearly' : 'monthly'}${tier !== 'plus' ? `#${tier}` : ''}${linkOut ? '#ios_link' : ''}` }, who.token); // 409 already_plus
+    // A link-out names itself, so a future court-approved fee could be estimated, and settleBoth knows it.
+    // link_at comes from the pending checkout, not the clock: a second tap within the reuse window replays
+    // the same key, and Stripe refuses a reused idempotency key sent with different parameters.
+    const linkAt = new Date((begun.expires_at - CHECKOUT.minutes * 60) * 1000).toISOString();
+    const metadata = linkOut ? { account_id: who.account, source: 'ios_link', link_at: linkAt } : { account_id: who.account };
     const session = await stripe(env, 'POST', '/checkout/sessions', {
       mode: 'subscription',
       line_items: [{ price, quantity: 1 }],
       client_reference_id: who.account,
-      metadata: { account_id: who.account },
-      subscription_data: { metadata: { account_id: who.account } }, // so every subscription event names the account
-      success_url: `${origin}/api/web/billing/return?to=success`, // on to /#account?billing=success
-      cancel_url: `${origin}/api/web/billing/return?to=cancelled`, // on to /#account?billing=cancelled
+      metadata,
+      subscription_data: { metadata }, // so every subscription event names the account
+      success_url: `${origin}/api/web/billing/return?to=success${app}`, // on to /#account?billing=success
+      cancel_url: `${origin}/api/web/billing/return?to=cancelled${app}`, // on to /#account?billing=cancelled
       expires_at: begun.expires_at,
       customer: begun.customer, // a returning subscriber keeps one Stripe customer
     }, { idempotency: `eden-checkout-${begun.key}-${price}` }); // the price is part of it: a new price is a new checkout, not a replay
@@ -274,9 +312,41 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
     return json({ url: session.url });
   }
   const { customer } = await call(env, who.account, 'stripe-portal', {}, who.token); // 404 no_billing
-  const portal = await stripe(env, 'POST', '/billing_portal/sessions', { customer, return_url: `${origin}/api/web/billing/return?to=portal` });
+  const portal = await stripe(env, 'POST', '/billing_portal/sessions', { customer, return_url: `${origin}/api/web/billing/return?to=portal${app}` });
   if (!stripePage(env, portal.url, 'billing.stripe.com')) throw new ApiError(502, 'stripe', 'Stripe sent back no billing page. Try again.');
   return json({ url: portal.url });
+}
+
+/**
+ * POST /api/web/billing/change { tier, plan: monthly | yearly } (PLANS_V2): a Customer Portal session that
+ * confirms moving the account's Stripe subscription to that plan's price (flow_data
+ * subscription_update_confirm). The owner's portal settings decide proration (upgrades now, downgrades at
+ * the period's end). 404 not_found (flag off, no such plan or price) | 404 no_billing | 409 same_plan |
+ * 409 app_store (an App Store plan changes in the App Store).
+ */
+async function changePlan(env, who, body, origin) {
+  const yearly = body && body.plan === 'yearly';
+  const tier = body && body.tier;
+  const price = plansV2(env) && isV2Tier(tier) ? tierPrice(env, tier, yearly) : null;
+  if (!price) throw new ApiError(404, 'not_found', 'That plan isn’t on sale here.');
+  const begun = await call(env, who.account, 'stripe-change', {}, who.token); // 404 no_billing, 409 app_store
+  if (begun.price === price) throw new ApiError(409, 'same_plan', 'You’re already on that plan.');
+  const sub = await stripe(env, 'GET', `/subscriptions/${encodeURIComponent(begun.subscription)}`);
+  const list = honoured(env);
+  const item = ((sub.items && sub.items.data) || []).find((i) => list.includes(idOf(i.price) || idOf(i.plan)));
+  if (!item || !item.id) throw new ApiError(404, 'no_billing', 'This account has no plan billed on askeden.com.');
+  const back = `${origin}/api/web/billing/return?to=portal`;
+  const portal = await stripe(env, 'POST', '/billing_portal/sessions', {
+    customer: begun.customer,
+    return_url: back,
+    flow_data: {
+      type: 'subscription_update_confirm',
+      subscription_update_confirm: { subscription: begun.subscription, items: [{ id: item.id, price, quantity: 1 }] },
+      after_completion: { type: 'redirect', redirect: { return_url: back } },
+    },
+  });
+  if (!stripePage(env, portal.url, 'billing.stripe.com')) throw new ApiError(502, 'stripe', 'Stripe sent back no billing page. Try again.');
+  return { url: portal.url };
 }
 
 // Where Stripe sends the browser back, and where that goes next: fixed places, nothing taken
@@ -290,12 +360,74 @@ const RETURNS = { success: '/#account?billing=success', credits: '/#account?bill
  * site starts, so the cookie comes along (as the sign-in callbacks end, eden/session.js onward).
  */
 export function billingReturn(request) {
-  const which = new URL(request.url).searchParams.get('to');
+  const params = new URL(request.url).searchParams;
+  const which = params.get('to');
+  if (params.get('app') === '1') return appReturn(which);
   const to = Object.hasOwn(RETURNS, which || '') ? RETURNS[which] : '/#account';
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="0; url=${to}"><title>Eden</title><link rel="stylesheet" href="/signin/signin.css"></head>
 <body><main class="card"><h1>Back to Eden…</h1><p><a class="button" href="${to}">Continue to your account</a></p></main></body></html>`;
   return page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), SIGNIN_CSP);
+}
+
+// Back from a Checkout the Eden iPhone app opened in Safari (via "ios_link"): Safari is signed out
+// of askeden.com, so no meta refresh; one button back into the app (askeden://plus), which opens
+// #account and refreshes the plan. Fixed words and places only.
+const APP_RETURNS = { success: 'Payment done. Plus switches on in Eden in a moment.', cancelled: 'Checkout cancelled. Nothing was charged.', portal: 'Billing updated.' };
+function appReturn(which) {
+  const known = Object.hasOwn(APP_RETURNS, which || '');
+  const to = known ? `askeden://plus?billing=${which}` : 'askeden://plus';
+  const line = known ? `<p>${APP_RETURNS[which]}</p>` : '';
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eden</title><link rel="stylesheet" href="/signin/signin.css"></head>
+<body><main class="card"><h1>Back to Eden</h1>${line}<p><a class="button" href="${to}">Back to Eden</a></p></main></body></html>`;
+  return page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), SIGNIN_CSP);
+}
+
+// ── Plus from both the App Store and an iPhone link-out's Stripe subscription ──
+
+/**
+ * Eden can't cancel or refund an App Store subscription, so when an account has both App Store
+ * Plus and a Stripe one made through the iPhone app's link-out (whichever came second), the
+ * Stripe one is refunded in full and cancelled at once; customer.subscription.deleted then puts
+ * the plan back to the App Store's. Only ios_link subscriptions (accounts/stripe-plan.js
+ * stripe-both): a web subscription beside the App Store's is left as it was. Best effort: logs,
+ * never throws.
+ */
+export async function settleBoth(env, accountId) {
+  if (!billingReady(env)) return false;
+  try {
+    const { subscription } = await call(env, accountId, 'stripe-both', {});
+    if (!subscription) return false;
+    const sub = await stripe(env, 'GET', `/subscriptions/${encodeURIComponent(subscription)}?expand[]=latest_invoice`, null, { raw: true });
+    if (!sub.ok || ['canceled', 'incomplete_expired'].includes(sub.body.status)) return false; // gone already: nothing to refund twice
+    const paid = await invoicePayment(env, sub.body.latest_invoice);
+    if (paid) {
+      const refund = await stripe(env, 'POST', '/refunds', { ...paid, metadata: { account_id: accountId, reason: 'plus_on_app_store_too', subscription } }, { idempotency: `eden-both-refund-${subscription}`, raw: true });
+      if (!refund.ok) console.error('stripe: refunding a second Plus subscription failed; refund it by hand', subscription.slice(0, 8), refund.status);
+    }
+    const cancelled = await cancelSubscription(env, subscription);
+    console.warn('stripe: Plus from the App Store and an iPhone link-out at once; the Stripe one refunded and cancelled', Boolean(paid), cancelled);
+    return cancelled;
+  } catch (error) {
+    console.error('stripe: settling Plus from both the App Store and Stripe failed', error && error.message);
+    return false;
+  }
+}
+
+/** What a subscription's latest invoice was paid with, for /refunds: { payment_intent } | { charge } | null. */
+async function invoicePayment(env, invoice) {
+  if (!invoice || typeof invoice !== 'object' || !(Number(invoice.amount_paid) > 0)) return null;
+  const intent = idOf(invoice.payment_intent);
+  if (intent) return { payment_intent: intent };
+  const charge = idOf(invoice.charge);
+  if (charge) return { charge };
+  // Newer API versions (basil on) keep the payment in the invoice's payments.
+  const list = await stripe(env, 'GET', `/invoice_payments?invoice=${encodeURIComponent(String(invoice.id || ''))}&status=paid`, null, { raw: true });
+  const pay = list.ok && Array.isArray(list.body.data) && list.body.data[0] && list.body.data[0].payment;
+  if (pay && idOf(pay.payment_intent)) return { payment_intent: idOf(pay.payment_intent) };
+  if (pay && idOf(pay.charge)) return { charge: idOf(pay.charge) };
+  return null;
 }
 
 // ── /api/stripe/… : the webhook, and nothing else ──
@@ -400,7 +532,15 @@ function subscriptionFacts(sub, env) {
     plus: Boolean(price),
     period_end: periodEnd(sub),
     renews: !sub.cancel_at_period_end && !Number(sub.cancel_at) && !['canceled', 'incomplete_expired'].includes(sub.status),
+    via: sub.metadata && sub.metadata.source === 'ios_link' ? 'ios_link' : null, // bought through the iPhone app's link-out
+    ...(allowanceV2(env) ? { period_start: periodStart(sub), billing_anchor: (Number(sub.billing_cycle_anchor) || 0) * 1000 } : {}), // the period's anchor (accounts/allowance.js)
   };
+}
+
+// The current period's start (ms): on the subscription in older API versions, on each item in newer ones.
+function periodStart(sub) {
+  const starts = [Number(sub.current_period_start) || 0, ...((sub.items && sub.items.data) || []).map((i) => Number(i.current_period_start) || 0)].filter((s) => s > 0);
+  return starts.length ? Math.min(...starts) * 1000 : 0;
 }
 
 const accountIn = (...ids) => {
@@ -480,12 +620,20 @@ async function handle(env, event) {
       if (!account) return { ignored: 'no_account' };
       // The session doesn't carry the subscription's state: Stripe's current one is read.
       const sub = await stripe(env, 'GET', `/subscriptions/${encodeURIComponent(idOf(object.subscription))}`);
-      return apply(account, { customer: idOf(object.customer), subscription: subscriptionFacts(sub, env), fresh: true });
+      const facts = subscriptionFacts(sub, env);
+      const out = await apply(account, { customer: idOf(object.customer), subscription: facts, fresh: true });
+      if (facts.via === 'ios_link') await settleBoth(env, account); // App Store Plus already: this one is refunded
+      return out;
     }
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
-    case 'customer.subscription.deleted':
-      return apply(accountIn(object.metadata && object.metadata.account_id), { customer: idOf(object.customer), subscription: subscriptionFacts(object, env) });
+    case 'customer.subscription.deleted': {
+      const account = accountIn(object.metadata && object.metadata.account_id);
+      const facts = subscriptionFacts(object, env);
+      const out = await apply(account, { customer: idOf(object.customer), subscription: facts });
+      if (account && event.type === 'customer.subscription.created' && facts.via === 'ios_link') await settleBoth(env, account);
+      return out;
+    }
     case 'payment_intent.succeeded':
     case 'payment_intent.payment_failed': {
       const meta = object.metadata || {};

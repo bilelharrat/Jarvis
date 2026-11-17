@@ -37,5 +37,5 @@ export function bootSoundSettings() {
 export function bootSoundWelcomeRow() {
   const sw = bootSoundSwitch();
   if (!sw) return null;
-  return el('div', 'icard tour-boot-sound', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Boot-up sound'), el('div', 'p-c', 'A short sound as the app opens. You can change this any time in Settings › Appearance.')), sw));
+  return el('div', 'icard tour-boot-sound', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Boot-up sound'), el('div', 'p-c', 'A short sound as the app opens. You can change this any time in Settings › General.')), sw));
 }

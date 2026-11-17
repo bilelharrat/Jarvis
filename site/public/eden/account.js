@@ -30,10 +30,11 @@ import * as Cloud from './cloud-sync.js';
 import { passphraseProblem, suggestPassphrase, verifyCode } from './eden-crypto.js';
 import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
-import { IN_APP_SHELL as IN_APP, IN_ANDROID, appPlus, appSellsPlus, onAppPlus } from './native.js';
+import { IN_APP_SHELL as IN_APP, IN_ANDROID, appLinkOutStorefront, appPlus, appSellsPlus, appWebCheckout, onAppPlus } from './native.js';
 import { setPlanOffer } from './plan.js';
+import { planOffer, webPlans, serverPlans, productTier, appShowsProduct, planLabel, planLines, bonusLine, enterpriseOffered, ROLLOVER_LINE, TIERS } from './plan-model.js';
 import { locale, t, tr, isFr } from './i18n.js';
-// Included AI is shown as a share left, never in dollars.
+// Included AI is shown as a share left, never in dollars (except the weekly line under ALLOWANCE_V2: weeklyAllowance).
 const pctLeft = (left, total) => `${Math.max(0, Math.min(100, Math.round((Number(left) || 0) / (Number(total) || 1) * 100)))}%`;
 
 let H = {};
@@ -99,7 +100,9 @@ async function load() {
   const account = await read(res);
   if (setBilelAccount(account)) ui.render();
   let config = {};
-  try { const c = await call('/api/web/config'); if (c.ok) config = await read(c); } catch { /* no Add buttons then */ }
+  let fresh = false;
+  try { const c = await call('/api/web/config'); if (c.ok) { config = await read(c); fresh = true; } } catch { /* no Add buttons then */ }
+  if (fresh) heardConfig(config); // a failed read keeps what the last good one said
   return { account, config };
 }
 
@@ -192,6 +195,18 @@ function sheet() {
 
 export const accountAvailable = () => available;
 export const accountOpen = () => !!($('accountSheet') && $('accountSheet').classList.contains('open'));
+// Settings › Accounts & memory draws the account too (owner, 2026-11-06: "combine it into accounts"): the same sections, in
+// the tab instead of a sheet over it. Deep links (#account, Get Plus, add credits, delete) still open the sheet.
+let embedded = null;
+const embeddedShown = () => !!(embedded && embedded.isConnected);
+const acctBody = () => (accountOpen() || !embeddedShown() ? $('acctBody') : embedded);
+/** Draws the account into `box` (Settings); null when there are no accounts here (the Mac's own server). */
+export async function drawAccountInto(box) {
+  if (!available) return null;
+  embedded = box;
+  box.classList.add('acct', 'acct-embed');
+  return draw();
+}
 
 /**
  * Opens the account page; `notice` is a line shown above it (what came back in #account), `ok`
@@ -204,19 +219,20 @@ export async function openAccount({ notice = null, ok = false, waitPlus = false,
   s.classList.add('open');
   $('btnAcctClose').focus();
   const account = await draw(notice, { ok, merge });
-  if (focusPlus && account) showPlus();
+  if (focusPlus && account) showPlus(focusPlus);
   if (focusCredits && account) showCredits();
   if (focusDelete && account) showDelete();
   if (!waitPlus || !account) return;
   const shown = document.querySelector('#acctBody .acct-notice.ok');
-  if (account.plan && account.plan.active) { if (shown) shown.textContent = 'Thank you! Plus is on.'; } // the webhook was first
+  if (account.plan && account.plan.active) { clearLinkOut(); if (shown) shown.textContent = 'Thank you! Plus is on.'; } // the webhook was first
   else watchForPlus();
 }
 
 // "Get Plus" from elsewhere (plan.js, /#plus from the front page): the Plan, highlighted, its
 // button focused. Never on to Stripe by itself: the person presses it.
-function showPlus() {
-  const card = document.querySelector('#acctBody .acct-plus') || document.querySelector('#acctBody .acct-card');
+function showPlus(tier = null) { // tier: the front page's "Get Pro" (#plus=pro), when that plan is listed
+  const card = (typeof tier === 'string' && TIERS.includes(tier) && document.querySelector(`#acctBody .acct-plus[data-tier="${tier}"]`))
+    || document.querySelector('#acctBody .acct-plus:not(.acct-ent)') || document.querySelector('#acctBody .acct-card');
   if (!card) return;
   card.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   card.classList.remove('flash');
@@ -230,11 +246,29 @@ function showPlus() {
 async function watchForPlus() {
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    if (!accountOpen()) return;
+    if (!accountOpen() && !embeddedShown()) return;
     const { account } = await load();
-    if (account && account.plan && account.plan.active) { draw('Plus is on. Thank you!', { ok: true }); return; }
+    if (account && account.plan && account.plan.active) { clearLinkOut(); draw('Plus is on. Thank you!', { ok: true }); return; }
   }
   if (accountOpen()) draw('Your payment went through. Plus can take a minute to show here: look again shortly.', { ok: true });
+}
+
+// Back in the app after askeden.com's Checkout in Safari (the US link-out): for an hour after it
+// was opened, the account is read again; Plus on clears it. (exported for its page test: account-iap.test.ts)
+let lookingAfterLinkOut = false;
+export async function afterLinkOut() {
+  const at = linkOutAt();
+  if (!at || lookingAfterLinkOut) return false;
+  if (Date.now() - at > 3600e3) { clearLinkOut(); return false; }
+  lookingAfterLinkOut = true;
+  try {
+    const { account, config } = await load();
+    if (!account || !account.plan || !account.plan.active) return false;
+    clearLinkOut();
+    if (accountOpen()) draw('Plus is on. Thank you!', { ok: true });
+    else setPlanOffer(account, config); // the pill and palette stop offering Upgrade
+    return true;
+  } finally { lookingAfterLinkOut = false; }
 }
 
 export function closeAccount() {
@@ -250,7 +284,8 @@ export function closeAccount() {
 }
 
 async function draw(notice, { ok = false, merge = null } = {}) {
-  const body = $('acctBody');
+  const body = acctBody();
+  if (!body) return null;
   if (!body.firstChild || notice) body.replaceChildren(el('div', 'muted', 'Loading…'));
   const { account, config, error } = await load();
   if (account) setPlanOffer(account, config);
@@ -276,6 +311,13 @@ async function draw(notice, { ok = false, merge = null } = {}) {
     methodsSection(account, config),
     account.acting ? null : deleteSection(),
   ].filter(Boolean));
+  // In Settings: "Delete account" goes to the very end of the tab, below mail and memory (the one there before goes)
+  if (body === embedded && body.parentElement) {
+    const host = body.parentElement;
+    for (const old of host.querySelectorAll(':scope > .acct-delete')) old.remove();
+    const del = body.querySelector('.acct-delete');
+    if (del) host.append(del);
+  }
   return account;
 }
 
@@ -400,7 +442,7 @@ function syncSection() {
   shown = sig();
   draw();
   // While it's open (and the tab visible): a browser asking to join shows up within seconds.
-  Sync.watchStatus(() => box.isConnected && accountOpen());
+  Sync.watchStatus(() => box.isConnected && (accountOpen() || embeddedShown()));
   return sec;
 }
 
@@ -656,21 +698,89 @@ function meter(leftUsd, totalUsd, label) {
     el('span', { class: 'fill', style: { width: `${(ratio * 100).toFixed(1)}%` } }));
 }
 
+// The week's moment as this browser's clock says it (weeks start at the billing time, not midnight): "Thu, Nov 19, 9:31 AM".
+function dayTime(x) {
+  const d = toDate(x);
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(locale(), { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// Plus's included AI when the server releases it weekly (askeden.com's ALLOWANCE_V2, owner 2026-11-12;
+// site src/accounts/allowance.js): this week's dollars and answers (the owner's wording: "This week:
+// $X left (~N answers)"), then the period as a share, rolled-over AI and any plan bonus. Only drawn
+// when `usage.week_left_usd` is a number, so an older server or the flag off shows the month as before.
+// Wording (owner, 2026-11-13): the rollover sentence exactly, and the bonus as "<Plan> Bonus: up to +20% AI",
+// never where it comes from. `label` is the plan's name (plan.label, PLANS_V2), else 'Plus'.
+function weeklyAllowance(u, label = 'Plus') {
+  const n = Number(u.week_answers_left);
+  const answers = Number.isFinite(n) && n >= 0 ? ` (~${Math.floor(n)} answer${Math.floor(n) === 1 ? '' : 's'})` : '';
+  const slice = typeof u.week_slice_usd === 'number' ? u.week_slice_usd : 0;
+  const rolled = typeof u.rollover_left_usd === 'number' && u.rollover_left_usd > 0
+    ? `Includes ${money(u.rollover_left_usd)} carried over from last month · used first${u.rollover_expires ? ` · until ${day(u.rollover_expires)}` : ''}` : '';
+  const bonus = typeof u.bonus_max_pct === 'number' && u.bonus_max_pct > 0
+    ? `${bonusLine(label, u.bonus_max_pct)}${typeof u.bonus_usd === 'number' && u.bonus_usd > 0 ? ` · ${money(typeof u.bonus_left_usd === 'number' ? u.bonus_left_usd : 0)} left this period` : ''}` : '';
+  return el('div', 'acct-allow acct-allow-week',
+    el('div', 'acct-row-top', el('span', 'acct-k', 'This week'), el('b', 'acct-v', `${money(u.week_left_usd)} left${answers}`)),
+    meter(u.week_left_usd, Math.max(u.week_left_usd, slice), 'Included AI left this week'),
+    u.week_end ? el('div', 'acct-sub', `More arrives ${dayTime(u.week_end)}`) : null,
+    el('div', 'acct-row-top', el('span', 'acct-k', 'This period'), el('b', 'acct-v', `${pctLeft(u.left_usd, u.budget_usd)} left`)),
+    meter(u.left_usd || 0, u.budget_usd || 0, 'Included AI left this period'),
+    el('div', 'acct-sub', u.renewal_pending === true ? 'Waiting for your renewal to go through' : u.period_end ? `New allowance ${day(u.period_end)}` : 'Resets monthly'),
+    rolled ? el('div', 'acct-sub', rolled) : null,
+    u.allowance === 'v2' ? el('div', 'acct-sub', ROLLOVER_LINE) : null,
+    bonus ? el('div', 'acct-sub', bonus) : null);
+}
+
 // Where Plus was bought (the plan's `source`), as the plan's line says it. In the iPhone app
 // askeden.com's billing is never named (App Store 3.1.1).
 const SOURCE_WORDS = IN_APP
   ? { app_store: 'App Store subscription', google_play: 'Google Play subscription', stripe: 'on your Eden account', both: 'two subscriptions', promo: 'free with a code', unlimited: 'unlimited, on the house' }
   : { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com', promo: 'free with a promo code', unlimited: 'unlimited, on the house', google_play: 'bought in the Android app' };
 
+// The iPhone app's link-out to askeden.com's Checkout (config billing_link_out, STRIPE_US_LINKOUT):
+// what the last /api/web/config said, for openBilling; and when one was opened (sessionStorage),
+// so coming back to the app reads the plan again.
+let linkOutListed = false;
+// And whether the server lets Stripe open in the app's own web view (billing_in_app, STRIPE_IN_EDEN_APP):
+// off, the app only ever opens Stripe in Safari through the US link-out.
+let stripeInApp = false;
+const listsLinkOut = (config) => Boolean(config) && Array.isArray(config.billing_link_out) && config.billing_link_out.includes('USA');
+const heardConfig = (config) => { linkOutListed = listsLinkOut(config); stripeInApp = Boolean(config) && config.billing_in_app === true; };
+const LINK_OUT_KEY = 'eden-link-out';
+const linkOutAt = () => { try { return Number(sessionStorage.getItem(LINK_OUT_KEY)) || 0; } catch { return 0; } };
+const clearLinkOut = () => { try { sessionStorage.removeItem(LINK_OUT_KEY); } catch { /* no storage */ } };
+const STRIPE_PAGE = /^https:\/\/(checkout|billing)\.stripe\.com\//;
+
 // Stripe Checkout or its Customer Portal: askeden.com makes the session, then the browser goes there.
-// kind: checkout ({ plan: "monthly" | "yearly" }), credits ({ pack }), or portal.
-async function openBilling(button, kind, payload = {}) {
+// kind: checkout ({ plan: "monthly" | "yearly", tier? }), credits ({ pack }), portal, or change ({ tier, plan }).
+// In the iPhone app with the US link-out: the session is made here (signed in), then opened in
+// Safari by the app (native.js appWebCheckout), never in this web view.
+// linkOut: the askeden.com row and the US Manage billing, which only ever open Safari (never this web view).
+async function openBilling(button, kind, payload = {}, { linkOut = false } = {}) {
   button = button || el('button'); // from the ring popover or the palette: no button of its own
   const label = button.textContent;
+  const out = (kind === 'checkout' || kind === 'portal') && appLinkOutStorefront() === 'USA' && linkOutListed;
+  // Fail safe: in the app, Stripe opens here only with the server's billing_in_app; otherwise only through
+  // the link-out, and a row drawn before the storefront or config changed refuses rather than falling through.
+  if (IN_APP && !out && (linkOut || !stripeInApp)) {
+    toast(t('Subscribing on askeden.com isn’t available here. Use the App Store.'));
+    return;
+  }
   button.disabled = true;
-  button.textContent = kind === 'portal' ? 'Opening billing…' : 'Opening checkout…';
+  button.textContent = kind === 'portal' || kind === 'change' ? 'Opening billing…' : 'Opening checkout…'; // change: Stripe's portal confirms a new plan (PLANS_V2)
   if (kind === 'portal' && !document.contains(button)) toast('Opening billing…');
   try {
+    if (out) {
+      const { url } = await post(`/api/web/billing/${kind}`, { ...payload, via: 'ios_link', storefront: 'USA' });
+      if (!STRIPE_PAGE.test(url || '')) throw new Error('askeden.com sent back no billing page. Try again.');
+      const r = await appWebCheckout(url);
+      if (!r.ok) throw new Error(r.error || t('Eden couldn’t open Safari. Try again.'));
+      try { sessionStorage.setItem(LINK_OUT_KEY, String(Date.now())); } catch { /* no storage: the app's own refresh still runs */ }
+      button.disabled = false;
+      button.textContent = label;
+      toast(t('Finish in Safari, then come back to Eden.'));
+      return;
+    }
     const { url } = await post(`/api/web/billing/${kind}`, payload);
     if (!/^https:\/\//.test(url || '') && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url || '')) throw new Error('askeden.com sent back no billing page. Try again.');
     location.assign(url);
@@ -722,15 +832,35 @@ export function planSection(a, config = {}) { // (exported for its page test: ac
   const head = el('div', 'acct-plan',
     el('div', { class: 'orb', 'aria-hidden': 'true' }),
     el('div', 'grow',
-      el('div', 'acct-plan-name', plus ? 'Plus' : 'Free', plus ? el('span', 'acct-badge plus', 'Active') : null),
+      el('div', 'acct-plan-name', plus ? planLabel(plan) : 'Free', plus ? el('span', 'acct-badge plus', 'Active') : null),
       el('div', 'acct-sub', plus ? [renews, SOURCE_WORDS[plan.source] || SOURCE_WORDS.app_store].filter(Boolean).map(t).join(' · ') : 'Some AI included to try Eden.')));
   // Buying and managing on the web: in a browser once billing is set up; inside the Eden iOS app
   // only with the server's flag (Apple's in-app purchase rules; the US link-out later).
   const web = config.billing === true && (!IN_APP || config.billing_in_app === true);
   const manage = plan.manage || {};
-  const portal = Boolean(manage.stripe) && (!IN_APP || config.billing_in_app === true);
+  // The iPhone app in the US storefront: askeden.com's Checkout as a second, smaller option (plan-model.js linkOut).
+  if (listsLinkOut(config)) linkOutListed = true; // only a good /api/web/config read (load) turns it off
+  if (config.billing_in_app === true) stripeInApp = true;
+  const offer = planOffer(a, config, IN_APP, appSellsPlus(), appLinkOutStorefront()) || {};
+  const portal = (Boolean(manage.stripe) && (!IN_APP || config.billing_in_app === true)) || offer.portal === true;
+  // The six plans (PLANS_V2): only those the server sells on the web. A Stripe plan changes through Stripe's
+  // portal (POST /billing/change); an App Store plan through Manage Subscription (Apple's sheet lists the others).
+  const tiers = webPlans(config);
+  // (today's Plus and its older cohort aren't offered the new Plus as a change: it reads "Plus → Plus")
+  const current = plan.tier || 'plus';
+  const others = plus && web && Boolean(manage.stripe) && !plan.unlimited ? tiers.filter((p) => p.tier !== current && !(p.tier === 'plus2' && (current === 'plus' || current === 'legacy'))) : [];
+  const changeBox = others.length ? el('div', { class: 'acct-plans acct-change', id: 'acctChangePlan', hidden: '' },
+    el('p', 'sp-note', 'Stripe shows the change and its price before you confirm.'),
+    ...others.map((p) => tierRow(p, config, 'change'))) : null;
+  let changeOpen = false;
+  const changeBtn = changeBox ? el('button', { type: 'button', class: 'cap', 'aria-expanded': 'false', 'aria-controls': 'acctChangePlan', onclick: (e) => {
+    changeOpen = !changeOpen;
+    if (changeOpen) changeBox.removeAttribute('hidden'); else changeBox.setAttribute('hidden', '');
+    e.currentTarget.setAttribute('aria-expanded', String(changeOpen));
+  } }, 'Change plan') : null;
   const manageRow = manage.stripe || manage.app_store ? el('div', 'acct-row-actions acct-manage',
-    portal ? el('button', { type: 'button', class: 'cap primary', onclick: (e) => openBilling(e.currentTarget, 'portal') }, 'Manage billing') : null,
+    portal ? el('button', { type: 'button', class: 'cap primary', onclick: (e) => openBilling(e.currentTarget, 'portal', {}, { linkOut: IN_APP && config.billing_in_app !== true }) }, 'Manage billing') : null,
+    changeBtn,
     manage.stripe && !portal && !IN_APP ? el('span', 'acct-sub', 'Billing is managed at askeden.com in a browser.') : null, // never in the iOS app (App Store 3.1.1: C14)
     manage.app_store ? (appSellsPlus()
       ? el('button', { type: 'button', class: 'cap', onclick: () => appPlus('manage') }, 'Manage Subscription')
@@ -743,7 +873,8 @@ export function planSection(a, config = {}) { // (exported for its page test: ac
   ];
 
   let allowance;
-  if (plus) {
+  if (plus && typeof u.week_left_usd === 'number') allowance = weeklyAllowance(u, planLabel(plan)); // the server's ALLOWANCE_V2 (owner, 2026-11-12)
+  else if (plus) {
     allowance = el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', 'Included AI this month'), el('b', 'acct-v', `${pctLeft(u.left_usd, u.budget_usd)} left`)),
       meter(u.left_usd || 0, u.budget_usd || 0, 'Included AI left this month'),
@@ -762,12 +893,19 @@ export function planSection(a, config = {}) { // (exported for its page test: ac
   const yearly = a.plus && typeof a.plus.yearly_usd === 'number' ? a.plus.yearly_usd : null;
   let getPlus = null;
   const appStore = appSellsPlus(); // the iPhone app sells Plus itself: Apple's products only, never Stripe
-  if (appStore) getPlus = appPlusBlock(plan, included);
-  else if (!plus && web) {
+  if (appStore) getPlus = appPlusBlock(plan, included, offer.linkOut ? a.plus || {} : null, config);
+  else if (!plus && web && tiers.length) {
+    // PLANS_V2: one row per plan the server sells here, its numbers from the server (never written by hand)
+    getPlus = el('div', 'acct-plans',
+      ...tiers.map((p) => tierRow(p, config)),
+      el('p', 'sp-note', 'Pay by card with Stripe; cancel any time.'),
+      IN_APP ? null : el('p', 'acct-alt', 'or in the Eden iPhone app'));
+  } else if (!plus && web) {
     getPlus = el('div', 'acct-plus',
       el('div', 'grow',
         el('b', '', 'Plus'),
         el('p', '', `Includes ${included} of AI every month, and credits cost less. Pay by card with Stripe; cancel any time.`),
+        config.rollover === true ? el('p', '', ROLLOVER_LINE) : null, // ALLOWANCE_V2
         IN_APP ? null : el('p', 'acct-alt', 'or in the Eden iPhone app')), // in the app: no word about buying elsewhere (App Store 3.1.1)
       el('div', 'acct-plus-btns',
         el('button', { type: 'button', class: 'btn primary', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'monthly' }) }, `Get Plus: ${price}/month`),
@@ -785,8 +923,39 @@ export function planSection(a, config = {}) { // (exported for its page test: ac
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctPlanH' }, el('h3', { id: 'acctPlanH', 'data-no-i18n': '' }, isFr ? 'Forfait' : 'Plan'),
     ...warnings.filter(Boolean),
     el('div', 'icard acct-card', head, allowance, manageRow),
-    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus, IN_APP ? null : promoRow(),
+    changeBox,
+    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Spending & keys).'), getPlus,
+    enterpriseOffered(config, IN_APP) ? enterpriseRow() : null, IN_APP ? null : promoRow(),
     creditsSection(a, web && !appStore));
+}
+
+/* ---------- the six plans (PLANS_V2) and Eden Enterprise (ENTERPRISE_CONTACT) ---------- */
+
+const planCount = (x) => Number(x).toLocaleString(locale(), { maximumFractionDigits: 0 });
+
+// One plan: its name and prices, its lines (plan-model.js planLines) and its buttons. mode 'buy' opens
+// Checkout ({ tier, plan }); 'change' opens Stripe's portal on that plan (POST /billing/change).
+function tierRow(p, config, mode = 'buy') {
+  const kind = mode === 'change' ? 'change' : 'checkout';
+  const yearly = typeof p.yearly_usd === 'number' && p.yearly_usd > 0 ? p.yearly_usd : null;
+  return el('div', { class: 'acct-plus acct-tier', 'data-tier': p.tier },
+    el('div', 'grow',
+      el('b', { 'data-no-i18n': '' }, p.name), // a product name
+      el('p', 'acct-tier-price', `${usd(p.price_usd, null)}/month${yearly ? ` · ${usd(yearly, null)}/year` : ''}`),
+      ...planLines(p, { rollover: config.rollover === true, n: planCount }).map((line) => el('p', 'acct-tier-line', line))),
+    el('div', 'acct-plus-btns',
+      el('button', { type: 'button', class: 'btn primary', onclick: (e) => openBilling(e.currentTarget, kind, { tier: p.tier, plan: 'monthly' }) }, mode === 'change' ? `Switch to ${p.name}` : `Get ${p.name}`),
+      yearly ? el('button', { type: 'button', class: 'btn', onclick: (e) => openBilling(e.currentTarget, kind, { tier: p.tier, plan: 'yearly' }) }, `${usd(yearly, null)}/year`) : null));
+}
+
+// Eden Enterprise (owner, 2026-11-13): its card, opening askeden.com's request form (/enterprise) in a new tab.
+// Never in the iPhone app (plan-model.js enterpriseOffered).
+function enterpriseRow() {
+  return el('div', 'acct-plus acct-ent',
+    el('div', 'grow',
+      el('b', '', 'Eden Enterprise'),
+      el('p', '', 'For teams and companies: shared AI budget, admin controls, invoicing. Contact us for pricing.')),
+    el('a', { class: 'btn', href: '/enterprise', target: '_blank', rel: 'noopener' }, 'Contact us'));
 }
 
 // Eden Plus in the iPhone app: Apple's products and prices (native.js plus.*), Subscribe, Restore
@@ -794,13 +963,24 @@ export function planSection(a, config = {}) { // (exported for its page test: ac
 // Never a web or Stripe price here (3.1.1). The app's `error`/`notice` texts come localized.
 let stopPlus = null;
 let plusSeen = null; // the app's last word on whether Plus is active: a change redraws the account once
-function appPlusBlock(plan, included) {
+// `web` (the US link-out only, plan-model.js linkOut): askeden.com's prices, offered below Apple's
+// buttons, smaller, never more of them than Apple's products, and opened in Safari.
+// `config` (PLANS_V2): the app's products for Pro … Eden Black show only when the server lists that plan
+// (plan-model.js appShowsProduct); with more than one plan on sale, one group per plan with its lines.
+function appPlusBlock(plan, included, web = null, config = {}) {
   const box = el('div', 'acct-plus acct-iap', el('div', 'grow', el('b', '', 'Eden Plus'), el('p', 'acct-sub', t('Loading…'))));
   const per = (p) => (p.period === 'year' ? t('year') : p.period === 'week' ? t('week') : p.period === 'day' ? t('day') : t('month'));
   const btn = (label, op, extra, cls = 'cap') => el('button', { type: 'button', class: cls, onclick: () => appPlus(op, extra) }, label);
+  const listed = serverPlans(config);
+  const tierOf = (x) => productTier(x.id) || 'plus';
+  const ORDER = ['plus', ...TIERS]; // today's Plus first (only ever shown with the plans off)
+  const nameOf = (tier) => (listed.find((x) => x.tier === tier) || {}).name || (tier === 'plus' ? 'Plus' : tier);
   const draw_ = (s) => {
     if (!document.contains(box)) { if (stopPlus) { stopPlus(); stopPlus = null; } return; }
-    const products = Array.isArray(s.products) ? s.products.filter((x) => x && typeof x.id === 'string') : [];
+    const products = Array.isArray(s.products) ? s.products.filter((x) => x && typeof x.id === 'string' && appShowsProduct(x.id, config)) : [];
+    const groups = ORDER.map((tier) => ({ tier, items: products.filter((x) => tierOf(x) === tier) })).filter((g) => g.items.length);
+    const multi = groups.length > 1;
+    if (multi) products.sort((x, y) => ORDER.indexOf(tierOf(x)) - ORDER.indexOf(tierOf(y)));
     const p = s.plan || plan || {};
     const active = p.active === true;
     // after a purchase, restore, refund or offer code: the account (allowance, plan line) is read again, once
@@ -808,15 +988,34 @@ function appPlusBlock(plan, included) {
     if (s.plan) plusSeen = active;
     const has = (active && p.source !== 'promo') || s.entitled === true; // StoreKit already holds Eden Plus (R3-7)
     const busy = s.purchasing || s.restoring;
-    const buy = has || !products.length ? null : el('div', 'acct-plus-btns', ...products.map((x, i) => {
+    const subscribe = (x, i) => {
       const b = btn(s.purchasing && s.product === x.id ? t('Subscribing…') : `${t('Subscribe')}: ${x.displayPrice}/${per(x)}`, 'buy', { product: x.id }, i ? 'btn' : 'btn primary');
       b.setAttribute('data-no-i18n', '');
       if (busy) b.disabled = true;
       return b;
-    }));
-    const prices = products.map((x) => `${x.displayPrice}/${per(x)}`).join(t(' or '));
+    };
+    const buy = has || !products.length ? null : el('div', 'acct-plus-btns', ...(multi ? [] : products.map(subscribe)));
+    const webBtns = buy && web && !busy && typeof web.price_usd === 'number' ? [
+      el('button', { type: 'button', class: 'cap', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'monthly' }, { linkOut: true }) }, `${usd(web.price_usd, null)}/${t('month')}`),
+      typeof web.yearly_usd === 'number' ? el('button', { type: 'button', class: 'cap', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'yearly' }, { linkOut: true }) }, `${usd(web.yearly_usd, null)}/${t('year')}`) : null,
+    ].filter(Boolean).slice(0, products.length) : [];
+    const webRow = webBtns.length ? el('div', 'acct-row-actions acct-web', el('span', 'acct-sub', t('Or on askeden.com:')), ...webBtns) : null;
+    if (webRow) webRow.setAttribute('data-no-i18n', ''); // put together from t() already
+    // more than one plan: a group each (name, lines, Apple's buttons; askeden.com's US row under Plus, whose prices it shows)
+    let first = 0;
+    const plansEl = multi && buy ? el('div', 'acct-tiers-app', ...groups.map((g) => {
+      const info = listed.find((x) => x.tier === g.tier);
+      return el('div', { class: 'acct-tier-app', 'data-tier': g.tier },
+        el('b', { 'data-no-i18n': '' }, nameOf(g.tier)),
+        ...(info ? planLines(info, { rollover: config.rollover === true, n: planCount }) : []).map((line) => el('p', 'acct-tier-line', line)),
+        el('div', 'acct-plus-btns', ...g.items.map((x) => subscribe(x, first++))),
+        g.tier === 'plus' || g.tier === 'plus2' ? webRow : null);
+    })) : null;
+    const prices = multi
+      ? products.map((x) => `${nameOf(tierOf(x))} ${x.displayPrice}/${per(x)}`).join(', ')
+      : products.map((x) => `${x.displayPrice}/${per(x)}`).join(t(' or '));
     const terms = el('p', 'sp-note acct-iap-terms',
-      products.length ? `${t('Eden Plus is an auto-renewing subscription')}: ${prices}. ` : '',
+      products.length ? `${t(multi ? 'Eden plans are auto-renewing subscriptions' : 'Eden Plus is an auto-renewing subscription')}: ${prices}. ` : '',
       IN_ANDROID ? t('Payment is charged to your Google Play account when you confirm the purchase. The subscription renews automatically at the same price for the same period until you cancel it. Cancel or change it any time in Manage Subscription (or Google Play › Payments & subscriptions › Subscriptions).') : t('Payment is charged to your Apple Account when you confirm the purchase. The subscription renews automatically at the same price for the same period unless auto-renew is turned off at least 24 hours before the end of the current period; your account is charged for the renewal within 24 hours before the end of the period. Cancel or change it any time in Manage Subscription (or Settings › your name › Subscriptions).'),
       ' ',
       el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, t('Terms of Use (EULA)')),
@@ -824,10 +1023,12 @@ function appPlusBlock(plan, included) {
       el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, t('Privacy Policy')));
     terms.setAttribute('data-no-i18n', ''); // put together from t() already (prices are Apple's)
     box.replaceChildren(...[ // (replaceChildren would show a null as "null")
-      el('div', 'grow',
+      multi ? el('div', 'grow', el('b', '', 'Eden plans')) : el('div', 'grow',
         el('b', '', 'Eden Plus'),
-        el('p', '', `Includes ${included} of AI every month.`)),
-      buy,
+        el('p', '', `Includes ${included} of AI every month.`),
+        config.rollover === true ? el('p', '', ROLLOVER_LINE) : null), // ALLOWANCE_V2
+      multi ? plansEl : buy,
+      multi ? null : webRow,
       el('div', 'acct-row-actions',
         btn(s.restoring ? t('Restoring…') : t('Restore Purchases'), 'restore'),
         btn(t('Manage Subscription'), 'manage'),
@@ -1129,6 +1330,12 @@ function fromHash() {
     history.replaceState(null, '', location.pathname + location.search);
     return { notice: null, focusPlus: true };
   }
+  // #plus=pro (a plan card's "Get Pro" on the front page, PLANS_V2): that plan's row, ready to buy.
+  const tierHash = /^#plus=(plus2|pro|max|ultra|platinum|black)$/.exec(location.hash);
+  if (tierHash) {
+    history.replaceState(null, '', location.pathname + location.search);
+    return { notice: null, focusPlus: tierHash[1] };
+  }
   const m = /^#account(?:\?(.*))?$/.exec(location.hash);
   if (!m) return null;
   const q = new URLSearchParams(m[1] || '');
@@ -1165,8 +1372,12 @@ export async function initAccount(handlers = {}) {
   // Back from Stripe with the browser's Back button: the page as it was (its buttons still
   // "Opening…") comes out of the back-forward cache, so it's drawn again.
   addEventListener('pageshow', (e) => { if (e.persisted && accountOpen()) draw(); });
+  // Back in the app after askeden.com's Checkout in Safari (the US link-out), however it came back
+  // (Back to Eden, or switching apps): the plan read again (afterLinkOut).
+  addEventListener('eden:caps', () => { afterLinkOut(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') afterLinkOut(); });
   if (!hasAccounts()) { if (setActing(null)) acted(); return; } // the local server: no accounts
-  if (state.meta && state.meta.hosted) store.set(HOSTED_KEY, true);
+  if (state.meta && state.meta.hosted && !isMock) store.set(HOSTED_KEY, true); // not from a mock page (?mock=1&hosted=1): it would stick to the real one
   // The Account button at once (askeden.com always has an account), so Settings › Sync can say why sync hasn't started.
   const button = $('btnAccount');
   if (button) {
@@ -1210,7 +1421,7 @@ export async function initAccount(handlers = {}) {
     // The access this browser was using ended (revoked, run out, removed from the space).
     if (me.acting_ended) { post('/api/web/deleg/leave').catch(() => {}); toast('Your access to that account or space ended. You’re back on your own.'); }
   }
-  call('/api/web/config').then((c) => (c.ok ? read(c) : {})).catch(() => ({})).then((config) => setPlanOffer(me, config));
+  call('/api/web/config').then(async (c) => { if (!c.ok) return {}; const config = await read(c); heardConfig(config); return config; }).catch(() => ({})).then((config) => { setPlanOffer(me, config); });
   if (!isMock) {
     // Account sync must not depend on the encrypted-sync check succeeding once: if askeden.com can't be asked
     // right now (offline blip, no IndexedDB), ask again a few times before giving up, rather than staying off.

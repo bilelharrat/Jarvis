@@ -13,6 +13,7 @@
 // reload still shows the badge). chat.js runs the turn (runEves); this file is the DOM and the stream's
 // wiring. Everything from the server is data: it goes in as text, links are http(s) only.
 
+import { placeMarks } from './cite-marks.js'; // in-text source numbers (the server's marks)
 import { $, el, ico, svgEl, toast, debounce, setSeg } from './util.js';
 import { state, ui, saveSettings, saveConversation, path, parentOf, nodeText, isBilelAccount } from './state.js';
 import { streamSSE, postJSON } from './api.js';
@@ -256,9 +257,9 @@ function openChipMenu(anchor) {
     const price = m === 'on' && ev && ev.price && estimateWanted() ? ` · ${ev.price} for this message` : '';
     items.push({ label: MODE_INFO[m].label, note: `${MODE_INFO[m].note}${price}`, checked: mode === m, run: () => setEvesMode(m) });
   }
-  items.push('-', { icon: 'sliders', label: `EVES settings (${curChoice ? curChoice.name : curModel})…`, run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 6 } })) }, { foot: EVES_HELP });
+  items.push('-', { icon: 'sliders', label: `EVES settings (${curChoice ? curChoice.name : curModel})…`, run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'eves' } })) }, { foot: EVES_HELP });
   if (mode !== 'off' && !applies.ok) items.push({ foot: applies.why });
-  if (ev && ev.weak && ev.note) items.push({ foot: ev.note }, { icon: 'key', label: 'Add another provider’s key…', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })) });
+  if (ev && ev.weak && ev.note) items.push({ foot: ev.note }, { icon: 'key', label: 'Add another provider’s key…', run: () => dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'keys' } })) });
   H.openMenu(anchor, items);
 }
 
@@ -329,7 +330,7 @@ export function drawEvesPane(body) {
   const { sel, modelNote } = buildEvesModelPicker();
   const quickCards = el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'EVES model presets' },
     ...[
-      ['gemini-3.8-flash', 'Gemini 3.8 Flash', 'Default · Fastest (~2.1s)'],
+      ['gemini-4-hydrogen', 'Gemini 4 Hydrogen', 'Default · Fast'],
       ['claude-haiku-4-5', 'Claude Haiku 4.5', 'Fast NLI (~1.9s)'],
       ['gemini-4-argon', 'Gemini 4 Argon', 'Deepest (~9.5s)'],
     ].map(([id, label, sub]) => {
@@ -401,10 +402,23 @@ function appendText(node, text) {
 const drafts = new WeakMap(); // node → the lane index shown as the draft
 const draftOver = new WeakSet(); // nodes whose draft is over (checked answer started, or the run ended)
 const draftDrawn = new WeakMap(); // node → { key, view }: drawn again only when its text or lane changed
-const endDraft = (node) => { draftOver.add(node); drafts.delete(node); draftDrawn.delete(node); };
+const searchedDrafts = new WeakMap(); // node → the web-searched answer (eves_draft), shown instead of a lane once it is in
+const endDraft = (node) => { draftOver.add(node); drafts.delete(node); draftDrawn.delete(node); searchedDrafts.delete(node); };
 
 function draftView(node) {
   if (draftOver.has(node)) return null;
+  // the web-searched answer, once the server sends it (eves_draft): the answer EVES keeps unless the checks change it
+  const searched = searchedDrafts.get(node);
+  if (searched) {
+    const key = `s:${searched.length}`;
+    const drawn = draftDrawn.get(node);
+    if (drawn && drawn.key === key) return drawn.view;
+    const md = el('div', 'md');
+    md.append(renderMarkdown(withoutEssayBlocks(searched), { sources: [], untrusted: true, noCanvas: true }));
+    const view = el('div', { class: 'eves-provisional', 'aria-hidden': 'true' }, el('div', 'eves-provisional-tag', 'Searched answer · being checked'), md);
+    draftDrawn.set(node, { key, view });
+    return view;
+  }
   const lanes = (node.eves && node.eves.lanes) || [];
   const i = draftLaneOf(lanes, drafts.get(node));
   if (i === null) drafts.delete(node);
@@ -433,7 +447,7 @@ export function beginEves(node, plan, ctrl, onChange) {
   const s = (node.eves = newState(plan.mode));
   let lastStage = '';
   let finalStarted = false;
-  drafts.delete(node); draftOver.delete(node); draftDrawn.delete(node); // a retry of this reply starts a new draft
+  drafts.delete(node); draftOver.delete(node); draftDrawn.delete(node); searchedDrafts.delete(node); // a retry of this reply starts a new draft
   const sync = () => {
     const u = usageOf(s);
     if (u) node.usage = u;
@@ -449,7 +463,9 @@ export function beginEves(node, plan, ctrl, onChange) {
       const data = d && typeof d === 'object' ? d : {};
       if (type === 'provenance') node.provenance = data;
       else if (type === 'memory') node.memory = data;
-      else if (typeof data.lane === 'number' && type === 'text' && !finalStarted && !IN_APP && !drafts.has(node) && String(data.text || '').trim()) {
+      else if (type === 'eves_draft' && !finalStarted && !IN_APP && typeof data.text === 'string' && data.text.trim() && !draftHidden(data.text)) {
+        searchedDrafts.set(node, data.text); // 2026-11-11: the searched answer as the draft while the checks run
+      } else if (typeof data.lane === 'number' && type === 'text' && !finalStarted && !IN_APP && !drafts.has(node) && String(data.text || '').trim()) {
         drafts.set(node, data.lane); // the first model to write is the draft (draftLaneOf moves it if that model fails)
       } else if (data.lane === 'final') {
         if (type === 'text') {
@@ -462,6 +478,8 @@ export function beginEves(node, plan, ctrl, onChange) {
         } else if (type === 'citations') {
           const seen = new Set((node.citations || []).map((x) => x.url));
           for (const x of Array.isArray(data.sources) ? data.sources : []) { const k = x && safeLink(x.url); if (k && !seen.has(k.href)) { (node.citations || (node.citations = [])).push({ title: String(x.title || ''), url: k.href }); seen.add(k.href); } }
+          // each source's number right after the words it backs, as in Eden's other answers (cite-marks.js; 2026-11-11)
+          if (Array.isArray(data.marks) && data.marks.length) { node.citeMarks = [...(node.citeMarks || []), ...data.marks]; placeMarks(node.parts, data.marks, node.citations); }
         } else if (type === 'done') node.finish = data.finish || 'stop';
       }
       applyEvent(s, type, data);
@@ -1078,7 +1096,7 @@ function onClick(e) {
     }
     case 'eves-stop': { const st = state.streams.get(c.id); if (st) st.abort(); break; }
     case 'eves-lane-stop': { const st = state.streams.get(c.id); if (st && st.stopLane) st.stopLane(Number(b.dataset.lane)); break; }
-    case 'eves-keys': dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 0 } })); break;
+    case 'eves-keys': dispatchEvent(new CustomEvent('eden:open-settings', { detail: { tab: 'keys' } })); break;
     case 'eves-rate-up': handleEvesRate(c, node, 'up'); break;
     case 'eves-rate-down': handleEvesRate(c, node, 'down'); break;
     default: return;

@@ -7,8 +7,11 @@ export const PLUS_PRODUCTS = ['com.askeden.jarvis.plus.monthly', 'com.askeden.ja
 // at today's web price, so it gets today's allowance (account.js plusCap), not the Eden Secretary legacy one.
 export const EDEN_BUNDLE_ID = 'com.askeden.eden';
 export const EDEN_PLUS_PRODUCTS = ['com.askeden.eden.plus.monthly', 'com.askeden.eden.plus.yearly'];
+// The six plans (accounts/plans.js, PLANS_V2): the new Plus, Pro, Max, Ultra, Platinum and Eden Black, monthly and
+// yearly, in the same "Eden Plus" group. Honoured whatever the flag (it gates selling), from Eden for iPhone only.
+export const EDEN_TIER_PRODUCTS = Object.freeze(['plus2', 'pro', 'max', 'ultra', 'platinum', 'black'].flatMap((t) => [`com.askeden.eden.${t}.monthly`, `com.askeden.eden.${t}.yearly`]));
 /** The apps that sell Plus through the App Store, and their products. */
-export const STORE_APPS = Object.freeze({ [BUNDLE_ID]: PLUS_PRODUCTS, [EDEN_BUNDLE_ID]: EDEN_PLUS_PRODUCTS });
+export const STORE_APPS = Object.freeze({ [BUNDLE_ID]: PLUS_PRODUCTS, [EDEN_BUNDLE_ID]: [...EDEN_PLUS_PRODUCTS, ...EDEN_TIER_PRODUCTS] });
 // Ask Eden Travel for iPhone (askeden/ios EdenTravel): a web view of askedentravel.com, whose web device registers for
 // push itself (POST /api/web/push) and gets the travel pushes (flight changes, a pickup picked) under its own APNs topic.
 export const TRAVEL_BUNDLE_ID = 'com.askeden.travel';

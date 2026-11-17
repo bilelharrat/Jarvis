@@ -43,6 +43,7 @@ import { MAIL_QUERY, SCAN_LIMIT, bookingsIn, matchBooking, messageParts } from '
 import { distanceKm, mapsFor } from './maps.js';
 import { capsFor, spendMeter } from './spend.js';
 import { PLAN, cleanPlanArgs, planTrip } from './planner.js';
+import { PACER_COPY, pacerMode, travelPaid, unpaidPace } from '../eden/credit-pacer.js'; // the GCP credit pacer: inert unless CREDIT_PACER=on
 import { planJobOp, roomForPlan } from './planjob.js';
 import { index, shareCreate, shareList, shareRevoke } from './track.js';
 import { linkCreate, linkList, linkRevoke } from './triplink.js';
@@ -532,16 +533,22 @@ export async function tripOp(account, op, body = {}, deps = {}) {
     // a new trip: drafted by the best search model, then Google's checks and Eden's fixes (planner.js); its own Google cap
     case 'trip-plan': case 'trip-plan-start': case 'trip-plan-status': case 'trip-plan-cancel': {
       // each plan on its own Google meter and cap (a job started again after a restart gets a fresh one)
-      const plan = (b, more = {}) => {
+      // the GCP credit pacer (CREDIT_PACER warn/on): whether this account pays (Travel is Plus only, so yes, unless TRAVEL_PLUS = "0")
+      let paying = null;
+      const paid = () => (paying ??= pacerMode(account.env) === 'off' ? Promise.resolve(false) : travelPaid(account.env || {}, account));
+      const plan = async (b, more = {}) => {
         const planMeter = deps.meter || spendMeter(account, { caps: { ...capsFor(account.env), openUsd: Number(account.env?.TRAVEL_PLAN_GOOGLE_USD) > 0 ? Number(account.env.TRAVEL_PLAN_GOOGLE_USD) : PLAN.googleUsd } });
         const planMaps = deps.maps || mapsFor(account.env, { fetch: deps.fetch, now, meter: planMeter });
-        return planTrip(b, { env: account.env || {}, maps: planMaps, cache, now, fetch: deps.fetch || globalThis.fetch, meter: planMeter, ...more });
+        return planTrip(b, { env: account.env || {}, maps: planMaps, cache, now, fetch: deps.fetch || globalThis.fetch, meter: planMeter, paid: await paid(), ...more });
       };
       if (op === 'trip-plan-status' || op === 'trip-plan-cancel') return await planJobOp(account, op, body, { run: plan, now });
       // plans a day per account (each pays the search model): TRAVEL_PLANS_A_DAY, default PLAN.daily
       const args = cleanPlanArgs(body); // its words checked before a plan is counted
       if (op === 'trip-plan-start') roomForPlan(account); // and two at once at most
-      const day = new Date(now()).toISOString().slice(0, 10), cap = Number(account.env?.TRAVEL_PLANS_A_DAY) > 0 ? Number(account.env.TRAVEL_PLANS_A_DAY) : PLAN.daily;
+      // the GCP credit pacer (CREDIT_PACER=on): a free account's plans stop at red and halve at amber; Plus never (no counter read for it)
+      const pace = await unpaidPace(account.env || {}, { paid: pacerMode(account.env) === 'on' ? await paid() : false });
+      if (pace.refuse) throw new TripError(PACER_COPY.travel, 429, 'rate_limited');
+      const day = new Date(now()).toISOString().slice(0, 10), cap = pace.cap(Number(account.env?.TRAVEL_PLANS_A_DAY) > 0 ? Number(account.env.TRAVEL_PLANS_A_DAY) : PLAN.daily);
       const used = (await storage.get('tplan:count')) || {};
       if (used.day === day && used.n >= cap) throw new TripError(`That’s ${cap} plan${cap === 1 ? '' : 's'} today, Eden’s daily limit. Plan more tomorrow, or start a trip by hand.`, 429, 'rate_limited');
       await storage.put('tplan:count', { day, n: used.day === day ? used.n + 1 : 1 });

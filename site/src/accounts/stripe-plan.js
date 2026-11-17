@@ -16,7 +16,11 @@
 //   stripe-checkout   a device of the account (never a grant's): may it start a Checkout?
 //                     → { account_id, key, expires_at, customer }; 409 already_plus
 //   stripe-portal     the same device: → { customer }; 404 no_billing
+//   stripe-change     the same device (PLANS_V2's Change plan, eden/billing.js): → { customer, subscription, price };
+//                     409 app_store (an App Store plan only), 404 no_billing
 //   stripe-event      the Worker only, after the signature checked: apply one event, once
+//   stripe-both       the Worker only: an iPhone link-out's Stripe subscription beside active App
+//                     Store Plus, to refund and cancel (eden/billing.js settleBoth) → { subscription }
 //   stripe-credits    the device: may it buy a credit pack? → { account_id, key, customer }
 //   stripe-autotopup  the device: { enabled } → the credits as the account page shows them
 //
@@ -107,12 +111,14 @@ export async function stripeOp(account, op, request) {
   try {
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
     if (op === 'stripe-event') return json(await applyEvent(account, body));
+    if (op === 'stripe-both') return json(await bothPlans(account));
     // A grant's device (a delegate, a space member) never gets here: authenticate's grantGuard
     // refuses every op it doesn't list. Checked again, so it stays true if that list grows.
     const device = await account.authenticate(request);
     if (device.grant) throw new ApiError(403, 'grant_forbidden', 'Only the account’s owner can buy or manage Plus.');
     if (op === 'stripe-checkout') return json(await checkoutBegin(account, body));
     if (op === 'stripe-portal') return json(await portalBegin(account));
+    if (op === 'stripe-change') return json(await changeBegin(account));
     if (op === 'stripe-credits') return json(await creditsBegin(account, body));
     if (op === 'stripe-autotopup') {
       await setAutoTopUp(account, body);
@@ -123,6 +129,19 @@ export async function stripeOp(account, op, request) {
     if (error instanceof ApiError) return error.response();
     throw error;
   }
+}
+
+/**
+ * The Stripe subscription to refund and cancel because the App Store's Plus is active too, or
+ * null. Only one bought through the Eden iPhone app's link-out (via "ios_link"): Eden can't
+ * cancel Apple's, and a web subscription from before the link-out is left as it was.
+ */
+async function bothPlans(account) {
+  const now = account.now();
+  const store = (await account.storage.get('plan')) || {};
+  const stripe = await account.storage.get('stripe_plan');
+  const apple = Boolean(store.expires && store.expires > now && !store.revoked);
+  return { subscription: apple && stripe && stripe.via === 'ios_link' && stripeActive(stripe, now) ? stripe.subscription : null };
 }
 
 async function checkoutBegin(account, { origin }) {
@@ -148,6 +167,17 @@ async function creditsBegin(account, { pack }) {
   const stripe = await account.storage.get('stripe_plan');
   const credits = await creditsOf(account);
   return { account_id: (await account.storage.get('account')).id, key: hex(randomBytes(16)), customer: credits.customer || (stripe && stripe.customer) || null };
+}
+
+// The live Stripe subscription a plan change moves to another price (eden/billing.js change).
+async function changeBegin(account) {
+  const plan = await account.planNow();
+  const stripe = await account.storage.get('stripe_plan');
+  if (!(stripe && stripe.customer && stripe.subscription && stripeActive(stripe, account.now()))) {
+    if (plan.active && plan.source === 'app_store') throw new ApiError(409, 'app_store', 'Change it in the App Store (Manage Subscription).');
+    throw new ApiError(404, 'no_billing', 'This account has no plan billed on askeden.com.');
+  }
+  return { customer: stripe.customer, subscription: stripe.subscription, price: stripe.price || null };
 }
 
 async function portalBegin(account) {
@@ -222,8 +252,12 @@ function takeSubscription(plan, facts) {
     status: s.status,
     price: s.price || null,
     period_end: Number(s.period_end) || 0,
+    // ALLOWANCE_V2's anchor (allowance.js windowOf): only when eden/billing.js sends it (the flag on)
+    ...(Number(s.period_start) > 0 ? { period_start: Number(s.period_start) } : {}),
+    ...(Number(s.billing_anchor) > 0 ? { billing_anchor: Number(s.billing_anchor) } : {}),
     renews: Boolean(s.renews),
     livemode: Boolean(facts.livemode),
+    via: s.via || (same && plan.via) || null, // "ios_link": bought through the iPhone app's link-out (settleBoth)
     past_due_since: pastDue ? (same && plan.past_due_since) || created * 1000 || null : null,
     // A failed payment shows until Stripe says the subscription is paid up again.
     payment_failed_at: same && plan.payment_failed_at && !(s.status === 'active' && created * 1000 > plan.payment_failed_at) ? plan.payment_failed_at : null,

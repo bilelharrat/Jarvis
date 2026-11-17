@@ -42,7 +42,7 @@ export async function audienceCreate(request, env, who, { limited }) {
 }
 
 const asset = (env, request, p) => env.ASSETS.fetch(new Request(new URL(p, request.url), request));
-const edenDir = (request) => (/\b(?:EdenApp|EdenEdu)\//.test(request.headers.get('user-agent') || '') && !/\bEdenBeta\//.test(request.headers.get('user-agent') || '') ? '/eden-ios' : '/eden');
+const edenDir = (request) => (/\bEdenEdu\//.test(request.headers.get('user-agent') || '') ? '/eden-ios' : '/eden');
 
 /** /a/…: the page, its files, and the room's routes. The response, or null when the path isn't one of them. */
 export async function audiencePage(request, env, path, { limited }) {

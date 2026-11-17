@@ -16,7 +16,7 @@ import {
   people, taskState, anchorIndex, mentionsIn, visible, cleanName, LIMITS,
 } from './deck-comments-model.js';
 import { Presence, colorFor, peerLine } from './deck-presence.js';
-import { roomEnabled, openRoom, startRoom, stopRoom, readRoomLink } from './deck-room.js';
+import { roomEnabled, openRoom, startRoom, stopRoom, unseal, onRoomHost, takeLink, joinText, STASH } from './deck-room.js';
 
 export { commentsOf };
 let hooks = null; // deck.js: { conv, deck, frame, slide, at }
@@ -140,29 +140,135 @@ async function roomChanged(conv) {
   refresh(); tellFrame();
 }
 
-// A collaborator link (#deck-room&room=…&key=…&seat=…): its own chat for the shared deck, opened when the deck arrives.
-if (!IN_APP && typeof location !== 'undefined' && roomEnabled()) {
-  const link = readRoomLink(location.hash);
-  if (link) {
-    try { history.replaceState(null, '', location.pathname + location.search); } catch { /* the key stays in the address */ }
-    let tries = 0;
-    const join = () => {
-      if (!Array.isArray(state.convs) || (!state.convs.length && tries++ < 30)) { setTimeout(join, 300); return; } // the chats load first
-      let c = state.convs.find((x) => x.deckRoom && x.deckRoom.id === link.id);
-      if (!c) {
-        c = newConversation();
-        Object.assign(c, { title: tx('Shared deck'), titleSet: true, mode: 'slides', privacy: true, deckRoom: { ...link, owner: false }, deckVersions: [] }); // private: a copy of someone else's deck never goes to this account's sync
-        addConversation(c);
-      }
-      state.current = c; appUi.render(); appUi.renderSidebar();
-      toast(tx('Joining the shared deck…'));
-      const r = openRoom(c, { getConv: () => c, onChange: async (conv) => { saveConversation(conv); r.close(); const { openDeck } = await import('./deck.js'); openDeck(conv); }, onStatus: (st, d) => { if (st === 'closed' || st === 'error') toast(d === 'revoked' || d === 'forbidden' ? tx('This link was revoked or isn’t valid.') : tx('Couldn’t join the shared deck.')); } });
-      // (this first link only fetches the deck; the editor opens its own once the deck is shown)
-      if (!r) toast(tx('This link is incomplete.'));
-    };
-    setTimeout(join, 0);
-  }
+// ── opening a shared deck's link (askeden.com/deck#deck-room&room=…&key=…&seat=…), on the web and in the iPhone app ──
+// What this fixes (2026-11-07): a first-time collaborator saw an empty screen. Their link went to the home page signed
+// out and the key was lost at sign-in (now /deck, and the sign-in keeps the #fragment in this tab: site pages.js,
+// signin.js); the join then waited up to 9 s for chats a new account doesn't have, with nothing on screen, and the key
+// was wiped from the address before the deck had arrived. Now a "Joining…" card shows at once, the join waits for
+// Eden's page to be ready (not for chats), the link stays in this tab until the deck is open, and a revoked, incomplete
+// or unreachable link says so. In the iPhone app (which opens askeden.com links itself) the deck opens and stays live.
+
+const READY_STUB = appUi.render; // state.js's placeholder: app.js replaces it once the chats are loaded and the page drawn
+const pending = {
+  get: () => { try { return sessionStorage.getItem(STASH) || ''; } catch { return ''; } },
+  set: (v) => { try { sessionStorage.setItem(STASH, v); } catch { /* storage blocked: the address keeps it instead */ } },
+  drop: () => { try { sessionStorage.removeItem(STASH); } catch { /* */ } },
+};
+
+// ── the card ──
+
+let card = null;
+function show(kind, info = {}, actions = []) {
+  if (!document.querySelector('link[data-deck-comments]')) document.head.append(el('link', { rel: 'stylesheet', href: new URL('./deck-comments.css', import.meta.url).href, 'data-deck-comments': '' }));
+  const { head, body } = joinText(kind, info);
+  const busy = kind === 'joining' || kind === 'waiting' || kind === 'slow';
+  const box = el('div', { class: 'deck-join-card', role: busy ? 'status' : 'alertdialog', 'aria-live': 'polite', 'aria-busy': String(busy), 'aria-labelledby': 'deckJoinHead' },
+    busy ? el('div', { class: 'deck-join-spin', 'aria-hidden': 'true' }) : null,
+    el('h2', { id: 'deckJoinHead' }, tx(head)), el('p', '', tx(body)),
+    actions.length ? el('div', 'deck-join-actions', ...actions.map(([label, run, primary]) => el('button', { type: 'button', class: `cap${primary ? ' primary' : ''}`, onclick: run }, tx(label)))) : null);
+  if (!card) { card = el('div', { class: 'deck-join', 'data-deck-join': kind }); document.body.append(card); }
+  card.dataset.deckJoin = kind;
+  card.replaceChildren(box);
+  const first = card.querySelector('button');
+  if (first && !busy) first.focus();
 }
+function hide() { if (card) { card.remove(); card = null; } }
+
+// ── joining ──
+
+/** Eden's page is drawn and its chats loaded (app.js init replaced the placeholder render). */
+function appReady(timeout = 20_000) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const tick = () => (appUi.render !== READY_STUB || Date.now() - t0 > timeout ? resolve(appUi.render !== READY_STUB) : setTimeout(tick, 50));
+    tick();
+  });
+}
+
+/** What the owner said about the deck when sharing it ({ title, by }), from its share; null when the share is gone. */
+async function aboutRoom(link) {
+  try {
+    const r = await fetch(`/s/${link.id}/data`, { credentials: 'same-origin' });
+    if (r.status === 404) return null;
+    if (!r.ok) return {};
+    const { blob } = await r.json();
+    const x = await unseal(blob, link.key, 'share');
+    return x && typeof x === 'object' ? { title: String(x.title || '').slice(0, 160), by: String(x.by || '').slice(0, 60) } : {};
+  } catch { return {}; }
+}
+
+const keepers = new Map(); // in the iPhone app: conversation id → its open room (the web editor opens its own: deck-comments.js)
+
+async function join(link) {
+  let info = {};
+  show('joining', info);
+  const about = aboutRoom(link).then((x) => { if (x && card && card.dataset.deckJoin === 'joining') show('joining', x); return x; }); // the owner's name and the deck's title, as soon as known
+  const ready = await appReady();
+  info = (await about) ?? null;
+  if (info === null) { pending.drop(); show('revoked', {}, [['Close', hide, true]]); return; }
+  if (!ready) { show('failed', info, [['Reload', () => location.reload(), true], ['Close', hide]]); return; }
+  const { openDeck } = await import('./deck.js');
+  let c = state.convs.find((x) => x.deckRoom && x.deckRoom.id === link.id);
+  if (!c) {
+    c = newConversation();
+    Object.assign(c, { title: info.title || tx('Shared deck'), titleSet: true, mode: 'slides', privacy: true, deckRoom: { ...link, owner: false, ...(info.by ? { by: info.by } : {}) }, deckVersions: [] }); // private: a copy of someone else's deck never goes to this account's sync
+    addConversation(c);
+  } else if (!c.deckRoom.owner && link.token && c.deckRoom.token !== link.token) {
+    c.deckRoom = { ...c.deckRoom, token: link.token }; // a new link for the same deck (a new seat)
+    saveConversation(c);
+  }
+  state.current = c;
+  appUi.render(); appUi.renderSidebar();
+  const opened = () => { pending.drop(); hide(); openDeck(c); };
+  if ((c.deckVersions || []).length && !IN_APP) { opened(); return; } // a deck already here: open it (the editor joins the room)
+  let first = true, slowTimer = 0, waiting = false;
+  const done = (fn) => { clearTimeout(slowTimer); fn(); };
+  const room = openRoom(c, {
+    getConv: () => c,
+    onChange: (conv) => {
+      saveConversation(conv);
+      if (first) { first = false; done(opened); if (!IN_APP) room.close(); return; } // the web editor opens its own room for the deck
+      if (state.current === conv) openDeck(conv); // in the app: another device's edit, shown
+    },
+    onStatus: (st, detail) => {
+      if (!first) return;
+      if (st === 'open' && room.has.size === 0) { waiting = true; show('waiting', info); }
+      if (st === 'closed' || (st === 'error' && (detail === 'forbidden' || detail === 'not_found'))) { pending.drop(); done(() => show('revoked', info, [['Close', hide, true]])); room.close(); }
+    },
+  });
+  if (!room) { show('incomplete', {}, [['Close', hide, true]]); return; }
+  if ((c.deckVersions || []).length) { first = false; opened(); } // (the app with the deck already here: the room stays open below)
+  slowTimer = setTimeout(() => { if (first && !waiting) show('slow', info, [['Try again', () => { room.close(); join(link); }, true], ['Close', () => { room.close(); hide(); }]]); }, 15_000);
+  if (IN_APP) keep(c, room);
+}
+
+/** In the iPhone app, the deck's room stays open while the app is: edits made here go to it (the web editor does this itself). */
+function keep(c, room) {
+  const old = keepers.get(c.id);
+  if (old && old !== room) old.close();
+  keepers.set(c.id, room);
+  if (keep.listening) return;
+  keep.listening = true;
+  addEventListener('eden:conv-saved', (e) => { const r = e.detail && keepers.get(e.detail.id); const conv = r && state.convs.find((x) => x.id === e.detail.id); if (r && conv) r.push(conv).catch(() => {}); });
+}
+
+/** Where a deck link may be opened: on the web where the room is on, and in the iPhone app at askeden.com. */
+const joinAllowed = () => roomEnabled() || (IN_APP && onRoomHost());
+
+/** At page start (deck-comments.js): a deck link in the address or kept by the sign-in → join it. */
+function startJoin() {
+  if (typeof location === 'undefined' || !joinAllowed()) return;
+  const { link, raw, bad } = takeLink(location.hash, pending.get());
+  if (!raw) return;
+  if (/^#deck-room&/.test(location.hash)) {
+    pending.set(location.hash); // kept in this tab until the deck is open (a reload still works)
+    try { history.replaceState(null, '', location.pathname + location.search); } catch { /* the key stays in the address */ }
+  }
+  const go = () => (bad ? (pending.drop(), show('incomplete', {}, [['Close', hide, true]])) : join(link));
+  if (document.body) go(); else addEventListener('DOMContentLoaded', go, { once: true });
+}
+
+startJoin();
 
 export function presenceBar() {
   if (IN_APP) return null;
@@ -265,7 +371,7 @@ function refresh() {
   const btn = document.getElementById('deck-tools-comments-button'); // the tray's button says how many are open
   if (btn) { btn.dataset.count = open ? String(open) : ''; btn.setAttribute('aria-label', `${tx('Comments')}${open ? `, ${open} ${tx('open')}` : ''}`); }
   const slide = hooks.slide();
-  const nameIn = el('input', { type: 'text', class: 'deck-cm-name', maxlength: String(LIMITS.name), value: me, 'aria-label': tx('Your name on comments'), 'data-ck': 'name', onchange: (e) => { store.set(NAME_KEY, cleanName(e.target.value)); session.set(NAME_KEY, cleanName(e.target.value)); if (presence) presence.rename(myName()); refresh(); } });
+  const nameIn = el('input', { type: 'text', class: 'deck-cm-name', maxlength: String(LIMITS.name), value: me, 'aria-label': tx('Your name on comments'), 'data-ck': 'name', onchange: (e) => { store.set(NAME_KEY, cleanName(e.target.value)); pending.set(NAME_KEY, cleanName(e.target.value)); if (presence) presence.rename(myName()); refresh(); } });
   const filters = [['open', tx('Open')], ['mine', `${tx('My tasks')}${mine ? ` (${mine})` : ''}`], ['mentions', tx('@ me')], ['slide', tx('This slide')], ['tasks', tx('All tasks')], ['resolved', tx('Resolved')], ['all', tx('All')]];
   const filterSel = el('select', { class: 'deck-theme', 'aria-label': tx('Show comments'), 'data-ck': 'filter', onchange: (e) => { ui.filter = e.target.value; refresh(); } },
     ...filters.map(([v, l]) => el('option', { value: v, selected: v === ui.filter ? true : null }, l)));
@@ -361,7 +467,7 @@ function togetherBox(c) {
   const copy = (text, what) => { navigator.clipboard.writeText(text).then(() => toast(`${what} ${tx('copied')}`), () => toast(tx('Couldn’t copy'))); };
   if (!r) {
     return el('div', 'deck-cm-row deck-cm-together', el('button', { type: 'button', class: 'cap', 'data-ck': 'together', onclick: async () => {
-      try { await startRoom(c, { post: postJSON }); saveConversation(c); ensurePresence(); refresh(); toast(tx('Editing together is on: copy a link for each person')); } catch (e) { toast(e.message || tx('Couldn’t start editing together')); }
+      try { await startRoom(c, { post: postJSON, by: myName() === tx("Me") ? "" : myName() }); saveConversation(c); ensurePresence(); refresh(); toast(tx('Editing together is on: copy a link for each person')); } catch (e) { toast(e.message || tx('Couldn’t start editing together')); }
     } }, tx('Edit together on other devices…')));
   }
   const state1 = roomState.status === 'open' ? `${tx('Live')} · ${peers.length + 1} ${tx('here')}` : roomState.status === 'offline' ? tx('Offline: changes will sync') : roomState.status || '';

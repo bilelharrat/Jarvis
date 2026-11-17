@@ -245,6 +245,16 @@ test('shadow: the judge runs in the background and is logged; the answer is byte
   await makeOwner();
   const base = stable(await today(session));
   env.GEMMA_JUDGE_MODE = 'shadow';
+  // a shadow turn never wakes a cold judge (gemma-spend.js): no ping, no call, only the log line
+  const asleep = await turn(session);
+  assert.equal(stable(asleep), base);
+  assert.deepEqual(judgeCalls, [], 'cold, shadow: nothing sent to Modal');
+  assert.equal(logs[0].evt, 'gemma_shadow');
+  assert.equal(logs[0].cold, true);
+  assert.equal(logs[0].woke, false);
+  // GEMMA_SHADOW_WAKE=on: as before, one warm-up ping, no claim waits on it
+  env.GEMMA_SHADOW_WAKE = 'on';
+  logs.length = 0;
   const cold = await turn(session);
   assert.equal(stable(cold), base);
   assert.deepEqual(judgeCalls.map((c) => c.path), ['/health'], 'cold: one warm-up ping, no claim waits on it');
@@ -252,6 +262,7 @@ test('shadow: the judge runs in the background and is logged; the answer is byte
   assert.equal(judgeCalls[0].headers['Modal-Secret'], 'ws-test');
   assert.equal(logs[0].evt, 'gemma_shadow');
   assert.equal(logs[0].cold, true);
+  delete env.GEMMA_SHADOW_WAKE; // warm now: a shadow turn runs on it without a ping
   const warm = await turn(session);
   assert.equal(stable(warm), base, 'Gemma said supported, EVES unverifiable: the shadow answer is still EVES’s');
   assert.equal(await claimVerdict(warm), 'unverifiable');
@@ -272,9 +283,13 @@ test('shadow: the judge runs in the background and is logged; the answer is byte
 test('owner mode: an owner account’s settled claims take Gemma’s verdict; a non-owner’s turn is shadow only', async () => {
   const session = await signedIn();
   env.GEMMA_JUDGE_MODE = 'owner';
-  // a non-owner first: shadow, byte-identical
+  // a non-owner first: shadow, byte-identical; a shadow turn never wakes the judge, so it is warmed as GEMMA_SHADOW_WAKE=on did
   const base = stable(await today(session));
+  await turn(session); // cold, shadow: nothing sent
+  assert.deepEqual(judgeCalls, [], 'a shadow turn sends no ping');
+  env.GEMMA_SHADOW_WAKE = 'on';
   await turn(session); // cold: ping
+  delete env.GEMMA_SHADOW_WAKE;
   const other = await turn(session);
   assert.equal(stable(other), base);
   assert.equal(logs.filter((l) => l.cold === false)[0].evt, 'gemma_shadow');

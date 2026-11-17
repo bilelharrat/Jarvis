@@ -7,7 +7,7 @@ import { keyStatus, providerGlyph } from './settings-model.js';
 import { $, el, ico, qsa, toast, lazy, whileVisible, retryWait, copyText, copyRich, download, fmtCost, relDay, fmtTimestamp, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { LANGS, langPref, setLang, isFr, locale, t as tx } from './i18n.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
-import { api, isMock, API_ROOT } from './api.js';
+import { api, isMock, API_ROOT, LOCAL_SERVER } from './api.js';
 // The apps page (Eden Secretary, Eden Messenger) lives on askeden.com; a local Eden links there.
 const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
 import { initMail, connectGmail, emailText, queueTeamOpen } from './mail.js';
@@ -23,7 +23,7 @@ import { sheetCommands, sheetReturnPending, resumeSheet } from './sheet-entry.js
 import { initPageUpdate } from './page-update.js'; // a page left open picks up a deploy; the app's text follows the system size
 import { initDesk, setLayout, layout } from './desk.js'; // the Desktop layout (Settings › Appearance › Layout)
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify, inMailOnly, leaveMailOnly } from './panels.js';
-import { initAccount } from './account.js';
+import { initAccount, drawAccountInto, openAccount } from './account.js';
 import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
@@ -39,11 +39,11 @@ import { folderList, unfiled, shouldNudge, cleanName } from './folders-model.js'
 import { voiceSettings } from './voice.js';
 import { bootSoundSettings } from './boot-sound.js'; // the desktop apps' boot-up sound, in Settings › Appearance
 import { initTasks, openTasks, pendingApprovals } from './tasks.js';
-import { initWorkflows, openWorkflows, saveWorkflowFrom } from './workflows.js';
+import { initWorkflows, openWorkflows } from './workflows.js';
 import { openNews, closeNews } from './news-panel.js';
 import { initLearned, learnedSettings } from './learned.js';
 import { initAutopilot, autopilotSettings, refreshSpend, spendStatus, monthSavings } from './autopilot.js';
-import { decorateEves, evesSettings, drawEvesPane } from './eves.js'; // N13: EVES's progress line and badge on a reply, and its switch in Settings › Routing & EVES pane
+import { decorateEves, drawEvesPane } from './eves.js'; // N13: EVES's progress line and badge on a reply, and Settings › Fact-checking
 import { decorateVerify } from './verify.js'; // N13: the label under a reply
 import { acting, actingHas } from './acting.js';
 import { initTour, startTour } from './tour.js'; // I1: the try-it tour
@@ -62,6 +62,7 @@ import {
   handleSplitKey, takeConv, onOwnChanged, onConvDeleted, rowItem as splitRowItem,
   splitMenuItems, splitPaletteCommands, splitState,
 } from './split-view.js';
+import { openImportChat, openPrompt } from './import-apollo.js'; // Eden Apollo's hand-overs: #import-chat=… (a chat) and #prompt=… (a question to ask)
 import './edu-budget.js'; // its send extra (`eduOwn` on a course chat sent from here) must be on at startup, before Courses ever opens (R2C-6); small: util + api only
 
 /* ---------- features loaded when first used, not at startup (efficiency pass 1) ---------- */
@@ -748,6 +749,9 @@ function renderSidebar() {
     convs.length ? el('span', 'dots', ...convs.slice(0, 4).map((c) => el('span', { class: `dot ${statusDot(c)}`, title: `${c.title} — ${statusDot(c) === 'run' ? 'running' : statusDot(c) === 'wait' ? 'waiting' : 'done'}` }))) : null));
     if (expanded) for (const c of convs.slice(0, 6)) projItems.push(convItem(c, { child: true }));
   }
+  // Less busy (owner, 2026-11-06): Projects and Folders show once there's one (a project: ⌘K "New code session…"; a
+  // folder: a chat's "Move to folder… › New folder…", or Tidy up with Eden when its nudge shows).
+  const hasProjects = projItems.length > 0;
   if (!projItems.length) projItems.push(el('div', 'side-empty', 'No projects yet.'));
   projItems.push(knowledgeItem()); // H11: folders indexed on the Mac, attached to projects (knowledge.js)
   // chats: folders first, then the rest by day (the first CHAT_PAGE, more on request)
@@ -810,14 +814,19 @@ function renderSidebar() {
     // One pencil (owner, 2026-10-16): on the website the pencil is Essays (New chat is the button above); the app keeps New chat
     ...(ESSAYS && !as ? [] : [{ k: 'newchat', t: 'New chat', tip: 'New chat (⌘N)', i: 'edit', run: () => newChat() }]),
     ...['brief'].map((k) => apps.find((x) => x.k === k)).filter(Boolean),
-    ...(as || !ESSAYS ? [] : [{ k: 'essays', t: 'Essays', tip: 'Essays: MLA, APA, Chicago or Harvard, laid out for you', i: 'edit', run: () => openEssayWriter() }]),
-    ...(as ? [] : [{ k: 'tasks', t: 'Tasks', tip: 'Tasks: watches Eden runs in the background', i: 'list', run: () => openTasks(), badge: approvals }]),
+    ...(as || !ESSAYS ? [] : [{ k: 'essays', t: 'Essays', tip: 'Essays: MLA, APA, Chicago or Harvard, laid out for you', i: 'doc', run: () => openEssayWriter() }]), // a page, not a pencil: a pencil reads as "new chat"
+    // Eden Travel, after Essays (owner, 2026-11-06): on askeden.com its panel (travel.js, eden:travel-open); here, askeden.com/travel
+    ...(as ? [] : [{ k: 'travel', t: 'Eden Travel', tip: 'Eden Travel: plan trips, flights and hotels', i: 'plane', run: () => (LOCAL_SERVER ? window.open('https://askeden.com/travel', '_blank', 'noopener') : dispatchEvent(new CustomEvent('eden:travel-open'))) }]),
+    // Eden Secretary, after Travel (owner, 2026-11-06): a shortcut to the app's page (what it does, download). Talking with Eden
+    // in this chat is already the Talk button in the message box; the Secretary is its own app (always-on voice, your Mac).
+    ...(as || IN_APP ? [] : [{ k: 'secretary', t: 'Eden Secretary', tip: 'Eden Secretary: the voice assistant for your Mac', i: 'mic', run: () => window.open('https://askeden.com/eden-secretary', '_blank', 'noopener') }]),
+    // Tasks and Workflows are off the menus (owner, 2026-11-06: "nobody uses them"); the code stays. Tasks shows only while
+    // a task waits for an approval, so nothing waiting is ever hidden.
+    ...(as || !approvals ? [] : [{ k: 'tasks', t: 'Tasks', tip: 'Tasks: waiting for your approval', i: 'list', run: () => openTasks(), badge: approvals }]),
   ];
-  // News in the strip (owner, 2026-10-16); Workflows moves to More (still one tap away there, and ⌘K)
+  // News in the strip (owner, 2026-10-16)
   if (state.meta && state.meta.newsInApp && !as) strip.splice(2, 0, { k: 'news', t: 'News', tip: 'News: today\u2019s stories, summed up from their sources', i: 'news', run: go(() => openNews()) });
-  else strip.push({ k: 'workflows', t: 'Workflows', tip: 'Workflows: saved recipes you run in one tap', i: 'spark', run: () => openWorkflows() });
-  const workflowsRow = { k: 'workflows', t: 'Workflows', tip: 'Workflows: saved recipes you run in one tap', i: 'spark', run: () => openWorkflows() };
-  moreState = { apps: [...apps.filter((x) => !strip.some((y) => y.k === x.k)), ...(strip.some((y) => y.k === 'workflows') || as ? [] : [workflowsRow])], as, temps };
+  moreState = { apps: apps.filter((x) => !strip.some((y) => y.k === x.k)), as, temps };
   const head = el('div', 'side-head',
     el('div', 'apps-strip', ...strip.map((x) => el('button', { type: 'button', class: 'ap', title: x.tip || x.t, 'aria-label': x.badge ? `${x.t}, ${x.badge} waiting` : x.t, onclick: x.run },
       ico(x.i, 16), x.badge ? el('b', { class: 'ap-b', title: 'Waiting for your approval' }, String(x.badge)) : null))),
@@ -826,11 +835,11 @@ function renderSidebar() {
   const midTop = midScroll ? midScroll.scrollTop : 0;
   const top = el('div', 'side-top',
     pinned.length ? section('pinned', 'Pinned', pinned.map((c) => convItem(c))) : '',
-    as ? '' : section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }));
+    as || !hasProjects ? '' : section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }));
   const mid = el('div', { class: 'side-mid', ondragover: (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('text/eden-chat')) e.preventDefault(); },
     ondrop: (e) => { const c = state.convs.find((x) => x.id === e.dataTransfer.getData('text/eden-chat')); if (c && c.folder && !e.target.closest('.folder-row')) { e.preventDefault(); moveChat(c, ''); toast('Moved out of its folder'); } } },
   working,
-  section('folders', 'Folders', folderItems, { cls: 'folders', extra: [{ title: 'Tidy up with Eden', icon: 'spark', run: () => tidyUp() }], add: { title: 'New folder', run: () => newFolder() } }),
+  !folderRows().length ? '' : section('folders', 'Folders', folderItems, { cls: 'folders', extra: [{ title: 'Tidy up with Eden', icon: 'spark', run: () => tidyUp() }], add: { title: 'New folder', run: () => newFolder() } }),
   section('chats', 'Chats', chatItems, { grow: true, add: { title: 'New chat (⌘N)', run: newChat } }));
   nav.replaceChildren(head, top, mid);
   const again = nav.querySelector('.sec.grow .sec-items');
@@ -1077,6 +1086,27 @@ function regenMenu(anchor, c, node) {
   ]);
 }
 
+/* A reply's ⋯ menu (render.js moreMenu): one open at a time; a click elsewhere or Esc closes it. */
+function closeMore(except = null) {
+  for (const pop of document.querySelectorAll('.msg-more-pop:not([hidden])')) {
+    if (pop === except) continue;
+    pop.hidden = true;
+    const t = pop.parentElement && pop.parentElement.querySelector('[data-act="more"]');
+    if (t) t.setAttribute('aria-expanded', 'false');
+    pop.closest('.msg')?.classList.remove('more-open');
+  }
+}
+function toggleMore(b) {
+  const pop = b.parentElement.querySelector('.msg-more-pop');
+  if (!pop) return;
+  closeMore(pop);
+  pop.hidden = !pop.hidden;
+  b.setAttribute('aria-expanded', String(!pop.hidden));
+  b.closest('.msg')?.classList.toggle('more-open', !pop.hidden); // keeps the row showing while the menu is open
+}
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.msg-more')) closeMore(); }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.querySelector('.msg-more-pop:not([hidden])')) { e.stopPropagation(); closeMore(); } }, true);
+
 function onTranscriptClick(e, conv = state.current, box = $('transcript'), setPaneInput = setComposerText) {
   const c = conv || state.current;
   const cite = e.target.closest('[data-cite]');
@@ -1100,6 +1130,9 @@ function onTranscriptClick(e, conv = state.current, box = $('transcript'), setPa
   if (!node) return;
   const redraw = () => { if (c === state.current) renderTranscript(); else renderSplitPaneFor(c); };
   const act = b.dataset.act;
+  // a reply's ⋯ (render.js moreMenu): open or close it; an action picked inside it closes it
+  if (act === 'more') { toggleMore(b); return; }
+  closeMore();
   switch (act) {
     case 'chip':
       if (chipPopOpenFor(b)) closeChipPop();
@@ -1201,7 +1234,7 @@ function onTranscriptClick(e, conv = state.current, box = $('transcript'), setPa
     case 'open-art': { const a = artifactsIn(nodeText(node))[Number(b.dataset.k)]; if (a) openArtifact({ ...a, nodeId: node.id }); break; }
     case 'research-open': openReport(node); break; // Q2: the checked research report in the canvas
     case 'research-md': { const md = nodeText(node); download(reportFileName(reportTitle(md, node.research && node.research.report ? node.research.report.title : undefined)), md); break; }
-    case 'open-keys': openSettings(0); break;
+    case 'open-keys': openSettings('keys'); break;
     default: break;
   }
 }
@@ -1229,8 +1262,6 @@ function commands() {
     { t: 'Calendar', s: 'Your Mac · Google', i: 'cal', run: () => openCalendar() },
     { t: 'New calendar event…', s: 'Calendar', i: 'cal', run: () => openCalendar({ newEvent: true }) },
     { t: 'Open Mail', s: 'Gmail · Mail on your Mac', i: 'mail', run: () => openSpace('mail') },
-    { t: 'Tasks', s: 'Background watches · approvals', i: 'list', run: () => openTasks() },
-    { t: 'Workflows', s: 'Saved recipes', i: 'spark', run: () => openWorkflows() },
     ...(ESSAYS ? [{ t: 'Essays', s: 'MLA · APA · Chicago · Harvard', i: 'edit', run: () => openEssayWriter() },
       ...['mla', 'apa', 'chicago', 'harvard'].map((k) => ({ t: `New ${k === 'mla' || k === 'apa' ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1)} essay`, s: 'Essays · formatted for you', i: 'edit', run: () => openEssayWriter(k) }))] : []),
     { t: 'New email…', s: 'Compose · Gmail or Mail on your Mac', i: 'mail', run: () => openCompose({}) },
@@ -1244,8 +1275,8 @@ function commands() {
     { t: 'Use the router (auto)', s: 'Model', i: 'sliders', run: () => setOverride(null) },
     ...[1, 2, 3, 4, 5].map((n) => ({ t: `Router level ${n}`, s: 'Optimization', i: 'chart', run: () => { setLevel(n); toast(`Level ${n}`); } })),
     { t: 'New persona…', s: 'Personas', i: 'spark', run: () => editPersona(null) },
-    { t: 'API Keys & Spend Dashboard', s: '⌘,', i: 'key', run: () => openSettings(0) },
-    { t: 'Settings & API keys', s: '⌘,', i: 'gear', run: () => openSettings(0) },
+    { t: 'API keys & spending', s: 'Settings', i: 'key', run: () => openSettings('keys') },
+    { t: 'Settings', s: '⌘,', i: 'gear', run: () => openSettings('general') },
     { t: 'Switch appearance', s: 'Light / Dark / System', i: 'moon', run: cycleTheme },
     { t: 'Take the tour', s: 'Try every feature, safely', i: 'spark', run: () => startTour() },
     { t: 'Download apps', s: 'Eden for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
@@ -1399,15 +1430,17 @@ function editPersona(id) {
       el('button', { type: 'button', class: 'btn', onclick: closeDialog }, 'Cancel'),
       el('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save'))));
 }
-/** The title bar's buttons a narrow phone moves into ⋯ (mobile.css, R2-7): here, so none is lost. */
+/**
+ * The title bar's buttons that live in ⋯ (owner, 2026-11-06, "less busy": app.css hides them from the bar unless they're
+ * on; before, only a narrow phone moved them here, R2-7): here, so none is lost.
+ */
 function narrowItems() {
   const items = [];
-  if (matchMedia('(max-width:430px)').matches) {
-    if (document.body.classList.contains('canvas-hidden') && $('btnCanvasBack')) items.push({ label: 'Show canvas', run: () => $('btnCanvasBack').click() });
-    if ($('btnHelp')) items.push({ label: 'Help', run: () => $('btnHelp').click() });
-  }
-  if (matchMedia('(max-width:380px)').matches) items.push({ label: 'Inspector', run: () => toggleInspector() });
-  return items.length ? ['-', ...items] : [];
+  if (matchMedia('(max-width:430px)').matches && document.body.classList.contains('canvas-hidden') && $('btnCanvasBack')) items.push({ label: 'Show canvas', run: () => $('btnCanvasBack').click() });
+  items.push({ label: 'Search and commands', key: '⌘K', run: () => openPalette() });
+  if (matchMedia('(max-width:380px)').matches) items.push({ label: 'Inspector', run: () => toggleInspector() }); // mobile.css hides it there
+  if ($('btnHelp')) items.push({ label: 'Help', run: () => $('btnHelp').click() });
+  return ['-', ...items];
 }
 function convMenu(anchor, c) {
   if (document.body.classList.contains('travel-standalone')) { // Eden Travel: this chat about the trip, nothing of Eden's
@@ -1415,7 +1448,7 @@ function convMenu(anchor, c) {
       { label: 'New chat', run: () => document.dispatchEvent(new CustomEvent('eden:new-chat')) },
       c ? { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } } : null,
       '-',
-      { label: 'Settings', key: '⌘,', run: () => openSettings(0) },
+      { label: 'Settings', key: '⌘,', run: () => openSettings('general') },
       c ? '-' : null,
       c ? { label: 'Delete…', danger: true, run: () => removeConversation(c) } : null,
     ]);
@@ -1426,10 +1459,8 @@ function convMenu(anchor, c) {
       { heading: 'New chat' },
       { label: 'Rename', disabled: true, note: 'Send a message first' },
       ...splitMenuItems(),
-      { label: 'Browser', key: '⌘⇧B', run: () => toggleBrowser() },
-      { label: 'Command palette', key: '⌘K', run: () => openPalette() },
-      { label: 'Settings', key: '⌘,', run: () => openSettings(0) },
-      ...(anchor && anchor.id === 'btnConvMenu' ? narrowItems() : []),
+      { label: 'Settings', key: '⌘,', run: () => openSettings('general') },
+      ...(anchor && anchor.id === 'btnConvMenu' ? narrowItems() : [{ label: 'Browser', key: '⌘⇧B', run: () => toggleBrowser() }, { label: 'Command palette', key: '⌘K', run: () => openPalette() }]),
     ]);
     return;
   }
@@ -1437,16 +1468,15 @@ function convMenu(anchor, c) {
   const rowSplit = anchor && anchor.id !== 'btnConvMenu' ? splitRowItem(c) : null;
   const barSplit = anchor && anchor.id === 'btnConvMenu' ? splitMenuItems() : [];
   openMenu(anchor, [
-    ...narrow.slice(1), ...narrow.slice(0, 1),
     { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
     ...(rowSplit ? [rowSplit] : []),
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
     ...(c.temp || c.kind === 'code' ? [] : [moveItems(c, openMenu, anchor)]),
     ...(c.temp || c.kind === 'code' ? [] : [{ label: 'Share a read-only link…', run: () => openShare(c) }]), // Q3
     { label: 'Export as Markdown', run: () => exportConversation(c) },
-    ...(c.kind !== 'code' ? [{ label: 'Save as workflow…', run: () => saveWorkflowFrom(c) }] : []), // H9
     ...(c.kind === 'code' ? [{ label: 'Code activity', key: '⌘J', run: () => toggleDrawer(true) }, { label: 'Changes', run: () => openInspector('Changes') }] : []),
     ...(barSplit.length ? ['-', ...barSplit] : []),
+    ...narrow, // search and help: after the chat's own actions
     '-',
     { label: 'Delete…', danger: true, run: () => removeConversation(c) },
   ]);
@@ -1497,7 +1527,7 @@ function colorPickerSection() {
   const card = el('div', 'icard ecp-card');
   const resetBtn = el('button', { type: 'button', class: 'ecp-reset', onclick: () => { setAccentColor(''); sync(); } }, 'Reset');
   const top = el('div', 'ecp-top',
-    el('div', 'ecp-head', el('span', 'ecp-title', 'Theme color'), el('span', 'ecp-sub', 'Choose a preset color or spin the RGB wheel.')),
+    el('div', 'ecp-head', el('span', 'ecp-title', 'Theme color'), el('span', 'ecp-sub', 'Choose a color, or make your own.')),
     resetBtn);
   const swatchBtns = new Map();
   const presets = el('div', { class: 'ecp-presets', role: 'radiogroup', 'aria-label': 'Preset colors' },
@@ -1524,7 +1554,7 @@ function colorPickerSection() {
     el('div', 'ecp-preview-row', previewDot, hexInput),
     el('div', 'ecp-bright-row', el('div', 'ecp-bright-head', el('span', '', 'Brightness'), brightVal), brightSlider),
     el('div', 'ecp-rgb-row', rCh.wrap, gCh.wrap, bCh.wrap));
-  card.append(top, presets, el('div', 'ecp-wheel-row', wheelWrap, controls));
+  card.append(top, presets, setMore('Custom color', el('div', 'ecp-wheel-row', wheelWrap, controls)));
   let curHsv = rgbHsv(0, 122, 255), lastV = -1, dragging = false;
   const pickAt = (e) => {
     const rect = wheelWrap.getBoundingClientRect(), r = (rect.width || 132) / 2;
@@ -1614,7 +1644,7 @@ function colorPickerSection() {
       }
       glassReset.disabled = !state.settings.glassStyle || state.settings.glassStyle === DEFAULT_GLASS_STYLE;
     };
-    card.append(el('hr', 'ecp-divider'), glassTop, grid);
+    card.append(setMore('Glass style', glassTop, grid));
     syncGlass();
   }
   sync();
@@ -1628,9 +1658,8 @@ function appSettingsCard() {
       el('div', 'grow', el('div', 'p-n', 'App settings'), el('div', 'p-c', 'The Eden app’s own settings: the server, Delete Account…, and the welcome tour.')),
       el('button', { type: 'button', class: 'btn', onclick: () => { closeSettings(); openAppSettings(); } }, 'Open'))));
 }
-function openSettings(i = 0) {
-  if (i === 'accounts') i = 1;
-  else if (i === 'eves') i = 6;
+function openSettings(tab = 'general') {
+  const i = setTabIndex(tab); // a name ('keys', 'eves', 'memory'…), or an old caller's number (SET_LEGACY)
   clearPhoneOverlays();
   $('settingsSheet').classList.add('open');
   setTabI = i;
@@ -1639,16 +1668,16 @@ function openSettings(i = 0) {
 }
 function closeSettings() { if (!$('settingsSheet').classList.contains('open')) return false; $('settingsSheet').classList.remove('open'); focusComposer(); return true; }
 /** Settings › Memory (askeden.com): memory across chats on/off, the saved memories, delete one or all. */
-async function drawMemory(body, hosted) {
-  const hero = setHero('bulb', 'Memory', 'Eden remembers helpful details across chats, like your name, preferences and projects.', 'mem');
+async function drawMemory(body, hosted, { sub = false } = {}) {
+  const hero = sub ? el('div', 'set-sec', el('h3', '', 'Memory'), el('p', 'sp-note', 'Eden remembers helpful details across chats, like your name, preferences and projects.')) : setHero('bulb', 'Memory', 'Eden remembers helpful details across chats, like your name, preferences and projects.', 'mem');
   if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from the Eden app. Saved memories are an askeden.com feature.'))), importCard()); return; }
   body.replaceChildren(hero, el('div', 'set-skel', el('span', 'sk'), el('span', 'sk')));
   let m;
   try { m = await api.memory(); } catch (e) { body.replaceChildren(hero, el('div', 'sp-warn', el('b', '', 'Couldn’t read your memory'), e.message)); return; }
-  if (setTabI !== 4) return;
+  if (setTab() !== 'accounts') return;
   const act = async (req, done) => {
     try { m = await api.memoryDo(req); if (done) toast(done); } catch (e) { toast(`Couldn’t change memory: ${e.message}`); }
-    if (setTabI === 4) paint();
+    if (setTab() === 'accounts') paint();
   };
   const paint = () => {
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Use memory across chats' });
@@ -1669,33 +1698,48 @@ async function drawMemory(body, hosted) {
   };
   paint();
 }
-addEventListener('eden:open-memory', () => openSettings(4));
+addEventListener('eden:open-memory', () => openSettings('memory'));
 /** A settings page's header: its icon tile, title and a line on what it's for. */
 function setHero(icon, title, desc, tone) {
   return el('div', `set-hero t-${tone}`, el('span', 'set-tile', ico(icon, 18)), el('div', 'grow', el('h3', 'set-h', title), el('p', 'set-d', desc)));
+}
+// Settings, six tabs (owner, 2026-11-06, "less busy"): every setting in one place. Asked for by name; a number is an old
+// caller's tab from before (0 keys, 1 accounts, 2 appearance, 3 routing, 4 memory, 5 about, 6 EVES).
+const SET_TABS = ['general', 'accounts', 'models', 'eves', 'keys', 'about']; // Accounts right under General (owner, 2026-11-06)
+const SET_ALIAS = { appearance: 'general', voice: 'general', routing: 'models', spend: 'keys', budget: 'keys', memory: 'accounts', import: 'accounts' };
+const SET_LEGACY = ['keys', 'accounts', 'general', 'models', 'accounts', 'about', 'eves'];
+function setTabIndex(t) {
+  if (typeof t === 'number') return Math.max(0, SET_TABS.indexOf(SET_LEGACY[t] || 'general'));
+  const name = SET_ALIAS[t] || t;
+  return Math.max(0, SET_TABS.indexOf(name));
+}
+const setTab = () => SET_TABS[setTabI];
+/** A row with a switch: its name, what it does, the checkbox. */
+function setSwitch(name, desc, input) {
+  return el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', name), el('div', 'p-c', desc)), el('label', 'switch', input, el('span', 'tr'))));
+}
+/** "More" that opens in place: what most people never need, one click away. */
+function setMore(label, ...kids) {
+  return el('details', 'set-more', el('summary', '', label), el('div', 'set-more-in', ...kids.filter(Boolean)));
 }
 async function drawSettings() {
   setSeg($('setSeg'), setTabI);
   const body = $('setBody');
   body.scrollTop = 0;
-  body.dataset.tab = String(setTabI);
+  body.dataset.tab = setTab();
   const hosted = !!(state.meta && state.meta.hosted);
-  if (setTabI === 0) {
-    body.replaceChildren(
-      setHero('key', 'API Keys & Spend Control', 'Manage default & backup API keys, automatic quota failover, live API spend, and model routing in one panel.', 'key'),
-      el('div', 'set-skel', el('span', 'sk'), el('span', 'sk'), el('span', 'sk')),
-    );
+  const tab = setTab();
+  if (tab === 'keys') {
+    const hero = () => setHero('key', 'Spending & keys', hosted ? 'What you’ve used this month, and your own API keys if you add any.' : 'Your monthly budget and the API keys Eden uses.', 'key');
+    body.replaceChildren(hero(), el('div', 'set-skel', el('span', 'sk'), el('span', 'sk'), el('span', 'sk')));
     let keys, spend;
     try {
       [keys, spend] = await Promise.all([api.keys(), refreshSpend().catch(() => spendStatus())]);
     } catch (e) {
-      body.replaceChildren(
-        setHero('key', 'API Keys & Spend Control', 'Manage default & backup API keys, automatic quota failover, live API spend, and model routing in one panel.', 'key'),
-        el('div', 'sp-warn', el('b', '', 'Couldn’t read the keys'), e.message),
-      );
+      body.replaceChildren(hero(), el('div', 'sp-warn', el('b', '', 'Couldn’t read the keys'), e.message));
       return;
     }
-    if (setTabI !== 0) return;
+    if (setTab() !== 'keys') return;
     const provs = (state.meta && state.meta.providers) || Object.keys(keys).map((id) => ({ id, name: id }));
     const rows = provs.map((p) => keyRow(p, keys[p.id] || { set: false, source: null }, spend));
     const explain = hosted
@@ -1705,21 +1749,34 @@ async function drawSettings() {
       : el('div', 'key-explain',
         el('div', 'kx', el('span', 'kx-ic inc', ico('lock', 15)), el('div', '', el('b', '', 'Default + Automatic Monthly Failover'), el('p', '', 'Eden uses your Default key until it hits its monthly limit, then automatically fails over to your Backup keys in order.'))),
         el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Synced Across Eden Code & Ask Eden'), el('p', '', 'Keys live in ~/.config/model-router/keys.json and your Mac Keychain, readable only by you.'))));
-    body.replaceChildren(
-      setHero('key', 'API Keys & Spend Control', 'Manage default & backup API keys, automatic quota failover, live API spend, and model routing in one panel.', 'key'),
-      spendDashboardCard(spend, provs, keys),
+    const dash = spendDashboardCard(spend, provs, keys);
+    // the per-provider and per-model tables: behind "Spending details", with the autopilot's engine and how failover works
+    const breakdown = [...dash.querySelectorAll('.kd-breakdown')];
+    breakdown.forEach((b) => b.remove());
+    body.replaceChildren(hero(),
+      dash,
       el('div', 'set-sec',
-        el('h3', '', 'API Keys & Automatic Failover Queue'),
+        el('h3', '', 'API keys'),
         el('div', 'icard keys', ...rows),
         el('p', 'sp-note', hosted
           ? 'Your keys are stored encrypted on your account and used only for your chats. When a Default key reaches its monthly limit, Eden automatically falls back to the next Backup key.'
           : 'Keys never leave this Mac except to their provider. When a Default key hits its monthly usage limit, Eden automatically switches to the next Backup key.')),
-      quickControlDashboardCard(),
-      explain,
-    );
-  } else if (setTabI === 1) {
-    drawAccounts(body);
-  } else if (setTabI === 2) {
+      setMore('Spending details', el('div', 'icard kd-spend-card', ...breakdown), autopilotSettings({ budget: false }), explain));
+  } else if (tab === 'accounts') {
+    // Accounts & memory: on askeden.com the Eden account first (plan, sync, devices… what the Account sheet shows; owner,
+    // 2026-11-06: "combine it into accounts"), then the mail and calendars Eden reads, what it remembers, importing chats
+    const own = hosted ? el('div', 'set-part acct-in-settings') : null;
+    const acc = el('div', 'set-part');
+    const mem = el('div', 'set-part');
+    body.replaceChildren(setHero('user', 'Accounts & memory', hosted ? 'Your Eden account and plan, the mail and calendars Eden can read for you, and what it remembers.' : 'The mail and calendars Eden can read for you, and what it remembers.', 'acct'), ...[own, acc, mem].filter(Boolean));
+    if (own) {
+      own.append(el('div', 'muted', 'Loading…'));
+      drawAccountInto(own).then((a) => { if (a === null && own.isConnected) own.replaceChildren(el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn', onclick: () => { closeSettings(); openAccount(); } }, 'Open your account'))); }).catch(() => {});
+      own.after(el('h3', 'set-part-h', 'Mail & calendars'));
+    }
+    drawAccounts(acc, { sub: true });
+    drawMemory(mem, hosted, { sub: true });
+  } else if (tab === 'general') {
     const cur = state.settings.theme || 'system';
     const tiles = el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'Appearance' },
       ...[['system', 'System', 'Follows macOS'], ['light', 'Light', 'Bright and airy'], ['dark', 'Dark', 'Easy at night']].map(([t, label, sub]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(cur === t), class: `theme-tile${cur === t ? ' on' : ''}`, onclick: () => { setTheme(t); drawSettings(); } },
@@ -1728,58 +1785,25 @@ async function drawSettings() {
     // Language (i18n.js): Automatic follows the browser; English and Français are always shown as written. Picking one reloads the page.
     const langSeg = el('div', { class: 'seg lang-seg', role: 'radiogroup', 'aria-label': 'Language', style: { '--n': LANGS.length, maxWidth: '380px' } }, el('span', 'seg-thumb'),
       ...LANGS.map(([v, label]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(langPref === v), class: langPref === v ? 'on' : '', 'data-no-i18n': v === 'auto' ? null : '', onclick: () => { if (v !== langPref) setLang(v); } }, label)));
-    body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
+    const queueSw = el('input', { type: 'checkbox', 'aria-label': 'Queue follow-ups' });
+    queueSw.checked = state.settings.queueFollowUps !== false;
+    queueSw.addEventListener('change', () => { state.settings.queueFollowUps = queueSw.checked; saveSettings(); toast(queueSw.checked ? 'Follow-ups wait in the queue until the current step ends' : 'Follow-ups steer the running step right away'); });
+    body.replaceChildren(setHero('gear', 'General', 'How Eden looks, sounds and behaves.', 'pal'),
       el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
         el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')),
       el('div', 'set-sec', el('h3', '', 'Color'), colorPickerSection()),
       el('div', 'set-sec', el('h3', '', 'Language'), langSeg,
-        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), ...[voiceSettings()].filter(Boolean), ...[appSettingsCard()].filter(Boolean));
+        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')),
+      ...[voiceSettings()].filter(Boolean),
+      el('div', 'set-sec', el('h3', '', 'While Eden is working'),
+        setSwitch('Queue follow-ups', 'Messages sent while Eden is working wait until its current step ends. Off: Return steers it right away without stopping the reply (⌘↩ or Steer always steers right away).', queueSw)),
+      privacySettings(),
+      ...[bootSoundSettings()].filter(Boolean), ...[appSettingsCard()].filter(Boolean));
     setSeg(langSeg, Math.max(0, LANGS.findIndex(([v]) => v === langPref)));
-  } else if (setTabI === 4) {
-    drawMemory(body, hosted);
-  } else if (setTabI === 6) {
+  } else if (tab === 'eves') {
     drawEvesPane(body);
-  } else if (setTabI === 3) {
-    const autoSw = el('input', { type: 'checkbox', 'aria-label': 'Search the web automatically' });
-    autoSw.checked = state.settings.autoSearch !== false;
-    autoSw.addEventListener('change', () => { state.settings.autoSearch = autoSw.checked; saveSettings(); toast(autoSw.checked ? 'Eden searches the web when a message needs it' : 'Auto-search is off'); });
-    // N19: the two fact-check switches (on unless turned off; sent with each message by chat.js factCheckSettings),
-    // drawn only when the server says it runs that check (GET /api/chat/meta `premiseCheck: true` / `answerCheck: true`)
-    const serverChecks = (k) => !!(state.meta && state.meta[k] === true);
-    const checkSw = (key, label, on, off) => {
-      const x = el('input', { type: 'checkbox', 'aria-label': label });
-      x.checked = state.settings[key] !== false;
-      x.addEventListener('change', () => { state.settings[key] = x.checked; saveSettings(); toast(x.checked ? on : off); });
-      return x;
-    };
-    const premiseSw = checkSw('premiseCheck', 'Check the question’s assumptions', 'Eden checks what a question takes for granted', 'Assumption check is off');
-    const answerSw = checkSw('answerCheck', 'Double-check answers that didn’t use the web', 'Eden double-checks answers that didn’t use the web', 'Answer double-check is off');
-    const queueSw = checkSw('queueFollowUps', 'Queue follow-ups', 'Follow-ups wait in the queue until the current step ends', 'Follow-ups steer the running step right away');
-    const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
-    sw.checked = !!state.settings.subscriptionClaude;
-    sw.addEventListener('change', () => { state.settings.subscriptionClaude = sw.checked; saveSettings(); schedulePreview(); toast(sw.checked ? 'Claude priced as subscription quota' : 'Claude priced at API rates'); });
-    const ov = currentOverride();
-    const lv = Number(state.settings.level) || 3;
-    const info = levels().find((x) => x.level === lv) || {};
-    body.replaceChildren(setHero('route', 'Routing', 'How Eden picks a model for each message.', 'route'),
-      el('div', 'route-cards',
-        el('button', { type: 'button', class: 'route-card', onclick: () => { closeSettings(); openInspector('Route'); } },
-          el('span', 'rc-k', 'Level'),
-          el('span', 'rc-v', info.label || `Level ${lv}`),
-          el('span', { class: 'rc-meter', 'aria-hidden': 'true' }, ...[1, 2, 3, 4, 5].map((i) => el('i', i <= lv ? 'on' : ''))),
-          el('span', 'rc-s', 'Efficiency ⟷ performance')),
-        el('button', { type: 'button', class: 'route-card', onclick: () => { closeSettings(); openInspector('Route'); } },
-          el('span', 'rc-k', 'Model'),
-          el('span', 'rc-v', ov ? (modelInfo(ov.model)?.name || ov.model) : 'Auto'),
-          el('span', 'rc-s', ov ? 'Pinned for every message' : 'The router picks per message'))),
-      el('div', 'set-sec', el('h3', '', 'Pricing'),
-        el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Search the web automatically'), el('div', 'p-c', 'When a message needs current information (news, weather, prices, scores, “near me”, a link), Eden searches the web first and shows the sources. Never in temporary or private chats. Searches use your included AI.')), el('label', 'switch', autoSw, el('span', 'tr')))),
-        el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Queue follow-ups'), el('div', 'p-c', 'Messages sent while Eden is working wait until its current step ends. Off: Return steers it right away without stopping the reply (⌘↩ or Steer always steers right away).')), el('label', 'switch', queueSw, el('span', 'tr')))),
-        serverChecks('premiseCheck') ? el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Check the question’s assumptions'), el('div', 'p-c', 'When a question takes a fact for granted (“why did … win …?”), Eden checks that fact on the web first and corrects it if it’s wrong. About 1¢, only on such questions.')), el('label', 'switch', premiseSw, el('span', 'tr')))) : null,
-        serverChecks('answerCheck') ? el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Double-check answers that didn’t use the web'), el('div', 'p-c', 'After a factual answer from the model’s memory, Eden looks on the web for evidence against it, and answers again with sources when it finds some. About 2¢, only on such answers.')), el('label', 'switch', answerSw, el('span', 'tr')))) : null,
-        el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
-        el('p', 'sp-note', `Level ${state.settings.level}${ov ? ` · pinned to ${modelInfo(ov.model)?.name || ov.model}` : ' · auto'}. Levels, sliders, providers and the override live in the inspector’s Route tab.`),
-        el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Route console'))), privacySettings(), evesSettings(), autopilotSettings(), learnedSettings()); // H3, H2, N13
+  } else if (tab === 'models') {
+    body.replaceChildren(setHero('route', 'Models & routing', 'How Eden picks a model for each message.', 'route'), quickControlDashboardCard(), learnedSettings());
   } else {
     const ver = state.meta && state.meta.version;
     body.replaceChildren(el('div', 'about-hero',
@@ -1788,22 +1812,24 @@ async function drawSettings() {
       el('p', 'about-tag', 'One chat for every model you have.'),
       el('div', 'about-chips', ver ? el('span', 'chip-s', `Version ${ver}`) : null, el('span', 'chip-s', hosted ? 'askeden.com' : 'On this Mac'), isMock ? el('span', 'chip-s warn', 'Mock mode') : null)),
     el('div', 'set-sec about',
-      el('div', 'icard about-card',
+      el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour')),
+      setMore('Technical details',
         el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Eden app on your Mac, and Code sessions for your projects.'),
         IN_APP ? null : el('p', '', 'Voice: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'), // no voice in the iPhone app for now (voice.js)
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
-        isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
-      el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Eden Code.'),
-      el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))),
+        isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null,
+        el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Eden Code.'))),
     ...[appSettingsCard()].filter(Boolean));
   }
 }
-const accountsHero = () => setHero('user', 'Accounts', 'The mail and calendars Eden can read for you.', 'acct');
-async function drawAccounts(body) {
+let accountsSub = false; // drawn inside "Accounts & memory": a heading, not a page hero
+const accountsHero = () => (accountsSub ? '' : setHero('user', 'Accounts', 'The mail and calendars Eden can read for you.', 'acct'));
+async function drawAccounts(body, { sub = accountsSub } = {}) {
+  accountsSub = sub;
   body.replaceChildren(accountsHero(), el('div', 'muted', 'Loading…'));
   let st;
   try { st = await api.googleStatus(); } catch (e) { body.replaceChildren(accountsHero(), el('div', 'sp-warn', el('b', '', 'Couldn’t read the Gmail status'), e.message)); return; }
-  if (setTabI !== 1) return;
+  if (setTab() !== 'accounts') return;
   if (st.hosted || (state.meta && state.meta.hosted)) { drawHostedAccounts(body, st); return; } // askeden.com: no client to set up
   const id = el('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'xxxxxxxx.apps.googleusercontent.com', 'aria-label': 'Google OAuth client ID' });
   const secret = el('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: st.configured ? 'Saved (enter a new one to replace)' : 'Client secret', 'aria-label': 'Google OAuth client secret' });
@@ -1822,12 +1848,14 @@ async function drawAccounts(body) {
       el('div', 'prov', el('span', { class: 'pglyph', style: { '--g1': '#ff6b5e', '--g2': '#d93025' }, 'aria-hidden': 'true' }, ico('mail', 17)), el('div', 'grow', el('div', 'p-n', 'Gmail'), el('div', `p-c${st.connected ? ' ok' : ''}`, status)),
         st.connected ? el('button', { type: 'button', class: 'cap rev', onclick: async () => { try { await api.googleDisconnect(); toast('Gmail disconnected'); drawAccounts(body); } catch (e) { toast(e.message); } } }, 'Disconnect')
           : st.configured ? el('button', { type: 'button', class: 'cap primary', onclick: connectGmail }, 'Connect Gmail') : null),
-      el('div', { class: 'field', style: { marginTop: '10px' } }, 'OAuth client ID', id),
-      el('div', 'field', 'Client secret', secret),
-      el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: save }, st.configured ? 'Replace client' : 'Save'))),
-    el('p', 'sp-note', 'How to: in Google Cloud Console › APIs & Services, enable the Gmail API, then create an OAuth client ID of type “Web application” with this authorized redirect URI:'),
-    el('code', { class: 'readout', style: { display: 'block', userSelect: 'all' } }, redirect),
-    el('p', 'sp-note', 'Paste its client ID and secret here. They’re stored on this Mac by the server and never shown again. Then press Connect Gmail and sign in.')),
+      // the Google client (a developer's setup step): behind "Set up Gmail…" (2026-11-06, less busy)
+      setMore(st.configured ? 'Gmail client (Google Cloud)…' : 'Set up Gmail…',
+        el('p', 'sp-note', 'How to: in Google Cloud Console › APIs & Services, enable the Gmail API, then create an OAuth client ID of type “Web application” with this authorized redirect URI:'),
+        el('code', { class: 'readout', style: { display: 'block', userSelect: 'all' } }, redirect),
+        el('p', 'sp-note', 'Paste its client ID and secret here. They’re stored on this Mac by the server and never shown again. Then press Connect Gmail and sign in.'),
+        el('div', { class: 'field', style: { marginTop: '10px' } }, 'OAuth client ID', id),
+        el('div', 'field', 'Client secret', secret),
+        el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: save }, st.configured ? 'Replace client' : 'Save'))))),
   el('div', 'set-sec', el('h3', '', 'Mail on your Mac'),
     el('p', 'sp-note', state.jarvis.available ? 'Connected through the Eden app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${state.jarvis.reason || 'open the Eden app on your Mac'}.`)));
 }
@@ -2034,7 +2062,7 @@ function quickControlDashboardCard() {
   });
 
   return el('div', 'set-sec',
-    el('h3', '', 'Router & Model Controls'),
+    el('h3', '', 'Routing'),
     el('div', 'icard kd-controls-card',
       el('div', 'prov kd-ctrl-block',
         el('div', 'grow',
@@ -2057,7 +2085,6 @@ function quickControlDashboardCard() {
           el('div', 'p-c', 'Off: Claude is billed and tracked in API dollars on your API key. On: treated as subscription quota.')),
         el('label', 'switch', subSw, el('span', 'tr'))),
       el('div', 'dlg-acts',
-        el('button', { type: 'button', class: 'btn', onclick: () => { setTabI = 3; drawSettings(); } }, ico('route', 14), 'All Routing Settings'),
         el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Live Route Console'))));
 }
 
@@ -2068,6 +2095,7 @@ function keyRow(p, k) {
   const row = el('div', 'key-row kd-provider-block');
   const fallbacks = Array.isArray(k.fallbacks) ? k.fallbacks : [];
   const enabled = state.settings.providers[p.id] !== false;
+  let open = false; // one line per provider until Manage (2026-11-06, less busy): the key's id, backups and failover inside
 
   const draw = (editMode) => {
     // editMode: false | 'replace' | 'fallback'
@@ -2112,24 +2140,27 @@ function keyRow(p, k) {
       el('div', 'grow',
         el('div', 'p-n',
           p.name || p.id,
-          el('span', `kpill k-${st.tone}`, k.set ? `Default: ${primaryHint || st.pill}` : st.pill),
-          fallbacks.length ? el('span', 'kpill k-included', `${fallbacks.length} backup${fallbacks.length === 1 ? '' : 's'} ready`) : null,
+          el('span', `kpill k-${st.tone}`, k.set ? (open || editMode ? `Default: ${primaryHint || st.pill}` : 'Connected') : st.pill),
+          fallbacks.length && (open || editMode) ? el('span', 'kpill k-included', `${fallbacks.length} backup${fallbacks.length === 1 ? '' : 's'} ready`) : null,
           !enabled ? el('span', 'kpill k-off', 'Paused') : null),
-        el('div', `p-c${st.tone === 'own' || st.tone === 'sub' ? ' ok' : ''}`, st.detail)),
-      editMode ? null : el('div', 'kd-key-acts',
+        open || editMode || !k.set ? el('div', `p-c${st.tone === 'own' || st.tone === 'sub' ? ' ok' : ''}`, st.detail) : null),
+      editMode ? null : !open ? el('div', 'kd-key-acts',
+        k.set ? null : el('button', { type: 'button', class: 'cap primary', onclick: () => draw('replace') }, 'Add key'),
+        el('button', { type: 'button', class: 'cap', onclick: () => { open = true; draw(false); } }, 'Manage')) : el('div', 'kd-key-acts',
         el('button', { type: 'button', class: `cap${k.set ? '' : ' primary'}`, onclick: () => draw('replace') }, k.set ? 'Replace default' : 'Set default key'),
         k.set ? el('button', { type: 'button', class: 'cap', onclick: () => draw('fallback'), title: 'Add a backup key that Eden switches to automatically if the default key hits its monthly limit' }, '+ Backup key') : null,
         !k.set || k.source === 'env' ? null : el('button', { type: 'button', class: 'cap rev', onclick: async () => {
           try { await api.setKey(p.id, '', { mode: 'replace' }); toast(`${p.name || p.id} key removed`); await reloadMeta(); drawSettings(); } catch (e) { toast(`Couldn’t remove: ${e.message}`); }
         } }, 'Remove'),
-        el('label', { class: 'switch', title: enabled ? 'Active in Model Router (click to pause)' : 'Paused in Model Router (click to enable)' }, provToggle, el('span', 'tr'))));
+        el('label', { class: 'switch', title: enabled ? 'Active in Model Router (click to pause)' : 'Paused in Model Router (click to enable)' }, provToggle, el('span', 'tr')),
+        el('button', { type: 'button', class: 'cap', onclick: () => { open = false; draw(false); } }, 'Done')));
 
     const editBox = editMode ? el('div', 'key-edit kd-key-edit',
       input,
       el('button', { type: 'button', class: 'btn primary', onclick: save }, isFallbackEdit ? 'Add backup' : 'Save default'),
       el('button', { type: 'button', class: 'btn', onclick: () => draw(false) }, 'Cancel')) : null;
 
-    const fbList = fallbacks.length ? el('div', 'kd-fallbacks',
+    const fbList = fallbacks.length && (open || editMode) ? el('div', 'kd-fallbacks',
       el('div', 'kd-fb-title', 'Automatic Failover Queue (used in order when Default hits its monthly limit):'),
       ...fallbacks.map((fbHint, idx) => el('div', 'kd-fb-row',
         el('span', 'kd-fb-badge', `Backup #${idx + 1}`),
@@ -2231,6 +2262,7 @@ function slash(name, arg) {
     case 'memory': openSpace('memory'); return true;
     case 'meetings': openSpace('meetings'); return true;
     case 'web': openSpace('web', { goal: arg }); return true;
+    case 'crew': import('./crew.js').then((m) => m.startCrew(arg)); return true; // Eden Crew on the Mac
     case 'undo': openSpace('activity'); return true; // (/activity is Code mode's tool activity)
     case 'brief': openBrief(); return true;
     case 'calendar': openCalendar(); return true;
@@ -2259,7 +2291,8 @@ function slash(name, arg) {
       scheduleCodeTask(c, parsed);
       return true;
     }
-    case 'settings': case 'keys': case 'spend': case 'dashboard': openSettings(0); return true;
+    case 'settings': openSettings('general'); return true;
+    case 'keys': case 'spend': case 'dashboard': openSettings('keys'); return true;
     case 'theme': if (['light', 'dark', 'system'].includes(arg)) setTheme(arg); else cycleTheme(); return true;
     case 'stop': if (!stop()) toast('Nothing to stop'); return true;
     case 'tour': startTour(); return true;
@@ -2298,7 +2331,7 @@ function sendFromComposer(text, attachments, context) {
       }
     }
   } else if (meta && !(meta.providers || []).some((p) => p.available) && !currentOverride()) {
-    toast('No model provider is available. Add an API key in Settings.', { label: 'Settings', run: () => openSettings(0) });
+    toast('No model provider is available. Add an API key in Settings.', { label: 'Settings', run: () => openSettings('keys') });
     return false;
   }
   if (!c && state.pendingMode && state.pendingMode !== 'chat') {
@@ -2323,7 +2356,7 @@ function onKey(e) {
   if (mod && !e.altKey && e.shiftKey && k === 'b') { e.preventDefault(); toggleBrowser(); return; }
   if (mod && e.altKey && e.code === 'Digit0') { e.preventDefault(); toggleInspector(); return; }
   if (mod && !e.altKey && !e.shiftKey && k === 'j') { e.preventDefault(); toggleDrawer(); return; }
-  if (mod && !e.altKey && k === ',') { e.preventDefault(); openSettings(0); return; }
+  if (mod && !e.altKey && k === ',') { e.preventDefault(); openSettings('general'); return; }
   if (e.key !== 'Escape') return;
   if ($('tbTitle').isContentEditable) { finishRename(false); return; }
   if (closeDialog() || closeSettings()) { e.preventDefault(); return; }
@@ -2415,7 +2448,7 @@ async function init() {
   initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t, opts) => sendMessage(t, [], opts || {}) });
   // the chat open at startup gets its essay back beside it (essay-chat.js, T20e; website only, loaded after the page)
   if (ESSAYS) import('./essay-chat.js').then((m) => { essayChat = m; m.initEssayChat(); }).catch(() => {});
-  initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
+  initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview, renderComposer });
   initPublish({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });
   initDesk({ switchTo, newChat, titleOf, openSpace, openBrief, openCalendar, openFiles, openTasks, openWorkflows, projectPicker, ...(ESSAYS ? { openEssayWriter } : {}) });
@@ -2451,6 +2484,16 @@ async function init() {
     },
   });
   initGrab();
+  // back from Microsoft's sign-in (Mail › Add an account › Outlook): Mail, with the new mailbox
+  const oh = /#outlook=(\w+)/.exec(location.hash);
+  if (oh && (() => { try { return sessionStorage.getItem('eden:mail-only-return') === '1'; } catch { return false; } })()) {
+    try { sessionStorage.removeItem('eden:mail-only-return'); } catch { /* blocked */ }
+    location.replace(`/mail${location.hash}`);
+  } else if (oh) {
+    history.replaceState(null, '', location.pathname + location.search);
+    toast(oh[1] === 'connected' ? 'Outlook added to Mail' : 'Microsoft sign-in didn’t finish. Try again.');
+    if (oh[1] === 'connected') setTimeout(() => openSpace('mail'), 300);
+  }
   // back from Google's sign-in
   const gh = /#gmail=(\w+)/.exec(location.hash);
   if (gh && sheetReturnPending()) { history.replaceState(null, '', location.pathname + location.search); resumeSheet(gh[1] === 'connected'); } // Google Sheets' own Connect (Q15)
@@ -2465,11 +2508,19 @@ async function init() {
     if (gh[1] === 'connected') setTimeout(() => (toCalendar ? openCalendar() : openSpace('mail')), 300);
   }
   // a link to Settings › Models & API keys (askeden.com's "Add your Anthropic API key…")
-  addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0));
+  addEventListener('eden:open-settings', (e) => openSettings(e.detail && e.detail.tab != null ? e.detail.tab : 'general'));
   if (location.hash === '#settings=keys' || location.hash === '#keys' || location.hash === '#spend' || location.hash === '#dashboard') {
     history.replaceState(null, '', location.pathname + location.search);
-    setTimeout(() => openSettings(0), 0);
+    setTimeout(() => openSettings('keys'), 0);
   }
+  // Eden Apollo's "Open in Eden": /#import-chat=<payload> becomes a new chat here, opened; nothing is sent (import-apollo.js).
+  // Its start page's Eden button: /#prompt=<payload> waits in a new chat's composer (a temporary chat with "temp": true, Apollo's Eclipse); the person presses Enter (never sent by itself).
+  const apollo = () => {
+    openImportChat({ open: (c) => { closeSpace(); switchTo(c); }, note: toast });
+    openPrompt({ start: (temp) => { closeSpace(); if (temp) newTemp(); else newChat(); }, fill: (text) => setComposerText(text), note: toast });
+  };
+  apollo();
+  addEventListener('hashchange', apollo);
   // The native iOS app opens a secondary space in a sheet: /#open=mail (calendar, tasks, brief…).
   const op = /^#open=(\w+)$/.exec(location.hash);
   // Eden Travel (travel.js, loaded when first opened): askeden.com/travel or askedentravel.com, #open=travel, and "Open in Eden Travel" on a trip card. Never in the app.
@@ -2520,7 +2571,7 @@ async function init() {
   $('btnNew').addEventListener('click', newChat);
   $('btnMore').addEventListener('click', (e) => moreMenu(e.currentTarget));
   $('btnTheme').addEventListener('click', cycleTheme);
-  $('btnSettings').addEventListener('click', () => openSettings(0));
+  $('btnSettings').addEventListener('click', () => openSettings('general'));
   $('btnHamburger').addEventListener('click', () => toggleSidebar());
   $('btnSidebarDesk').addEventListener('click', () => toggleSidebar());
   $('btnInspector').addEventListener('click', toggleInspector);
@@ -2577,7 +2628,7 @@ async function init() {
   addEventListener('eden:conv-opened', (e) => importedOpen(e.detail && e.detail.conv));
   setTimeout(() => importedOpen(state.current), 1500); // a reload with an imported chat open
   initHelp({ runCommand: (t) => commands().find((x) => x.t === t)?.run(), hasCommand: (t) => commands().some((x) => x.t === t), openSettings, openPalette, startTour, beforeOpen: clearPhoneOverlays });
-  addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
+  addEventListener('eden:open-settings', (e) => openSettings(e.detail && e.detail.tab != null ? e.detail.tab : 'general')); // autopilot.js
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
   addEventListener('eden:open-inspector', (e) => openInspector((e.detail && e.detail.tab) || 'Route'));
   addEventListener('eden:open-space', (e) => { clearPhoneOverlays(); openSpace(e.detail && e.detail.key); }); // apps-menu.js: Eden for Education

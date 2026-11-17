@@ -187,7 +187,7 @@ async function main() {
           name, icon: path.join(APP, icons, 'icon.ico'), version: context.packager.appInfo.version,
         }),
         directories: { output: path.join('dist', 'win', flavor) },
-        files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', 'flavor.json', `${icons}/*.png`, 'package.json',
+        files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', 'flavor.json', 'adblock-lists.json', `${icons}/*.png`, 'package.json',
           '!jarvis-home.json', '!dist/**', '!scripts/**', '!eden/**'],
         asarUnpack: ['node_modules/@xterm/**', 'node_modules/@mediapipe/**'],
         extraResources: [{ from: engine, to: 'backend' }],

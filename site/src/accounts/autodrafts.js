@@ -30,6 +30,7 @@ import { ApiError } from './util.js';
 import { openWith, sealWith } from './tokens.js';
 import { backgroundFetch, gmailScopesOk, googleInAccount, scheduleJob, unscheduleJob } from './schedule.js';
 import { askModel, notifyOwner, runLedger, worstUsd } from './tasks.js';
+import { meterGoogle, pacedBackground } from '../eden/credit-pacer.js'; // the GCP credit pacer: inert unless CREDIT_PACER is warn/on
 import { runGmailAction } from '../eden/vendor/google.js';
 import { voiceInstructions, pickExamples, exampleContext, expectedFrame, enforceFrame, situationOf, languageOf } from '../../public/eden/mail-voice.js';
 import { scamSignals, safeForAuto } from '../../public/eden/mail-check.js';
@@ -153,7 +154,7 @@ export async function autodraftPass(account, cfg, now = account.now(), deps = {}
     // the included AI, as a task run holds it: the worst case first, then what it cost
     const input = Math.ceil(new TextEncoder().encode(p.system + p.user).length / 3) + 300;
     const worst = worstUsd(model, input, AD.maxTokens);
-    const allow = await account.allowAi();
+    const allow = await pacedBackground(account.env, await account.allowAi(), model); // the GCP credit pacer: a free account's drafts on Google's AI wait at red
     if (!allow.ok) { result.skipped = allow.why; break; }
     let hold;
     try { hold = await account.holdAi({ usd: worst }); } catch { result.skipped = 'busy'; break; }
@@ -162,6 +163,7 @@ export async function autodraftPass(account, cfg, now = account.now(), deps = {}
     try {
       answer = await (deps.ask || askModel)(account.env, { system: p.system, user: p.user, schema: DRAFT_SCHEMA, maxTokens: AD.maxTokens, model, fetch: backgroundFetch(account.env, false) });
     } finally {
+      if (answer && answer.costUSD > 0) meterGoogle(account.env, null, { model: answer.model || model, usd: answer.costUSD, bucket: hold.bucket, allow, feature: 'autodraft' }); // Gemini's answers only
       if (answer && answer.costUSD > 0) await account.spend({ usd: answer.costUSD, bucket: hold.bucket });
       account.release({ hold: hold.hold });
     }

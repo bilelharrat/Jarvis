@@ -1,0 +1,59 @@
+/* The Ask Eden galaxy: the ring of Eden apps around Ask Eden (2026-11-13).
+   The same component as edenforbusiness.com's hero ring (public/business-home/styles.css, "The Eden galaxy ring"),
+   on its own so the front page (public/home/) and edengalaxy.com (askeden/galaxy-site/) can load it.
+   Twelve apps, six on each ring; both rings turn together so no two pills ever meet; under 430px of ring each app is a
+   small tile (icon over name). Needs the Paper tokens (--card, --line, --ink, --ink2, --coral, --serif, --sans). */
+.ecosystem{position:relative;aspect-ratio:1;isolation:isolate;min-width:0;width:100%;max-width:560px;margin-inline:auto;container:galaxy/inline-size}
+.track-outer-line,.track-inner-line,.orbit-ring{position:absolute;top:50%;left:50%;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%)}
+.track-outer-line{border:1px dashed var(--line)}
+.track-inner-line{border:1px solid var(--line)}
+.track-outer-line,.ring-outer{width:86%;height:86%}
+.track-inner-line,.ring-inner{width:56%;height:56%}
+.orbit-dot{position:absolute;border-radius:50%;pointer-events:none;background:var(--coral)}
+.dot-one{width:7px;height:7px;top:22%;left:10%}.dot-two{width:8px;height:8px;top:16%;right:18%}
+.dot-three{width:6px;height:6px;bottom:24%;right:12%}.dot-four{width:7px;height:7px;bottom:14%;left:28%}
+.ecosystem-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:31%;height:31%;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;background:var(--card);border:1px solid var(--line);box-shadow:0 16px 40px rgba(14,39,71,.12);padding:10px;text-align:center}
+.ecosystem-center img{width:30%;height:auto}
+.ecosystem-center>span{font:500 clamp(20px,3vw,32px)/1.05 var(--serif);letter-spacing:-.01em;color:var(--ink)}
+.ecosystem-center small{color:var(--ink2);font-size:11px;line-height:1.25;max-width:90%}
+.orbit-item{position:absolute;pointer-events:auto;z-index:4;display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;width:max-content;transform:translate(-50%,-50%);color:inherit;text-decoration:none}
+.o1{left:75%;top:6.7%}.o2{left:100%;top:50%}.o3{left:75%;top:93.3%}.o4{left:25%;top:93.3%}.o5{left:0;top:50%}.o6{left:25%;top:6.7%}
+.i1{left:50%;top:0}.i2{left:93.3%;top:25%}.i3{left:93.3%;top:75%}.i4{left:50%;top:100%}.i5{left:6.7%;top:75%}.i6{left:6.7%;top:25%}
+.orbit-logo-holder{position:relative;display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 6px;border-radius:999px;background:rgba(255,253,248,.96);border:1.5px solid var(--line);box-shadow:0 10px 26px rgba(14,39,71,.12),0 2px 6px rgba(14,39,71,.06);transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s ease,border-color .28s ease}
+.orbit-logo{display:block;width:30px;height:30px;flex-shrink:0;border-radius:8px;object-fit:contain}
+.orbit-label{font:600 12px var(--sans);letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
+.pos-eves .eves-pill-holder{padding:3px 6px;border:2px solid rgba(217,96,79,.55);box-shadow:0 14px 32px rgba(217,96,79,.22),0 4px 12px rgba(14,39,71,.12)}
+.orbit-logo-eves{width:96px;height:48px;min-width:96px;border-radius:999px}
+.orbit-tooltip{position:absolute;top:100%;left:50%;transform:translateX(-50%) translateY(8px);background:var(--ink);color:#fff;font:600 11px var(--sans);letter-spacing:.02em;padding:4px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;opacity:0;visibility:hidden;transition:opacity .2s ease,transform .2s ease;z-index:10}
+.orbit-item:not(:hover):not(:focus-visible) .orbit-tooltip{display:none} /* a hidden tooltip at the ring's edge never widens the page */
+.orbit-item:hover .orbit-tooltip,.orbit-item:focus-visible .orbit-tooltip{opacity:1;visibility:visible;transform:translateX(-50%) translateY(4px)}
+.orbit-item:hover .orbit-logo-holder,.orbit-item:focus-visible .orbit-logo-holder{transform:scale(1.12) translateY(-3px);border-color:var(--coral);box-shadow:0 16px 36px rgba(217,96,79,.26),0 4px 12px rgba(14,39,71,.12)}
+.orbit-item:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:999px}
+span.orbit-item{cursor:default}
+@container galaxy (max-width:520px){.orbit-logo-holder{gap:5px;padding:4px 9px 4px 4px}.orbit-label{font-size:11px}.orbit-logo{width:24px;height:24px}.orbit-logo-eves{width:76px;height:38px;min-width:76px}}
+@container galaxy (max-width:430px){
+  .track-outer-line,.ring-outer{width:88%;height:88%}
+  .track-inner-line,.ring-inner{width:54%;height:54%}
+  .ecosystem-center{width:26%;height:26%;padding:4px}
+  .ecosystem-center>span{font-size:15px}
+  .ecosystem-center small{display:none}
+  .orbit-logo-holder{flex-direction:column;gap:1px;padding:4px 5px 3px;border-radius:12px}
+  .orbit-label{font-size:9.5px;line-height:1.2}
+  .orbit-logo{width:24px;height:24px;border-radius:6px}
+  .orbit-logo-eves{width:62px;height:31px;min-width:62px}
+  .pos-eves .eves-pill-holder{padding:2px 4px;border-radius:999px}
+}
+@media(prefers-reduced-motion:no-preference){
+  .ring-outer,.ring-inner{animation:galaxy-spin 60s linear infinite}
+  .ring-outer .orbit-logo-holder,.ring-inner .orbit-logo-holder{animation:galaxy-upright 60s linear infinite}
+  .track-outer-line{animation:galaxy-spin 60s linear infinite}
+  .ecosystem:hover :is(.orbit-ring,.orbit-logo-holder,.track-outer-line),.ecosystem:focus-within :is(.orbit-ring,.orbit-logo-holder,.track-outer-line){animation-play-state:paused}
+}
+@keyframes galaxy-spin{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes galaxy-upright{from{transform:rotate(0deg)}to{transform:rotate(-360deg)}}
+@media(prefers-reduced-motion:reduce){.orbit-logo-holder,.orbit-tooltip{transition:none}}
+
+/* The front page's galaxy section (public/home/index.html, after the films, before Get Ask Eden) */
+.galaxy-band{display:grid;grid-template-columns:1fr 1.25fr;column-gap:56px;align-items:center;margin:0 0 84px;scroll-margin-top:24px}
+.galaxy-band .galaxy-note{margin:0;font:13px/1.6 var(--mono);color:var(--ink2)}
+@media(max-width:860px){.galaxy-band{grid-template-columns:1fr;row-gap:28px}}

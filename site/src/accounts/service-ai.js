@@ -9,12 +9,16 @@
 //                                                             in Anthropic's shape (JSON, or SSE when
 //                                                             payload.stream); null: no key at all
 //
+// Keys: each var's comma list, <VAR>_2 … _9 and <VAR>_FALLBACK_KEYS (envKeyTiers), spread and failed over by
+// key-pool.js; never a vertex:// key.
 // The stand-in: Gemini 3.8 Flash on GEMINI_API_KEY, else GPT-6.1 Sol on OPENAI_API_KEY (either
 // switched off by EDEN_GEMINI / EDEN_OPENAI = "off"). The Anthropic request is translated (system,
 // text, images and PDFs, tools and tool results, tool_choice, a JSON schema answer), asked once
 // without streaming, and the answer translated back; a streamed request gets it as one burst of
 // Anthropic events. The answer's `model` is the stand-in's id, so what it cost is counted at its
 // own list price (proxy.js priceOf).
+
+import { order as poolOrder, withPool } from '../eden/key-pool.js';
 
 const ANTHROPIC_MESSAGES = 'https://api.anthropic.com/v1/messages';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -28,22 +32,33 @@ export const FALLBACKS = [
 export const SKIP_SIGNATURE = 'skip_thought_signature_validator';
 
 const off = (env, name) => /^(off|0|false|no)$/i.test(String(env[name] ?? '').trim());
-const QUOTA_RE = /usage limit|rate_limit|rate limit|credit balance|out of credit|quota|exceeded|billing|regain access/i;
 
-export function parseAnthropicKeys(env = {}) {
+const FALLBACK_VARS = { ANTHROPIC_API_KEY: 'ANTHROPIC_FALLBACK_KEYS', GEMINI_API_KEY: 'GEMINI_FALLBACK_KEYS', OPENAI_API_KEY: 'OPENAI_FALLBACK_KEYS', MOONSHOT_API_KEY: 'MOONSHOT_FALLBACK_KEYS' };
+
+/**
+ * A service key var's plain keys in cost tiers, as providers.js serviceKeyTiers without Vertex (docs/load-balancing.md):
+ * [<VAR> comma list, <VAR>_2 … <VAR>_9], [<VAR's fallback list>]. Empty tiers left out; never a vertex:// key.
+ */
+export function envKeyTiers(env = {}, keyVar, fallbackVar = FALLBACK_VARS[keyVar]) {
   const seen = new Set(['']);
-  const out = [];
-  for (const raw of [env.ANTHROPIC_API_KEY, env.ANTHROPIC_FALLBACK_KEYS]) {
-    for (const part of String(raw || '').split(',')) {
-      const k = part.trim();
-      if (k && !seen.has(k)) {
-        seen.add(k);
-        out.push(k);
+  const take = (raws) => {
+    const out = [];
+    for (const raw of raws) {
+      for (const part of String(raw || '').split(',')) {
+        const k = part.trim();
+        if (k && !seen.has(k) && !k.startsWith('vertex://')) {
+          seen.add(k);
+          out.push(k);
+        }
       }
     }
-  }
-  return out;
+    return out;
+  };
+  const e = env || {};
+  return [take([e[keyVar], ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => e[`${keyVar}_${n}`])]), take(fallbackVar ? [e[fallbackVar]] : [])].filter((t) => t.length);
 }
+
+export const parseAnthropicKeys = (env = {}) => envKeyTiers(env, 'ANTHROPIC_API_KEY').flat();
 
 export function anthropicHeadersFor(rawKey, extra = {}) {
   const s = String(rawKey || '').trim();
@@ -63,8 +78,8 @@ export function anthropicHeadersFor(rawKey, extra = {}) {
 export function serviceFallback(env = {}) {
   if (parseAnthropicKeys(env).length) return null;
   for (const f of FALLBACKS) {
-    const key = String(env[f.keyVar] || '').trim();
-    if (key && !off(env, f.switchVar)) return { provider: f.provider, model: f.model, key };
+    const keys = poolOrder(f.provider, envKeyTiers(env, f.keyVar), { env }); // key-pool.js: spread, sick keys last
+    if (keys.length && !off(env, f.switchVar)) return { provider: f.provider, model: f.model, key: keys[0], keys };
   }
   return null;
 }
@@ -78,38 +93,20 @@ export const serviceAiReady = (env = {}) => parseAnthropicKeys(env).length > 0 |
  * in Anthropic's shape either way; throws where fetch would (couldn't reach it); null with no key.
  */
 export async function serviceFetch(env, payload, { signal, fetch: f = (u, i) => fetch(u, i), url = ANTHROPIC_MESSAGES } = {}) {
-  const geminiKey = String(env.GEMINI_API_KEY || '').trim();
+  // Help and Edu OCR name a gemini-* model: the service's plain Gemini keys (never vertex://), pool order
+  const geminiKeys = poolOrder('gemini', envKeyTiers(env, 'GEMINI_API_KEY'), { env });
   const wantedModel = String(payload?.model || '');
-  if (wantedModel.startsWith('gemini-') && geminiKey && !off(env, 'EDEN_GEMINI')) {
-    const { status, message, error } = await fallbackMessages({ provider: 'gemini', model: wantedModel, key: geminiKey }, payload, { signal, fetch: f });
+  if (wantedModel.startsWith('gemini-') && geminiKeys.length && !off(env, 'EDEN_GEMINI')) {
+    const { status, message, error } = await fallbackMessages({ provider: 'gemini', model: wantedModel, key: geminiKeys[0], keys: geminiKeys }, payload, { signal, fetch: f });
     if (error) return new Response(JSON.stringify({ type: 'error', error }), { status, headers: { 'content-type': 'application/json' } });
     if (payload.stream) return new Response(sseOf(message), { status: 200, headers: { 'content-type': 'text/event-stream' } });
     return new Response(JSON.stringify(message), { status: 200, headers: { 'content-type': 'application/json' } });
   }
-  const antKeys = parseAnthropicKeys(env);
-  if (antKeys.length) {
-    let lastRes = null;
-    for (let i = 0; i < antKeys.length; i++) {
-      const res = await f(url, {
-        method: 'POST',
-        headers: anthropicHeadersFor(antKeys[i]),
-        body: JSON.stringify(payload),
-        signal,
-      });
-      if (res.ok) return res;
-      lastRes = res;
-      if (i + 1 < antKeys.length) {
-        const shouldRetry =
-          res.status === 402 ||
-          res.status === 429 ||
-          res.status === 529 ||
-          ((res.status === 400 || res.status === 401 || res.status === 403) &&
-            QUOTA_RE.test(await res.clone().text().catch(() => '')));
-        if (shouldRetry) continue;
-      }
-      return res;
-    }
-    if (lastRes) return lastRes;
+  const antTiers = envKeyTiers(env, 'ANTHROPIC_API_KEY');
+  if (antTiers.length) {
+    // key-pool.js: spread within a tier; the next key on 402/429/529, quota words, 5xx or a network error
+    const res = await withPool('anthropic', antTiers, (k) => f(url, { method: 'POST', headers: anthropicHeadersFor(k), body: JSON.stringify(payload), signal }), { signal, env });
+    if (res) return res;
   }
   const fb = serviceFallback(env);
   if (!fb) return null;
@@ -291,9 +288,12 @@ const message = (model, content, stop, input, output, cacheRead = 0) => ({
 /** The stand-in's answer: { status, message } or { status, error: { type, message } }. Throws where fetch would. */
 export async function fallbackMessages(fb, payload, { signal, fetch: f = (u, i) => fetch(u, i) } = {}) {
   const gemini = fb.provider === 'gemini';
-  const res = gemini
-    ? await f(`${GEMINI}/${fb.model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': fb.key }, body: JSON.stringify(toGemini(payload)), signal })
-    : await f(OPENAI, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${fb.key}` }, body: JSON.stringify(toOpenAi(payload, fb.model)), signal });
+  const one = (key) => (gemini
+    ? f(`${GEMINI}/${fb.model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(toGemini(payload)), signal })
+    : f(OPENAI, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify(toOpenAi(payload, fb.model)), signal }));
+  // fb.keys (already in pool order): the next key on 429/5xx/quota (key-pool.js); the same model throughout
+  const keys = Array.isArray(fb.keys) && fb.keys.length ? fb.keys : [fb.key];
+  const res = (await withPool(fb.provider, keys, one, { signal, ordered: true })) || (await one(fb.key));
   const body = await res.json().catch(() => null);
   if (!res.ok || !body) {
     const status = res.status === 429 || res.status === 503 ? 529 : res.ok ? 502 : res.status >= 500 ? 502 : res.status;

@@ -8,7 +8,42 @@
 // draw from the project's GCP credits before touching any cash balance.
 
 import { ApiError } from '../accounts/util.js';
-import { metered, viaBase } from './providers.js';
+import { metered, plainKeys, plainServiceKeys, viaBase } from './providers.js';
+import { withPool } from './key-pool.js';
+import { meterGoogle } from './credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
+// The Gemini key a raw generativelanguage.googleapis.com call can send: never the vertex:// credential, which askeden.com
+// puts first when VERTEX_CREDENTIALS is set (VERTEX_FIRST). Sent as x-goog-api-key, Google answered "API key not valid"
+// and every picture and video failed (owner, 2026-11-06). '' when only Vertex is there.
+const geminiKey = (keys) => plainKeys(keys && keys.gemini)[0] || '';
+
+// A person's own Gemini key that Google refuses ("API key not valid") made every picture and video fail for them
+// (owner, 2026-11-06). Before a picture or video, an own key is looked at once (a free model list, remembered 10 min);
+// refused, askeden.com's key is used instead. Each media turn logs whose key it went with, so a bad service key shows.
+const keyChecks = new Map(); // key → { ok, at }
+async function geminiKeyWorks(key, base, signal) {
+  const c = keyChecks.get(key);
+  if (c && Date.now() - c.at < 10 * 60_000) return c.ok;
+  let ok = true; // a network hiccup never blocks: only Google's own "this key is invalid" does
+  try {
+    const r = await fetch(viaBase(base, `${GEMINI_BASE}/v1beta/models?pageSize=1`), { headers: { 'x-goog-api-key': key }, signal });
+    if (r.status === 400 || r.status === 401 || r.status === 403) ok = !/API_KEY_INVALID|API key not valid|API_KEY_EXPIRED|expired/i.test(await r.text().catch(() => ''));
+  } catch { /* ok stays true */ }
+  keyChecks.set(key, { ok, at: Date.now() });
+  return ok;
+}
+export async function withWorkingGemini(env, keys, base, signal, what) { // (exported for test/image.test.js)
+  const g = keys && keys.gemini;
+  if (!g) return keys;
+  let source = g.source || 'service';
+  let key = geminiKey(keys);
+  if (source === 'user' && key && !(await geminiKeyWorks(key, base, signal))) {
+    const svc = plainServiceKeys(env, 'gemini')[0];
+    if (svc) { key = svc; source = 'service (own key refused)'; }
+  }
+  const tail4 = (k) => (String(k || '').startsWith('vertex://') ? 'vertex' : `…${String(k || '').slice(-4)}`); // never the key itself
+  console.log(JSON.stringify({ evt: 'media_gemini_key', what, source, has: Boolean(key), sent: tail4(key), pool: [g.key, ...(g.fallbackKeys || [])].map(tail4), env: tail4(env && env.GEMINI_API_KEY) }));
+  return key && key !== geminiKey(keys) ? { ...keys, gemini: { key, source: 'service' } } : keys;
+}
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
 
@@ -64,7 +99,7 @@ export const VIDEO_MODELS = [
   { id: 'veo-2.0-generate-001', name: 'Veo 2', provider: 'gemini', tier: 'fast', quality: 86, pricePerSec: 0.35 },
 ];
 
-const inNativeApp = (request) => Boolean(request && typeof request.headers?.get === 'function' && /\bEdenApp\//.test(request.headers.get('user-agent') || '') && !/\bEdenBeta\//.test(request.headers.get('user-agent') || ''));
+const inNativeApp = () => false; // since 2026-11-05 (owner) the Eden iPhone app gets the whole website, like the TestFlight beta; only Eden for Education stays frozen
 
 export const imagesOn = (env, request = null) => {
   if (String(env.EDEN_IMAGES || '').trim().toLowerCase() !== 'on') return false;
@@ -176,7 +211,7 @@ export function routerLevel(settings = {}) {
 export function routeImage({ prompt = '', edit = false, settings = {}, override = null, envModel = '', keys = {}, hasCloudflare = false } = {}) {
   const level = routerLevel(settings);
   const quality = qualityFor(prompt);
-  const hasGemini = Boolean(keys && keys.gemini);
+  const hasGemini = Boolean(geminiKey(keys));
   const hasOpenai = Boolean(keys && keys.openai);
   const forced = String((override && override.model) || envModel || '').trim();
 
@@ -270,7 +305,7 @@ export function routeImage({ prompt = '', edit = false, settings = {}, override 
  * Model Router decision for a video turn: routes between Veo 3 Fast, Veo 3, and Veo 2.
  */
 export function routeVideo({ prompt = '', fromImage = false, seconds = VIDEO_GEN.defaultSeconds, settings = {}, override = null, envModel = '', keys = {} } = {}) {
-  if (!(keys && keys.gemini)) return null;
+  if (!geminiKey(keys)) return null;
   const level = routerLevel(settings);
   const vQual = videoQualityFor(prompt);
   const forced = String((override && override.model) || envModel || '').trim();
@@ -325,11 +360,15 @@ function refusalWords(provider, status, out) {
   const e = (out && out.error) || {};
   const code = String(e.code || e.type || e.status || '');
   const msg = String(e.message || out?.promptFeedback?.blockReason || '');
+  console.log(JSON.stringify({ evt: 'media_refused', provider, status, code: code.slice(0, 60), msg: msg.slice(0, 160) })); // what a provider said (no prompt, no key)
   if (/moderation|safety|content_policy|blocked|prohibited|recitation/i.test(code) || /safety|moderation|blocked|policy/i.test(msg)) {
     return `${label}’s safety rules don’t allow that. Try describing it differently.`;
   }
   if (status === 429) return `${label} is busy right now. Try again in a minute.`;
-  if (status === 401 || status === 403) return `The ${label} key couldn’t be used (check Settings › Models & API keys).`;
+  // Google answers a bad key with 400 API_KEY_INVALID, not 401/403: said as what it is (owner, 2026-11-06)
+  if (status === 401 || status === 403 || /api[_ ]key[_ ]invalid|api key not valid|invalid api key|incorrect api key/i.test(`${code} ${msg} ${JSON.stringify(e.details || '')}`)) {
+    return `The ${label} key isn’t valid. If you added your own, replace or remove it in Settings › Spending & keys (without one, Eden uses askeden.com’s).`;
+  }
   if (/insufficient_quota|billing/i.test(code) || /quota|billing/i.test(msg)) return `The ${label} account behind askeden.com is out of credit right now.`;
   return `${label} couldn’t finish that (${String(msg || `HTTP ${status}`).slice(0, 160)}).`;
 }
@@ -340,12 +379,18 @@ const IMAGEN_TO_GEMINI_IMAGE = {
   'imagen-4.0-ultra-generate-001': 'gemini-3-pro-image',
 };
 
+// `apiKey` below: a key or a list of plain keys (pool order). Each call goes through the key pool (key-pool.js): the
+// next key after 429/5xx/quota, the same model throughout; null from it means no plain key. Never the next key after a
+// network error: these are paid and not idempotent (the provider may have started the job), so the error is thrown.
+const pooled = (provider, keys, signal, send) => withPool(provider, plainKeys(keys), send, { signal, ordered: true, retryThrown: false });
+const noKey = (provider) => ({ ok: false, status: 503, retryable: true, message: `${provider === 'openai' ? 'OpenAI' : 'Google Gemini'} has no key askeden.com can use for this right now.` });
+
 /** Call Imagen 4 (:predict) for text-to-image, or Gemini 3.1/3 Image (:generateContent) when :predict is retired on v1beta. */
 async function callImagen(base, apiKey, model, prompt, size, signal) {
   const url = viaBase(base, `${GEMINI_BASE}/v1beta/models/${model}:predict`);
-  const res = await fetch(url, {
+  const res = await pooled('gemini', apiKey, signal, (k) => fetch(url, {
     method: 'POST',
-    headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+    headers: { 'x-goog-api-key': k, 'content-type': 'application/json' },
     body: JSON.stringify({
       instances: [{ prompt }],
       parameters: {
@@ -355,7 +400,8 @@ async function callImagen(base, apiKey, model, prompt, size, signal) {
       },
     }),
     signal,
-  });
+  }));
+  if (!res) return noKey('gemini');
   const out = await res.json().catch(() => ({}));
   if (res.status === 404) {
     const genModel = IMAGEN_TO_GEMINI_IMAGE[model] || 'gemini-3.1-flash-image';
@@ -392,15 +438,16 @@ async function callGeminiFlashImage(base, apiKey, model, prompt, inputs, size, s
     ...inputs.map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } })),
     { text: prompt },
   ];
-  const res = await fetch(url, {
+  const res = await pooled('gemini', apiKey, signal, (k) => fetch(url, {
     method: 'POST',
-    headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+    headers: { 'x-goog-api-key': k, 'content-type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
       generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
     }),
     signal,
-  });
+  }));
+  if (!res) return noKey('gemini');
   const out = await res.json().catch(() => ({}));
   const cand = out.candidates && out.candidates[0];
   const imgPart = cand && cand.content && Array.isArray(cand.content.parts)
@@ -437,10 +484,11 @@ async function callOpenAIImage(base, apiKey, model, prompt, inputs, size, qualit
     const form = new FormData();
     for (const [k, v] of Object.entries(common)) form.append(k, String(v));
     inputs.forEach((img, i) => form.append('image[]', new Blob([b64ToBytes(img.data)], { type: img.mime }), `input-${i + 1}.${img.mime.split('/')[1]}`));
-    response = await fetch(viaBase(base, 'https://api.openai.com/v1/images/edits'), { method: 'POST', headers: { authorization: `Bearer ${apiKey}` }, body: form, signal });
+    response = await pooled('openai', apiKey, signal, (k) => fetch(viaBase(base, 'https://api.openai.com/v1/images/edits'), { method: 'POST', headers: { authorization: `Bearer ${k}` }, body: form, signal }));
   } else {
-    response = await fetch(viaBase(base, 'https://api.openai.com/v1/images/generations'), { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(common), signal });
+    response = await pooled('openai', apiKey, signal, (k) => fetch(viaBase(base, 'https://api.openai.com/v1/images/generations'), { method: 'POST', headers: { authorization: `Bearer ${k}`, 'content-type': 'application/json' }, body: JSON.stringify(common), signal }));
   }
+  if (!response) return noKey('openai');
   const out = await response.json().catch(() => ({}));
   const pic = response.ok && out.data && out.data[0] && out.data[0].b64_json;
   if (!pic) {
@@ -476,14 +524,14 @@ async function callCloudflareImage(ai, model, prompt, size) {
 
 async function runImageCandidate(cand, { base, keys, ai, prompt, inputs, size, quality, signal }) {
   if (cand.provider === 'gemini') {
-    const key = keys.gemini && keys.gemini.key;
+    const key = plainKeys(keys.gemini); // the key and its fallbacks, never vertex:// (pool order)
     if (cand.id === IMAGE.geminiEditModel || inputs.length > 0) {
       return await callGeminiFlashImage(base, key, cand.id, prompt, inputs, size, signal);
     }
     return await callImagen(base, key, cand.id, prompt, size, signal);
   }
   if (cand.provider === 'openai') {
-    return await callOpenAIImage(base, keys.openai && keys.openai.key, cand.id, prompt, inputs, size, quality, signal);
+    return await callOpenAIImage(base, plainKeys(keys.openai), cand.id, prompt, inputs, size, quality, signal);
   }
   if (cand.provider === 'cloudflare' && ai) {
     return await callCloudflareImage(ai, cand.id, prompt, size);
@@ -496,9 +544,9 @@ async function runImageCandidate(cand, { base, keys, ai, prompt, inputs, size, q
  * picture, base64, for a follow-up). `call` is the money ops' caller (accounts/index.js or a course payer).
  */
 export async function imageTurn(request, env, ctx, who, raw, { cfg, call, messageOf }) {
-  const keys = (cfg && cfg.keys) || {};
+  const keys = await withWorkingGemini(env, (cfg && cfg.keys) || {}, cfg && cfg.base, request.signal, 'image');
   const hasCloudflare = Boolean(env && env.AI && typeof env.AI.run === 'function');
-  if (!keys.gemini && !keys.openai && !hasCloudflare) {
+  if (!geminiKey(keys) && !keys.openai && !hasCloudflare) {
     throw new ApiError(422, 'no_provider', 'Making pictures needs Google Gemini or OpenAI, and there’s no key on askeden.com for you yet. Add yours in Settings › Models & API keys.');
   }
   const last = messageOf(raw);
@@ -591,6 +639,7 @@ export async function imageTurn(request, env, ctx, who, raw, { cfg, call, messag
       const usd = res.ok ? res.usd : 0;
       const activeOwn = active.provider === 'cloudflare' ? false : !metered(keys, active.provider);
       if (hold && !activeOwn && usd > 0) {
+        meterGoogle(env, ctx, { provider: active.provider, model: active.id, usd, bucket: hold.bucket, allow: hold, feature: 'image' }); // the hold says who pays (Plus, bought credits)
         await call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta: { feature: inputs.length ? 'image-edit' : 'image', model: active.id, tin: res.inputTokens || 0, tout: res.outputTokens || 0 } })
           .catch((error) => console.error('image spend failed', error && error.message));
       }
@@ -669,12 +718,17 @@ async function callGeminiInteractionsVideo(base, apiKey, costModel, prompt, star
   const omniModels = ['gemini-omni-1.1-flash', 'gemini-omni-flash-preview'];
   let lastErr = null;
   for (const omni of omniModels) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: omni, input }),
-      signal,
+    let key = null; // the key that started the job polls it and downloads the clip
+    const res = await pooled('gemini', apiKey, signal, (k) => {
+      key = k;
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': k, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: omni, input }),
+        signal,
+      });
     });
+    if (!res) return noKey('gemini');
     let op = await res.json().catch(() => ({}));
     if (!res.ok) {
       const blocked = /safety|blocked|policy/i.test(JSON.stringify(op));
@@ -692,13 +746,13 @@ async function callGeminiInteractionsVideo(base, apiKey, costModel, prompt, star
       await sleep(pollMs, signal);
       if (signal.aborted) break;
       const pollRes = await fetch(viaBase(base, `${GEMINI_BASE}/v1beta/interactions/${encodeURIComponent(op.id)}`), {
-        headers: { 'x-goog-api-key': apiKey },
+        headers: { 'x-goog-api-key': key },
         signal,
       });
       if (!pollRes.ok) break;
       op = await pollRes.json().catch(() => ({}));
     }
-    const clip = await extractVeoVideo(base, apiKey, op, signal);
+    const clip = await extractVeoVideo(base, key, op, signal);
     if (clip && clip.data) {
       return { ok: true, mime: clip.mime || 'video/mp4', data: clip.data, usd: videoUSD(costModel, seconds) };
     }
@@ -714,15 +768,20 @@ async function callVeoVideo(base, apiKey, model, prompt, startImage, aspect, sec
     prompt,
     ...(startImage ? { image: { bytesBase64Encoded: startImage.data, mimeType: startImage.mime } } : {}),
   };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      instances: [instance],
-      parameters: { aspectRatio: aspect, durationSeconds: seconds, sampleCount: 1 },
-    }),
-    signal,
+  let key = null; // the key that started the job polls it and downloads the clip
+  const res = await pooled('gemini', apiKey, signal, (k) => {
+    key = k;
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': k, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        instances: [instance],
+        parameters: { aspectRatio: aspect, durationSeconds: seconds, sampleCount: 1 },
+      }),
+      signal,
+    });
   });
+  if (!res) return noKey('gemini');
   let op = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 404) {
@@ -743,7 +802,7 @@ async function callVeoVideo(base, apiKey, model, prompt, startImage, aspect, sec
     await sleep(pollMs, signal);
     if (signal.aborted) break;
     const pollUrl = viaBase(base, `${GEMINI_BASE}/v1beta/${String(op.name).replace(/^\/+/, '')}`);
-    const pollRes = await fetch(pollUrl, { headers: { 'x-goog-api-key': apiKey }, signal });
+    const pollRes = await fetch(pollUrl, { headers: { 'x-goog-api-key': key }, signal });
     if (!pollRes.ok) {
       const errOut = await pollRes.json().catch(() => ({}));
       return { ok: false, status: pollRes.status, retryable: pollRes.status >= 500, message: refusalWords('gemini', pollRes.status, errOut) };
@@ -755,7 +814,7 @@ async function callVeoVideo(base, apiKey, model, prompt, startImage, aspect, sec
     return { ok: false, status: 400, retryable: false, message: refusalWords('gemini', 400, { error: op.error }) };
   }
 
-  const clip = await extractVeoVideo(base, apiKey, op, signal);
+  const clip = await extractVeoVideo(base, key, op, signal);
   if (!clip || !clip.data) {
     const rai = op?.response?.generateVideoResponse?.raiMediaFilteredReasons;
     if (Array.isArray(rai) && rai.length) {
@@ -771,8 +830,8 @@ async function callVeoVideo(base, apiKey, model, prompt, startImage, aspect, sec
  * The video turn: generates an MP4 clip (or animates a picture) with Google Veo on GCP credits.
  */
 export async function videoTurn(request, env, ctx, who, raw, { cfg, call, messageOf }) {
-  const keys = (cfg && cfg.keys) || {};
-  if (!keys.gemini) {
+  const keys = await withWorkingGemini(env, (cfg && cfg.keys) || {}, cfg && cfg.base, request.signal, 'video');
+  if (!geminiKey(keys)) {
     throw new ApiError(422, 'no_provider', 'Making videos needs Google Gemini, and there’s no Gemini key on askeden.com for you yet. Add yours in Settings › Models & API keys.');
   }
   const last = messageOf(raw);
@@ -851,10 +910,10 @@ export async function videoTurn(request, env, ctx, who, raw, { cfg, call, messag
       }));
 
       let active = primary;
-      let res = await callVeoVideo(cfg.base, keys.gemini.key, primary.id, prompt, startImage, aspect, seconds, signal, { pollMs });
+      let res = await callVeoVideo(cfg.base, plainKeys(keys.gemini), primary.id, prompt, startImage, aspect, seconds, signal, { pollMs });
       if (!res.ok && res.retryable && decision.fallbacks.length) {
         for (const fb of decision.fallbacks) {
-          const next = await callVeoVideo(cfg.base, keys.gemini.key, fb.id, prompt, startImage, aspect, seconds, signal, { pollMs });
+          const next = await callVeoVideo(cfg.base, plainKeys(keys.gemini), fb.id, prompt, startImage, aspect, seconds, signal, { pollMs });
           if (next.ok) {
             write(sse('fallback', { from: active.id, to: fb.id, toName: fb.name, provider: fb.provider, reason: res.message }));
             active = fb;
@@ -866,6 +925,7 @@ export async function videoTurn(request, env, ctx, who, raw, { cfg, call, messag
 
       const usd = res.ok ? res.usd : 0;
       if (hold && usd > 0) {
+        meterGoogle(env, ctx, { provider: active.provider, model: active.id, usd, bucket: hold.bucket, allow: hold, feature: 'video' }); // the hold says who pays (Plus, bought credits)
         await call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta: { feature: startImage ? 'video-animate' : 'video', model: active.id, seconds } })
           .catch((error) => console.error('video spend failed', error && error.message));
       }

@@ -156,29 +156,29 @@ const turn = (session, body, opts) => chat('/api/chat/send', session, { method: 
 test('the candidate set follows the keys: meta lists every keyed provider’s models; switching one off or removing its key shrinks it', async () => {
   const value = await signedInBrowser(await phone());
   const meta = await (await chat('/api/chat/meta', value)).json();
-  assert.deepEqual(meta.providers.map((p) => [p.id, p.available]), [['anthropic', true], ['openai', true], ['gemini', true], ['kimi', true]]);
-  assert.deepEqual(new Set(meta.models.map((m) => m.provider)), new Set(['anthropic', 'openai', 'gemini', 'kimi']));
+  assert.deepEqual(meta.providers.map((p) => [p.id, p.available]), [['anthropic', true], ['openai', true], ['gemini', true], ['kimi', false]]); // Kimi K3 retired 2026-11-10: no Moonshot model offered
+  assert.deepEqual(new Set(meta.models.map((m) => m.provider)), new Set(['anthropic', 'openai', 'gemini']));
   assert.ok(meta.models.every((m) => m.keySource === 'service' && !m.efforts.includes('xhigh')));
   assert.equal(meta.models.find((m) => m.id === 'gpt-6.1-sol').vision, true);
-  assert.ok(!meta.models.some((m) => ['claude-haiku-4-5', 'kimi-k2.7-code', 'gemini-3.1-pro-preview', 'gpt-6-sol', 'gpt-6-luna'].includes(m.id)), 'retired models aren\'t offered');
+  assert.ok(!meta.models.some((m) => ['claude-haiku-4-5', 'kimi-k2.7-code', 'kimi-k3', 'gemini-3.1-pro-preview', 'gpt-6-sol', 'gpt-6-luna'].includes(m.id)), 'retired models aren\'t offered');
   assert.equal(meta.classifier.available, true);
   assert.equal(meta.search.via, 'gemini');
   delete env.OPENAI_API_KEY;
   env.EDEN_GEMINI = 'off';
   const less = await (await chat('/api/chat/meta', value)).json();
-  assert.deepEqual([...new Set(less.models.map((m) => m.provider))].sort(), ['anthropic', 'kimi']);
+  assert.deepEqual([...new Set(less.models.map((m) => m.provider))].sort(), ['anthropic']);
   assert.match(less.providers.find((p) => p.id === 'openai').reason, /No OpenAI API key/);
   assert.equal(less.classifier.available, false);
   assert.equal(less.search.via, 'anthropic');
   const preview = await (await hit('/api/route', { method: 'POST', session: value, body: { prompt: 'Prove there are infinitely many primes.', level: 3 } })).json();
-  assert.ok(['anthropic', 'kimi'].includes(preview.pick.provider ?? modelOf(preview.pick.model).provider));
+  assert.equal(preview.pick.provider ?? modelOf(preview.pick.model).provider, 'anthropic');
 });
 
 test('each provider streams with the Mac’s code and is billed at its list price; the caps reach every request', async () => {
   const owner = await phone();
   const value = await signedInBrowser(owner);
   let spent = 0;
-  for (const [model, label] of [['gpt-6.1-sol', 'OpenAI cloud'], ['gemini-3.8-flash', 'Google cloud'], ['kimi-k3', 'Moonshot cloud'], ['claude-sonnet-5-5', 'Anthropic cloud']]) {
+  for (const [model, label] of [['gpt-6.1-sol', 'OpenAI cloud'], ['gemini-3.8-flash', 'Google cloud'], ['claude-sonnet-5-5', 'Anthropic cloud']]) { // Kimi K3 retired 2026-11-10 (its stream is tested above)
     const events = await readEvents(await turn(value, { override: { model, effort: 'max' }, settings: { level: 3, classifier: 'off' } }));
     const route = events.find((e) => e.type === 'route').data;
     assert.equal(route.where.label, label, model);
@@ -191,10 +191,9 @@ test('each provider streams with the Mac’s code and is billed at its list pric
     assert.deepEqual(events.at(-1), { type: 'done', data: { finish: 'stop' } });
     spent += usage.costUSD;
   }
-  const [openai, gemini, kimi, claude] = calls;
+  const [openai, gemini, claude] = calls;
   assert.ok(openai.body.max_completion_tokens <= DEFAULTS.maxTokens && openai.body.stream_options.include_usage && openai.headers.authorization === 'Bearer sk-openai-test');
   assert.ok(gemini.body.generationConfig.maxOutputTokens <= 65536 && gemini.headers['x-goog-api-key'] === 'gm-test');
-  assert.ok(kimi.body.max_completion_tokens <= 32768 && kimi.body.reasoning_effort === 'high');
   assert.ok(claude.body.max_tokens <= DEFAULTS.maxTokens);
   assert.ok(Math.abs((await trialLeft(owner)) - (1 - spent)) < 1e-5);
   assert.equal(accountOf(owner).holds.size, 0);

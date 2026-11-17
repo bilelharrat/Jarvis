@@ -23,8 +23,9 @@ import { ApiError, b64url, hex, json, randomBytes, sameText, sha256Hex } from '.
 import { MODELS, OPTIMIZATION_LEVELS, createLocalRouter, effortLabel } from '../eden/vendor/model-router.js';
 import { requestMaxOutputTokens, withMaxOutputTokens } from '../eden/vendor/providers.js';
 import { assessRisk } from '../eden/vendor/verify.js';
-import { KEY_VARS, PROVIDER_NAMES, autoModels, capRequest, devProviderBase, modelOf, ratingRouter, streamCall } from '../eden/providers.js';
+import { KEY_VARS, PROVIDER_NAMES, autoModels, capRequest, devProviderBase, modelOf, plainServiceKeys, ratingRouter, streamCall } from '../eden/providers.js';
 import { effortsFor, hostedConfig } from '../eden/chat.js';
+import { meterGoogle } from '../eden/credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
 
 const MODEL_RELIABILITY = new Map(
   MODELS.map((m) => [
@@ -73,6 +74,41 @@ async function store(env, op, body = {}) {
   }
   return out;
 }
+
+// ── unknown keys: a short negative cache (docs/load-balancing.md) ──
+// A well-formed sk-eden key the store rejected as unknown ('invalid_api_key') is answered here for BAD_KEY_MS, in this
+// Worker copy, so a client retrying a dead key stops reaching the one 'clients' object. Only the key's SHA-256 is
+// kept, never the key; valid, revoked, paused or rate-limited keys are never cached. ROUTER_BAD_KEY_CACHE=off: none.
+const BAD_KEY_MS = 30_000;
+const BAD_KEY_MAX = 5000;
+const badKeys = new Map(); // sha256 → expires at
+let badKeyClock = () => Date.now();
+const badCacheOn = (env) => !/^(off|0|false|no)$/i.test(String((env && env.ROUTER_BAD_KEY_CACHE) ?? '').trim());
+function knownBad(env, hash) {
+  if (!badCacheOn(env)) return false;
+  const until = badKeys.get(hash);
+  if (!until) return false;
+  if (until > badKeyClock()) return true;
+  badKeys.delete(hash);
+  return false;
+}
+function rememberBad(env, hash) {
+  if (!badCacheOn(env)) return;
+  const now = badKeyClock();
+  if (badKeys.size >= BAD_KEY_MAX) {
+    for (const [h, until] of badKeys) if (until <= now) badKeys.delete(h); // the expired first
+    while (badKeys.size >= BAD_KEY_MAX) badKeys.delete(badKeys.keys().next().value); // then the oldest
+  }
+  badKeys.delete(hash);
+  badKeys.set(hash, now + BAD_KEY_MS);
+}
+/** Tests only: forget the cache; optional fake clock. → its size. */
+export function resetBadKeys({ now = null } = {}) {
+  badKeys.clear();
+  badKeyClock = now || (() => Date.now());
+  return badKeys.size;
+}
+export const badKeyCount = () => badKeys.size;
 
 /** A new client key: sk-eden- + 32 random bytes (base64url, 43 characters). */
 export const newApiKey = () => `sk-eden-${b64url(randomBytes(32))}`;
@@ -178,15 +214,19 @@ export async function routerAdmin(request, env) {
 
 // ── the request ──
 
-/** The client's provider keys: its own headers first; the Worker's only when the client may use them. */
+/**
+ * The client's provider keys: its own headers first; the Worker's only when the client may use them. The Worker's are
+ * its plain service keys (comma list, <VAR>_2 … _9, fallback list; never Vertex) in pool order (key-pool.js), the
+ * rest as fallbackKeys so streamCall moves to the next key of the same model.
+ */
 export function providerKeys(request, env, client) {
   const keys = {};
   for (const p of API_PROVIDERS) {
     const own = String(request.headers.get(KEY_HEADERS[p]) || '').trim();
     if (own) keys[p] = { key: own, source: 'client' };
     else if (client.service_keys) {
-      const k = String(env[KEY_VARS[p]] || '').trim();
-      if (k) keys[p] = { key: k, source: 'service' };
+      const [k, ...rest] = plainServiceKeys(env, p);
+      if (k) keys[p] = { key: k, source: 'service', ...(rest.length ? { fallbackKeys: rest } : {}) };
     }
   }
   return keys;
@@ -655,7 +695,15 @@ export async function routerApi(request, env, ctx, path) {
     const auth = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get('authorization') || '');
     if (!auth) throw fail(401, 'missing_api_key', 'Send your Eden Router key as "Authorization: Bearer sk-eden-…".');
     if (!KEY_RE.test(auth[1])) throw fail(401, 'invalid_api_key', 'Invalid API key.');
-    const admitted = await store(env, 'admit', { hash: await sha256Hex(auth[1]) });
+    const hash = await sha256Hex(auth[1]);
+    if (knownBad(env, hash)) throw fail(401, 'invalid_api_key', 'Invalid API key.'); // the same answer the store gave, ~30 s ago
+    let admitted;
+    try {
+      admitted = await store(env, 'admit', { hash });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401 && error.code === 'invalid_api_key') rememberBad(env, hash);
+      throw error;
+    }
     const client = admitted.client;
     if (path === '/v1/models') return models();
     if (path === '/v1/usage') {
@@ -928,15 +976,19 @@ async function completions(request, env, ctx, client, spentToday, record) {
   // Runs the pick, then (a provider error before any text) the router's next pick, once.
   const run = async (emitText) => {
     let sent = 0;
-    const call = (c) => streamCall({ model: c.model, request: c.request, messages: conv.messages, system: conv.system, key: keys[c.model.provider].key, base, inputTokens: conv.inputTokens }, { signal: abort.signal, emit: (type, data) => { if (type === 'text' && data.text) { sent += data.text.length; emitText(c, data.text); } } });
+    const call = (c) => streamCall({ model: c.model, request: c.request, messages: conv.messages, system: conv.system, key: keys[c.model.provider].key, fallbackKeys: keys[c.model.provider].fallbackKeys, base, inputTokens: conv.inputTokens }, { signal: abort.signal, emit: (type, data) => { if (type === 'text' && data.text) { sent += data.text.length; emitText(c, data.text); } } });
+    // credit-pacer.js: a Router API client pays, so its Google calls count as paid (on the service's keys only)
+    const meter = (c, x) => { if ((keys[c.model.provider] || {}).source === 'service') meterGoogle(env, ctx, { provider: c.model.provider, model: c.model.id, usage: x.usage, usd: x.costUSD, paid: true, feature: 'router-api' }); };
     let used = first;
     let r = await call(first);
+    meter(first, r);
     let fallback = null;
     let spent = r.costUSD || 0;
     if (r.failure && !r.stopped && !sent && next) {
       fallback = { from: first.model.id, reason: r.failure };
       used = candidate(cfg, conv, extras, next, result);
       r = await call(used);
+      meter(used, r);
       spent += r.costUSD || 0;
     }
     return { r, used, fallback, spent: round6(spent + ratingUSD) };

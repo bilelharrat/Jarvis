@@ -30,6 +30,13 @@ export function progressView(node, now) {
   const aborted = node.finish === 'aborted';
   const failed = Boolean(node.error);
   const live = Boolean(node.streaming && !aborted && !failed);
+  // The app went to the background mid-reply and its connection dropped (chat.js resumeAfterDrop): the reply starts again
+  // by itself when the app is back, so this says so, not "Reply failed".
+  if (live && node.resuming) {
+    const elapsed = measured(node.startedAt) && measured(now) && now >= node.startedAt ? duration(now - node.startedAt) : '';
+    return { rows: [{ id: 'resume', text: 'The connection dropped while the app was closed · starting the reply again', status: 'active' }],
+      title: 'Reconnecting…', phase: 'work', elapsed, meta: '', warning: '', canStop: true, trace: '' };
+  }
   const interrupted = aborted || failed;
   const thinking = Boolean(text(node.thinking) || (live && node.thinkingLive));
   const reasoning = Boolean(live && thinking && (node.thinkingLive || !answer));

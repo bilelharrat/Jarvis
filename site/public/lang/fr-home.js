@@ -113,6 +113,13 @@ SiteI18n.add({
     'Everything in Free': 'Tout ce que comprend Gratuit',
     'Used after your included AI runs out': 'Utilisés une fois votre IA incluse épuisée',
     'Optional auto top-up when you run low': 'Recharge automatique facultative quand votre solde baisse',
+    // the six plans (PLANS_V2, /home/plans.js: whole lines; prices are written in French by the script) and Eden Enterprise
+    '/month': '/mois',
+    'Unused AI carries over one month, then expires.': 'L’IA non utilisée est reportée d’un mois, puis expire.',
+    'Eden Enterprise': 'Eden Enterprise',
+    'For teams and companies: shared AI budget, admin controls, invoicing. Contact us for pricing.':
+      'Pour les équipes et les entreprises : budget d’IA partagé, contrôles d’administration, facturation. Contactez-nous pour connaître les tarifs.',
+    'Contact us': 'Nous contacter',
     // Marketing, case study, guides & lead capture
     'Guides': 'Guides',
     'Case study': 'Étude de cas',
@@ -162,8 +169,35 @@ SiteI18n.add({
     'Credits for more AI, on Free or Plus': '<b>Des crédits</b> pour plus d’IA, avec Gratuit ou Plus',
     'Plus members get more from every credit': 'Les membres Plus obtiennent <b>davantage de chaque crédit</b>',
     'Credits last 12 months': 'Les crédits sont valables <b>12 mois</b>',
+    'Plans are billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the Terms).':
+      'Les forfaits sont facturés chaque mois ou chaque année par carte via Stripe ; résiliez à tout moment depuis votre compte. Les crédits sont un achat ponctuel (voir les <a href="/terms">Conditions</a>).',
     'Plus is billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the Terms).':
       'Plus est facturé chaque mois ou chaque année par carte via Stripe ; résiliez à tout moment depuis votre compte. Les crédits sont un achat ponctuel (voir les <a href="/terms">Conditions</a>).',
+    // The Ask Eden galaxy (the ring of Eden apps, 2026-11-13)
+    'Eden apps': 'Les apps Eden',
+    'The Ask Eden galaxy': 'La galaxie Ask Eden',
+    'Twelve Eden apps around one chat: for code, travel, your calendar, the news, mail, school, and checking what AI tells you. Each one opens its own site.':
+      'Douze apps Eden autour d’une seule discussion : pour le code, les voyages, votre agenda, l’actualité, les e-mails, l’école, et pour vérifier ce que l’IA vous dit. Chacune ouvre son propre site.',
+    'Eden Apollo, Eden’s browser, is coming to iPhone and iPad.': 'Eden Apollo, le navigateur d’Eden, arrive sur iPhone et iPad.',
+    'Ask Eden at the center of the Eden galaxy: twelve apps, each linking to its own site.': 'Ask Eden au centre de la galaxie Eden : douze apps, chacune avec un lien vers son propre site.',
+    'Code': 'Code', 'Travel': 'Voyages', 'Education': 'Éducation', 'Router': 'Router', 'Calendar': 'Agenda', 'Daredevil': 'Daredevil',
+    'Secretary': 'Secretary', 'News': 'Actualités', 'Messenger': 'Messenger', 'Apollo': 'Apollo',
+    'Eden Code': 'Eden Code', 'Ask Eden Travel': 'Ask Eden Travel', 'Eden for Education': 'Eden for Education', 'Eden Router': 'Eden Router',
+    'Eden Calendar': 'Eden Calendar', 'Eden Daredevil': 'Eden Daredevil', 'Eden Mail': 'Eden Mail', 'EVES': 'EVES', 'EVES Verification': 'Vérification EVES',
+    'Eden Secretary': 'Eden Secretary', 'Eden News': 'Eden News', 'Eden Messenger': 'Eden Messenger',
+    'Eden Apollo · coming to iPhone and iPad': 'Eden Apollo · bientôt sur iPhone et iPad',
+    'Eden Apollo, coming to iPhone and iPad': 'Eden Apollo, bientôt sur iPhone et iPad',
   },
-  patterns: [],
+  patterns: [
+    // the six plans' lines (/home/plans.js; counts already written as fr-FR writes them)
+    [/^Or ([\d\s\u202f\u00a0]+ \$) a year \((\d+) months? free\)$/, (_, m, n) => `Ou ${m} par an (${n} mois ${n === '1' ? 'offert' : 'offerts'})`],
+    [/^Or ([\d\s\u202f\u00a0]+ \$) a year$/, 'Ou $1 par an'],
+    [/^~([\d\s\u202f\u00a0]+) answers or ([\d\s\u202f\u00a0]+) EVES Strong a month$/, '~$1 réponses ou $2 EVES Strong par mois'],
+    [/^~([\d\s\u202f\u00a0]+) answers a month$/, '~$1 réponses par mois'],
+    [/^Then up to ([\d\s\u202f\u00a0]+) Flash answers a day$/, 'Puis jusqu’à $1 réponses Flash par jour'],
+    [/^([\d\s\u202f\u00a0]+) minutes of Eden’s cloud browser a month$/, '$1 minutes de navigateur cloud d’Eden par mois'],
+    [/^([\d\s\u202f\u00a0]+) characters of Eden Secretary voice a day$/, '$1 caractères de voix Eden Secretary par jour'],
+    [/^(Plus|Pro|Max|Ultra|Platinum|Eden Black) Bonus: up to \+(\d+(?:\.\d+)?)% AI$/, (_, name, p) => `${name} Bonus\u00a0: jusqu’à +${p.replace('.', ',')}\u00a0% d’IA`],
+    [/^Get (Plus|Pro|Max|Ultra|Platinum|Eden Black)$/, 'Passer à $1'],
+  ],
 });

@@ -242,3 +242,87 @@ test('switched off: no Image mode, and “draw me…” gets a plain “Eden doe
   assert.match(r.events[0].data.text, /Eden doesn\u2019t make pictures/);
   assert.doesNotMatch(r.events[0].data.text, /\b(?:soon|yet|coming)\b/i, 'never promises a feature during App Review');
 });
+
+test('with a Vertex credential first (askeden.com: VERTEX_CREDENTIALS), videos and pictures still send the plain Gemini key, never vertex://', async () => {
+  env.GEMINI_API_KEY = 'AIza-gemini-test';
+  env.VERTEX_CREDENTIALS = '{"type":"service_account"}';
+  env.TRIAL_BUDGET_USD = '5';
+  const token = await browser();
+  const v = await send(token, { messages: [{ role: 'user', content: 'make a video of a dog playing catch' }] });
+  assert.equal(v.status, 200, v.text);
+  assert.ok(v.events.some((e) => e.type === 'video'), v.text);
+  const google = calls.filter((c) => c.url.startsWith('https://generativelanguage.googleapis.com/'));
+  assert.ok(google.length > 0);
+  for (const c of google) assert.equal(c.init.headers['x-goog-api-key'], 'AIza-gemini-test', c.url);
+  calls.length = 0;
+  const p = await send(token, { messages: [{ role: 'user', content: 'draw me a lighthouse at dusk' }] });
+  assert.equal(p.status, 200, p.text);
+  const gp = calls.filter((c) => c.url.startsWith('https://generativelanguage.googleapis.com/'));
+  for (const c of gp) assert.equal(c.init.headers['x-goog-api-key'], 'AIza-gemini-test', c.url);
+});
+
+test('a person’s own Gemini key that Google refuses: pictures and videos fall back to askeden.com’s key (and are counted as such)', async () => {
+  const { withWorkingGemini } = await import('../src/eden/image.js');
+  const seen = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    seen.push(init.headers && init.headers['x-goog-api-key']);
+    if (url.includes('/v1beta/models?pageSize=1')) {
+      return init.headers['x-goog-api-key'] === 'AIza-own-bad'
+        ? new Response(JSON.stringify({ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }] } }), { status: 400 })
+        : Response.json({ models: [] });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const env2 = { GEMINI_API_KEY: 'AIza-service' };
+  const bad = await withWorkingGemini(env2, { gemini: { key: 'AIza-own-bad', source: 'user' } }, null, undefined, 'video');
+  assert.deepEqual(bad.gemini, { key: 'AIza-service', source: 'service' });
+  const good = { gemini: { key: 'AIza-own-good', source: 'user' } };
+  assert.equal(await withWorkingGemini(env2, good, null, undefined, 'image'), good, 'a working own key is kept');
+  const svc = { gemini: { key: 'AIza-service', source: 'service' } };
+  const n = seen.length;
+  assert.equal(await withWorkingGemini(env2, svc, null, undefined, 'image'), svc);
+  assert.equal(seen.length, n, 'the service key is never pre-checked (no extra call)');
+});
+
+test('a real service-account VERTEX_CREDENTIALS (JSON, full of commas) stays ONE key: never split into fake Gemini keys', async () => {
+  const { serviceKeyTiers, plainKeys } = await import('../src/eden/providers.js');
+  const cred = JSON.stringify({ type: 'service_account', project_id: 'gen-lang-client-0068133515', private_key_id: 'abc', private_key: '-----BEGIN PRIVATE KEY-----\nMII,xyz\n-----END PRIVATE KEY-----\n', client_email: 'eden@gen-lang-client-0068133515.iam.gserviceaccount.com', client_id: '1', token_uri: 'https://oauth2.googleapis.com/token' });
+  const env2 = { GEMINI_API_KEY: 'AIza-plain-1,AIza-plain-2', VERTEX_CREDENTIALS: cred };
+  const tiers = serviceKeyTiers(env2, 'gemini');
+  assert.equal(tiers.length, 2);
+  assert.equal(tiers[0].length, 1, 'the Vertex tier is one credential');
+  assert.ok(tiers[0][0].startsWith('vertex://') && tiers[0][0].endsWith(cred), 'whole, untouched');
+  assert.deepEqual(tiers[1], ['AIza-plain-1', 'AIza-plain-2'], 'plain keys still split on commas');
+  assert.deepEqual(plainKeys(tiers.flat()), ['AIza-plain-1', 'AIza-plain-2'], 'no JSON fragment ever passes as an API key');
+  // and a picture goes out with a real key
+  env.GEMINI_API_KEY = 'AIza-gemini-test';
+  env.VERTEX_CREDENTIALS = cred;
+  env.TRIAL_BUDGET_USD = '5';
+  const token = await browser();
+  const p = await send(token, { messages: [{ role: 'user', content: 'draw me a dog' }] });
+  assert.equal(p.status, 200, p.text);
+  for (const c of calls.filter((x) => x.url.startsWith('https://generativelanguage.googleapis.com/'))) assert.equal(c.init.headers['x-goog-api-key'], 'AIza-gemini-test', c.url);
+});
+
+test('with EVES on, "make a video of…" is made by Veo, not sent to three models and a judge', async () => {
+  env.GEMINI_API_KEY = 'AIza-gemini-test';
+  env.TRIAL_BUDGET_USD = '5';
+  const token = await browser();
+  const res = await worker.fetch(new Request(`${ORIGIN}/api/chat/eves`, { method: 'POST', headers: { origin: ORIGIN, 'x-jarvis-chat': '1', 'content-type': 'application/json', cookie: `__Host-eden=${token}`, 'user-agent': 'Mozilla/5.0 Safari/605' }, body: JSON.stringify({ mode: 'on', messages: [{ role: 'user', content: 'make a video of a dog playing catch' }] }) }), env, ctx);
+  const text = await res.text();
+  await settle();
+  const types = [...text.matchAll(/event: (\w+)\n/g)].map(([, t]) => t);
+  assert.equal(res.status, 200, text);
+  assert.ok(types.includes('video'), text.slice(0, 300));
+  assert.ok(!types.includes('eves'), 'no EVES run for a video');
+});
+
+test('an empty earlier message (a failed turn) never reaches a model as empty content', async () => {
+  const { parseSend } = await import('../src/eden/chat.js');
+  const body = parseSend({ messages: [
+    { role: 'user', content: 'make a video of a dog' }, { role: 'assistant', content: '' },
+    { role: 'user', content: '' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'hi' },
+  ] }, { models: [] });
+  assert.deepEqual(body.messages.map((m) => m.content), ['make a video of a dog', '(no reply)', '(an empty message)', 'ok', 'hi']);
+});

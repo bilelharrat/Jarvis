@@ -28,7 +28,7 @@ const tx = (s) => (globalThis.edenI18n ? globalThis.edenI18n.t(s) : s);
 /** Inside the native app at all (the App Store copy and TestFlight betas): the bridge, sign-in, purchases, consent. */
 export const IN_APP_SHELL = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '');
 /** A TestFlight beta (WebController.swift adds "EdenBeta/"): gets the whole website, as the App Store app will after review. */
-export const APP_BETA = IN_APP_SHELL && /\bEdenBeta\//.test(navigator.userAgent || '');
+export const APP_BETA = IN_APP_SHELL; // since 2026-11-05 (owner) the Eden iPhone app gets the whole website, like the TestFlight beta; only Eden for Education stays frozen
 /** The App Store app: features held back from it stay off. A beta is not this. */
 export const IN_APP = IN_APP_SHELL && !APP_BETA;
 /** Ask Eden Travel's iPhone app (askeden ios/ EdenTravel: "EdenTravelApp/" in its user agent, never "EdenApp/"): a web view of
@@ -36,11 +36,11 @@ export const IN_APP = IN_APP_SHELL && !APP_BETA;
 export const IN_TRAVEL_APP = typeof navigator !== 'undefined' && /\bEdenTravelApp\//.test(navigator.userAgent || '');
 /** The Android app (its user agent adds "EdenAndroid/"): says "phone" where the iPhone app says "iPhone". */
 export const IN_ANDROID = IN_APP_SHELL && /\bEdenAndroid\//.test(navigator.userAgent || '');
-const PHONE = IN_ANDROID ? 'phone' : 'iPhone';
+export const PHONE = IN_ANDROID ? 'phone' : 'iPhone';
 /** The model id of Apple's on-device model, as the page knows it. */
 export const ON_DEVICE = 'apple-on-device';
 
-const caps = { online: true, serverLocal: false, activities: false, browser: false, print: false, plus: false, aiConsent: null, ondevice: { available: false, reason: 'unknown', words: '' } };
+const caps = { online: true, serverLocal: false, activities: false, browser: false, print: false, plus: false, storefront: null, webCheckout: false, aiConsent: null, ondevice: { available: false, reason: 'unknown', words: '' } };
 const turns = new Map(); // turn id -> { push(event, data), end(), fail(error) }
 
 function toApp(msg) {
@@ -105,6 +105,39 @@ export function appPlus(op, extra = {}) {
 /** Each plus.state the app sends; returns a function that stops listening. */
 export function onAppPlus(fn) { plusListeners.add(fn); return () => plusListeners.delete(fn); }
 
+/**
+ * The App Store storefront (StoreKit 2 Storefront.current, ISO alpha-3, e.g. "USA") when this
+ * build can open askeden.com's Checkout in Safari (caps.webCheckout, `plus.web`), else null. An
+ * older build sends neither key: null, so no link (the server's billing_link_out decides where).
+ */
+export const appLinkOutStorefront = () => (appSellsPlus() && caps.webCheckout === true ? caps.storefront : null);
+const webOpens = new Map(); // id -> ({ ok, error }) => void
+let webSeq = 0;
+/**
+ * Opens a Stripe Checkout or portal address in the default browser (Safari), never in the app's
+ * own browser: `plus.web` {id, url}; the app checks the storefront and the host again. Resolves
+ * { ok, error } when the app answers, or ok: false after 10 s or when this build can't. If the
+ * page was hidden while waiting (Safari came up and this web view was suspended before the
+ * answer), the time-out counts as opened: no false "couldn't open Safari".
+ */
+export function appWebCheckout(url, { wait = 10_000 } = {}) {
+  if (!appLinkOutStorefront()) return Promise.resolve({ ok: false, error: tx('This version of Eden can’t open askeden.com. Update Eden, or subscribe with the App Store.') });
+  const id = `web-${++webSeq}`;
+  const doc = typeof document !== 'undefined' && typeof document.addEventListener === 'function' ? document : null;
+  let hid = Boolean(doc) && doc.visibilityState === 'hidden';
+  const onVisibility = () => { if (doc.visibilityState === 'hidden') hid = true; };
+  if (doc) doc.addEventListener('visibilitychange', onVisibility);
+  return new Promise((resolve) => {
+    const finish = (r) => { if (doc) doc.removeEventListener('visibilitychange', onVisibility); resolve(r); };
+    const end = setTimeout(() => {
+      webOpens.delete(id);
+      finish(hid ? { ok: true, error: null } : { ok: false, error: tx('Eden couldn’t open Safari. Try again.') });
+    }, wait);
+    webOpens.set(id, (r) => { clearTimeout(end); finish(r); });
+    toApp({ kind: 'plus.web', id, url: String(url || '') });
+  });
+}
+
 /* ---------- AI consent (App Store 5.1.1(i)/5.1.2(i)) ---------- */
 
 /** What the page says before a cloud-model send when the person hasn't allowed it (or took it back). */
@@ -144,10 +177,38 @@ function withOnDevice(models) {
   const rest = (Array.isArray(models) ? models : []).filter((m) => m && m.id !== ON_DEVICE);
   return listed() ? [...rest, onDeviceModel()] : rest;
 }
-/** Privacy mode's "local model" on the phone is this one (privacy.js reads meta.local). */
+/** Privacy mode's "local model" on the phone includes this iPhone plus any server/Mac private models (privacy.js reads meta.local). */
 function withPhoneLocal(meta) {
-  const phone = { available: true, onDevice: true, reason: null, models: [{ id: ON_DEVICE, serverName: `this ${PHONE}` }], servers: [] };
-  if (caps.ondevice.available) return { ...meta, local: phone };
+  const existing = meta && meta.local && typeof meta.local === 'object' ? meta.local : null;
+  const existingModels = existing && Array.isArray(existing.models) ? existing.models.filter((m) => m && m.id !== ON_DEVICE) : [];
+  const existingServers = existing && Array.isArray(existing.servers) ? existing.servers.filter((s) => s && s.id !== 'on-device') : [];
+  if (caps.ondevice.available) {
+    const phoneModel = { id: ON_DEVICE, server: 'on-device', serverName: `this ${PHONE}` };
+    const phoneServer = { id: 'on-device', name: `this ${PHONE}`, available: true, models: [ON_DEVICE], reason: null };
+    return {
+      ...meta,
+      local: {
+        ...(existing || {}),
+        available: true,
+        onDevice: true,
+        reason: null,
+        models: [phoneModel, ...existingModels],
+        servers: [phoneServer, ...existingServers],
+      },
+    };
+  }
+  if (existing && existingModels.length > 0) {
+    return {
+      ...meta,
+      local: {
+        ...existing,
+        available: true,
+        onDevice: false,
+        models: existingModels,
+        servers: existingServers,
+      },
+    };
+  }
   return meta.local && meta.local.onDevice ? { ...meta, local: undefined } : meta;
 }
 function offlineMeta() {
@@ -220,7 +281,7 @@ export function nativeTransport(path, init, next) {
   if (!IN_APP_SHELL) return null;
   if (path === '/api/chat/meta') {
     return next(path, init).then(async (res) => {
-      if (!res.ok || !listed()) return res;
+      if (!res.ok) return res;
       const meta = await res.clone().json().catch(() => null);
       if (!meta || !Array.isArray(meta.models)) return res;
       return jsonResponse(withPhoneLocal({ ...meta, models: withOnDevice(meta.models) }));
@@ -229,12 +290,27 @@ export function nativeTransport(path, init, next) {
       throw e;
     });
   }
+  if (path === '/api/chat/local') {
+    return next(path, init).then(async (res) => {
+      if (!res.ok) return res;
+      const loc = await res.clone().json().catch(() => null);
+      if (!loc || typeof loc !== 'object') return res;
+      const merged = withPhoneLocal({ local: loc }).local || loc;
+      return jsonResponse(merged);
+    }, (e) => {
+      if (e && e.name !== 'AbortError' && caps.ondevice.available) {
+        return jsonResponse(withPhoneLocal({}).local);
+      }
+      throw e;
+    });
+  }
   if (path !== '/api/chat/send' || !init || typeof init.body !== 'string') return null;
   let body;
   try { body = JSON.parse(init.body); } catch { return null; }
-  const picked = !!(body.override && body.override.model === ON_DEVICE);
+  const picked = !!(body.override && body.override.model === ON_DEVICE) || (body.privacy === true && body.localModel === ON_DEVICE);
+  const hasExplicitRemotePrivate = body.privacy === true && typeof body.localModel === 'string' && body.localModel && body.localModel !== ON_DEVICE;
   const why = picked ? 'picked'
-    : body.privacy === true && caps.ondevice.available ? 'private'
+    : body.privacy === true && !hasExplicitRemotePrivate && caps.ondevice.available ? 'private'
       : offline() && caps.ondevice.available ? 'offline' : null;
   if (why) return onDeviceTurn(body, init.signal, why);
   // no consent for the cloud models (chat.js asks first; this is for every other way a send gets here)
@@ -354,6 +430,9 @@ function fromApp(e) {
     caps.browser = !!m.browser;
     caps.print = !!m.print;
     caps.plus = !!m.plus;
+    // the link-out to askeden.com's Checkout (appLinkOutStorefront): not part of the model list, so not in `was`
+    caps.storefront = typeof m.storefront === 'string' && /^[A-Z]{3}$/.test(m.storefront) ? m.storefront : null;
+    caps.webCheckout = m.webCheckout === true;
     if (typeof m.aiConsent === 'boolean') caps.aiConsent = m.aiConsent;
     if (m.ondevice && typeof m.ondevice === 'object') {
       caps.ondevice = { available: !!m.ondevice.available, reason: String(m.ondevice.reason || ''), words: String(m.ondevice.words || '') };
@@ -363,6 +442,9 @@ function fromApp(e) {
   } else if (m.kind === 'printed') {
     const done = prints.get(m.id);
     if (done) { prints.delete(m.id); done(m.ok !== false); }
+  } else if (m.kind === 'plus.web') {
+    const done = webOpens.get(m.id);
+    if (done) { webOpens.delete(m.id); done({ ok: m.ok === true, error: typeof m.error === 'string' ? tx(m.error) : null }); }
   } else if (m.kind === 'plus.state') {
     for (const fn of plusListeners) { try { fn(m); } catch { /* a listener's own */ } }
   } else if (m.kind === 'turn') {

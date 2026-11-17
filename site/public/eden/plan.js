@@ -6,8 +6,8 @@
 // nothing here goes to Stripe by itself. account.js calls setPlanOffer once it knows the account.
 
 import { $, el, ico } from './util.js';
-import { IN_APP_SHELL as IN_APP, appSellsPlus } from './native.js';
-import { planOffer, isLimitError } from './plan-model.js';
+import { IN_APP_SHELL as IN_APP, appLinkOutStorefront, appSellsPlus } from './native.js';
+import { planOffer, isLimitError, edenName } from './plan-model.js';
 import { isFr } from './i18n.js'; // 'Plan' and 'Upgrade' are also a Code mode and a model menu item: said here in French directly
 
 let offer = null;
@@ -21,7 +21,7 @@ const usd = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 let last = null;
 export function setPlanOffer(account, config) {
   last = [account, config];
-  offer = planOffer(account, config, IN_APP, appSellsPlus());
+  offer = planOffer(account, config, IN_APP, appSellsPlus(), appLinkOutStorefront());
   drawPill();
   dispatchEvent(new CustomEvent('eden:plan'));
 }
@@ -50,7 +50,8 @@ export function planRows(close = () => {}) {
     offer.credits ? el('button', { type: 'button', class: 'cp-link plan-manage', onclick: () => { close(); addCredits(); } }, 'Add credits →') : null,
   ] : [];
   if (offer.plus) {
-    return [head, el('div', 'ap-row', el('span', '', 'Eden Plus'), el('span', 'plan-badge', 'Plus')),
+    const label = offer.label || 'Plus'; // the server's plan name (PLANS_V2: 'Pro', 'Eden Black'…)
+    return [head, el('div', 'ap-row', el('span', '', edenName(label)), el('span', 'plan-badge', label)),
       offer.portal ? el('button', { type: 'button', class: 'cp-link plan-manage', onclick: () => { close(); manageBilling(); } }, 'Manage billing →') : null, ...credits].filter(Boolean);
   }
   return [head, el('div', 'ap-row', el('span', '', 'Free'), el('b', '', offer.price ? `Plus $${offer.price}/month` : 'Plus')),
@@ -60,7 +61,7 @@ export function planRows(close = () => {}) {
 /** The ⌘K palette's entry, or null. */
 export function planCommand() {
   if (offer && offer.upgrade) return { t: 'Get Eden Plus', s: offer.price ? `$${offer.price}/month · more included AI` : 'More included AI', i: 'spark', run: getPlus };
-  if (offer && offer.portal) return { t: 'Manage billing', s: 'Eden Plus', i: 'gear', run: manageBilling };
+  if (offer && offer.portal) return { t: 'Manage billing', s: edenName(offer.label || 'Plus'), i: 'gear', run: manageBilling };
   return null;
 }
 

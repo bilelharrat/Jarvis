@@ -30,11 +30,12 @@
 import { call, limited } from '../accounts/index.js';
 import { ApiError } from '../accounts/util.js';
 import { MAC_OFFLINE, WEB_RELAY, askMac, askMacBy, macRoute, macStatus } from '../accounts/webrelay.js';
-import { VIA_MAC_COMPARE, viaMacFor, viaMacMeta, viaMacRoute, viaMacTurn } from './via-mac.js';
+import { VIA_MAC_COMPARE, cleanLocal, viaMacFor, viaMacMeta, viaMacRoute, viaMacTurn } from './via-mac.js';
 import { currentSession } from './session.js';
 import { GOOGLE_DATA_ROUTES, fakeBase, googleData, googleDataReady } from './google-data.js';
 import { receiptToken } from '../accounts/receipts.js';
 import { checkTexts, embedTexts, embedUSD, EMBED_MODELS } from './embed.js';
+import { checkTitleInput, titleUSD, writeTitle } from './title.js'; // chat titles by a cheap model
 import { ARTIFACT_CSP, crossSite, json, problem, sameOrigin, withHeaders } from './web.js';
 import { contextKind, createLedger } from './vendor/google.js';
 import { publishedApi } from '../accounts/published.js';
@@ -57,11 +58,17 @@ import { audienceCreate } from './audience-room.js'; // Eden Slides live polls a
 import { deckRoomApi } from './deck-room.js'; // Eden Slides, editing together across devices (askeden web/chat/deck-room.js)
 import { call as accountCall } from '../accounts/index.js';
 import { coursePayer, shapeFreeTurn } from '../edu/budget.js'; // who pays for a student's course turn (askeden L9)
+import { allowPaid, meterGoogle, pacerAllow, pacerCall } from './credit-pacer.js'; // the GCP credit pacer: inert unless CREDIT_PACER is warn/on
+import { providerCapCheck, providersCapCheck } from './spend-counter.js'; // SPEND_CAP_<PROVIDER>_USD for unpaid use (CREDIT_PACER=on only)
+import { deepInfraCapped, deepInfraCharged, deepInfraGate, deepInfraMetered, deepInfraSettle, inputEstimate as deepInfraInput, maxTokensFor } from './deepinfra-meter.js';
 import { requestMaxOutputTokens, withMaxOutputTokens } from './vendor/providers.js';
-import { NO_GEMINI, VIDEO, deleteFile, fileSeconds, getFile, videoAttachment, videoCapSeconds, videoModels, videoProblem, videoTokens, videosOf } from './video.js';
+import { NO_GEMINI, VIDEO, deleteFile, fileSeconds, findFile, videoAttachment, videoCapSeconds, videoModels, videoProblem, videoTokens, videosOf } from './video.js';
 import { EDEN_TURNS, LIMITS } from '../accounts/account.js';
+import { answerUsd } from '../accounts/allowance.js';
 // Every provider (Anthropic, OpenAI, Gemini, Kimi) with the Mac's own stream code and the registry's prices (providers.js).
-import { viaBase } from './providers.js';
+import { plainKeys, viaBase } from './providers.js';
+import { order as poolOrder, withPool } from './key-pool.js';
+import { envKeyTiers } from '../accounts/service-ai.js';
 import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, autoModels, capRequest, defaultModel, computedWhere, fitCall, maxTokensOf, hasVision, hostedFor, metered, modelOf, narrowFor, providerStates, ratesOf, ratingRouter, searchProvider, searchTool, streamCall, usageUSD } from './providers.js';
 // The router that learns from you (H2) and the spending autopilot (H3): Eden's own pure modules
 // (askeden web/chat, copied here by scripts/sync-eden.mjs), so the stepping and the caps are the page's.
@@ -112,21 +119,22 @@ const KIMI_OUTPUT_TOKENS = 32_768;
 /** The largest input any offered model takes, less room for its answer: the real limit of a turn (the router picks a model it fits). */
 const biggestContext = (cfg) => Math.max(0, ...cfg.models.map((m) => (m.contextWindow || 0) - Math.min(65_536, m.maxOutputTokens || 0)));
 /** Models taken off askeden.com: a saved pick of one is routed automatically instead of refused. */
-export const RETIRED_MODELS = new Set(['gpt-6-luna', 'claude-haiku-4-5', 'kimi-k2.7-code', 'gemini-3.1-pro-preview', 'gpt-6-sol']);
+export const RETIRED_MODELS = new Set(['gpt-6-luna', 'claude-haiku-4-5', 'kimi-k2.7-code', 'gemini-3.1-pro-preview', 'gpt-6-sol', 'kimi-k3']);
 export const DEFAULT_MODELS = [
   'claude-opus-5-5', 'claude-sonnet-5-5',
-  'gpt-6.1-sol',
-  'gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', // Argon on (owner, 2026-10-14): Opus-level at half the price
-  'kimi-k3',
+  'gpt-6.1-sol', 'gpt-6.1-terra', // Terra added 2026-11-13 (owner: the newest of each family): $1 / $5, between Sol and the Flashes
+  'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', // Argon on (owner, 2026-10-14): Opus-level at half the price; Carbon and Hydrogen added 2026-11-13
+  // Not added 2026-11-13: Claude Haiku 5.5 (AA-Omniscience 31.7, below GPT-6 Luna's, retired for its mistakes), Claude Fable 5.2 ($8 / $40), Kimi K3.1 Pro (Moonshot trains on API data).
   // Retired (RETIRED_MODELS): gpt-6-luna 2026-10-13 (too many mistakes: people lose trust or pay for a stronger model anyway);
   // 2026-10-14, each beaten on every score by a model here at the same price or less: claude-haiku-4-5 and kimi-k2.7-code
-  // (Gemini 3.8 Flash), gemini-3.1-pro-preview (Sonnet 5.5, GPT-6.1 Sol), gpt-6-sol (GPT-6.1 Sol).
+  // (Gemini 3.8 Flash), gemini-3.1-pro-preview (Sonnet 5.5, GPT-6.1 Sol), gpt-6-sol (GPT-6.1 Sol);
+  // kimi-k3 2026-11-10 (owner): no router picks, no category won, slowest, and Moonshot's API terms train on what we send.
 ];
 export const DEFAULTS = {
   models: DEFAULT_MODELS.join(','),
   maxEffort: 'high',
   maxTokens: 131072,
-  maxInputTokens: 1000000, // the routed models' own context windows decide (Gemini 3.x, Argon, Kimi K3: about 1M); was 150,000 (a novel's PDF was refused, 2026-10-15)
+  maxInputTokens: 1000000, // the routed models' own context windows decide (Gemini 3.x, Argon: about 1M); was 150,000 (a novel's PDF was refused, 2026-10-15)
   searchUses: 5,
 };
 export const MAX_BODY = 25 * 1024 * 1024; // docs/chat-api.md: attachments included
@@ -147,7 +155,7 @@ export const SUMMARY_REPLY_TOKENS = 12_000; // thinking included: room for a ful
 export const GROUNDED_REPLY_TOKENS = 4_000;
 /** Summaries, by length: short material on Luna, long on Flash (each list in order of preference). */
 export const SUMMARY_SHORT_CHARS = 25_000;
-export const SUMMARY_MODELS = { short: ['gemini-3.8-flash', 'gpt-6.1-sol', 'kimi-k3'], long: ['gemini-3.8-flash', 'gemini-4-argon', 'gpt-6.1-sol'] };
+export const SUMMARY_MODELS = { short: ['gemini-3.8-flash', 'gpt-6.1-sol'], long: ['gemini-3.8-flash', 'gemini-4-argon', 'gpt-6.1-sol'] };
 export function summaryModel(cfg, chars) {
   const list = chars > SUMMARY_SHORT_CHARS ? SUMMARY_MODELS.long : SUMMARY_MODELS.short;
   const m = list.map((id) => cfg.models.find((x) => x.id === id)).find(Boolean);
@@ -158,7 +166,7 @@ export function summaryModel(cfg, chars) {
   return { override: { model: m.id, ...(effort ? { effort } : {}) }, why: `Summary of ${size} on ${m.name || m.id}: it reads all of it, cited throughout.` };
 }
 /** The tutor's models, quickest first (its first words matter more than depth). */
-export const TUTOR_MODELS = ['gemini-3.8-flash', 'gpt-6.1-sol', 'gemini-3.5-flash-lite', 'kimi-k3'];
+export const TUTOR_MODELS = ['gemini-3.8-flash', 'gpt-6.1-sol', 'gemini-3.5-flash-lite'];
 export const ACTING_NO_MAC = 'Not while you’re using someone else’s Eden: their Mac stays theirs. Switch back to use your own.';
 // Privacy mode (G9) keeps a turn on the owner's Mac, on a local model: askeden.com never answers
 // one itself. With the Mac's link up it goes there (privateTurn below), else one of these.
@@ -293,6 +301,13 @@ export function parseSend(body, cfg) {
     if (i === messages.length - 1 && m.role === 'user') return;
     if (!videosOf(m).length) return;
     m.attachments = m.attachments.map((a) => (a.kind === 'video' ? { kind: 'text', name: a.name, text: `(A video, ${a.name || 'video'}, was shared here and read in that turn; it isn’t available any more.)` } : a));
+  });
+  // An earlier message with nothing in it (a reply that failed, a turn that was only a picture since gone): Claude refuses
+  // the whole conversation for it ("messages.4: user messages must have non-empty content", owner 2026-11-06), so it
+  // says what it was instead. The last message is the person's own and is checked as it is.
+  messages.forEach((m, i) => {
+    if (i === messages.length - 1 || m.content.trim() || (m.attachments && m.attachments.length)) return;
+    m.content = m.role === 'user' ? '(an empty message)' : '(no reply)';
   });
   const last = messages[messages.length - 1];
   if (last.role !== 'user') bad('the last message must be the user’s');
@@ -506,7 +521,7 @@ function meta(cfg, env = {}, request = null) {
     // answers (checks.js), and EVES (eves.js) on the website when at least two models are available (kept false for the
     // iPhone app during App Review so its UI matches the exact Apple-submitted build).
     ...checksMeta(cfg),
-    eves: models.length >= 2 && !(request && /\b(?:EdenApp|EdenEdu)\//.test(request.headers.get('user-agent') || '') && !/\bEdenBeta\//.test(request.headers.get('user-agent') || '')),
+    eves: models.length >= 2 && !(request && /\bEdenEdu\//.test(request.headers.get('user-agent') || '')),
   };
 }
 
@@ -558,22 +573,14 @@ const capText = (v, n = 200) => (typeof v === 'string' ? v.slice(0, n) : '');
 async function localModels(request, env, ctx, who, known = null) {
   if (who.grant) return { ...NO_LOCAL, reason: ACTING_NO_MAC };
   const mac = known || (await macStatus(env, who));
-  if (!mac.online) return { ...NO_LOCAL, reason: mac.macs ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC };
+  if (!mac.online) return cleanLocal({ available: false, reason: mac.macs ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC }, env);
   try {
     const response = await askMac(request, env, ctx, who, '/api/chat/local', { wait: STATUS_WAIT_MS });
     const body = await response.json().catch(() => null);
-    if (!response.ok || !body || typeof body.available !== 'boolean') return { ...NO_LOCAL, reason: capText(body && body.error) || 'Eden on your Mac couldn’t tell which local models it has.' };
-    // Only what the page shows (no addresses on the Mac).
-    const list = (v) => (Array.isArray(v) ? v.filter(isObj).slice(0, 50) : []);
-    return {
-      available: body.available,
-      viaMac: true,
-      reason: body.available ? null : capText(body.reason) || 'No local model is running on your Mac.',
-      models: list(body.models).map((m) => ({ id: capText(m.id), server: capText(m.server, 40), serverName: capText(m.serverName, 80) })).filter((m) => m.id),
-      servers: list(body.servers).map((v) => ({ id: capText(v.id, 40), name: capText(v.name, 80), available: v.available === true, models: (Array.isArray(v.models) ? v.models.slice(0, 50) : []).map((x) => capText(x)).filter(Boolean), reason: capText(v.reason) || null })),
-    };
+    if (!response.ok || !body || typeof body.available !== 'boolean') return cleanLocal({ available: false, reason: capText(body && body.error) || 'Eden on your Mac couldn’t tell which local models it has.' }, env);
+    return cleanLocal(body, env);
   } catch (error) {
-    if (error instanceof ApiError) return { ...NO_LOCAL, reason: error.code === 'needs_mac' ? PRIVACY_NEEDS_MAC : error.code === 'mac_offline' ? PRIVACY_MAC_OFFLINE : error.message };
+    if (error instanceof ApiError) return cleanLocal({ available: false, reason: error.code === 'needs_mac' ? PRIVACY_NEEDS_MAC : error.code === 'mac_offline' ? PRIVACY_MAC_OFFLINE : error.message }, env);
     throw error;
   }
 }
@@ -588,7 +595,7 @@ async function withMac(m, request, env, ctx, who) {
   const mac = await macStatus(env, who);
   if (!mac.online) {
     if (mac.macs) m.jarvis = m.code = { available: false, reason: MAC_OFFLINE };
-    m.local = { ...NO_LOCAL, reason: mac.macs ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC };
+    m.local = cleanLocal({ available: false, reason: mac.macs ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC }, env);
     return m;
   }
   const asking = () => new Request(request.url, { method: 'GET', headers: request.headers });
@@ -714,9 +721,11 @@ export async function chatApi(request, env, ctx, path) {
       case 'POST /api/chat/embed': {
         await limited(env, 'API_RATE', who.account);
         const texts = checkTexts((await readBody(request, 300_000)).texts);
-        const provider = ['gemini', 'openai'].find((p) => cfg.keys && cfg.keys[p]);
+        // embed.js sends a raw key: only plain keys count (a Vertex-only Gemini is as no Gemini)
+        const provider = ['gemini', 'openai'].find((p) => cfg.keys && plainKeys(cfg.keys[p]).length);
         if (!provider) throw new ApiError(409, 'no_key', 'Matching emails by meaning needs a Gemini or OpenAI key.');
         const key = cfg.keys[provider];
+        const keys = plainKeys(key);
         let allow = null;
         if (metered(cfg.keys, provider)) {
           allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
@@ -724,9 +733,28 @@ export async function chatApi(request, env, ctx, path) {
         }
         const scope = `${who.account}:${who.device && who.device.id ? who.device.id : ''}`;
         const cost = embedUSD(provider, texts, { scope });
-        const vectors = await embedTexts(provider, key.key, texts, fetch, { scope });
-        if (allow && cost > 0) await memoryCharge(env, who, cost, allow.bucket);
+        const vectors = await embedTexts(provider, keys[0], texts, pooledFetch(provider, keys), { scope });
+        if (allow && cost > 0) await memoryCharge(env, who, cost, allow.bucket, provider);
         return json({ vectors, provider, model: EMBED_MODELS[provider] });
+      }
+      // a chat's title from its first exchange, by a cheap model (title.js)
+      case 'POST /api/chat/title': {
+        await limited(env, 'API_RATE', who.account);
+        const input = checkTitleInput(await readBody(request, 20_000));
+        const keys = cfg.keys ? plainKeys(cfg.keys.gemini) : []; // a raw key: a Vertex-only Gemini is as no Gemini
+        if (!keys.length) throw new ApiError(409, 'no_key', 'Titling chats needs a Gemini key.');
+        let allow = null;
+        if (metered(cfg.keys, 'gemini')) {
+          allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
+          if (!allow.ok || allow.left < 0.0005) throw new ApiError(402, 'no_allowance', 'Your included AI is used up for this month.');
+        }
+        const r = await writeTitle(keys[0], input, pooledFetch('gemini', keys));
+        const cost = titleUSD(r);
+        if (allow && cost > 0 && allow.bucket !== 'none') {
+          meterGoogle(env, null, { provider: 'gemini', usd: cost, bucket: allow.bucket, feature: 'title' });
+          await call(env, who.account, 'spend', { usd: cost, bucket: allow.bucket, meta: { feature: 'title' } }).catch((error) => console.error('spend failed', error && error.message));
+        }
+        return json({ title: r.title, model: r.model });
       }
       case 'GET /api/chat/spend': // H3: the month on the included AI, as the autopilot sees it
         await limited(env, 'API_RATE', who.account);
@@ -749,11 +777,23 @@ export async function chatApi(request, env, ctx, path) {
       case 'POST /api/chat/compare/stop':
         return json(stopCompare(await readBody(request, 4096), who));
       // EVES (N7/N13): up to three models answer in parallel, deterministic + INSPECTOR checks, judge and web evidence (eves.js)
-      case 'POST /api/chat/eves':
+      case 'POST /api/chat/eves': {
         await limited(env, 'API_RATE', who.account);
         await limited(env, 'USER_RATE', `turn:${who.account}`);
+        // A picture or a video is made, never fact-checked: with EVES on, "make a video of…" went to three models and a
+        // judge instead of Veo (owner, 2026-11-06). Such a turn goes the normal way (send: image.js imageTurn/videoTurn).
+        const peek = await request.clone().json().catch(() => null);
+        const lastAsk = peek && Array.isArray(peek.messages) && peek.messages.length ? peek.messages[peek.messages.length - 1] : null;
+        const asked = lastAsk && lastAsk.role === 'user' && typeof lastAsk.content === 'string' ? lastAsk.content : '';
+        const media = peek && ((videosOn(env, request) && (peek.video === true || wantsVideo(asked))) || (imagesOn(env, request) && (peek.image === true || wantsImage(asked))) || (typeof peek.imageBase === 'string' && peek.imageBase && (animatesLast(asked) || editsLast(asked))));
+        if (media && peek.deck !== true) {
+          // its `mode` is EVES's ("on"/"auto"), not a chat mode: sent on as a plain chat turn
+          const plain = new Request(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify({ ...peek, mode: 'chat' }), signal: request.signal });
+          return await send(plain, env, ctx, who, cfg);
+        }
         if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
         return await hostedEves(request, env, ctx, who, cfg, { readBody, MAX_BODY, compareModels, parseSend, narrowFor, systemPrompt, inputEstimate, messageText, routeSettings, compareLanes, creditFactor, routed });
+      }
       case 'POST /api/chat/eves/estimate':
         await limited(env, 'API_RATE', who.account);
         if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMac(request, env, ctx, who);
@@ -863,7 +903,9 @@ function trialUSD(env) {
  * forecast linearly; the trial (used once): the share spent.
  */
 export function hostedAutopilot(env, allow, now = Date.now()) {
-  const { start, end } = monthBounds(now, { utc: true });
+  // ALLOWANCE_V2 (accounts/allowance.js): Plus's billing period and what it spent, in place of the calendar month
+  const anchored = Boolean(allow && allow.ok && String(allow.bucket || '') === 'plus' && typeof allow.period_start === 'number' && typeof allow.period_end === 'number');
+  const { start, end } = anchored ? { start: allow.period_start, end: allow.period_end } : monthBounds(now, { utc: true });
   if (!allow || !allow.ok) {
     const budget = plusUSD(env);
     return { ...autopilotState({ spent: budget, budget, now, start, end, utc: true }), bucket: null };
@@ -873,7 +915,7 @@ export function hostedAutopilot(env, allow, now = Date.now()) {
   // The allowance alone (`budget`, `allowance_left`: the plan's own size, credits apart).
   const budget = Number(allow.budget) > 0 ? Number(allow.budget) : bucket === 'plus' ? plusUSD(env) : trialUSD(env);
   if (!(budget > 0)) return null;
-  const spent = Math.max(0, budget - (Number(allow.allowance_left ?? allow.left) || 0));
+  const spent = anchored ? Math.max(0, Number(allow.period_spent) || 0) : Math.max(0, budget - (Number(allow.allowance_left ?? allow.left) || 0));
   if (bucket === 'plus') return { ...autopilotState({ spent, budget, now, start, end, utc: true }), bucket };
   const stage = autopilotStage({ spent, budget, forecastUSD: spent });
   const st = STAGES[stage];
@@ -947,7 +989,15 @@ async function hostedSpend(env, who) {
   const allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
   const ap = hostedAutopilot(env, allow);
   if (!ap) return { hosted: true, autopilot: null, note: 'This allowance is shared or delegated: its own limit applies.' };
-  return { hosted: true, bucket: ap.bucket, periodStart: ap.periodStart, periodEnd: ap.periodEnd, budgetUSD: ap.budgetUSD, totalUSD: ap.spentUSD, leftUSD: allow && allow.ok ? allow.left : 0, autopilot: ap };
+  return { hosted: true, bucket: ap.bucket, periodStart: ap.periodStart, periodEnd: ap.periodEnd, budgetUSD: ap.budgetUSD, totalUSD: ap.spentUSD, leftUSD: allow && allow.ok ? allow.left : 0, autopilot: ap, ...spendWeek(env, allow) };
+}
+
+/** ALLOWANCE_V2: this week's included AI on Plus (accounts/allowance.js), for the chat's meter; nothing without it. */
+export function spendWeek(env, allow) {
+  if (!allow || !allow.ok || typeof allow.week_end !== 'number') return {};
+  const week = Number(allow.week_left) || 0;
+  const left = Math.max(0, typeof allow.allowance_left === 'number' ? Math.min(week, allow.allowance_left) : week); // allowance_left is net of running turns' holds
+  return { week: { leftUSD: left, end: allow.week_end, answersLeft: Math.floor(left / answerUsd(env) + 1e-9) } };
 }
 
 // ── one turn ──
@@ -998,7 +1048,17 @@ function routeEvent(result, choice, { rationale, notes = [], override = false, i
  * cost, as a reply's `charge` passes it: the account's `spend` applies the credits markup itself (credits.js),
  * so it must not be multiplied by creditFactor here (it was until 2026-10-09: cost × 1.96 on Free credits).
  */
-const memoryCharge = (env, who, usd, bucket) => (usd > 0 && bucket !== 'none' ? call(env, who.account, 'spend', { usd, bucket, meta: { feature: 'memory' } }).catch((error) => console.error('spend failed', error && error.message)) : null);
+const memoryCharge = (env, who, usd, bucket, provider = 'gemini') => (usd > 0 && bucket !== 'none' ? (meterGoogle(env, null, { provider, usd, bucket, feature: 'memory' }), call(env, who.account, 'spend', { usd, bucket, meta: { feature: 'memory' } }).catch((error) => console.error('spend failed', error && error.message))) : null);
+
+/**
+ * A fetch for code that sends one raw key (embed.js): each of `keys` (plain, pool order) in turn, the key header
+ * swapped, the next key after 429/5xx/quota (key-pool.js). Same model and request on every key.
+ */
+export const pooledFetch = (provider, keys, f = (u, i) => fetch(u, i)) => (u, init = {}) =>
+  withPool(provider, keys, (k) => f(u, { ...init, headers: { ...init.headers, ...(provider === 'gemini' ? { 'x-goog-api-key': k } : { authorization: `Bearer ${k}` }) } }), { signal: init.signal || null, ordered: true });
+
+/** DeepInfra's keys (DEEPINFRA_API_KEY comma list and _2 … _9), pool order. */
+const deepInfraKeys = (env) => poolOrder('deepinfra', envKeyTiers(env, 'DEEPINFRA_API_KEY'), { env });
 
 const sse = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 // No "soon", "yet" or "coming": a reviewer must never see a promised feature (App Review 2.1, 2.3; 2026-10-15).
@@ -1016,24 +1076,223 @@ class TurnFailed extends Error {
   }
 }
 
+const DEEPINFRA_PRIVATE_MODELS = new Set([
+  'google/gemma-4-31B-it',
+  'Qwen/Qwen2.5-Coder-32B-Instruct',
+  'deepseek-ai/DeepSeek-R1',
+  'meta-llama/Meta-Llama-3.1-70B-Instruct',
+]);
+
+async function deepInfraPrivateTurn(request, env, raw, modelId, { ctx = null, who = null } = {}) {
+  const apiKeys = deepInfraKeys(env);
+  if (!apiKeys.length) throw new ApiError(503, 'no_key', 'DeepInfra Zero-Retention is not configured on this server.');
+  const model = DEEPINFRA_PRIVATE_MODELS.has(modelId) ? modelId : 'google/gemma-4-31B-it';
+  const rawMsgs = Array.isArray(raw.messages) ? raw.messages : [];
+  const messages = [];
+  const sys = typeof raw.system === 'string' && raw.system.trim() ? raw.system.trim() : EDEN_IDENTITY;
+  messages.push({ role: 'system', content: sys });
+  for (const m of rawMsgs) {
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
+    const text = typeof m.content === 'string' ? m.content : '';
+    if (text) messages.push({ role: m.role, content: text });
+  }
+  // deepinfra-meter.js: metered by default (its usage asked for, its cost logged and counted); charged, gated and capped
+  // like the other providers only with DEEPINFRA_CHARGE=on (max_tokens alone: DEEPINFRA_MAX_TOKENS=on)
+  const metering = deepInfraMetered(env);
+  const payCall = pacerCall(env, accountCall); // the same gate as a chat turn's: unpaid accounts paced (credit-pacer.js)
+  const edenMax = positive(env.EDEN_MAX_TOKENS, DEFAULTS.maxTokens); // EDEN_MAX_TOKENS, as every other lane
+  const gate = deepInfraCharged(env) && who ? await deepInfraGate(env, who, { call: payCall, model, messages, maxTokens: edenMax }) : null;
+  const cap = gate ? gate.maxTokens : deepInfraCapped(env) ? maxTokensFor(model, deepInfraInput(messages), { maxTokens: edenMax }) : null;
+  let usage = null;
+  let outputChars = 0;
+  let answered = false; // DeepInfra answered (so the input was read and is paid for)
+  let settled = false;
+
+  const encoder = new TextEncoder();
+  const abort = new AbortController();
+  if (request.signal) {
+    if (request.signal.aborted) abort.abort();
+    else request.signal.addEventListener('abort', () => abort.abort(), { once: true });
+  }
+  let controller;
+  let open = true;
+  const write = (type, data) => {
+    if (!open || abort.signal.aborted) return;
+    try {
+      controller.enqueue(encoder.encode(sse(type, data)));
+    } catch {
+      open = false;
+    }
+  };
+  const stream = new ReadableStream({
+    start(c) {
+      controller = c;
+    },
+    cancel() {
+      open = false;
+      abort.abort();
+    },
+  });
+
+  (async () => {
+    try {
+      write('route', {
+        model,
+        modelName: model,
+        provider: 'local',
+        effort: 'medium',
+        effortLabel: 'Cloud Bridge (Zero-Retention)',
+        via: 'local',
+        costUSD: 0,
+        quality: null,
+        confidence: null,
+        rationale: `Privacy mode: answered via DeepInfra (Zero-Retention) (${model}). Zero data retention — prompts and outputs are never logged or stored.`,
+        rated: false,
+        ratedBy: 'rules',
+        ratedLabel: 'Private · DeepInfra (Zero-Retention)',
+        complexity: null,
+        candidates: [],
+        fallbacks: [],
+        warnings: [],
+        notes: ['privacy mode: DeepInfra (Zero-Retention) — no web search, no cloud providers'],
+        where: 'cloud',
+        privacy: true,
+      });
+
+      // the same model on each key in turn: the next after 429/5xx/quota (key-pool.js)
+      const upstream = await withPool('deepinfra', apiKeys, (apiKey) => fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ model, messages, stream: true, ...(cap ? { max_tokens: cap } : {}), ...(metering || gate ? { stream_options: { include_usage: true } } : {}) }),
+        signal: abort.signal,
+      }), { signal: abort.signal, ordered: true });
+
+      if (!upstream.ok || !upstream.body) {
+        const errBody = await upstream.text().catch(() => '');
+        write('error', { message: `DeepInfra error (${upstream.status}): ${errBody.slice(0, 240) || upstream.statusText}` });
+        return;
+      }
+      answered = true;
+
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let inThink = false;
+      let finish = 'stop';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line || !line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          let obj;
+          try {
+            obj = JSON.parse(payload);
+          } catch {
+            continue;
+          }
+          if (obj && obj.usage && typeof obj.usage === 'object') usage = obj.usage; // stream_options.include_usage (deepinfra-meter.js)
+          const choice = obj && Array.isArray(obj.choices) ? obj.choices[0] : null;
+          const delta = choice && choice.delta ? choice.delta : null;
+          if (delta) {
+            if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+              outputChars += delta.reasoning_content.length;
+              write('thinking', { text: delta.reasoning_content });
+            }
+            if (typeof delta.content === 'string' && delta.content) {
+              outputChars += delta.content.length;
+              let chunk = delta.content;
+              if (chunk.includes('<think>')) {
+                inThink = true;
+                chunk = chunk.replace('<think>', '');
+              }
+              if (inThink) {
+                if (chunk.includes('</think>')) {
+                  const parts = chunk.split('</think>');
+                  if (parts[0]) write('thinking', { text: parts[0] });
+                  inThink = false;
+                  if (parts[1]) write('text', { text: parts[1] });
+                } else if (chunk) {
+                  write('thinking', { text: chunk });
+                }
+              } else if (chunk) {
+                write('text', { text: chunk });
+              }
+            }
+          }
+          if (choice && choice.finish_reason) finish = choice.finish_reason;
+        }
+      }
+      if (gate) {
+        // charged (DEEPINFRA_CHARGE=on): the real cost, at the user's price, as every other provider's usage line
+        settled = true;
+        const usd = deepInfraSettle(env, ctx, who, { call: payCall, model, usage, inputTokens: gate.input, outputChars, gate });
+        write('usage', { inputTokens: Number(usage && usage.prompt_tokens) || 0, outputTokens: Number(usage && usage.completion_tokens) || 0, reasoningTokens: 0, costUSD: round6(usd * creditFactor(gate.hold || gate.allow)), notional: false });
+      } else write('usage', { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, costUSD: 0, notional: true });
+      write('done', { finish });
+    } catch (err) {
+      if (!abort.signal.aborted) {
+        write('error', { message: err && err.message ? err.message : 'DeepInfra Zero-Retention bridge failed.' });
+      }
+    } finally {
+      // what a stopped, failed or uncharged turn used: logged and counted, and with a gate charged and its hold released
+      if (!settled) deepInfraSettle(env, ctx, who, { call: payCall, model, usage, inputTokens: answered ? deepInfraInput(messages) : 0, outputChars, gate });
+      open = false;
+      try {
+        controller.close();
+      } catch {}
+    }
+  })();
+
+  return new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      'x-accel-buffering': 'no',
+    },
+  });
+}
+
 /**
  * A private turn (G9, `privacy: true`): answered on the owner's Mac by a local model, through
  * its link (Eden's POST /api/chat/send there, where only a local model answers it; the Mac checks
- * the flag again), streamed back as it comes. Never a cloud model here, not even as a fallback,
- * and nothing is counted on the included AI. No Mac linked: PRIVACY_NEEDS_MAC; offline:
- * PRIVACY_MAC_OFFLINE.
+ * the flag again), or directly via DeepInfra Zero-Retention when a DeepInfra model is chosen or the Mac is offline.
  */
 async function privateTurn(request, env, ctx, who, raw) {
   if (raw.privacy !== true) throw new ApiError(400, 'bad_request', 'privacy must be true or false');
   if (who.grant) throw new ApiError(403, 'forbidden', ACTING_NO_MAC);
+  const pickedModel = typeof raw.localModel === 'string' ? raw.localModel.trim() : '';
+  const hasDeepInfra = envKeyTiers(env, 'DEEPINFRA_API_KEY').length > 0;
+  if (hasDeepInfra && DEEPINFRA_PRIVATE_MODELS.has(pickedModel)) {
+    return await deepInfraPrivateTurn(request, env, raw, pickedModel, { ctx, who });
+  }
   const mac = await macStatus(env, who);
-  if (!mac.online) throw new ApiError(503, mac.macs ? 'mac_offline' : 'needs_mac', mac.macs ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC);
+  if (!mac.online) {
+    if (hasDeepInfra && !pickedModel) {
+      return await deepInfraPrivateTurn(request, env, raw, 'google/gemma-4-31B-it', { ctx, who });
+    }
+    throw new ApiError(503, mac.macs ? 'mac_offline' : 'needs_mac', mac.macs ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC);
+  }
   const body = new TextEncoder().encode(JSON.stringify(raw));
   if (body.byteLength > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'This private chat is too big to send to your Mac (10 MB at most, attachments included). Start a new chat, or use Eden on your Mac.');
   try {
     return await askMac(request, env, ctx, who, '/api/chat/send', { body });
   } catch (error) {
-    if (error instanceof ApiError && (error.code === 'mac_offline' || error.code === 'needs_mac')) throw new ApiError(503, error.code, error.code === 'mac_offline' ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC);
+    if (error instanceof ApiError && (error.code === 'mac_offline' || error.code === 'needs_mac')) {
+      if (hasDeepInfra && !pickedModel) {
+        return await deepInfraPrivateTurn(request, env, raw, 'google/gemma-4-31B-it', { ctx, who });
+      }
+      throw new ApiError(503, error.code, error.code === 'mac_offline' ? PRIVACY_MAC_OFFLINE : PRIVACY_NEEDS_MAC);
+    }
     throw error;
   }
 }
@@ -1089,7 +1348,7 @@ async function send(request, env, ctx, who, cfg) {
   // askeden L9: a student's course turn is paid by the course budget, then their free study allowance, never their own
   // allowance unless they chose it (`eduOwn`); the payer stands in for `call` in the money ops below (edu/budget.js)
   const payer = inCourse ? await coursePayer(env, who, raw.course, { request, own: raw.eduOwn === true }) : null;
-  const call = payer ? payer.call : accountCall;
+  const call = pacerCall(env, payer ? payer.call : accountCall); // credit-pacer.js: unpaid turns paced when CREDIT_PACER=on, else the same call
   // A video clip (image.js Veo): the composer's Video mode, a message that plainly asks for a video, or "now animate it" after a picture.
   if (!inCourse && videosOn(env, request) && raw.video !== false) {
     const lastAsk = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
@@ -1220,11 +1479,15 @@ async function send(request, env, ctx, who, cfg) {
   let inputTokens = textTokens;
   if (videos.length) {
     const gk = cfg.keys.gemini;
+    const gkey = plainKeys(gk)[0]; // the Files API takes an API key, never the vertex:// credential (image.js geminiKey)
     const pool = videoModels(cfg.models.filter((m) => allow.ok || !metered(cfg.keys, m.provider)));
-    if (!gk || !pool.length) throw new ApiError(422, 'no_provider', NO_GEMINI);
+    if (!gkey || !pool.length) throw new ApiError(422, 'no_provider', NO_GEMINI);
     const cap = videoCapSeconds(allow.bucket);
+    let owner = null; // the key whose Google project holds the video (findFile tries each plain key)
     for (const v of videos) {
-      const f = await getFile(gk.key, v.file, cfg.base);
+      const found = await findFile(gk, v.file, cfg.base);
+      const f = found && found.file;
+      if (found && !owner) owner = found.key;
       if (!f || f.state !== 'ACTIVE') throw new ApiError(410, 'gone', `The video ${v.name || ''} isn’t at Google any more (a video is read in one turn). Attach it again.`);
       v.seconds = fileSeconds(f, v.seconds);
       const over = videoProblem({ mime: v.mime, size: Number(f.sizeBytes) || 1, seconds: v.seconds }, cap);
@@ -1233,7 +1496,9 @@ async function send(request, env, ctx, who, cfg) {
     }
     body.override = null;
     body.settings = { ...body.settings, classifier: 'off' };
-    cfg = { ...cfg, models: pool };
+    // the same Gemini model; only the key order changes: the key that can read the file first (other keys after, as before)
+    const keyOrder = [owner, ...[gk.key, ...(gk.fallbackKeys || [])].filter((k) => k && k !== owner)];
+    cfg = { ...cfg, models: pool, ...(owner ? { keys: { ...cfg.keys, gemini: { ...gk, key: owner, ...(keyOrder.length > 1 ? { fallbackKeys: keyOrder.slice(1) } : {}) } } } : {}) };
   }
   if (!allow.ok) {
     // No included AI left: only the asker's own keys (providers.js providerKey, source 'user') can answer.
@@ -1251,7 +1516,7 @@ async function send(request, env, ctx, who, cfg) {
   // a course turn never drives the cloud browser (the professor's instructions are in its prompt)
   const browserAsk = !inCourse && (raw.browser === true || isObj(raw.browser) || (raw.browser !== false && wantsBrowser(lastText, { panel: raw.browserPanel === true })));
   if (browserAsk && !videos.length && !who.grant && env.BROWSER_SESSIONS && env.BROWSER) {
-    const model = pickBrowserModel(cfg.models, { override: body.override && body.override.model, preferred: defaultModel(cfg), rates: ratesOf });
+    const model = pickBrowserModel(cfg.models, { override: body.override && body.override.model, preferred: defaultModel(cfg), rates: ratesOf, usable: (p) => plainKeys(cfg.keys[p]).length > 0 });
     if (model) {
       const history = body.messages.slice(-10).map((m) => ({ role: m.role, text: messageText(m).replace(/^\s*\/browse\b\s*/i, '') }));
       return browserTurn(request, env, ctx, who, raw, { call, metered, usageUSD, hasVision, viaBase, creditFactor, computedWhere, systemText: system, history, ledger: body.ledger, allow, cfg, model });
@@ -1395,6 +1660,9 @@ async function send(request, env, ctx, who, cfg) {
     }
   }
   const firstMetered = metered(cfg.keys, first.provider);
+  // spend-counter.js: an unpaid turn on a provider whose SPEND_CAP_<PROVIDER>_USD is used up today is refused, never moved to
+  // another model (CREDIT_PACER=on and a cap set only; Google keeps the credit pacing rule; a failure lets it through)
+  if (firstMetered) await providerCapCheck(env, first.provider, { paid: allowPaid(allow) });
   // On the included allowance a turn holds its worst case until it's done. With no output limit of Eden's own that worst
   // case could be the whole allowance, refusing concurrent messages sent while earlier ones still answer: a turn holds at
   // most its share (1/EDEN_TURNS) of what's left, or all of what's left when that share can't pay a short reply.
@@ -1453,10 +1721,11 @@ async function send(request, env, ctx, who, cfg) {
   // What each call cost, counted on the account as it ends (the included AI's calls only).
   let charged = 0;
   const charges = [];
-  const charge = (provider, usd, meta = { feature: 'chat' }) => {
+  const charge = (provider, usd, meta = { feature: 'chat' }, usage = null) => {
     if (!metered(cfg.keys, provider) || !(usd > 0)) return;
     charged += usd;
     const bucket = hold ? hold.bucket : allow.bucket;
+    meterGoogle(env, ctx, { provider, model: meta && meta.model, usd, usage, bucket, credits: allow.credits_usd, allow, feature: (meta && meta.feature) || 'chat' }); // credit-pacer.js (Google calls only; `usage`: priced by its date)
     charges.push(call(env, who.account, 'spend', { usd, bucket, meta }).catch((error) => console.error('spend failed', error && error.message)));
   };
   if (ratingUSD > 0 && allow.ok) charge('gemini', ratingUSD, { feature: 'rating', model: 'gemini' });
@@ -1486,12 +1755,19 @@ async function send(request, env, ctx, who, cfg) {
       { signal: abort.signal, emit },
     );
     if (pics) { pics.end(); r.text = pics.strip(r.text); }
-    if (r.usage) charge(model.provider, r.costUSD, { feature: 'chat', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens }); // counted however it ended: in full, or (stopped, failed) as far as it got
+    if (r.usage) charge(model.provider, r.costUSD, { feature: 'chat', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens }, r.usage); // counted however it ended: in full, or (stopped, failed) as far as it got
     if (r.stopped || abort.signal.aborted) return { finish: 'aborted' };
     if (r.failure) throw new TurnFailed(r.failure, Boolean(hinting ? hinting.text : r.text));
     let struck = 0;
     if (hinting) ({ text: r.text, struck } = hinting.end());
-    if (r.citations.length) write('citations', { sources: r.citations });
+    if (r.citations.length) {
+      // Gemini's sources are Google redirect links that expire: the real address, looked up once (realLinks)
+      await realLinks(r.citations, r.marks, abort.signal);
+      // where each source goes in the reply (owner, 2026-11-06: numbers next to what they back; the page places "[n]"),
+      // not in hint mode, whose text was rewritten a paragraph at a time
+      const marks = !hinting && Array.isArray(r.marks) && r.marks.length ? r.marks : null;
+      write('citations', { sources: r.citations, ...(marks ? { marks } : {}) });
+    }
     // each cited quote checked against its source (edu/course.js); M5: the verdict is logged for measuring
     if (grounding) {
       const g = grounding.task === 'quiz' ? checkQuiz(r.text, grounding.passages) : grounding.task === 'set' ? checkSet(r.text, grounding.passages) : { ...checkGrounding(essay ? withoutToolBlocks(r.text) : r.text, grounding.passages), scope: inCourse ? 'course' : 'files' };
@@ -1532,7 +1808,12 @@ async function send(request, env, ctx, who, cfg) {
     if (extracting) ctx.waitUntil(extracting);
     try {
       const priorHistory = body.messages.slice(0, -1).map((m) => ({ role: m.role, content: messageText(m) }));
-      const sycophancy = hasSycophancyChallenge(question, priorHistory);
+      // A screenshot is evidence the person checked a source, as on the Mac (askeden src/chat/turn.ts): without these
+      // options a picture sent after an answer wasn't read as pushback, and the model argued for its earlier answer
+      // (2026-11-10: "Hold up—look at that screenshot … I told you to get the Large!").
+      const lastImage = Boolean(lastMsg && Array.isArray(lastMsg.attachments) && lastMsg.attachments.some((a) => a && a.kind === 'image'));
+      const typed = lastMsg ? String(messageText(lastMsg) || '').trim() : '';
+      const sycophancy = hasSycophancyChallenge(typed || question, priorHistory, { imageOnly: lastImage && !typed, image: lastImage });
       if (sycophancy && sycophancy.challenged) {
         system = `${system}\n\n${sycophancyGuardNote(sycophancy)}`;
       }
@@ -1624,6 +1905,7 @@ async function send(request, env, ctx, who, cfg) {
           if (roomFor && (requestMaxOutputTokens(second.request) || 0) < roomFor) second.request = withMaxOutputTokens(second.request, Math.min(roomFor, cfg.maxTokens));
           write('route', routeEvent(result, second, { rationale: `Fallback: ${failed.name} failed before answering (${failure.message}).`, cfg }));
           try {
+            if (metered(cfg.keys, second.provider)) await providerCapCheck(env, second.provider, { paid: allowPaid(allow) }); // the fallback's provider cap too (spend-counter.js)
             // Within what the turn holds, less what the attempts so far cost; a pricier model holds more.
             let secondPlan;
             try {
@@ -1712,7 +1994,7 @@ async function send(request, env, ctx, who, cfg) {
       }
       // Counted first, then the hold lets go; the turn's videos are deleted at Google.
       await Promise.all(charges);
-      for (const v of videos) await deleteFile(cfg.keys.gemini.key, v.file, cfg.base);
+      for (const v of videos) await deleteFile(plainKeys(cfg.keys.gemini), v.file, cfg.base); // the owner key first; others if it can't
       for (const h of [hold, ...extraHolds]) if (h) await call(env, who.account, 'release-ai', { hold: h.hold }).catch(() => {});
     }
   };
@@ -1894,7 +2176,7 @@ async function compare(request, env, ctx, who, cfg) {
   if (inputTokens > Math.min(cfg.maxInputTokens, biggestContext(cfg))) {
     throw new ApiError(413, 'too_long', `This is more than any model on askeden.com can read at once (about ${inputTokens.toLocaleString('en-US')} tokens; at most ${Math.min(cfg.maxInputTokens, biggestContext(cfg)).toLocaleString('en-US')}). Split the file, or start a new chat.`);
   }
-  const allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
+  const allow = await pacerAllow(env, await call(env, who.account, 'allow-ai', { eden: true }, who.token)); // credit-pacer.js: as it was unless CREDIT_PACER=on and unpaid
   const last = body.messages[body.messages.length - 1];
   const prompt = messageText(last).trim() || 'Describe the attached image.';
   const sessionTokens = Math.max(0, inputTokens - Math.ceil(prompt.length / 3.5));
@@ -1904,6 +2186,8 @@ async function compare(request, env, ctx, who, cfg) {
   const isMetered = (l) => metered(cfg.keys, l.provider || modelOf(l.model).provider);
   const any = [...lanes, ...(raw.synthesis === false ? [] : [s])].some(isMetered);
   if (any && !allow.ok) throw new ApiError(402, 'no_allowance', allow.why);
+  // spend-counter.js: an unpaid Compare that would call a provider whose daily cap is used up is refused before any call
+  await providersCapCheck(env, [...lanes, ...(raw.synthesis === false ? [] : [s])].filter(isMetered).map((l) => l.provider || modelOf(l.model).provider), { paid: allowPaid(allow) });
 
   // The combined worst case of the included AI's lanes, fitted to what's left: each lane its
   // share; the summary what reading the question and every lane's longest answer, then writing,
@@ -1980,7 +2264,8 @@ async function compare(request, env, ctx, who, cfg) {
 
   // Each stream counted as it ends, one after another (lanes often end together); the asker's own keys aren't.
   let counted = Promise.resolve();
-  const charge = (provider, usd, meta = { feature: 'compare' }) => {
+  const charge = (provider, usd, meta = { feature: 'compare' }, usage = null) => {
+    if (hold && metered(cfg.keys, provider) && usd > 0) meterGoogle(env, ctx, { provider, model: meta && meta.model, usd, usage, bucket: hold.bucket, credits: allow.credits_usd, allow, feature: 'compare' }); // credit-pacer.js
     if (hold && metered(cfg.keys, provider) && usd > 0) counted = counted.then(() => call(env, who.account, 'spend', { usd, bucket: hold.bucket, meta })).catch((error) => console.error('spend failed', error && error.message));
   };
   const top = modelOf(TOP_MODEL);
@@ -1992,7 +2277,7 @@ async function compare(request, env, ctx, who, cfg) {
     }
     const model = modelOf(choice.model);
     const r = await streamCall({ model, request, messages, system: sys, key: cfg.keys[model.provider].key, fallbackKeys: cfg.keys[model.provider].fallbackKeys, base: cfg.base, inputTokens: inTokens }, { signal, emit: (type, data) => write(type, { lane: tag, ...data }) });
-    if (r.usage) charge(model.provider, r.costUSD, { feature: 'compare', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens });
+    if (r.usage) charge(model.provider, r.costUSD, { feature: 'compare', model: model.id || model.name, tin: r.usage.inputTokens, tout: r.usage.outputTokens }, r.usage);
     if (r.failure && !r.stopped) {
       write('error', { lane: tag, message: r.failure });
       return { text: r.text, finish: 'error' };
@@ -2124,4 +2409,44 @@ export async function artifactPage(request, env, id) {
     if (error instanceof ApiError) return problem(error.status, error.message, error.code);
     throw error;
   }
+}
+
+/**
+ * Gemini names its sources by Google redirect links (vertexaisearch.cloud.google.com/grounding-api-redirect/…) that stop
+ * working after a while, so the reply's chips and source popups showed that host, not the page (owner, 2026-11-06). Each is
+ * looked up once, without following it or reading a body, for the page it leads to; a link that doesn't answer within
+ * 1.5 s stays as it was. The marks (where each source goes in the reply) follow the new addresses. Changes `citations` in place.
+ */
+export async function realLinks(citations, marks, signal, fetchImpl = fetch) {
+  const redirect = (u) => typeof u === 'string' && /^https:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\//.test(u);
+  const todo = (citations || []).filter((c) => c && redirect(c.url));
+  if (!todo.length) return;
+  const found = new Map();
+  const timer = new AbortController();
+  const stop = setTimeout(() => timer.abort(), 1500);
+  const onAbort = () => timer.abort();
+  if (signal) signal.addEventListener('abort', onAbort, { once: true });
+  try {
+    await Promise.all(todo.map(async (c) => {
+      try {
+        const res = await fetchImpl(c.url, { method: 'GET', redirect: 'manual', signal: timer.signal });
+        const to = res.headers.get('location');
+        try { await res.body?.cancel(); } catch { /* nothing to read */ }
+        if (to && /^https?:\/\//i.test(to) && !redirect(to)) found.set(c.url, to);
+      } catch { /* slow or refused: keep the redirect link */ }
+    }));
+  } finally {
+    clearTimeout(stop);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
+  if (!found.size) return;
+  const kept = new Map(); // page → its source
+  for (let i = 0; i < citations.length; i++) {
+    const c = citations[i];
+    if (found.has(c.url)) { c.via = c.url; c.url = found.get(c.url); } // via: the Google link the answer's own words may still point at (markdown.js shows it as this source's number)
+    const first = kept.get(c.url);
+    if (first) { if (c.via) (first.aka ||= []).push(c.via); citations.splice(i--, 1); continue; } // two redirects to one page: one source, both links
+    kept.set(c.url, c);
+  }
+  for (const m of marks || []) if (Array.isArray(m.urls)) m.urls = [...new Set(m.urls.map((u) => found.get(u) || u))];
 }

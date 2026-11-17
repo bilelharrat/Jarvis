@@ -1,0 +1,172 @@
+{
+  "about": "Pages the ad-block benchmark reads (run.cjs). Read-only: the bench loads, waits, scrolls and measures; it never clicks, signs in or submits anything.",
+  "tests": [
+    {
+      "name": "adblock-tester",
+      "url": "https://adblock-tester.com/",
+      "settle": 15000,
+      "score": {
+        "selector": ".final-score-value",
+        "regex": "(\\d+)",
+        "what": "the page's points out of 100"
+      }
+    },
+    {
+      "name": "turtlecute",
+      "url": "https://adblock.turtlecute.org/",
+      "settle": 15000,
+      "score": {
+        "regex": "(\\d+)\\s+blocked",
+        "what": "how many of the page's 130 test requests were blocked"
+      }
+    },
+    {
+      "name": "canyoublockit-testing",
+      "url": "https://canyoublockit.com/testing/"
+    },
+    {
+      "name": "canyoublockit-extreme",
+      "url": "https://canyoublockit.com/extreme-test/"
+    }
+  ],
+  "youtube": [
+    {
+      "name": "youtube-1",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    },
+    {
+      "name": "youtube-2",
+      "url": "https://www.youtube.com/watch?v=kJQP7kiw5Fk"
+    },
+    {
+      "name": "youtube-3",
+      "url": "https://www.youtube.com/watch?v=9bZkp7q19f0"
+    }
+  ],
+  "real": [
+    {
+      "name": "cnn",
+      "url": "https://www.cnn.com/"
+    },
+    {
+      "name": "foxnews",
+      "url": "https://www.foxnews.com/"
+    },
+    {
+      "name": "nytimes",
+      "url": "https://www.nytimes.com/"
+    },
+    {
+      "name": "guardian",
+      "url": "https://www.theguardian.com/us"
+    },
+    {
+      "name": "washingtonpost",
+      "url": "https://www.washingtonpost.com/"
+    },
+    {
+      "name": "usatoday",
+      "url": "https://www.usatoday.com/"
+    },
+    {
+      "name": "nbcnews",
+      "url": "https://www.nbcnews.com/"
+    },
+    {
+      "name": "cbsnews",
+      "url": "https://www.cbsnews.com/"
+    },
+    {
+      "name": "apnews",
+      "url": "https://apnews.com/"
+    },
+    {
+      "name": "forbes",
+      "url": "https://www.forbes.com/"
+    },
+    {
+      "name": "businessinsider",
+      "url": "https://www.businessinsider.com/"
+    },
+    {
+      "name": "huffpost",
+      "url": "https://www.huffpost.com/"
+    },
+    {
+      "name": "dailymail",
+      "url": "https://www.dailymail.co.uk/home/index.html"
+    },
+    {
+      "name": "independent",
+      "url": "https://www.independent.co.uk/"
+    },
+    {
+      "name": "nypost",
+      "url": "https://nypost.com/"
+    },
+    {
+      "name": "people",
+      "url": "https://people.com/"
+    },
+    {
+      "name": "theverge",
+      "url": "https://www.theverge.com/"
+    },
+    {
+      "name": "latimes",
+      "url": "https://www.latimes.com/"
+    },
+    {
+      "name": "allrecipes",
+      "url": "https://www.allrecipes.com/"
+    },
+    {
+      "name": "foodnetwork",
+      "url": "https://www.foodnetwork.com/"
+    },
+    {
+      "name": "simplyrecipes",
+      "url": "https://www.simplyrecipes.com/"
+    },
+    {
+      "name": "seriouseats",
+      "url": "https://www.seriouseats.com/"
+    },
+    {
+      "name": "delish",
+      "url": "https://www.delish.com/"
+    },
+    {
+      "name": "tasteofhome",
+      "url": "https://www.tasteofhome.com/"
+    },
+    {
+      "name": "food-com",
+      "url": "https://www.food.com/"
+    },
+    {
+      "name": "budgetbytes",
+      "url": "https://www.budgetbytes.com/"
+    },
+    {
+      "name": "sallysbaking",
+      "url": "https://sallysbakingaddiction.com/"
+    },
+    {
+      "name": "pioneerwoman",
+      "url": "https://www.thepioneerwoman.com/"
+    }
+  ],
+  "retired": [
+    {
+      "name": "d3ward",
+      "url": "https://d3ward.github.io/toolz/adblock.html",
+      "why": "archived by its author (2025): the page no longer runs its tests"
+    },
+    {
+      "name": "fanboy-test",
+      "url": "https://www.fanboy.co.nz/test/",
+      "why": "serves explicit adult ad images inline from its own host (nothing for a list to block, and not fit to keep screenshots of)"
+    }
+  ]
+}

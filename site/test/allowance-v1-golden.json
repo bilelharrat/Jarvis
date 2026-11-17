@@ -1,0 +1,3399 @@
+{
+ "free_trial": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 0,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": false
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "markup": 1,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": false
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 0,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 0,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  }
+ ],
+ "stripe_plus": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1796463060000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "stripe",
+     "manage": {
+      "app_store": null,
+      "stripe": "portal"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": true,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5,
+    "allowance_left": 5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1796463060000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "stripe",
+     "manage": {
+      "app_store": null,
+      "stripe": "portal"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 8.5,
+     "budget_usd": 6,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": true,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1796463060000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "stripe",
+     "manage": {
+      "app_store": null,
+      "stripe": "portal"
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": true,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  }
+ ],
+ "stripe_plus_credits": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1796463060000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "stripe",
+     "manage": {
+      "app_store": null,
+      "stripe": "portal"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 5,
+     "markup": 1.25,
+     "next_expiry": 1820397600000,
+     "history": [
+      {
+       "usd": 5,
+       "left": 5,
+       "at": 1794391200000,
+       "expires": 1820397600000,
+       "source": "stripe",
+       "expired": false
+      }
+     ],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": true,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 10,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 5,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 10,
+    "markup": 1,
+    "plan_active": true,
+    "credits_usd": 5,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 9.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 5,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 9,
+    "allowance_left": 5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 5,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 4.5,
+    "allowance_left": 0.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 5,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3.625
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 2.5,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 1.875,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1796463060000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "stripe",
+     "manage": {
+      "app_store": null,
+      "stripe": "portal"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 6,
+     "budget_usd": 6,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 1.875,
+     "markup": 1.25,
+     "next_expiry": 1820397600000,
+     "history": [
+      {
+       "usd": 5,
+       "left": 1.875,
+       "at": 1794391200000,
+       "expires": 1820397600000,
+       "source": "stripe",
+       "expired": false
+      }
+     ],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": true,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 7.5,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 1.875,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1796463060000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "stripe",
+     "manage": {
+      "app_store": null,
+      "stripe": "portal"
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 1.875,
+     "markup": 1.25,
+     "next_expiry": 1820397600000,
+     "history": [
+      {
+       "usd": 5,
+       "left": 1.875,
+       "at": 1794391200000,
+       "expires": 1820397600000,
+       "source": "stripe",
+       "expired": false
+      }
+     ],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": true,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 7,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 1.875,
+    "plan_active": true
+   }
+  }
+ ],
+ "app_store_legacy": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.jarvis.plus.monthly",
+     "expires": 1796637600000,
+     "renews": null,
+     "environment": "Production",
+     "source": "app_store",
+     "manage": {
+      "app_store": "https://apps.apple.com/account/subscriptions",
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 20,
+     "left_usd": 20,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 20,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 20,
+    "allowance_left": 20,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 20,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 19.5,
+    "allowance_left": 19.5,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 19,
+    "allowance_left": 19,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 14.5,
+    "allowance_left": 14.5,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 11.5,
+    "allowance_left": 11.5,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.jarvis.plus.monthly",
+     "expires": 1796637600000,
+     "renews": null,
+     "environment": "Production",
+     "source": "app_store",
+     "manage": {
+      "app_store": "https://apps.apple.com/account/subscriptions",
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 8.5,
+     "budget_usd": 20,
+     "left_usd": 11.5,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 20,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 20,
+    "allowance_left": 20,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.jarvis.plus.monthly",
+     "expires": 1796637600000,
+     "renews": null,
+     "environment": "Production",
+     "source": "app_store",
+     "manage": {
+      "app_store": "https://apps.apple.com/account/subscriptions",
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 20,
+     "left_usd": 20,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 20,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 19.5,
+    "allowance_left": 19.5,
+    "budget": 20,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  }
+ ],
+ "app_store_sandbox": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": null,
+     "environment": "Sandbox",
+     "source": "app_store",
+     "manage": {
+      "app_store": "https://apps.apple.com/account/subscriptions",
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 0.5,
+     "left_usd": 0.5,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 0.5,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 0.5,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0,
+    "allowance_left": 0,
+    "budget": 0.5,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "plan_active": true,
+    "ok": false,
+    "why": "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "plan_active": true,
+    "ok": false,
+    "why": "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": null,
+     "environment": "Sandbox",
+     "source": "app_store",
+     "manage": {
+      "app_store": "https://apps.apple.com/account/subscriptions",
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 1,
+     "budget_usd": 0.5,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 0.5,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 0.5,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": null,
+     "environment": "Sandbox",
+     "source": "app_store",
+     "manage": {
+      "app_store": "https://apps.apple.com/account/subscriptions",
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 0.5,
+     "left_usd": 0.5,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 0.5,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "plan_active": true,
+    "ok": false,
+    "why": "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+   }
+  }
+ ],
+ "play": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": true,
+     "environment": "Production",
+     "source": "google_play",
+     "manage": {
+      "app_store": null,
+      "stripe": null,
+      "google_play": "https://play.google.com/store/account/subscriptions?sku=com.askeden.eden.plus.monthly&package=com.askeden.eden"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5,
+    "allowance_left": 5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": true,
+     "environment": "Production",
+     "source": "google_play",
+     "manage": {
+      "app_store": null,
+      "stripe": null,
+      "google_play": "https://play.google.com/store/account/subscriptions?sku=com.askeden.eden.plus.monthly&package=com.askeden.eden"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 8.5,
+     "budget_usd": 6,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": true,
+     "environment": "Production",
+     "source": "google_play",
+     "manage": {
+      "app_store": null,
+      "stripe": null,
+      "google_play": "https://play.google.com/store/account/subscriptions?sku=com.askeden.eden.plus.monthly&package=com.askeden.eden"
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  }
+ ],
+ "play_test": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "google_play",
+     "manage": {
+      "app_store": null,
+      "stripe": null,
+      "google_play": "https://play.google.com/store/account/subscriptions?sku=com.askeden.eden.plus.monthly&package=com.askeden.eden"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 0.5,
+     "left_usd": 0.5,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 0.5,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 0.5,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0,
+    "allowance_left": 0,
+    "budget": 0.5,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "plan_active": true,
+    "ok": false,
+    "why": "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "plan_active": true,
+    "ok": false,
+    "why": "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "google_play",
+     "manage": {
+      "app_store": null,
+      "stripe": null,
+      "google_play": "https://play.google.com/store/account/subscriptions?sku=com.askeden.eden.plus.monthly&package=com.askeden.eden"
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 1,
+     "budget_usd": 0.5,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 0.5,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 0.5,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": "com.askeden.eden.plus.monthly",
+     "expires": 1796637600000,
+     "renews": true,
+     "environment": "Sandbox",
+     "source": "google_play",
+     "manage": {
+      "app_store": null,
+      "stripe": null,
+      "google_play": "https://play.google.com/store/account/subscriptions?sku=com.askeden.eden.plus.monthly&package=com.askeden.eden"
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 0.5,
+     "left_usd": 0.5,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 0.5,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "plan_active": true,
+    "ok": false,
+    "why": "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+   }
+  }
+ ],
+ "promo": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1797933600000,
+     "renews": false,
+     "environment": null,
+     "source": "promo",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5,
+    "allowance_left": 5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 0.5,
+    "allowance_left": 0.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1797933600000,
+     "renews": false,
+     "environment": null,
+     "source": "promo",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 8.5,
+     "budget_usd": 6,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1797933600000,
+     "renews": false,
+     "environment": null,
+     "source": "promo",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  }
+ ],
+ "rewards_month": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1797069600000,
+     "renews": false,
+     "environment": null,
+     "source": "promo",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 8,
+     "left_usd": 8,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 8,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 8,
+    "allowance_left": 8,
+    "budget": 8,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 8,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 7.5,
+    "allowance_left": 7.5,
+    "budget": 8,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 7,
+    "allowance_left": 7,
+    "budget": 8,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 2.5,
+    "allowance_left": 2.5,
+    "budget": 8,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1797069600000,
+     "renews": false,
+     "environment": null,
+     "source": "promo",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 8.5,
+     "budget_usd": 8,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 8,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 6,
+    "allowance_left": 6,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": 1797069600000,
+     "renews": false,
+     "environment": null,
+     "source": "promo",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 6,
+     "left_usd": 6,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 5.5,
+    "allowance_left": 5.5,
+    "budget": 6,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  }
+ ],
+ "daredevil": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 0,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": false
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 1,
+    "markup": 1,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "daredevil": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "trial",
+    "left": 0.8,
+    "allowance_left": 0.8,
+    "budget": 1,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": false
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 0,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     }
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 0,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 1,
+     "plus_usd": 6,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "plan_active": false,
+    "ok": false,
+    "why": "The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account)."
+   }
+  }
+ ],
+ "unlimited": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": null,
+     "renews": false,
+     "environment": null,
+     "source": "unlimited",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     },
+     "unlimited": true
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 0,
+     "budget_usd": 1000,
+     "left_usd": 1000,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 1000,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 1000,
+    "allowance_left": 1000,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 1000,
+    "markup": 1,
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 999.5,
+    "allowance_left": 999.5,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 999,
+    "allowance_left": 999,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 994.5,
+    "allowance_left": 994.5,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 991.5,
+    "allowance_left": 991.5,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": null,
+     "renews": false,
+     "environment": null,
+     "source": "unlimited",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     },
+     "unlimited": true
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1796083200000,
+     "spent_usd": 8.5,
+     "budget_usd": 1000,
+     "left_usd": 991.5,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 1000,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 1000,
+    "allowance_left": 1000,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "plus",
+     "active": true,
+     "product_id": null,
+     "expires": null,
+     "renews": false,
+     "environment": null,
+     "source": "unlimited",
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     },
+     "unlimited": true
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1798761600000,
+     "spent_usd": 0,
+     "budget_usd": 1000,
+     "left_usd": 1000,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 1000,
+     "voice_today": 0,
+     "voice_daily": 100000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.25,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 999.5,
+    "allowance_left": 999.5,
+    "budget": 1000,
+    "markup": 1,
+    "credits_usd": 0,
+    "plan_active": true
+   }
+  }
+ ],
+ "delegate": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "delegate",
+     "active": true,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null
+    },
+    "usage": {
+     "spent_usd": 0,
+     "budget_usd": 2,
+     "left_usd": 2,
+     "trial_left_usd": 2,
+     "trial_usd": 2,
+     "plus_usd": 2,
+     "period_start": null,
+     "period_end": null,
+     "voice_today": 0,
+     "voice_daily": 0
+    },
+    "grant": {
+     "type": "delegate",
+     "id": "abc",
+     "label": "Sam",
+     "features": [],
+     "expires": 1797069600000
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus|dlg:abc|bbbbbbbb",
+    "left": 2,
+    "pool": "pool:dlg:abc"
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus|dlg:abc|bbbbbbbb",
+    "left": 2,
+    "markup": 1,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "plan_active": true,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus|dlg:abc|bbbbbbbb",
+    "left": 1.8,
+    "pool": "pool:dlg:abc"
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus|dlg:abc|bbbbbbbb",
+    "left": 1,
+    "pool": "pool:dlg:abc"
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": false,
+    "why": "Your delegated AI limit is used up this month. It starts again on the 1st."
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": false,
+    "why": "Your delegated AI limit is used up this month. It starts again on the 1st."
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "delegate",
+     "active": true,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null
+    },
+    "usage": {
+     "spent_usd": 8.5,
+     "budget_usd": 2,
+     "left_usd": 0,
+     "trial_left_usd": 0,
+     "trial_usd": 2,
+     "plus_usd": 2,
+     "period_start": null,
+     "period_end": null,
+     "voice_today": 0,
+     "voice_daily": 0
+    },
+    "grant": {
+     "type": "delegate",
+     "id": "abc",
+     "label": "Sam",
+     "features": [],
+     "expires": 1797069600000
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus|dlg:abc|bbbbbbbb",
+    "left": 2,
+    "pool": "pool:dlg:abc"
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "delegate",
+     "active": true,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null
+    },
+    "usage": {
+     "spent_usd": 0,
+     "budget_usd": 2,
+     "left_usd": 2,
+     "trial_left_usd": 2,
+     "trial_usd": 2,
+     "plus_usd": 2,
+     "period_start": null,
+     "period_end": null,
+     "voice_today": 0,
+     "voice_daily": 0
+    },
+    "grant": {
+     "type": "delegate",
+     "id": "abc",
+     "label": "Sam",
+     "features": [],
+     "expires": 1797069600000
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus|dlg:abc|bbbbbbbb",
+    "left": 1.5,
+    "pool": "pool:dlg:abc"
+   }
+  }
+ ],
+ "test_account": [
+  {
+   "step": "get",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     },
+     "test": true
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1794528000000,
+     "spent_usd": 0,
+     "budget_usd": 2,
+     "left_usd": 2,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 2,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    },
+    "test": {
+     "banner": "Test account: shared and reset daily. Don’t enter personal information.",
+     "daily_usd": 2,
+     "resets": 1794528000000
+    }
+   }
+  },
+  {
+   "step": "allow",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 2,
+    "allowance_left": 2,
+    "budget": 2,
+    "markup": 1,
+    "credits_usd": 0
+   }
+  },
+  {
+   "step": "hold-ai",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 2,
+    "markup": 1,
+    "hold": "H"
+   }
+  },
+  {
+   "step": "hold-proxy",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "hold": "H"
+   }
+  },
+  {
+   "step": "allow-held",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 1.5,
+    "allowance_left": 1.5,
+    "budget": 2,
+    "markup": 1,
+    "credits_usd": 0
+   }
+  },
+  {
+   "step": "release",
+   "out": {}
+  },
+  {
+   "step": "spend-1",
+   "out": {
+    "charged_usd": 1
+   }
+  },
+  {
+   "step": "allow-1",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 1,
+    "allowance_left": 1,
+    "budget": 2,
+    "markup": 1,
+    "credits_usd": 0
+   }
+  },
+  {
+   "step": "spend-2",
+   "out": {
+    "charged_usd": 4.5
+   }
+  },
+  {
+   "step": "allow-2",
+   "out": {
+    "ok": false,
+    "why": "Today's AI allowance for the test account is used up. It starts again at midnight UTC."
+   }
+  },
+  {
+   "step": "spend-3",
+   "out": {
+    "charged_usd": 3
+   }
+  },
+  {
+   "step": "allow-3",
+   "out": {
+    "ok": false,
+    "why": "Today's AI allowance for the test account is used up. It starts again at midnight UTC."
+   }
+  },
+  {
+   "step": "get-2",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     },
+     "test": true
+    },
+    "usage": {
+     "period_start": 1793491200000,
+     "period_end": 1794528000000,
+     "spent_usd": 8.5,
+     "budget_usd": 2,
+     "left_usd": 0,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 2,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    },
+    "test": {
+     "banner": "Test account: shared and reset daily. Don’t enter personal information.",
+     "daily_usd": 2,
+     "resets": 1794528000000
+    }
+   }
+  },
+  {
+   "step": "allow-dec",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 2,
+    "allowance_left": 2,
+    "budget": 2,
+    "markup": 1,
+    "credits_usd": 0
+   }
+  },
+  {
+   "step": "get-dec",
+   "out": {
+    "plan": {
+     "name": "free",
+     "active": false,
+     "product_id": null,
+     "expires": null,
+     "renews": null,
+     "environment": null,
+     "source": null,
+     "manage": {
+      "app_store": null,
+      "stripe": null
+     },
+     "test": true
+    },
+    "usage": {
+     "period_start": 1796083200000,
+     "period_end": 1796256000000,
+     "spent_usd": 0,
+     "budget_usd": 2,
+     "left_usd": 2,
+     "trial_left_usd": 1,
+     "trial_usd": 1,
+     "plus_usd": 2,
+     "voice_today": 0,
+     "voice_daily": 20000
+    },
+    "credits": {
+     "balance_usd": 0,
+     "markup": 1.4,
+     "next_expiry": null,
+     "history": [],
+     "auto_topup": {
+      "enabled": false,
+      "threshold_usd": 2,
+      "amount_usd": 10,
+      "card_on_file": false,
+      "last": null
+     }
+    },
+    "test": {
+     "banner": "Test account: shared and reset daily. Don’t enter personal information.",
+     "daily_usd": 2,
+     "resets": 1796256000000
+    }
+   }
+  },
+  {
+   "step": "spend-dec",
+   "out": {
+    "charged_usd": 0.5
+   }
+  },
+  {
+   "step": "allow-dec-2",
+   "out": {
+    "ok": true,
+    "bucket": "plus",
+    "left": 1.5,
+    "allowance_left": 1.5,
+    "budget": 2,
+    "markup": 1,
+    "credits_usd": 0
+   }
+  }
+ ]
+}

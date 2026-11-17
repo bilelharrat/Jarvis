@@ -9,7 +9,6 @@
 import {
   ApiError,
   EDEN_BUNDLE_ID,
-  EDEN_PLUS_PRODUCTS,
   isPlusPurchase,
   cleanName,
   cleanVersion,
@@ -25,6 +24,7 @@ import {
   validDeviceId,
 } from './util.js';
 import { forgetGoogleOnDelete, googleOp } from './tokens.js';
+import { forgetMailboxesOnDelete, mailboxOp } from './mailboxes.js';
 import { approvalOp } from './approvals.js';
 import { scopedOp } from './scoped.js';
 import { userKeysOp } from './user-keys.js';
@@ -71,11 +71,14 @@ import { calOp, feedPublicOp, tripZone } from '../travel/calsync.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
 import { TEST_BLOCKED, isTestObject, testAllow, testAuthenticate, testOp, testOpBlocked, testSpend, testView } from './test-login.js';
-import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
+import { combinePlans, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
 import { playCap, playOp, withPlayPlan } from './play-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 import { aiSpend } from '../stats/stats.js';
+import { allowFields, allowView, allowanceNow, allowanceV2, chargeAllowance, refusalFields } from './allowance.js'; // ALLOWANCE_V2 = "on": billing-anchored periods, weekly slices, rollover
+import { higherTier, isV2Tier, labelOf, planCaps, plansV2, priceTier, productTier } from './plans.js'; // PLANS_V2: the six plans
 import { notePhotos, photoNames } from '../travel/picmeter.js';
+import { configureDatedPrices } from '../eden/dated-prices.js';
 
 // what a person keeps after Plus ends: their paid bookings (see, cancel, the card refund) and a payment already under way
 const AFTER_PLUS = new Set(['flight-order', 'flight-cancel_quote', 'flight-cancel_confirm', 'trip-stays-cancel', 'trip-pay-status', 'trip-pay-latest', 'trip-pay-complete']);
@@ -148,6 +151,7 @@ export class Account {
     this.ctx = ctx;
     this.storage = ctx.storage;
     this.env = env || {};
+    configureDatedPrices(this.env); // charging by the call's day here too (eden/dated-prices.js; DATED_PRICES=off: the registry's one price)
     this.now = () => Date.now();
     this.pending = new Map(); // relay stream id -> { size, chunks }: what a phone sent before its Mac answered
     this.pushTimes = [];
@@ -232,8 +236,11 @@ export class Account {
       if (op === 'release-ai') return json(this.release(body));
       if (op === 'push-gone') return json(await this.pushGone(body));
       if (op === 'exists') return json({ exists: Boolean(await this.storage.get('account')) });
+      if (op === 'calendar-email') return json({ email: await this.calendarEmail() }); // Eden Calendar's sign-in (eden/calendar-handoff.js)
+      if (op === 'notes-plan') return json(await this.notesPlan()); // Eden Notes' sign-in and Plus check, the Worker's only (eden/notes-handoff.js)
       if (op === 'identity-link') return json(await this.linkIdentity(body));
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
+      if (op.startsWith('mbox-')) return json(await mailboxOp(this, op, body, request)); // Mail's extra Gmail accounts (mailboxes.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
       if (op === 'rcpt-open') return json(await receiptOp(this, op, body)); // a read receipt's pixel loaded (the Worker's /r/ route; receipts.js)
       const device = await this.authenticate(request);
@@ -482,6 +489,13 @@ export class Account {
 
   // An account the iPhone app made before identities were kept lists its Apple ID, whose
   // sub_hash is filled in at its next sign-in. (No raw sub is ever stored here.)
+  // The address Eden Calendar (edencalendar.com) knows this account by: the email of its first sign-in that has one,
+  // in the order the sign-ins were added, so it stays the same (eden/calendar-handoff.js). Null when none has one.
+  async calendarEmail() {
+    const first = (await this.identities()).find((i) => i.email);
+    return first ? String(first.email).trim().toLowerCase() : null;
+  }
+
   async identities() {
     const stored = await this.storage.get('identities');
     if (stored) return stored;
@@ -654,6 +668,7 @@ export class Account {
     const playClaims = (await this.storage.get('play_claims')) || []; // read before deleteAll (play-plan.js)
     this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
+    await forgetMailboxesOnDelete(this); // and every extra mailbox's (Eden Mail, MAIL_MULTI)
     await this.storage.deleteAll();
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
     return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared, appstore_claims: (await this.storage.get('appstore_claims')) || [], play_claims: playClaims };
@@ -686,6 +701,7 @@ export class Account {
     const voice = (await this.storage.get('voice')) || {};
     const voiceToday = voice.day === today(this.now()) ? voice.chars : 0;
     const budget = plan.active ? await this.plusCap(plan) : 0;
+    const { tier, label } = await this.planTier(plan); // PLANS_V2 (plans.js): tier and label shown only with the flag, or on a v2 plan
     const devices = (await this.devices()).filter((d) => !d.grant).sort((a, b) => a.created - b.created).map((d) => this.publicDevice(d, device.id));
     const out = {
       id: account.id,
@@ -699,6 +715,7 @@ export class Account {
         environment: plan.environment || null,
         ...planSource(plan), // source "app_store" | "stripe" | "both", manage, payment_failed (stripe-plan.js)
         ...(plan.unlimited ? { unlimited: true } : {}), // owner-emails.js or UNLIMITED_EMAILS: the page's owner tools (eden/state.js)
+        ...(plansV2(this.env) || isV2Tier(tier) ? { tier, label } : {}), // name stays "plus" for every paid tier
       },
       usage: {
         period_start: monthStart(usage.month),
@@ -710,13 +727,14 @@ export class Account {
         trial_usd: caps.trial, // the trial's size and a month of Plus, for the meters
         plus_usd: plan.active ? budget : caps.plus,
         voice_today: voiceToday,
-        voice_daily: plan.active ? caps.voicePlus : caps.voiceFree,
+        voice_daily: plan.active ? this.tierVoice(tier, caps) : caps.voiceFree,
       },
       credits: await creditsView(this, plan), // pay-as-you-go, after the included AI (credits.js)
       devices,
       identities: this.publicIdentities(await this.identities()),
       sync: { rev: (await this.storage.get('syncrev')) || 0, items: (await this.storage.get('synccount')) || 0 },
     };
+    if (allowanceV2(this.env) && !(await isTestObject(this))) Object.assign(out.usage, await allowView(this, plan, usage, caps)); // the anchored period and its week (allowance.js)
     return (await isTestObject(this)) ? testView(this, out) : out;
   }
 
@@ -740,6 +758,13 @@ export class Account {
       if (!combined.active) Object.assign(combined, { active: true, source: 'unlimited', expires: null, renews: false, environment: null });
     }
     return combined;
+  }
+
+  // What Eden Notes (eden/notes-handoff.js) is told: Plus or not, and unlimited. Nothing for an account that doesn't exist.
+  async notesPlan() {
+    if (!(await this.storage.get('account'))) throw new ApiError(404, 'not_found', 'No such account.');
+    const plan = await this.planNow();
+    return { plus: Boolean(plan.active), unlimited: Boolean(plan.unlimited) };
   }
 
   async unlimitedEmail() {
@@ -786,6 +811,7 @@ export class Account {
       revoked,
       environment: tx.environment || null,
       signed_date: signed,
+      ...(allowanceV2(this.env) ? { purchase_date: Number(tx.purchaseDate) || 0 } : {}), // the period's start (allowance.js windowOf)
     });
     if (tx.environment && /^sandbox$/i.test(tx.environment)) console.warn('apple: a Sandbox transaction', tx.productId, 'on account', account.id);
     if (revoked) {
@@ -865,11 +891,53 @@ export class Account {
     // A Sandbox purchase (TestFlight, App Review: free, and signed with Apple's own chain) is Plus,
     // with a trial-size allowance only (R3C-3).
     const sandbox = apple && /^sandbox$/i.test(String(store.environment || ''));
-    let cap = apple ? (sandbox ? caps.sandbox : EDEN_PLUS_PRODUCTS.includes(store.product_id) ? caps.plus : caps.legacy) : plan.promo ? caps.plus : 0;
-    if (web) cap = Math.max(cap, legacyPrice(this.env, stripe.price) ? caps.legacy : caps.plus);
+    // The plan the price or product is (plans.js): today's Plus, the old $20, or one of PLANS_V2's six (their caps from the workbook).
+    let cap = apple ? this.tierAi(sandbox ? 'sandbox' : productTier(store.product_id) || 'legacy', caps) : plan.promo ? caps.plus : 0;
+    if (web) cap = Math.max(cap, this.tierAi(priceTier(this.env, stripe.price) || 'plus', caps));
     if (plan.unlimited) cap = Math.max(cap, caps.unlimited);
     cap += aiExtraUsd(await this.storage.get('rwd:ai'), this.now()); // extra AI bought with Eden Rewards points (travel/rewards.js)
     return cap;
+  }
+
+  // A month of a tier's AI in dollars: today's Plus, the old $20 and Sandbox from allowances(); PLANS_V2's from planCaps.
+  tierAi(tier, caps = allowances(this.env)) {
+    if (tier === 'plus' || tier === 'legacy' || tier === 'sandbox' || tier === 'unlimited') return caps[tier];
+    const c = planCaps(this.env, tier);
+    return c ? c.ai_usd : caps.plus;
+  }
+
+  // A tier's daily voice characters: PLANS_V2's from planCaps, every other plan today's VOICE_DAILY_PLUS.
+  tierVoice(tier, caps = allowances(this.env)) {
+    const c = planCaps(this.env, tier);
+    return c ? c.voice_day : caps.voicePlus;
+  }
+
+  // Which plan the account is on (plans.js): { tier, label }. "free"; "unlimited"; "sandbox" (an App Store
+  // Sandbox purchase alone); else the plan of the App Store product or Stripe price, the higher when both
+  // are active; promo codes, Rewards months and Google Play are today's Plus.
+  async planTier(plan) {
+    if (!plan.active) return { tier: 'free', label: labelOf('free') };
+    if (plan.unlimited) return { tier: 'unlimited', label: labelOf('unlimited') };
+    const caps = allowances(this.env);
+    const ai = (t) => this.tierAi(t, caps);
+    let base = plan;
+    let tier = null;
+    if (plan.play) {
+      tier = plan.play_test ? 'sandbox' : 'plus'; // Eden for Android sells today's Plus only (a license tester's is Sandbox-size)
+      const before = plan.before_play || {};
+      base = { ...plan, active: Boolean(before.active), source: before.source || null };
+      if (!base.active) return { tier, label: labelOf(tier) };
+    }
+    const apple = base.source === 'app_store' || base.source === 'both';
+    const web = base.source === 'stripe' || base.source === 'both';
+    if (apple) {
+      const store = (await this.storage.get('plan')) || {};
+      const sandbox = /^sandbox$/i.test(String(store.environment || ''));
+      tier = higherTier(tier, sandbox ? 'sandbox' : productTier(store.product_id) || 'legacy', ai);
+    } else if (base.promo) tier = higherTier(tier, 'plus', ai);
+    if (web) tier = higherTier(tier, priceTier(this.env, ((await this.storage.get('stripe_plan')) || {}).price) || 'plus', ai);
+    tier = tier || 'plus';
+    return { tier, label: labelOf(tier) };
   }
 
   // What the AI may spend now, in dollars of provider cost: the month's Plus allowance, then the
@@ -898,17 +966,25 @@ export class Account {
       budget: bucket === 'plus' ? cap : caps.trial,
       markup: 1,
       credits_usd: creditUSD,
+      ...payer, // the GCP credit pacer (eden/credit-pacer.js allowPaid): who pays for this
     });
-    if ((plan.active || dare) && usage.spent < cap) return withCredits('plus', cap - usage.spent - this.held('plus'));
+    const payer = { plan_active: Boolean(plan.active), ...(dare ? { daredevil: true } : {}) };
+    // ALLOWANCE_V2 (allowance.js): Plus spends the billing period's released weeks in place of the calendar month
+    const v2 = allowanceV2(this.env) ? await allowanceNow(this, plan, usage, caps) : null;
+    const v1Plus = !(v2 && v2.avail);
+    if (!v1Plus && v2.avail.weekLeft > 0) return { ...withCredits('plus', v2.avail.weekLeft - this.held('plus')), ...allowFields(v2) };
+    if (v1Plus && (plan.active || dare) && usage.spent < cap) return withCredits('plus', cap - usage.spent - this.held('plus'));
     if (usage.trial_spent < caps.trial) return withCredits('trial', caps.trial - usage.trial_spent - this.held('trial'));
-    if (creditLeft > 0) return { ok: true, bucket: 'credits', left: round(creditLeft), allowance_left: 0, budget: 0, markup, credits_usd: creditUSD };
+    if (creditLeft > 0) return { ok: true, bucket: 'credits', left: round(creditLeft), allowance_left: 0, budget: 0, markup, credits_usd: creditUSD, ...payer };
     return {
+      ...payer,
       ok: false,
       why: dare
         ? "This month's free Daredevil AI is used up. It starts again on the 1st, or add credits in Settings › Account."
         : plan.active
-        ? "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+        ? `This month's ${(await this.planTier(plan)).label} AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account.`
         : 'The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account).',
+      ...(v2 && v2.avail ? refusalFields(v2) : {}), // the week's (or the period's) end, not "the 1st"
     };
   }
 
@@ -928,7 +1004,7 @@ export class Account {
     }
     const id = crypto.randomUUID();
     this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS, pool: allow.pool || null });
-    return { ok: true, bucket: allow.bucket, hold: id, left: allow.left, markup: allow.markup || 1 };
+    return { ok: true, bucket: allow.bucket, hold: id, left: allow.left, markup: allow.markup || 1, ...(allow.plan_active ? { plan_active: true } : {}), ...(allow.credits_usd > 0 ? { credits_usd: allow.credits_usd } : {}) }; // who pays: eden/credit-pacer.js allowPaid
   }
 
   // One request of the apps' proxy (index.js anthropic): at most PROXY_TURNS at once, each holding
@@ -945,7 +1021,7 @@ export class Account {
     if (!(allow.left > 0)) throw busy();
     const id = crypto.randomUUID();
     this.holds.set(id, { usd: Math.min(want, allow.left), bucket: allow.bucket, until: this.now() + HOLD_MS, pool: null, proxy: true });
-    return { ok: true, bucket: allow.bucket, hold: id };
+    return { ok: true, bucket: allow.bucket, hold: id, ...(allow.plan_active ? { plan_active: true } : {}), ...(allow.daredevil ? { daredevil: true } : {}) }; // who pays: eden/credit-pacer.js allowPaid
   }
 
   release({ hold }) {
@@ -976,7 +1052,8 @@ export class Account {
       const trial = base === 'trial';
       const dare = !trial && !plan.active && Boolean(await this.storage.get('daredevil'));
       const cap = trial ? allowances(this.env).trial : dare ? allowances(this.env).daredevil : await this.plusCap(plan);
-      const room = Math.max(0, cap - (trial ? usage.trial_spent : usage.spent));
+      const v2 = !trial && !dare && allowanceV2(this.env) ? await allowanceNow(this, plan, usage, allowances(this.env), { persist: false }) : null; // ALLOWANCE_V2: the week's room (allowance.js)
+      const room = v2 && v2.avail ? Math.max(0, v2.avail.weekLeft) : Math.max(0, cap - (trial ? usage.trial_spent : usage.spent));
       let inAllowance = cost;
       if (!pool && cost > room && balanceOf(await creditsOf(this), this.now()) > 0) {
         inAllowance = room;
@@ -984,7 +1061,8 @@ export class Account {
       }
       if (trial) usage.trial_spent = round(usage.trial_spent + inAllowance);
       else usage.spent = round(usage.spent + inAllowance);
-      await this.storage.put('usage', usage);
+      if (v2 && v2.avail) await this.storage.put({ usage, allow2: chargeAllowance(v2, inAllowance, this.now(), usage) }); // usage dual-written: flag off shows today's numbers
+      else await this.storage.put('usage', usage);
       charged = inAllowance;
     }
     if (fromCredits > 0) {
@@ -1010,7 +1088,7 @@ export class Account {
   async voice({ chars }) {
     const plan = await this.planNow();
     const caps = allowances(this.env);
-    const daily = plan.active ? caps.voicePlus : caps.voiceFree;
+    const daily = plan.active ? this.tierVoice((await this.planTier(plan)).tier, caps) : caps.voiceFree;
     const day = today(this.now());
     const voice = (await this.storage.get('voice')) || {};
     const used = voice.day === day ? voice.chars : 0;
@@ -1024,7 +1102,7 @@ export class Account {
       };
     }
     await this.storage.put('voice', { day, chars: used + n });
-    return { ok: true, left: daily - used - n };
+    return { ok: true, left: daily - used - n, paid: plan.active === true }; // `paid`: the company spend counter's column (worker.js voice)
   }
 
   // ── pushes through askeden.com's key ──
@@ -1236,7 +1314,7 @@ export class Account {
     }
     const device = await this.authenticate(request);
     if (device.kind === 'web') throw new ApiError(403, 'forbidden', "A browser can't use the relay.");
-    if (kind === 'web') return webListen(this, device);
+    if (kind === 'web') return webListen(this, device, request);
     if (kind === 'listen') {
       if (device.kind !== 'mac') throw new ApiError(403, 'forbidden', 'Only a Mac listens on the relay.');
       this.closeSockets([`listen:${device.id}`], 4000, 'replaced');

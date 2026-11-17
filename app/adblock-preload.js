@@ -31,7 +31,31 @@ const WORLD = 1107; // the procedural rules' own isolated world (not the page's,
     webFrame.executeJavaScriptInIsolatedWorld(WORLD, [{ code: proceduralRunner(rules.lib, rules.extended) }]).catch(() => {});
   }
   if (rules.observe) watchFeatures(url);
+  collapseBlocked();
 })();
+
+// An image or frame whose request was blocked (adblock.js's network side says which) is
+// collapsed, as Brave does, so the ad leaves no empty box behind.
+function collapseBlocked() {
+  const urls = new Set();
+  let queued = false;
+  const run = () => {
+    queued = false;
+    for (const el of document.querySelectorAll('img, iframe, frame, embed, object')) {
+      const src = el.currentSrc || el.src || el.data || '';
+      if (src && urls.has(src)) el.style.setProperty('display', 'none', 'important');
+    }
+    if (urls.size > 500) urls.clear();
+  };
+  ipcRenderer.on('jarvis-adblock:collapse', (_event, url) => {
+    if (typeof url !== 'string') return;
+    urls.add(url);
+    if (queued) return;
+    queued = true;
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once: true });
+    else setTimeout(run, 50);
+  });
+}
 
 // The classes, ids and links in the page, sent as they first appear; the generic rules
 // that match them come back as a stylesheet.

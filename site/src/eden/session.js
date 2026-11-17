@@ -40,6 +40,8 @@ import { essaySyncApi } from '../accounts/essay-sync.js';
 import { actingSession, actingView, delegatesApi, endActing } from '../accounts/delegates.js';
 import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
+import { poolOn } from '../accounts/plans.js';
+import { bonusSettings } from '../accounts/bonus-pool.js'; // the owner's bonus switches, for the plan cards
 import { safeReturn } from '../../public/signin/return.js';
 import { TEST_ACCOUNT_ID, TEST_FAILED, TEST_RATE_OBJECT, TEST_SESSION_SECONDS, isTestAccount, testCredentialsOk, testIpKey, testLoginOn } from '../accounts/test-login.js';
 import { where } from '../stats/stats.js';
@@ -147,7 +149,7 @@ export async function web(request, env, ctx, path) {
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     if (path === '/api/web/config' && method === 'GET') {
       const last = signinChoiceOn(env) ? lastSignIn(request) : null; // `last`: this browser's last way in, for /signin to point it out
-      return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env), ...(last ? { last } : {}), ...(testLoginOn(env) ? { test_login: true } : {}) });
+      return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env, poolOn(env) ? await bonusSettings(env) : null), ...(last ? { last } : {}), ...(testLoginOn(env) ? { test_login: true } : {}) });
     }
     // The shared test account (accounts/test-login.js): only while TEST_LOGIN is on and its password is set; else the 404 below.
     if (path === '/api/web/test-login' && method === 'POST' && testLoginOn(env)) return await testSignIn(request, env);

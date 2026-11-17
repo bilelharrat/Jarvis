@@ -1,0 +1,28 @@
+/* Eden Enterprise's request form (/enterprise), on top of /home/home.css (the Paper tokens, header, buttons,
+   footer). DESIGN.md §5 and §9: a card with radius 20, 40px+ touch targets, visible focus rings, one h1. */
+.ent{display:grid;grid-template-columns:1fr minmax(0,520px);gap:48px;align-items:start;padding-top:64px;padding-bottom:24px}
+.ent-intro h1{margin-bottom:0}
+.ent-card{padding:32px;border-radius:20px;background:var(--card);border:1px solid var(--line);box-shadow:0 24px 60px -32px rgba(14,39,71,.35)}
+.ent-card h2{margin:0 0 18px;font:400 28px/1.15 var(--serif)}
+.ent-form{display:flex;flex-direction:column;gap:6px}
+.ent-form label{margin-top:8px;font:600 12.5px var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--ink2)}
+.ent-form input:not(.sr),.ent-form select,.ent-form textarea{ /* (never the honeypot: it stays 1px, off the page) */
+  width:100%;min-height:44px;padding:11px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--paper);color:var(--ink);font:400 16px/1.4 var(--sans)}
+.ent-form textarea{resize:vertical;min-height:120px}
+.ent-form :is(input,select,textarea):focus-visible{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
+.ent-form [aria-invalid="true"]{border-color:#b3261e}
+.ent-form .btn{margin-top:16px;align-self:flex-start;min-height:48px;cursor:pointer;font:600 16px var(--sans)}
+.ent-form .btn[disabled]{opacity:.6;cursor:default;transform:none}
+.ent-human{margin-top:12px;min-height:65px}
+.ent-human[hidden]{display:none}
+.ent-alert{margin:10px 0 0;padding:10px 14px;border-radius:10px;background:#fbe9e6;color:#8c2a1c;font:500 14.5px/1.45 var(--sans)}
+.ent-alert[hidden],.ent-done[hidden],.ent-form[hidden]{display:none}
+.ent-done{margin:0;padding:16px 18px;border-radius:12px;background:var(--paper2);color:var(--ink);font:500 17px/1.5 var(--sans)}
+.ent-done:focus{outline:2px solid var(--ink);outline-offset:3px}
+.ent-card .fine{margin-top:18px}
+.ent-card .fine a{text-decoration:underline}
+@media (max-width:860px){
+  .ent{grid-template-columns:1fr;gap:32px;padding-top:40px}
+  .ent-card{padding:24px}
+}
+@media (prefers-reduced-motion:reduce){.ent-form .btn{transition:none}}

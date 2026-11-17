@@ -72,7 +72,7 @@ beforeEach(() => {
     if (url.includes('generativelanguage.googleapis.com') && url.includes(':streamGenerateContent')) {
       const user = body.contents[0].parts.map((p) => p.text || '').join('');
       const system = JSON.stringify(body.systemInstruction || '');
-      const kind = /Is this statement true\?/.test(user) ? 'premiseSearch' : /Claim B/.test(user) ? 'falsify' : /An earlier answer to this question came from memory/.test(system) ? 'reanswer' : 'gemini?';
+      const kind = /Is this statement true\?/.test(user) ? 'premiseSearch' : /Claim B/.test(user) ? 'falsify' : /(?:An earlier|A draft) answer to this question came from memory/.test(system) ? 'reanswer' : 'gemini?';
       calls.push({ kind, url, body });
       const s = script[kind];
       if (!s) throw new Error(`unexpected Gemini call: ${user.slice(0, 80)}`);
@@ -128,7 +128,10 @@ test('the checks’ models: the cheapest model at its lowest effort, Gemini 3.8 
   // askeden.com without Luna: the cheapest model at or above the reasoning floor (Gemini 3.8 Flash), never the weaker Flash-Lite
   assert.equal(checkModels(hostedConfig({}).models).cheap.model.id, 'gemini-3.8-flash');
   assert.equal(picks.search.model.id, 'gemini-3.8-flash');
-  assert.equal(picks.search.effort, 'medium', 'at low effort Gemini answers from memory without searching');
+  // changed 2026-11-10: Gemini searches run without thinking (checks.js withoutThinking): at medium they stalled for minutes
+  // on a question with no findable answer; measured that day, no thinking searched every claim (1 search, 2-3 sources,
+  // right verdicts, 4-5 s) while medium answered one from memory with no search
+  assert.equal(picks.search.effort, 'low', 'the lowest level Gemini 3.8 Flash routes at; the request turns thinking off');
   assert.equal(checkModels(cfg.models, ['openai']).search, null, 'Gemini switched off: nothing to search with');
   assert.equal(checkModels(cfg.models, ['gemini']).cheap.model.provider, 'gemini');
   assert.deepEqual(checksMeta({ models: cfg.models }), { premiseCheck: true, answerCheck: true });
@@ -201,7 +204,7 @@ test('the assumption check: a premise a cited search finds false becomes Eden’
   assert.deepEqual(kinds.slice(0, 3), ['extract', 'premiseSearch', 'answer']);
   const search = calls.find((c) => c.kind === 'premiseSearch').body;
   assert.deepEqual(search.tools, [{ google_search: {} }]);
-  assert.equal(search.generationConfig.thinkingConfig.thinkingLevel.toLowerCase(), 'medium');
+  assert.deepEqual(search.generationConfig.thinkingConfig, { thinkingBudget: 0 }, 'Gemini searches without thinking (2026-11-10)');
   assert.ok(search.generationConfig.maxOutputTokens <= 4000);
   assert.equal(calls.find((c) => c.kind === 'extract').body.model, 'gpt-6-luna');
   const answer = calls.find((c) => c.kind === 'answer');
@@ -1056,10 +1059,12 @@ test('EVES model selector: default gemini-3.8-flash never puts gemini-4-argon in
     const estDefault = await estDefaultRes.json();
     assert.equal(estDefault.judge.model, 'gemini-3.8-flash');
     assert.ok(!estDefault.lanes.some((l) => l.model === 'gemini-4-argon'), 'default EVES lanes exclude gemini-4-argon');
-    assert.ok(!estDefault.lanes.some((l) => l.model === 'gpt-6.1-sol'), 'default EVES lanes replace slow gpt-6.1-sol with fast trio');
+    // changed 2026-11-10 (owner: "the best individual sub model from each of the three providers for the task"): the fixed
+    // fast trio (Sonnet without thinking, GPT-6 Sol at low) gave way to EVES's lane router (askeden src/verify/eves-lanes.ts)
     assert.ok(estDefault.lanes.some((l) => l.model === 'gemini-3.8-flash'), 'default EVES lanes include gemini-3.8-flash');
-    assert.ok(estDefault.lanes.some((l) => l.model === 'claude-sonnet-5-5' && l.effort === 'none'), 'default EVES lanes include claude-sonnet-5-5 at none effort');
-    assert.ok(estDefault.lanes.some((l) => l.model === 'gpt-6-sol' && l.effort === 'low'), 'default EVES lanes include gpt-6-sol at low effort (CoT)');
+    const laneProviders = estDefault.lanes.map((l) => (l.model.startsWith('claude') ? 'anthropic' : l.model.startsWith('gpt') ? 'openai' : l.model.startsWith('gemini') ? 'gemini' : l.model));
+    assert.deepEqual([...new Set(laneProviders)].sort(), ['anthropic', 'gemini', 'openai'], 'one lane from each of the three providers');
+    assert.ok(!estDefault.lanes.some((l) => /luna|haiku|lite/.test(l.model)), 'never a fast-tier model while a stronger one is there');
     assert.equal(estDefault.independence, 'full', '3 distinct model families: Google + Anthropic + OpenAI');
 
     // Sending an EVES turn with the exact lanes returned by /api/chat/eves/estimate (including gpt-6-sol) succeeds without 422

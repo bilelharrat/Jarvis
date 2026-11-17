@@ -8,6 +8,11 @@
 // source to the sources slide (a preview first, then one version). A toolbar badge shows the deck's count.
 // Off when the server's switch is off (meta.evesCheck), and never in the iPhone app (deck.js imports this only
 // when !IN_APP). The words and the mapping are in deck-factcheck-model.js (pure, tested).
+// On askeden.com, where check-anything isn't served but EVES is (meta.eves), the same buttons run the live EVES
+// chat pipeline as it is (POST /api/chat/eves through eves.js beginEves, one run per slide; the cost card prices
+// each slide with POST /api/chat/eves/estimate, which calls no model). deck-factcheck-hosted.js maps EVES's checked
+// answer and its judge's verdicts onto the same per-claim result, so the marks, the list and Fix with sources work
+// the same way. The Mac's own check (check-anything) stays first wherever it is on.
 
 import { el } from './util.js';
 import { postJSON } from './api.js';
@@ -15,12 +20,16 @@ import { state, saveConversation } from './state.js';
 import { routeSettings } from './router.js';
 import { deckCanvasVersion } from './artifact.js';
 import { evesCheckAvailable } from './eves-check.js';
+import { beginEves, evesAvailable } from './eves.js';
+import { usd as usdWords, secondsWords } from './eves-model.js';
+import { IN_APP_SHELL } from './native.js'; // IN_APP is false in the iPhone app since 2026-11-05 (it gets the whole website); hosted EVES stays out of any app shell
+import * as H from './deck-factcheck-hosted.js';
 import { registerInspector, registerContextMenu, registerTool, kit, icon, context, onSelection } from './deck-shell.js';
 import * as F from './deck-factcheck-model.js';
 import { modelJob, busyAi } from './deck-ai.js';
 
 const tx = (s) => context().tx(s);
-let running = null; // { scope, slide?, ctl }
+let running = null; // { scope, slides, ctl, done?, total? }
 
 // ── the result kept with the version ──
 
@@ -73,12 +82,69 @@ async function sendCheck(built, scope, slides) {
 }
 const cur = () => context().conv;
 
+/** One EVES run (the live chat pipeline, unchanged) on one slide's question → { state, answer, citations }. */
+async function evesRun(q, outer, models) {
+  const node = { id: `dfc-${Date.now().toString(36)}`, role: 'assistant', parts: [], citations: [] }; // a stand-in reply: nothing goes into the chat
+  const ctrl = new AbortController();
+  const turn = beginEves(node, { mode: 'on', ...(models && models.length ? { models } : {}) }, ctrl, () => {});
+  let plain = ''; // a run the server answered without checking (no lanes) streams its answer untagged
+  const onEvent = turn.onEvent;
+  turn.onEvent = (type, d) => { if (type === 'text' && d && d.lane === undefined) plain += String(d.text || ''); onEvent.call(turn, type, d); };
+  const stop = () => turn.stop();
+  if (outer.signal.aborted) stop(); else outer.signal.addEventListener('abort', stop, { once: true });
+  try {
+    await turn.send({ messages: [{ role: 'user', content: q.prompt }], settings: routeSettings() });
+    turn.end();
+  } catch (e) {
+    if (e && e.name === 'AbortError') turn.stopped(); else turn.failed((e && e.message) || 'EVES failed.');
+    throw e;
+  } finally { outer.signal.removeEventListener('abort', stop); }
+  const answer = node.parts.map((p) => (p && p.type === 'text' ? p.text : '')).join('') || plain;
+  return { state: turn.state, answer, citations: node.citations || [] };
+}
+
+/** The slides through hosted EVES, one run at a time (each holds part of the allowance while it runs). */
+async function sendHosted(deck, slides, scope, models = {}) {
+  const c = context().conv;
+  const ctl = new AbortController();
+  running = { scope, slides, ctl, done: 0, total: slides.length };
+  afterChange();
+  let merged = null, failed = '';
+  try {
+    for (const i of slides) {
+      if (ctl.signal.aborted) break;
+      const q = H.hostedPrompt(deck, i);
+      if (q.items.length) {
+        const r = await evesRun(q, ctl, models[i]);
+        const one = H.hostedResult(r.state, r.answer, q.items, { scope: 'slide', slides: [i], citations: r.citations });
+        if (one.error && !r.answer.trim()) failed = one.error;
+        else merged = F.mergeResult(merged, one);
+      }
+      running.done++;
+      afterChange();
+    }
+  } catch (e) {
+    if (!(e && e.name === 'AbortError')) failed = (e && e.message) || 'EVES couldn’t check that.';
+  } finally {
+    running = null;
+    if (merged && cur() === c) {
+      const whole = scope === 'deck' && merged.slides.length === slides.filter((i) => H.hostedPrompt(deck, i).items.length).length;
+      keep(c, whole ? { ...merged, scope: 'deck' } : F.mergeResult(resultNow(c), merged)); // a whole deck checked again replaces the old result; a part is folded in
+      const b = F.badgeOf(resultNow(c));
+      if (b) context().toast(tx(b.text));
+    }
+    if (failed) context().toast(`${tx('EVES couldn’t check that:')} ${failed}`);
+    afterChange();
+  }
+}
+
 export function checkSlide(i) {
   const c = context();
   if (!available() || running || !c.deck || !c.deck.slides[i]) return;
   const built = F.checkText(c.deck, [i]);
   if (built.text.trim().length < 20) { c.toast(tx('Nothing to check on this slide')); return; }
-  sendCheck(built, 'slide', [i]);
+  if (local()) sendCheck(built, 'slide', [i]);
+  else sendHosted(c.deck, [i], 'slide');
 }
 
 export function checkDeck() {
@@ -86,6 +152,7 @@ export function checkDeck() {
   if (!available() || running || !c.deck) return;
   const built = F.checkText(c.deck);
   if (built.text.trim().length < 20) { c.toast(tx('Nothing to check in this deck')); return; }
+  if (!local()) { hostedCard(c.deck); return; }
   const e = F.checkEstimate(built.text);
   const meta = state.meta && state.meta.evesCheck;
   const left = meta && Number.isFinite(Number(meta.left)) ? Number(meta.left) : null;
@@ -104,6 +171,38 @@ export function checkDeck() {
     actions: [kit.button({ label: tx('Cancel'), quiet: true, onClick: () => s.close() }), go],
   });
   requestAnimationFrame(() => go.focus());
+}
+
+/** The cost card for a whole-deck check through hosted EVES: each slide priced by the estimator (no model call). */
+async function hostedCard(deck) {
+  const slides = deck.slides.map((_, k) => k).filter((k) => H.hostedPrompt(deck, k).items.length);
+  const est = el('dd', { 'data-fc': 'estimate' }, tx('Working it out…'));
+  const time = el('dd', '', '…');
+  const ctl = new AbortController();
+  let models = {};
+  const go = kit.button({ label: tx('Check the deck'), primary: true, key: 'fc-go', disabled: true, onClick: () => { s.close(); sendHosted(deck, slides, 'deck', models); } });
+  const s = kit.sheet({
+    title: tx('Check the whole deck with EVES'),
+    content: el('div', { class: 'dfc-confirm' },
+      el('p', '', tx('EVES (Eden’s verification and evaluation system) asks several models about each slide’s statements, checks the ones they disagree on against the web, and grades each one. Nothing has been checked yet.')),
+      el('dl', { class: 'dfc-est' },
+        el('dt', '', tx('Slides')), el('dd', '', String(slides.length)),
+        el('dt', '', tx('Estimated cost')), est,
+        el('dt', '', tx('Takes about')), time),
+      el('p', { class: 'dsh-hint' }, tx('One EVES check per slide, like one EVES reply each. The result is kept with this version of the deck.'))),
+    actions: [kit.button({ label: tx('Cancel'), quiet: true, onClick: () => s.close() }), go],
+    onClose: () => ctl.abort(),
+  });
+  try {
+    const list = await Promise.all(slides.map((k) => postJSON('/api/chat/eves/estimate', { prompt: H.hostedPrompt(deck, k).prompt, settings: routeSettings(), mode: 'on' }, { signal: ctl.signal, timeout: 20_000 }).catch(() => null)));
+    const e = H.hostedEstimate(list, usdWords);
+    models = Object.fromEntries(slides.map((k, j) => [k, list[j] && Array.isArray(list[j].lanes) ? list[j].lanes.filter((l) => l && l.model).map((l) => ({ model: l.model, ...(l.effort ? { effort: l.effort } : {}) })) : null]).filter(([, m]) => m && m.length)); // what was priced is what runs
+    est.textContent = e.slides ? e.words : tx('Couldn’t be worked out');
+    const secs = list.reduce((n, x) => n + (x && Number.isFinite(Number(x.latencyS)) ? Number(x.latencyS) : 0), 0);
+    time.textContent = secs ? secondsWords(secs) : tx('a minute a slide');
+    go.disabled = !e.slides;
+    if (e.slides) requestAnimationFrame(() => go.focus());
+  } catch { est.textContent = tx('Couldn’t be worked out'); }
 }
 
 // ── Fix with sources ──
@@ -137,7 +236,10 @@ async function fixClaim(claim) {
 
 // ── drawing ──
 
-const available = () => { try { return evesCheckAvailable(); } catch { return false; } };
+/** check-anything (the Mac's server), else hosted EVES (askeden.com), never in the iPhone app. */
+const local = () => { try { return evesCheckAvailable(); } catch { return false; } };
+const hosted = () => { if (IN_APP_SHELL) return false; try { return evesAvailable(); } catch { return false; } };
+const available = () => local() || hosted();
 
 function pill(claim) {
   const v = F.VERDICTS[claim.verdict] || F.VERDICTS.unverified;
@@ -172,7 +274,7 @@ registerInspector({
     const mine = F.claimsOn(r, i);
     const checked = r && (r.scope === 'deck' || (r.slides || []).includes(i));
     return el('div', { class: 'dfc-sec' },
-      running ? spinner(running.scope === 'deck' ? tx('EVES is checking the deck…') : tx('EVES is checking…')) : kit.button({ label: checked ? tx('Check this slide again') : tx('Check facts on this slide'), icon: 'check', key: 'fc-slide', onClick: () => checkSlide(i) }),
+      running ? spinner(running.total > 1 ? `${tx('EVES is checking slide')} ${Math.min(running.total, running.done + 1)} ${tx('of')} ${running.total}…` : running.scope === 'deck' ? tx('EVES is checking the deck…') : tx('EVES is checking…')) : kit.button({ label: checked ? tx('Check this slide again') : tx('Check facts on this slide'), icon: 'check', key: 'fc-slide', onClick: () => checkSlide(i) }),
       checked && !mine.length ? el('p', { class: 'dsh-hint' }, tx('No factual claims found on this slide.')) : null,
       ...mine.map((cl) => claimRow(cl)));
   },
@@ -186,7 +288,7 @@ registerInspector({
     const flagged = r ? r.claims.filter((cl) => !cl.fixed && cl.verdict !== 'supported' && cl.verdict !== 'not_a_claim') : [];
     return el('div', { class: 'dfc-sec' },
       r ? badgeEl(r) : el('p', { class: 'dsh-hint' }, tx('EVES checks each factual claim on your slides against web sources.')),
-      running ? spinner(tx('EVES is checking…')) : kit.button({ label: r && r.scope === 'deck' ? tx('Check the whole deck again…') : tx('Check the whole deck…'), icon: 'check', key: 'fc-deck', onClick: checkDeck }),
+      running ? spinner(running.total > 1 ? `${tx('EVES is checking slide')} ${Math.min(running.total, running.done + 1)} ${tx('of')} ${running.total}…` : tx('EVES is checking…')) : kit.button({ label: r && r.scope === 'deck' ? tx('Check the whole deck again…') : tx('Check the whole deck…'), icon: 'check', key: 'fc-deck', onClick: checkDeck }),
       ...flagged.map((cl) => claimRow(cl, { showSlide: true })));
   },
 });

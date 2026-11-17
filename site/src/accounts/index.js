@@ -11,6 +11,7 @@ import { edenSyncApi } from './eden-sync.js';
 import { chatSyncApi } from './chat-sync.js';
 import { essaySyncApi } from './essay-sync.js';
 import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
+import { anthropicUsage, meterGoogle } from '../eden/credit-pacer.js'; // the GCP credit pacer's day counter: inert unless CREDIT_PACER is warn/on
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { playNotification } from './google-play.js';
 import { checkSignups } from './turnstile.js';
@@ -539,6 +540,7 @@ async function anthropic(request, env, ctx, path) {
   const record = async (model, usage) => {
     try {
       const usd = costOf(model, usage);
+      if (usd > 0 && allow.bucket !== 'none') meterGoogle(env, ctx, { model, usage: anthropicUsage(usage), usd, bucket: allow.bucket, allow, feature: 'app' }); // a Gemini stand-in's answers only (Daredevil's free allowance: unpaid)
       if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket, meta: { feature: 'app', product: 'apps', model, tin: (usage && usage.input_tokens) || 0, tout: (usage && usage.output_tokens) || 0 } });
     } finally {
       await release();

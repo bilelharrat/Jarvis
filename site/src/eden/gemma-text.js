@@ -1,7 +1,8 @@
 // The Gemma claim judge on raw source text, BEFORE EVES's own web evidence check (eves.js checkEvidence).
 //
 //   GEMMA_TEXT_MODE   off (default) | shadow | owner          [vars]   (separate from GEMMA_JUDGE_MODE, which is unchanged)
-//   uses the same GEMMA_JUDGE_URL / GEMMA_JUDGE_KEY / GEMMA_JUDGE_SECRET as gemma-judge.js
+//   uses the same GEMMA_JUDGE_URL / GEMMA_JUDGE_KEY / GEMMA_JUDGE_SECRET as gemma-judge.js (several URLs: spread and
+//   failover there, in judge())
 //
 // The text: the search providers in this tree hand EVES only titles and URLs (Gemini groundingChunks.web = uri/title,
 // OpenAI url_citation = url/title, Claude citations_delta: the vendored parser keeps url/title only), so no provider
@@ -23,7 +24,11 @@
 // The iPhone and Edu apps (UA EdenApp/ or EdenEdu/) never reach this: no page fetch, no judge call, no ping.
 // Log line: {"evt":"gemma_text", claim hash, source, pages, bytes, gemma, eves, used, ms_saved_est, usd_saved_est}. No user text.
 
+// A shadow claim (not an owner account's live one) never pings, so never wakes a cold judge: it runs only on a warm one
+// (gemma-spend.js; GEMMA_SHADOW_WAKE=on: as before). Owner turns ping as before.
+
 import { APP_UA, claimHash, judge, judgeCreds, judgeIsWarm, ping } from './gemma-judge.js';
+import { mayWake, meterJudge, shadowCapped } from './gemma-spend.js';
 
 const MODES = new Set(['off', 'shadow', 'owner']);
 export const PAGE_BUDGET_MS = 2_500;
@@ -235,14 +240,18 @@ export function gemmaTextSession(request, env, ctx, whoIsOwner, { fetcher = fetc
   };
 
   /** Gemma on the pages, bounded. Resolves { verdict, pages, ms, error? }; never throws. */
-  const preJudge = async (claim, kind, signal) => {
+  // `live`: an owner account's claim (it may wake the judge); a shadow one runs only on a warm judge (gemma-spend.js)
+  const preJudge = async (claim, kind, signal, live = true) => {
     const t0 = Date.now();
     const pages = await pagesFor();
     if (!pages.length) return { verdict: null, pages, ms: Date.now() - t0, error: pagesP ? 'no_text' : 'no_sources' };
-    if (!judgeIsWarm()) {
-      ping(env, ctx);
+    const wake = mayWake(env, live);
+    if (!judgeIsWarm(env)) {
+      if (wake) ping(env, ctx);
       return { verdict: null, pages, ms: Date.now() - t0, error: 'cold' };
     }
+    if (!live && (await shadowCapped(env))) return { verdict: null, pages, ms: Date.now() - t0, error: 'capped' }; // SPEND_CAP_MODAL_USD (background only)
+    if (wake) ping(env, ctx); // warms any other judge copy that is cold (one URL: nothing to do)
     const type = kindFor(kind, claim);
     const best = bestPages(claim, pages);
     const r = await send(best.map((p, k) => ({ id: String(k), claim: claim.slice(0, 1000), type, page: p.text })));
@@ -260,6 +269,7 @@ export function gemmaTextSession(request, env, ctx, whoIsOwner, { fetcher = fetc
     const all = [];
     q.forEach((e, i) => e.items.forEach((it) => all.push({ ...it, id: `${i}.${it.id}` })));
     const r = await judge(env, all.slice(0, MAX_JUDGE_ITEMS), undefined, TEXT_JUDGE_MS - BATCH_MS, { coolOnTimeout: false });
+    meterJudge(env, ctx, { ms: r.ms, feature: 'gemma-text' }); // GPU time, an estimate (spend-counter.js)
     q.forEach((e, i) => {
       if (!r.ok) e.resolve(r);
       else e.resolve({ ...r, results: r.results.filter((x) => x && String(x.id).startsWith(`${i}.`)).map((x) => ({ ...x, id: String(x.id).slice(String(i).length + 1) })) });
@@ -351,7 +361,7 @@ export function gemmaTextSession(request, env, ctx, whoIsOwner, { fetcher = fetc
       if (!live || ts) {
         // EVES as today, at the same moment; the judge beside it, logged only
         const evesP = timed();
-        const bg = Promise.all([preJudge(text, kind, undefined), evesP.catch(() => null)])
+        const bg = Promise.all([preJudge(text, kind, undefined, live), evesP.catch(() => null)])
           .then(([g, e]) => {
             const wouldSkip = !ts && SETTLED.has(g.verdict);
             return report({

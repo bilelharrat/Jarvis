@@ -635,7 +635,7 @@ const exact = {
   'What can I help with?': 'Comment puis-je vous aider ?',
   'Eden plans, reads, edits and runs commands in this project through Claude Code. Approvals show here.': 'Eden planifie, lit, modifie et exécute des commandes dans ce projet via Claude Code. Les demandes d’approbation s’affichent ici.',
   'Temporary chat: nothing is saved. Each message is routed to the best model for it.': 'Discussion temporaire : rien n’est enregistré. Chaque message est routé vers le modèle le plus adapté.',
-  'Each message goes to the model that fits it best — routed by the rules and rated by Gemini — with the cost on every reply.': 'Chaque message part vers le modèle le plus adapté — routé par les règles et évalué par Gemini — avec le coût affiché sur chaque réponse.',
+  'Each question goes to the AI platform that is optimal for the task.': 'Chaque question part vers la plateforme d’IA la plus adaptée à la tâche.',
   'Explain this project': 'Expliquer ce projet',
   'Read the layout and summarize how it fits together': 'Lis la structure du projet et résume comment l’ensemble s’articule',
   'Find and fix a bug': 'Trouver et corriger un bug',

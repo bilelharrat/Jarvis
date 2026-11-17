@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   Bucket, LIMITS, addUse, addVisit, addressAllowed, allowance, closeReason, hostBlocked, keyEvent, minutesLeft,
   mouseEvent, privateHost, requestVerdict, suggest, textInput, toUrl, toggleBookmark, viewport, zoomStep,
-  FrameFlow, botWall, cursorOf, density, iconData, navFailure, recentSites,
+  FrameFlow, botWall, googleSorry, googlePass, cursorOf, density, iconData, navFailure, recentSites,
 } from '../src/browser/rules.js';
 import { BrowserSession } from '../src/browser/session.js';
 import { browserApi } from '../src/browser/api.js';
@@ -446,4 +446,96 @@ test('session: a page that fails to open shows Eden’s own error, with its addr
   cdp.emit('Page.frameStartedLoading', { frameId: 'main' });
   assert.equal([...s.tabs.values()][0].failed, null, 'cleared by the next load');
   await s.shutdown('', true);
+});
+
+test('Google\'s robot check: the search it was for, so it can run on DuckDuckGo instead', () => {
+  const cont = 'https://www.google.com/search?q=Blue%20Bloods%20season%2011&sei=abc';
+  const sorry = `https://www.google.com/sorry/index?continue=${encodeURIComponent(cont)}&q=EgRoHJh3GKa`;
+  assert.deepEqual(googleSorry(sorry), { q: 'Blue Bloods season 11', google: cont });
+  assert.equal(googleSorry('https://www.google.co.uk/sorry/index?continue=https%3A%2F%2Fwww.google.co.uk%2Fsearch%3Fq%3Dtea').q, 'tea');
+  assert.deepEqual(googleSorry('https://www.google.com/sorry/index'), { q: '', google: '' }, 'no address to go back to');
+  assert.equal(googleSorry('https://www.google.com/search?q=sorry'), null, 'a normal search');
+  assert.equal(googleSorry('https://example.com/sorry/index?continue=https%3A%2F%2Fwww.google.com%2Fsearch%3Fq%3Dx'), null, 'only Google\'s own check');
+  assert.equal(googleSorry('https://notgoogle.com/sorry/'), null);
+  assert.equal(googleSorry('https://www.google.com/sorry/index?continue=https%3A%2F%2Fevil.example%2F%3Fq%3Dx').google, '', 'never sends the viewer to another site');
+  assert.equal(googleSorry('not a url'), null);
+  // Only Google's own sites behind "Google in my browser" (Exterminator 2026-11-10)
+  const at = (c) => googleSorry(`https://www.google.com/sorry/index?continue=${encodeURIComponent(c)}`).google;
+  assert.equal(at('https://www.google.com.evil.example/search?q=x'), '');
+  assert.equal(at('https://google.evil.example/'), '');
+  assert.equal(at('https://user@www.google.com/'), '');
+  assert.equal(at('http://www.google.com/search?q=x'), '');
+  assert.equal(at('https://ipv4.google.com/search?q=x'), 'https://ipv4.google.com/search?q=x');
+  assert.equal(at('https://www.google.co.uk/search?q=x'), 'https://www.google.co.uk/search?q=x');
+  assert.ok(googleSorry('https://ipv6.google.com/sorry/index'), 'Google’s ipv6 check page is still recognised');
+  assert.equal(googleSorry('https://www.google.com.evil.example/sorry/index'), null);
+});
+
+test('session: Google\'s robot check stays on screen (no jump elsewhere) and the panel is told how to pass it', async () => {
+  const { s, chrome } = session();
+  await s.onMessage({ t: 'hello', w: 900, h: 700 });
+  await s.onMessage({ t: 'start' });
+  const cdp = chrome.pages[0].cdp;
+  const navigatesBefore = cdp.of('Page.navigate').length;
+  const cont = 'https://www.google.com/search?q=lisbon';
+  cdp.emit('Page.frameNavigated', { frame: { id: 'main', url: `https://www.google.com/sorry/index?continue=${encodeURIComponent(cont)}&q=tok` } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(cdp.of('Page.navigate').length, navigatesBefore, 'the check stays: no redirect to another engine');
+  assert.deepEqual(last(s, 'state').notice, { kind: 'google-check', google: cont });
+  cdp.emit('Page.frameNavigated', { frame: { id: 'main', url: cont } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(last(s, 'state').notice, null, 'passed: the note goes');
+});
+
+test('googlePass: only Google\'s robot-check pass, on Google\'s domains, not expired', () => {
+  const now = Date.UTC(2026, 10, 10);
+  const sec = now / 1000;
+  const pass = { name: 'GOOGLE_ABUSE_EXEMPTION', value: 'ID=abc', domain: '.google.com', path: '/', secure: true, httpOnly: true, sameSite: 'Lax', expires: sec + 3600 };
+  const got = googlePass([pass, { ...pass, name: 'SID' }, { ...pass, domain: '.evil.com' }, { ...pass, domain: 'google.com.evil.com' }, { ...pass, expires: sec - 1 }], now);
+  assert.deepEqual(got, [pass], 'sign-in cookies and other sites are never kept');
+  assert.equal(googlePass([{ ...pass, expires: -1 }], now)[0].expires, sec + 3600, 'a session cookie lasts an hour at most');
+  assert.equal(googlePass([{ ...pass, sameSite: 'weird', path: 'x' }], now)[0].path, '/');
+  assert.equal('sameSite' in googlePass([{ ...pass, sameSite: 'weird' }], now)[0], false);
+  assert.deepEqual(googlePass(null, now), []);
+});
+
+test('session: Google\'s pass is kept after the check and put back in the next cloud browser; dropped when Google refuses it', async () => {
+  const { s, chrome, storage } = session();
+  const exp = Date.now() / 1000 + 3600;
+  const pass = { name: 'GOOGLE_ABUSE_EXEMPTION', value: 'ID=abc', domain: '.google.com', path: '/', secure: true, httpOnly: true, expires: exp };
+  chrome.bcdp.answers['Storage.getCookies'] = { cookies: [pass, { name: 'SID', value: 'secret', domain: '.google.com', expires: exp }] };
+  await s.onMessage({ t: 'hello', w: 900, h: 700 });
+  await s.onMessage({ t: 'start' });
+  assert.equal(chrome.bcdp.of('Storage.setCookies').length, 0, 'nothing kept yet');
+  const cdp = chrome.pages[0].cdp;
+  const cont = 'https://www.google.com/search?q=lisbon';
+  cdp.emit('Page.frameNavigated', { frame: { id: 'main', url: `https://www.google.com/sorry/index?continue=${encodeURIComponent(cont)}` } });
+  await new Promise((r) => setTimeout(r, 20));
+  cdp.emit('Page.frameNavigated', { frame: { id: 'main', url: cont } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(storage.map.get('googlePass'), [pass], 'only the pass, never the sign-in cookie');
+  await s.shutdown('idle');
+  await s.onMessage({ t: 'start' });
+  assert.deepEqual(chrome.bcdp.of('Storage.setCookies').at(-1).cookies, [pass], 'the next browser starts with it');
+  const cdp2 = chrome.pages.at(-1).cdp;
+  cdp2.emit('Page.frameNavigated', { frame: { id: 'main', url: `https://www.google.com/sorry/index?continue=${encodeURIComponent(cont)}` } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(storage.map.get('googlePass'), [], 'Google refused it: dropped');
+});
+
+test('session: the page’s scroll goes to the panel when it changes (a phone keeps a page at its top clear of the islands)', async () => {
+  const { s, chrome } = session();
+  await s.onMessage({ t: 'hello', w: 390, h: 760, touch: true });
+  await s.onMessage({ t: 'start' });
+  const cdp = chrome.pages[0].cdp;
+  let y = 0;
+  cdp.answers['Runtime.evaluate'] = ({ expression }) => ({ result: { value: expression.includes('scrollY') ? y : null } });
+  const scrolls = () => s.out.filter((m) => m.t === 'scroll').map((m) => m.y);
+  const frame = async (n) => { cdp.emit('Page.screencastFrame', { sessionId: n, data: btoa('JPEG') }); await new Promise((r) => setTimeout(r, 200)); };
+  await frame(1);
+  await frame(2);
+  y = 140.6; await frame(3);
+  y = 0; await frame(4);
+  assert.deepEqual(scrolls(), [0, 141, 0], 'once per change, read from the page');
+  await s.shutdown('ended');
 });

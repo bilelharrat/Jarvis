@@ -11,7 +11,7 @@
 
 import { canSearch, modelOf } from './providers.js';
 
-const APP_UA = /^(?!.*\bEdenBeta\/).*\b(?:EdenApp|EdenEdu)\//; // not a TestFlight beta (EdenBeta/): that gets the website's features
+const APP_UA = /\b(?:EdenApp|EdenEdu)\//; // website-only experiments: the iPhone and Edu apps stay off
 const PROBE_EVERY_MS = 60 * 60 * 1000;
 const QUOTA_RE = /RESOURCE_EXHAUSTED|\bquota\b/i;
 // The fallbacks' search models, best first (each must be on this site's list and the account must have the key)

@@ -17,6 +17,12 @@ import { leadSummary } from '../leads/leads.js';
 import { executeRouterAdminAction } from '../router-api/api.js';
 import { schema } from './stats.js';
 import { FLAGS } from '../travel/pay.js';
+import { order as poolOrder, snapshot as poolSnapshot } from '../eden/key-pool.js';
+import { PROVIDER_IDS, serviceKeyTiers } from '../eden/providers.js';
+import { judgeUrls } from '../eden/gemma-judge.js';
+import { providerSpend } from './provider-spend.js';
+import { recordExternal } from '../eden/credit-pacer.js';
+import { companySpendStatus } from '../eden/spend-counter.js';
 
 const emails = (v) => String(v || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
 const adminCache = new Map(); // account → { until, ok }
@@ -42,7 +48,7 @@ export async function adminSession(request, env) {
 
 const notFound = () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
-const ADMIN_FILES = new Set(['admin.js', 'admin.css', 'travel-beta.js']);
+const ADMIN_FILES = new Set(['admin.js', 'admin.css', 'travel-beta.js', 'spend.js']);
 export const ADMIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /** /admin and its two files. null: not an admin path. */
@@ -148,9 +154,9 @@ async function eventNumbers(env, b) {
   };
 }
 
-// Outside sources change slowly: kept for ten minutes per isolate.
+// Outside sources change slowly: kept for ten minutes per isolate (`ttl(value)` may say less, e.g. for a failure).
 const outside = new Map();
-async function cached(key, fn) {
+async function cached(key, fn, ttl = () => 600_000) {
   const hit = outside.get(key);
   if (hit && hit.until > Date.now()) return hit.value;
   let value;
@@ -159,7 +165,7 @@ async function cached(key, fn) {
   } catch (error) {
     value = { error: String((error && error.message) || error).slice(0, 200) };
   }
-  outside.set(key, { until: Date.now() + 600_000, value });
+  outside.set(key, { until: Date.now() + ttl(value), value });
   return value;
 }
 
@@ -322,6 +328,35 @@ export async function adminStats(request, env) {
   return res;
 }
 
+// Every provider's own bill (provider-spend.js), its own call so a slow provider never holds up /api/admin/stats.
+// A total failure (it threw, or no provider read and one errored) is kept 30 s, not ten minutes.
+const providersFailed = (v) => Boolean(!v || v.error || (Array.isArray(v.providers) && !v.providers.some((p) => p.status === 'ok') && v.providers.some((p) => p.status === 'error')));
+const providersTtl = (v) => (providersFailed(v) ? 30_000 : 600_000);
+
+/** GET /api/admin/providers: each AI provider's own bill and balance. `?fresh=1` reads again. 404 for anyone but the owner. */
+export async function adminProviders(request, env) {
+  if (request.method !== 'GET') return notFound();
+  if (!(await adminSession(request, env))) return notFound();
+  if (new URL(request.url).searchParams.get('fresh') === '1') outside.delete('providers');
+  const res = json(await cached('providers', () => providerSpend(env), providersTtl));
+  res.headers.set('cache-control', 'no-store');
+  return res;
+}
+
+/**
+ * GET /api/admin/lb: this Worker copy's key pool (eden/key-pool.js), every configured service key by its 8-char
+ * fingerprint with its tier and health. Never a key. 404 for anyone but the owner.
+ */
+export async function adminLb(request, env) {
+  if (request.method !== 'GET') return notFound();
+  if (!(await adminSession(request, env))) return notFound();
+  for (const p of PROVIDER_IDS) poolOrder(p, serviceKeyTiers(env, p), { env }); // lists keys this copy hasn't used yet
+  poolOrder('gemma-judge', judgeUrls(env), { env }); // and the judge URLs (fingerprints only)
+  const res = json({ colo: (request.cf && request.cf.colo) || null, ...poolSnapshot(env) });
+  res.headers.set('cache-control', 'no-store');
+  return res;
+}
+
 /** One op on an account's object by its name, without a device (the account's Worker-only ops; as track.js's ask). */
 async function askObject(env, name, op, body = {}) {
   const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(name));
@@ -362,6 +397,31 @@ export async function adminTravelRefunds(request, env) {
   return res;
 }
 
+/**
+ * GET /api/admin/credit-pacer: the GCP credit pacer's state now (eden/credit-pacer.js). POST { day, source, usd }: a
+ * day's total of Google AI spent outside askeden.com (e.g. source "mac", Eden Code's gcp_usage.jsonl), put on the
+ * counter against the balance (sent again, it replaces that day's total). 404 for anyone but the owner.
+ */
+export async function adminCreditPacer(request, env) {
+  if (!(await adminSession(request, env))) return notFound();
+  let out;
+  let status = 200;
+  try {
+    if (request.method === 'GET') out = await companySpendStatus(env); // the pacer's state and every provider's day (spend-counter.js)
+    else if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      await recordExternal(env, { day: body.day, source: body.source, usd: body.usd });
+      out = await companySpendStatus(env);
+    } else return new Response('Method not allowed', { status: 405 });
+  } catch (error) {
+    status = error instanceof ApiError ? error.status : 502;
+    out = { error: String((error && error.message) || 'Failed').slice(0, 200) };
+  }
+  const res = json(out, status);
+  res.headers.set('cache-control', 'no-store');
+  return res;
+}
+
 /** Everything the dashboard shows, for the periods `url` names. */
 export async function collect(env, url) {
   const b = bounds(url);
@@ -376,5 +436,8 @@ export async function collect(env, url) {
     executeRouterAdminAction(env, { action: 'dashboard' }, 'owner').catch((error) => ({ ready: false, error: String(error && error.message).slice(0, 200), clients: [], totals: {} })),
     travelRefunds(env).catch((error) => ({ ready: false, flags: [], error: String(error && error.message).slice(0, 200) })),
   ]);
-  return { at: Date.now(), bounds: b, users_before: Number(env.USERS_BEFORE_STATS) || null, unlimited: emails(env.UNLIMITED_EMAILS).length, events, leads, stripe, github, messenger, router, travel };
+  // the GCP credit pacer (eden/credit-pacer.js): today's Google AI paid and unpaid, the allowance and its level; off: the settings only
+  // with every provider's spend today (eden/spend-counter.js `providers`)
+  const credit_pacer = await companySpendStatus(env).catch((error) => ({ failed: String(error && error.message).slice(0, 200) }));
+  return { at: Date.now(), bounds: b, users_before: Number(env.USERS_BEFORE_STATS) || null, unlimited: emails(env.UNLIMITED_EMAILS).length, events, leads, stripe, github, messenger, router, travel, credit_pacer };
 }

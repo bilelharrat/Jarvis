@@ -6,6 +6,7 @@
 // finishes; the next one is refused when it's spent.
 
 import { MODELS } from '../eden/vendor/model-router.js';
+import { datedModel } from '../eden/dated-prices.js';
 import { anthropicHeadersFor, parseAnthropicKeys, serviceFallback, serviceFetch, sseOf as sseText } from './service-ai.js';
 
 const ANTHROPIC = 'https://api.anthropic.com';
@@ -59,7 +60,10 @@ export function priceOf(model) {
   for (const [pattern, price] of PRICES) if (pattern.test(String(model))) return price;
   // The stand-in for Claude without an Anthropic key (service-ai.js): its own registry price.
   const other = MODELS.find((m) => m.id === model);
-  if (other) return [other.pricing.inputPer1M, other.pricing.outputPer1M, 0.1];
+  if (other) {
+    const dated = datedModel(other); // priced on the call's day (eden/dated-prices.js: Argon and 3.8 Flash rise)
+    return [dated.pricing.inputPer1M, dated.pricing.outputPer1M, 0.1];
+  }
   return UNKNOWN;
 }
 
@@ -218,7 +222,7 @@ export const anthropicError = (status, type, message, headers = {}) =>
 // usage)` counts the cost afterwards (through ctx.waitUntil).
 export async function forward(request, env, ctx, path, record) {
   const fallback = serviceFallback(env);
-  if (!env.ANTHROPIC_API_KEY && !fallback) return anthropicError(503, 'api_error', 'Eden Plus AI is not set up on the server yet.');
+  if (!parseAnthropicKeys(env).length && !fallback) return anthropicError(503, 'api_error', 'Eden Plus AI is not set up on the server yet.');
   const bodyText = await request.text();
   let body;
   try {
