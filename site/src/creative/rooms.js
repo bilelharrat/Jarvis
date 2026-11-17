@@ -27,8 +27,11 @@
 //   cm:<id>              a comment and its replies
 //   act:<n>              the activity feed, trimmed to the last 1000
 //
-// An index object keeps `r:<room id>` → { id, name, role, owner, ownerName, status, at }. Only rooms
-// write them (the Worker never forwards a path that reaches them).
+// An index object keeps `r:<room id>` → { id, name, role, owner, ownerName, status, at } (the listing
+// drops `owner`, an account id), and for an account's index `u:<room id>` → the bytes each room it owns
+// keeps (its quota, ROOMS.accountBytes) and `rate:invite` → { day, n }; an email's keeps
+// `rate:invited`. Only rooms write them (the Worker never forwards a path that reaches them), and
+// `forgetAccount` wipes them when the account is deleted.
 //
 // Identity comes from the Worker as x-eden-account, x-eden-name and x-eden-email (name and email
 // percent-encoded), set from the verified token (rooms-auth.js); a Durable Object can only be reached

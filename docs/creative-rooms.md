@@ -28,7 +28,17 @@ rooms without real accounts. `wrangler.toml` never sets it, and askeden.com is n
 
 Like the rest of `/api/creative/`, no browser: any request with an `Origin` header (reads included), or `OPTIONS`, is
 refused (403 `forbidden`; no CORS). The apps send no Origin. These routes come before `creativeApi` in `worker.js`.
-Every request counts on `API_RATE` per account, as the other Creative Suite routes do.
+Every request counts on `API_RATE` as the other Creative Suite routes do, in the same order: per network first
+(`creative-ip:<address>`), then the token is checked, and only then per account (`creative:<account>`). A token that
+doesn't verify never counts against the account it names (the review's M2), and over the network's limit the token
+isn't looked at.
+
+An open socket's token is checked again every 5 minutes (when a message comes, and by the room's alarm for quiet
+sockets). When it no longer verifies (revoked, expired, the account barred) or names someone else, the room sends
+`error` `not_connected` and closes with **4003**: the app stops and asks to link again. When the accounts side can't be
+reached, the socket stays and is checked next time. A socket lives at most 12 hours: then `error` `expired` and close
+**4005**, and the app opens a new one. To check it again, the room keeps the token the socket opened with in the
+socket's attachment (in memory, never in the room's storage); the Worker passes it on for the socket route only.
 
 The Worker forwards to the room with `x-eden-account`, `x-eden-name` and `x-eden-email` (name and email
 percent-encoded) set from the verified token. It passes on only the headers a room needs (`content-type`,
@@ -56,7 +66,7 @@ All JSON, all under `/api/creative/rooms`. Errors are `{ "error": "<message for 
 | Call | Who | Does |
 |---|---|---|
 | `POST /api/creative/rooms` `{name}` | anyone signed in | makes a room; you're its owner (slot 0). `201 {room}` |
-| `GET /api/creative/rooms` | anyone | the rooms you own, were invited to, or joined, newest first: `{rooms: [{id, name, role, owner, ownerName, status}]}` (`owner`: the owner's account id; `status` `"in"` or `"pending"`) |
+| `GET /api/creative/rooms` | anyone | the rooms you own, were invited to, or joined, newest first: `{rooms: [{id, name, role, ownerName, status}]}` (`status` `"in"` or `"pending"`; never the owner's account id) |
 | `GET /api/creative/rooms/:id` | members | `{room}` (below) |
 | `PATCH /api/creative/rooms/:id` `{name?, settings?: {invite: "owner"\|"editors"}}` | owner | rename, settings |
 | `DELETE /api/creative/rooms/:id` | owner | deletes the room: log, snapshot, comments, activity, every index entry; sockets get `{t:"deleted"}` |
@@ -68,19 +78,24 @@ All JSON, all under `/api/creative/rooms`. Errors are `{ "error": "<message for 
 | `GET /api/creative/rooms/:id/activity?before=<n>` | members | `{activity}`: up to 100 entries before `n`, newest first |
 | `GET /api/creative/rooms/:id/socket` (WebSocket upgrade) | members | the live line, below |
 
-`room`: `{id, name, owner, head, snapshot: {seq, hash, bytes} | null, settings: {invite}, you: member, members: [member]}`.
-`member`: `{key, account, name, email, role, slot, status: "in" | "pending", here}`. `key` is the account id once
-joined, `mail:<sha256 hex of the email>` while pending (then `account` is null and `name` is the email). Any request
-from someone signed in with a pending invite's email (opening the room, its socket, its snapshot or its activity)
-makes them a member first; `DELETE …/members/me` from them turns the invite down instead. `members/:key` takes the key
-percent-encoded. The owner can't leave (409 `owner`; delete the room) and isn't removed or given another role; the
-roles anyone is given are `edit`, `comment` and `view` (invite defaults to `edit`).
+`room`: `{id, name, owner, head, snapshot: {seq, hash, bytes} | null, settings: {invite}, you: member, members: [member]}`
+(`owner`: the owner's member key).
+`member`: `{key, name, email, role, slot, status: "in" | "pending", here}`. `key` is the room's own key for that person,
+`m_` and 12 base64url characters, made at the invite and kept when they join; it means nothing outside the room. No
+account id ever reaches another member: not in members, frames, comments, activity or the listing (the review's M2).
+Ops' `by`, comments' `by`, mentions, notes' `to` and `members/:key` all take this key. Any request from someone signed in
+with a pending invite's email (opening the room, its socket, its snapshot or its activity) makes them a member first;
+`DELETE …/members/me` from them turns the invite down instead. The owner can't leave (409 `owner`; delete the room)
+and isn't removed or given another role; the roles anyone is given are `edit`, `comment` and `view` (invite defaults to
+`edit`).
 
 Snapshots: `x-seq` must be between the current snapshot's seq (0 before the first) and the head, else 409 `bad_seq`.
-When the room has a hash for that seq (from `check` messages, or the current snapshot's) and it differs, the upload is
-refused (409, `diverged`): a Mac that fell out of step can't replace the room's copy. Accepting one deletes the log up
-to it. Bodies 1 byte to 64 MiB (413 `too_big`), stored in 1 MiB chunks under a new generation; meta then names it, and
-the old chunks go.
+When this editor's own app checked a different hash at that seq, the upload is refused (409, `diverged`): that Mac said
+it was out of step. Another member's check never holds back anyone's snapshot (the review's M1). Accepting one deletes
+the log up to it. Bodies 1 byte to 64 MiB (413 `too_big`), stored in 1 MiB chunks under a new generation; meta then
+names it, and the old chunks go. Over the owner's storage (below), a snapshot that would make the room bigger is
+refused (413 `quota`), checked before the bytes come (from `content-length`) and again on their real size; one that
+makes it smaller is always taken.
 
 ## The live line (WebSocket, JSON text frames)
 
@@ -88,18 +103,18 @@ From the app:
 
 | `t` | Fields | Does |
 |---|---|---|
-| `hello` | `since` (the last seq the app has; 0 or absent: none) | answered with `welcome` |
+| `hello` | `since` (the last seq the app has; 0 or absent: none) | answered with `welcome`; 2 per 10 s a socket (`slow_down`) |
 | `op` | `id` (the app's own id for it: a safe integer, or up to 64 of `A–Z a–z 0–9 _ . : -`), `base` (the seq it was made on), `label` (≤ 200), `via` (`"eden"` or null), `note` (≤ 1000, or null), `op` (the command, an opaque string) | edit/owner only. Ordered: seq = head + 1, stored, sent to everyone (the sender takes it as its confirmation). Re-sending an id of yours already in the log answers with that entry again, to that socket only; one the last snapshot already holds answers `error` `in_snapshot` with its `seq` (ids are remembered one snapshot longer than their ops). `base` > head: `error` `bad_base` |
 | `presence` | `sequence`, `playhead`, `selection` (clip ids), `lock` (clip id being trimmed, or null), `doing` (`"editing"`/`"viewing"`) | sent to the others with who it is; never stored |
 | `comment` | `op: "add"` `{cid, sequence, clip, offset, time, text, mentions}`; `"reply"` `{comment, text, mentions}`; `"resolve"` `{comment, resolved}`; `"delete"` `{comment}` | comment role and up (delete: its author or the owner). Stored, sent to everyone as `{t:"comment", comment, cid}` |
-| `check` | `seq`, `hash` | the app's hash of the project at `seq`; a different one from another Mac answers `{t:"diverged", seq}` |
+| `check` | `seq`, `hash` | the app's hash of the project at `seq`. Answered `{t:"diverged", seq}`, to that app only, when it differs from the snapshot's hash at that seq, or else from the first editor's check there. Only editors' checks are kept (one per editor, at most 20 a seq); a viewer's or commenter's app is told about its own copy and sways no one |
 | `note` | `to` (a member key), `text`, `clip` | comment role and up. "Ask Maya": delivered to that person's apps, never stored; `error` `not_here` when none of their apps is in the room |
 
 From the room:
 
 | `t` | Fields |
 |---|---|
-| `welcome` | `you`, `room`, `ops` (every entry after `since`, oldest first) or `resync: true` when `since` is older than the snapshot (or newer than the head), `presence` (everyone else here), `comments`, `activity` (the latest 200, newest first). When the tail or the comments are too big for one frame (about 900 000 characters each), `more: true` and the rest follow at once, in order, as `op` and then `comment` frames |
+| `welcome` | `you`, `room`, `ops` (every entry after `since`, oldest first) or `resync: true` (start again from the snapshot) when `since` is older than the snapshot, newer than the head, or, when there is a snapshot, more than 2000 ops or 4 MiB of ops behind; `presence` (everyone else here), `comments`, `activity` (the latest 200, newest first). When the tail or the comments are too big for one frame (about 900 000 characters each), `more: true` and the rest follow at once, in order, as `op` and then `comment` frames. Only where the app is is decided in the room's queue; the catch-up is read and sent after it, so the room goes on meanwhile, and what it sends that app meanwhile follows the catch-up, in order |
 | `op` | `seq`, `id`, `by` (member key), `name`, `slot`, `at`, `base`, `label`, `via`, `note`, `op` |
 | `presence` | `key`, `name`, `slot` and the presence fields |
 | `left` | `key`, when that person's last app leaves |
@@ -110,6 +125,7 @@ From the room:
 | `snapshot_wanted` | `seq`: the log is long, an editor's app uploads a snapshot (to edit/owner apps, at every 500 ops past the snapshot, and after a `hello` while it's that long) |
 | `error` | `code`, `message`, and `id` when it's about an op (`cid` for a comment) |
 | `removed`, `deleted` | then the socket closes (codes 4001, 4002) |
+| close 4003, 4005 | the token no longer verifies (link again), or the socket is 12 hours old (open a new one); see Auth |
 
 `{"t":"ping"}` is answered `{"t":"pong"}` without waking the room. Binary frames, frames that aren't a JSON object with
 a `t`, unknown `t`s and malformed fields answer `error` `bad_request` (or `too_big`); nothing is stored for them.
@@ -127,13 +143,25 @@ by Eden carries `via: "eden"`: it's credited to whoever asked (the op's author) 
 
 ## Limits
 
-20 people a room (members and pending invites); ops up to 512 KiB (UTF-8 bytes); 120 ops per 10 s and 30 presence
-messages a second per socket (extra presence is dropped silently); 60 other frames (hello, comment, check, note) per
-10 s per socket (`slow_down`); frames up to 1.6 MB; comments up to 4000 characters and 2000 a room (replies count),
-200 replies a comment, 20 mentions (people in the room); notes up to 1000 characters; selections up to 64 clips; the
-log is asked for a snapshot at 500 ops past the last one and refuses ops at 20 000 (`log_full`); 100 rooms owned per
-account (409 `too_many`); 5 apps of one person in a room at once; an index object lists at most 1000 rooms. The
-activity feed keeps the last 1000.
+All in `ROOMS` at the top of `rooms.js`.
+
+| What | Limit |
+|---|---|
+| People | 20 a room (members and pending invites); 5 apps of one person in a room at once |
+| Rooms | 50 owned per account (409 `too_many`); an index object lists at most 1000 rooms |
+| An op | 256 KiB of UTF-8 (413 `too_big`); frames up to 800 000 characters |
+| The log past the snapshot | asked for a snapshot at every 500 ops; ops refused (`log_full`, and the editors asked again) at 20 000 ops or 32 MiB of ops, until one comes |
+| Storage per account | 1 GiB for all the rooms it owns together (logs past their snapshots, and snapshots). Past it, its rooms take no ops (409 `quota`) and no bigger snapshot (413 `quota`); a room over asks again at most once a minute, so deleting a room frees the others |
+| Rates, per socket | 120 ops per 10 s; 10 presence messages a second (the rest dropped silently); 2 hellos per 10 s; 60 other frames (hello, comment, check, note) per 10 s (`slow_down`) |
+| Invites, per UTC day | 50 sent by one account across its rooms; 10 new rooms for one email address (429 `slow_down`; a refused invite adds no one) |
+| Catch-up | past 2000 ops or 4 MiB behind (when there's a snapshot), `resync` instead of the tail |
+| Comments | 4000 characters, 2000 a room (replies count), 200 replies a comment, 20 mentions (people in the room) |
+| Other | notes up to 1000 characters; selections up to 64 clips; the activity feed keeps the last 1000; snapshots up to 64 MiB |
+
+Why these numbers: a free account's worst case was about 1 TB (100 rooms × 20 000 ops × 512 KiB, plus snapshots: the
+review's M5). Now it's 1 GiB, whatever the rooms; one room's log is at most 32 MiB plus its 64 MiB snapshot, and a
+real edit is a few KiB (a big project's whole-timeline change is well under 256 KiB). The quota is counted by the
+owner's index object (`u:<room>` → bytes, updated each time a room grows past another MiB and after each snapshot).
 
 ## Privacy and safety
 
@@ -141,6 +169,12 @@ activity feed keeps the last 1000.
 - At rest: Durable Object storage, encrypted by Cloudflare. The room holds what the apps send: commands, the project
   snapshot (media paths included, never the media), comments, names and emails of the people.
 - Deleting a room deletes all of it at once (`storage.deleteAll`) and its index entries.
+- Deleting an Eden account (`accounts/index.js` `eraseAccount`, `forgetAccount` in `rooms.js`) deletes the rooms it
+  owns as above, takes the person out of every other room they're in or invited to (by account and by each of their
+  emails; their apps there get `removed`), and wipes their index objects (`idx:acct:` and each `idx:mail:`, with their
+  counters). In the others' rooms their name on the activity and comments becomes "Former member", their email goes
+  from the activity's text, and their op ids, checks and "who invited" go; their name stays on their ops in the log
+  until the next snapshot clears it.
 - Media: originals stay on each Mac. A clip whose file isn't on this Mac shows as on its owner's Mac, and relinks by
   the file's content fingerprint when it turns up. Light proxies in R2 are not built (owner: R2 bucket, limits).
 

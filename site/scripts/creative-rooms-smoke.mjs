@@ -97,7 +97,9 @@ async function main() {
   ana.send({ t: 'hello', since: 0 });
   maya.send({ t: 'hello', since: 0 });
   const [wa, wm] = [await ana.until((f) => f.t === 'welcome'), await maya.until((f) => f.t === 'welcome')];
-  check('Maya joined on her first connect', wm.you.key === 'acct-maya' && wm.you.status === 'in' && wm.you.slot === 1, JSON.stringify(wm.you));
+  check('Maya joined on her first connect, with her invite’s key', wm.you.key === member.key && wm.you.status === 'in' && wm.you.slot === 1, JSON.stringify(wm.you));
+  check('no account ids on the line', !/acct-/.test(JSON.stringify([wa, wm])), 'an account id reached a member');
+  const [anaKey, mayaKey] = [wa.you.key, wm.you.key];
   check('welcome carries the room and its snapshot', wa.room.snapshot && wa.room.snapshot.seq === 0 && wa.room.snapshot.bytes === bytes.length);
 
   const big = '{"clip":1152921504606846977,"tick":9007199254740993}';
@@ -109,17 +111,17 @@ async function main() {
   const order = (list) => list.map((f) => `${f.seq}:${f.id}`).join(',');
   check('both see the same 30 ops in the same order', order(oa) === order(om), `${order(oa).slice(0, 80)}… vs ${order(om).slice(0, 80)}…`);
   check('seq runs 1…30 with no gap', oa.every((f, i) => f.seq === i + 1));
-  check('each sender got its own ops back', oa.filter((f) => f.by === 'acct-ana').length === 15 && om.filter((f) => f.by === 'acct-maya').length === 15);
+  check('each sender got its own ops back', oa.filter((f) => f.by === anaKey).length === 15 && om.filter((f) => f.by === mayaKey).length === 15);
   check('the command came back byte for byte', oa.every((f) => f.op === big));
   check('Eden’s op is marked via eden', om.some((f) => f.id === 'm3' && f.via === 'eden'));
 
   ana.send({ t: 'presence', sequence: 1, playhead: 254016000000, selection: [7], lock: 7, doing: 'editing' });
   const p = await maya.until((f) => f.t === 'presence');
-  check('presence relays to Maya', p.key === 'acct-ana' && p.slot === 0 && p.playhead === 254016000000 && p.lock === 7, JSON.stringify(p));
+  check('presence relays to Maya', p.key === anaKey && p.slot === 0 && p.playhead === 254016000000 && p.lock === 7, JSON.stringify(p));
 
-  maya.send({ t: 'comment', op: 'add', cid: 'smoke', sequence: 1, clip: 7, offset: 0, time: 254016000000, text: 'Tighten this', mentions: ['acct-ana'] });
+  maya.send({ t: 'comment', op: 'add', cid: 'smoke', sequence: 1, clip: 7, offset: 0, time: 254016000000, text: 'Tighten this', mentions: [anaKey] });
   const c = await ana.until((f) => f.t === 'comment');
-  check('a comment round-trips', c.comment.text === 'Tighten this' && c.comment.by === 'acct-maya' && c.cid === 'smoke', JSON.stringify(c));
+  check('a comment round-trips', c.comment.text === 'Tighten this' && c.comment.by === mayaKey && c.cid === 'smoke', JSON.stringify(c));
 
   const got = await api('dev-maya', `/${id}/snapshot`);
   const back = new Uint8Array(await got.arrayBuffer());
