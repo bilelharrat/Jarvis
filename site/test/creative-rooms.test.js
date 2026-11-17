@@ -942,3 +942,298 @@ test('hostile requests: bad emails, roles, names, settings, ids, paths, methods 
   for (let i = 0; i < ROOMS.socketsPerMember; i++) await connect('dev-ana', room.id);
   await refused(await call('dev-ana', `/${room.id}/socket`, { headers: { upgrade: 'websocket' } }), 429, 'too_many');
 });
+
+// ── the security review (2026-11-16): its proofs, and what was fixed ──
+
+test('the review’s M3: an open socket’s token is checked again every 5 minutes, quiet ones by the alarm; revoked, 4003; at 12 hours, 4005', async () => {
+  const room = await roomWith({ maya: 'edit', lee: 'view' });
+  const object = roomOf(room.id);
+  let now = Date.now();
+  object.now = () => now;
+  const [ana, maya, lee] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id), await connect('dev-lee', room.id)];
+  assert.equal(maya.att.token, 'dev-maya', 'the socket keeps the token it opened with, in its attachment…');
+  assert.ok(!JSON.stringify([...object.storage.map]).includes('dev-maya'), '…never in the room’s storage');
+  assert.equal(typeof object.storage.alarm, 'number', 'and the room wakes to check quiet sockets');
+  assert.deepEqual([DEFAULTS.reverify, DEFAULTS.socketLife], [5 * 60_000, 12 * 3600_000]);
+
+  // The proof: Maya's token is revoked, so it no longer verifies over HTTP…
+  const people = { ...PEOPLE };
+  delete people['dev-maya'];
+  delete people['dev-lee'];
+  env.CREATIVE_ROOMS_DEV_TOKENS = JSON.stringify(people);
+  await refused(await call('dev-maya', `/${room.id}`), 401, 'not_connected');
+  // …and within the interval her socket goes on (a check costs a call to her account's object)…
+  await send(room.id, maya, op(1));
+  assert.deepEqual(only(maya.take(), 'op').map((f) => f.id), ['op-1']);
+  // …but at the next check, it's closed.
+  now += ROOMS.reverify;
+  await send(room.id, maya, { t: 'op', id: 'after-revoke', base: 0, label: 'x', op: '{}' });
+  assert.deepEqual(maya.take().map((f) => [f.t, f.code]), [['error', 'not_connected']]);
+  assert.equal(maya.closed.code, 4003);
+  assert.equal((await ok(await call('dev-ana', `/${room.id}`))).room.head, 1, 'nothing after the revoke was ordered');
+  // Ana's still verifies: on she goes, checked again from now.
+  ana.take();
+  await send(room.id, ana, op(2, { base: 1 }));
+  assert.deepEqual(only(ana.take(), 'op').map((f) => f.seq), [2]);
+  assert.equal(ana.att.verified, now);
+  // Lee only watches and sends nothing: the alarm checks him.
+  await object.alarm();
+  assert.equal(lee.closed.code, 4003);
+  assert.equal(ana.closed, null);
+  assert.equal(typeof object.storage.alarm, 'number', 'sockets still open: it wakes again');
+
+  // The accounts side failing is not a revoke: the socket stays, and is checked again next time.
+  now += ROOMS.reverify;
+  object.verify = async () => {
+    throw new Error('the account object is down');
+  };
+  await send(room.id, ana, op(3, { base: 2 }));
+  assert.deepEqual(only(ana.take(), 'op').map((f) => f.seq), [3]);
+  // A token that now verifies as someone else is refused like a revoked one.
+  object.verify = async () => ({ account: 'acct-jon', name: 'Jon', email: 'jon@example.com' });
+  await send(room.id, ana, op(4, { base: 3 }));
+  assert.equal(ana.closed.code, 4003);
+
+  // However good its token, a socket lives 12 hours; then the app opens a new one.
+  delete object.verify;
+  env.CREATIVE_ROOMS_DEV_TOKENS = JSON.stringify(PEOPLE);
+  const again = await connect('dev-ana', room.id);
+  now += ROOMS.socketLife;
+  await send(room.id, again, op(5, { base: 3 }));
+  assert.deepEqual(again.take().map((f) => [f.t, f.code]), [['error', 'expired']]);
+  assert.equal(again.closed.code, 4005);
+});
+
+test('the review’s M2: no account id reaches another member, and a token that doesn’t verify never charges the account it names', async () => {
+  const room = await makeRoom();
+  await ok(await invite(room.id, 'jon@example.com', 'view'), 201);
+  // The proof: a pending invitee lists the room, and sees its members.
+  const listed = (await ok(await call('dev-jon', ''))).rooms;
+  assert.equal(listed[0].owner, undefined);
+  noAccounts(listed, 'the listing');
+  const { room: view } = await ok(await call('dev-jon', `/${room.id}`));
+  noAccounts(view, 'the room');
+  assert.ok(view.members.every((m) => PK.test(m.key) && !('account' in m)));
+
+  // The network is counted first, the account only once its token is checked (as creative/api.js).
+  const keys = [];
+  const failing = { idFromName: (n) => n, get: () => ({ fetch: async () => Response.json({ error: 'no', code: 'not_connected' }, { status: 401 }) }) };
+  const counted = { ...env, ACCOUNTS: failing, API_RATE: { limit: async ({ key }) => (keys.push(key), { success: true }) } };
+  const victim = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const site = ['https:', '', 'askeden.com'].join('/');
+  const forged = (path = '') => new Request(`${site}/api/creative/rooms${path}`, { headers: { authorization: `Bearer es1.${victim}.0123456789abcdef.${'A'.repeat(43)}`, 'cf-connecting-ip': '203.0.113.9' } });
+  await refused(await worker.fetch(forged(), counted, {}), 401, 'not_connected');
+  await refused(await worker.fetch(forged(`/${room.id}`), counted, {}), 401, 'not_connected');
+  assert.deepEqual(keys, ['creative-ip:203.0.113.9', 'creative-ip:203.0.113.9']);
+  keys.length = 0;
+  const real = async () => ({ account: 'acct-ana', name: 'Ana', email: 'ana@example.com' });
+  await ok(await roomsApi(forged(), counted, {}, '/api/creative/rooms', { verify: real }));
+  assert.deepEqual(keys, ['creative-ip:203.0.113.9', 'creative:acct-ana']);
+  // Over the network's limit, the token isn't even looked at.
+  let asked = false;
+  const busy = { ...counted, API_RATE: { limit: async () => ({ success: false }) } };
+  await refused(await roomsApi(forged(), busy, {}, '/api/creative/rooms', { verify: async () => ((asked = true), real()) }), 429, 'slow_down');
+  assert.equal(asked, false);
+});
+
+test('the review’s M4: deleting an account deletes the rooms it owns, takes it out of the others (joined or invited, by each email), and drops its indexes', async () => {
+  // Ana owns one room, is in Maya's, and is invited to Jon's under her other email.
+  const mine = await roomWith({ maya: 'edit' });
+  await ok(await invite(mine.id, 'jon@example.com', 'view'), 201);
+  const mayas = await makeRoom('dev-maya', 'Maya’s');
+  await ok(await call('dev-maya', `/${mayas.id}`, { method: 'PATCH', body: { settings: { invite: 'editors' } } }));
+  await ok(await invite(mayas.id, 'ana@example.com', 'edit', 'dev-maya'), 201);
+  await ok(await call('dev-ana', `/${mayas.id}`));
+  await ok(await invite(mayas.id, 'lee@example.com', 'view'), 201); // Ana invites Lee there
+  const jons = await makeRoom('dev-jon', 'Jon’s');
+  await ok(await invite(jons.id, 'ana.other@example.com', 'view', 'dev-jon'), 201);
+  const [inMine, mayaInMine, inMayas, mayaInMayas] = [await connect('dev-ana', mine.id), await connect('dev-maya', mine.id), await connect('dev-ana', mayas.id), await connect('dev-maya', mayas.id)];
+  await send(mine.id, inMine, op(1));
+  await send(mayas.id, inMayas, op(1));
+  await send(mayas.id, inMayas, { t: 'check', seq: 1, hash: 'AAA' });
+  await send(mayas.id, inMayas, { t: 'comment', op: 'add', sequence: 1, clip: null, offset: 0, time: 0, text: 'Mine' });
+  mayaInMayas.take();
+
+  const { forgetAccount } = await import('../src/creative/rooms.js');
+  await forgetAccount(env, 'acct-ana', ['ana@example.com', 'Ana.Other@Example.com', 'not an email']);
+
+  // Her room: gone, as if she'd deleted it.
+  for (const ws of [inMine, mayaInMine]) assert.equal(ws.closed.code, 4002);
+  assert.equal(roomOf(mine.id).storage.map.size, 0);
+  for (const token of ['dev-maya', 'dev-jon']) assert.ok(!(await ok(await call(token, ''))).rooms.some((r) => r.id === mine.id), token);
+  // Maya's: she's out, and her socket with her; her account id and email are nowhere in the room, nor her name on what's kept.
+  assert.equal(inMayas.closed.code, 4001);
+  assert.deepEqual((await ok(await call('dev-maya', `/${mayas.id}`))).room.members.map((m) => m.name), ['Maya', 'lee@example.com']);
+  assert.ok(!JSON.stringify(only(mayaInMayas.take(), 'members')).includes('Ana'));
+  const kept = JSON.stringify([...roomOf(mayas.id).storage.map]);
+  for (const trace of ['acct-ana', 'ana@example.com']) assert.ok(!kept.includes(trace), trace);
+  const { activity } = await ok(await call('dev-maya', `/${mayas.id}/activity`));
+  assert.ok(activity.some((a) => a.name === 'Former member' && a.text === 'joined'));
+  assert.ok(activity.some((a) => a.name === 'Maya' && a.text === 'invited someone'));
+  // Jon's: the invite to her other email is gone.
+  assert.deepEqual((await ok(await call('dev-jon', `/${jons.id}`))).room.members.map((m) => m.name), ['Jon']);
+  // Her indexes, by account and by each email: empty.
+  for (const name of ['idx:acct:acct-ana', `idx:mail:${await sha256Hex('ana@example.com')}`, `idx:mail:${await sha256Hex('ana.other@example.com')}`]) {
+    assert.equal(indexOf(name).storage.map.size, 0, name);
+  }
+  assert.deepEqual((await ok(await call('dev-ana', ''))).rooms, []);
+  // Twice is harmless, and nonsense does nothing.
+  await forgetAccount(env, 'acct-ana', ['ana@example.com']);
+  await forgetAccount(env, '../x', []);
+  // Only the Worker's own code reaches /forget: the API never forwards it.
+  await refused(await call('dev-maya', `/${mayas.id}/forget`, { method: 'POST', body: { account: 'acct-maya' } }), 404, 'not_found');
+});
+
+test('the review’s M5: ops at most 256 KiB, and a room’s log at most 32 MiB past its snapshot', async () => {
+  assert.deepEqual([DEFAULTS.opBytes, DEFAULTS.logBytes, DEFAULTS.accountBytes, DEFAULTS.owned], [256 * 1024, 32 * 1024 * 1024, 1024 * 1024 * 1024, 50]);
+  ROOMS.logBytes = 1000;
+  const room = await roomWith();
+  const [ana, maya] = [await connect('dev-ana', room.id), await connect('dev-maya', room.id)];
+  const big = (n, base) => op(n, { base, op: 'x'.repeat(400) });
+  await send(room.id, ana, big(1, 0));
+  await send(room.id, ana, big(2, 1));
+  ana.take();
+  maya.take();
+  await send(room.id, ana, big(3, 2));
+  assert.deepEqual(ana.take().map((f) => [f.t, f.code]), [['snapshot_wanted', undefined], ['error', 'log_full']], 'bytes, not just ops');
+  assert.deepEqual(maya.take(), [{ t: 'snapshot_wanted', seq: 2 }]);
+  // A snapshot at 1 leaves op 2's 400 bytes in the log: one more 400 fits, the next doesn't.
+  await ok(await putSnapshot('dev-maya', room.id, new Uint8Array([1]), 1, 'one'));
+  await send(room.id, ana, big(3, 2));
+  assert.equal(only(ana.take(), 'op')[0].seq, 3);
+  await send(room.id, ana, big(4, 3));
+  assert.equal(only(ana.take(), 'error')[0].code, 'log_full');
+  await ok(await putSnapshot('dev-maya', room.id, new Uint8Array([1]), 3, 'three'));
+  await send(room.id, ana, big(4, 3));
+  assert.equal(only(ana.take(), 'op')[0].seq, 4);
+});
+
+test('the review’s M5: past the owner’s 1 GiB a room takes no ops and no bigger snapshot, until it’s under again', async () => {
+  Object.assign(ROOMS, { accountBytes: 3000, usageStep: 500 });
+  const first = await makeRoom('dev-ana', 'First');
+  const second = await roomWith();
+  let now = 1_000_000;
+  roomOf(second.id).now = () => now;
+  const usage = () => Object.fromEntries([...indexOf('idx:acct:acct-ana').storage.map].filter(([k]) => k.startsWith('u:')));
+  await ok(await putSnapshot('dev-ana', first.id, noise(2000), 0, 'first'));
+  assert.deepEqual(usage(), { [`u:${first.id}`]: 2000 });
+  await refused(await putSnapshot('dev-maya', second.id, noise(1500), 0, 'second'), 413, 'quota');
+  assert.equal((await ok(await call('dev-ana', `/${second.id}`))).room.snapshot, null);
+  await ok(await putSnapshot('dev-maya', second.id, noise(900), 0, 'second'));
+  const maya = await connect('dev-maya', second.id);
+  await send(second.id, maya, op(1, { op: 'x'.repeat(250) })); // 1150: past a step, so the room says so (3150 in all)
+  assert.equal(only(maya.take(), 'op').length, 1, 'that one was in');
+  assert.equal(usage()[`u:${second.id}`], 1150);
+  await send(second.id, maya, op(2, { base: 1 }));
+  assert.equal(only(maya.take(), 'error')[0].code, 'quota');
+  // Ana deletes her first room: the second asks again (at most once a minute) and takes ops again.
+  await ok(await call('dev-ana', `/${first.id}`, { method: 'DELETE' }));
+  assert.deepEqual(Object.keys(usage()), [`u:${second.id}`]);
+  await send(second.id, maya, op(2, { base: 1 }));
+  assert.equal(only(maya.take(), 'error')[0].code, 'quota', 'asked less than a minute ago');
+  now += ROOMS.quotaRecheck;
+  await send(second.id, maya, op(2, { base: 1 }));
+  assert.equal(only(maya.take(), 'op')[0].seq, 2);
+  // Over, a snapshot that makes the room smaller is still taken (it's how a room gets back under); a bigger one isn't,
+  // even sent without its length.
+  ROOMS.accountBytes = 10;
+  await ok(await putSnapshot('dev-maya', second.id, noise(50), 2, 'small'));
+  assert.equal(usage()[`u:${second.id}`], 50);
+  await refused(await putSnapshot('dev-maya', second.id, noise(60), 2, 'bigger'), 413, 'quota');
+  const stream = new ReadableStream({ start: (c) => (c.enqueue(noise(60)), c.close()) });
+  const chunked = await worker.fetch(new Request(`${LOCAL}/api/creative/rooms/${second.id}/snapshot`, { method: 'PUT', body: stream, duplex: 'half', headers: { authorization: 'Bearer dev-maya', 'x-seq': '2', 'x-hash': 'bigger', 'content-type': 'application/octet-stream' } }), env, {});
+  await refused(chunked, 413, 'quota');
+  assert.equal([...roomOf(second.id).storage.map.keys()].filter((k) => k.startsWith('snap:')).length, 1, 'nothing left behind');
+});
+
+test('L1: hello twice per 10 s a socket; far behind (2000 ops or 4 MiB), start again from the snapshot, when there is one', async () => {
+  assert.deepEqual([DEFAULTS.hellos, DEFAULTS.helloWindow, DEFAULTS.replayOps, DEFAULTS.replayBytes, DEFAULTS.presence], [2, 10_000, 2000, 4 * 1024 * 1024, 10]);
+  const room = await roomWith();
+  const object = roomOf(room.id);
+  let now = 1_000_000;
+  object.now = () => now;
+  const ana = await connect('dev-ana', room.id);
+  assert.equal((await hello(room.id, ana))[0].t, 'welcome');
+  assert.equal((await hello(room.id, ana))[0].t, 'welcome');
+  assert.deepEqual((await hello(room.id, ana)).map((f) => [f.t, f.code]), [['error', 'slow_down']]);
+  now += ROOMS.helloWindow;
+  assert.equal((await hello(room.id, ana))[0].t, 'welcome');
+
+  Object.assign(ROOMS, { hellos: 100, replayOps: 3, replayBytes: 1000 });
+  for (let i = 1; i <= 4; i++) await send(room.id, ana, op(i, { base: i - 1, op: 'x'.repeat(100) }));
+  ana.take();
+  assert.deepEqual((await hello(room.id, ana, 0))[0].ops.map((e) => e.seq), [1, 2, 3, 4], 'no snapshot to start from: the whole tail');
+  await ok(await putSnapshot('dev-ana', room.id, new Uint8Array([1]), 0, 'start'));
+  assert.equal((await hello(room.id, ana, 0))[0].resync, true, '4 ops behind');
+  assert.deepEqual((await hello(room.id, ana, 1))[0].ops.map((e) => e.seq), [2, 3, 4]);
+  await send(room.id, ana, op(5, { base: 4, op: 'y'.repeat(950) }));
+  ana.take();
+  const far = (await hello(room.id, ana, 3))[0];
+  assert.equal(far.resync, true, '1050 bytes behind');
+  assert.equal(far.ops, undefined);
+  assert.deepEqual((await hello(room.id, ana, 4))[0].ops.map((e) => e.seq), [5]);
+});
+
+test('L1: a hello’s catch-up runs outside the room’s queue; what happens meanwhile reaches that app after it, in order', async () => {
+  const room = await roomWith();
+  const ana = await connect('dev-ana', room.id);
+  for (let i = 1; i <= 5; i++) await send(room.id, ana, op(i, { base: i - 1 }));
+  const maya = await connect('dev-maya', room.id);
+  const object = roomOf(room.id);
+  const list = object.storage.list.bind(object.storage);
+  let open;
+  const gate = new Promise((resolve) => (open = resolve));
+  let reached;
+  const waiting = new Promise((resolve) => (reached = resolve));
+  object.storage.list = async (options) => {
+    if (options && options.prefix === 'op:') {
+      reached();
+      await gate;
+    }
+    return list(options);
+  };
+  const catching = send(room.id, maya, { t: 'hello', since: 0 });
+  await waiting;
+  ana.take();
+  await send(room.id, ana, op(6, { base: 5 }));
+  assert.deepEqual(only(ana.take(), 'op').map((f) => f.seq), [6], 'the room’s queue wasn’t held');
+  assert.deepEqual(maya.take(), [], 'held for Maya until her catch-up is out');
+  open();
+  await catching;
+  object.storage.list = list;
+  const frames = maya.take();
+  assert.deepEqual(frames.map((f) => f.t), ['welcome', 'op', 'activity']);
+  assert.deepEqual(frames[0].ops.map((e) => e.seq), [1, 2, 3, 4, 5]);
+  assert.equal(frames[1].seq, 6);
+});
+
+test('L4: invites a day, 50 from one account across its rooms and 10 new rooms for one email; a refused invite leaves nothing', async () => {
+  assert.deepEqual([DEFAULTS.invitesPerDay, DEFAULTS.invitesPerEmailDay], [50, 10]);
+  Object.assign(ROOMS, { invitesPerDay: 3, invitesPerEmailDay: 2 });
+  let now = Date.UTC(2026, 10, 16, 12);
+  const timed = (name) => {
+    env.CREATIVE_ROOMS.get(name);
+    indexOf(name).now = () => now;
+  };
+  timed('idx:acct:acct-ana');
+  const one = await makeRoom('dev-ana', 'One');
+  const two = await makeRoom('dev-ana', 'Two');
+  await ok(await invite(one.id, 'a@example.com'), 201);
+  await ok(await invite(one.id, 'b@example.com'), 201);
+  await ok(await invite(two.id, 'c@example.com'), 201);
+  await refused(await invite(two.id, 'd@example.com'), 429, 'slow_down');
+  assert.equal((await keysOf(two.id))['d@example.com'], undefined, 'not invited');
+  now += 24 * 3600_000; // the next day (UTC)
+  await ok(await invite(two.id, 'd@example.com'), 201);
+
+  // One email, from different people's rooms: 2 new rooms a day.
+  timed(`idx:mail:${await sha256Hex('victim@example.com')}`);
+  const rooms = [];
+  for (const token of ['dev-maya', 'dev-jon', 'dev-lee']) rooms.push(await makeRoom(token, `${token}’s`));
+  await ok(await invite(rooms[0].id, 'victim@example.com', 'view', 'dev-maya'), 201);
+  await ok(await invite(rooms[1].id, 'victim@example.com', 'view', 'dev-jon'), 201);
+  await refused(await invite(rooms[2].id, 'victim@example.com', 'view', 'dev-lee'), 429, 'slow_down');
+  assert.equal((await keysOf(rooms[2].id, 'dev-lee'))['victim@example.com'], undefined);
+  now += 24 * 3600_000;
+  await ok(await invite(rooms[2].id, 'victim@example.com', 'view', 'dev-lee'), 201);
+});

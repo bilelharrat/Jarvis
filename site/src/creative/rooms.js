@@ -992,6 +992,22 @@ export class CreativeRoom {
     if (mine && mine[1] !== hash) throw new ApiError(409, 'diverged', 'This Mac said its project was different at that point; it can’t replace the room’s copy.');
   }
 
+  /** Every op's bytes up to seq (between the snapshot and the head). */
+  async cumAt(meta, seq) {
+    if (seq === meta.head) return meta.cum || 0;
+    const entry = await this.storage.get(opKey(seq));
+    return entry ? entry.cum || 0 : (meta.snap && meta.snap.cum) || 0;
+  }
+
+  /** The owner's quota, counting this room as it would be with a snapshot of `bytes` at seq (the log before it gone).
+   *  A snapshot that makes the room smaller is always taken: it's how a room gets back under. */
+  async snapshotFits(meta, seq, bytes) {
+    const size = (meta.cum || 0) - (await this.cumAt(meta, seq)) + bytes;
+    if (size <= roomBytesOf(meta)) return;
+    const { total = 0 } = await this.askIndex(`idx:acct:${meta.owner}`, 'usage', { id: meta.id, bytes: size, peek: true });
+    if (total > ROOMS.accountBytes) throw new ApiError(413, 'quota', 'The owner’s shared projects are using all the room they have. Delete one first.');
+  }
+
   async putSnapshot(request, who) {
     const seqText = request.headers.get('x-seq') || '';
     const seq = /^\d{1,16}$/.test(seqText) ? Number(seqText) : NaN;
@@ -1002,11 +1018,7 @@ export class CreativeRoom {
     if (declared > ROOMS.snapshotBytes) throw new ApiError(413, 'too_big', `A snapshot is at most ${ROOMS.snapshotBytes / 1048576} MiB.`);
     await this.locked(who, async (meta, me) => {
       await this.snapshotAllowed(meta, me, seq, hash); // before taking the bytes
-      // the owner's quota, counting this room as it would be with the new snapshot
-      if (Number.isSafeInteger(declared) && declared > 0) {
-        const { total = 0 } = await this.askIndex(`idx:acct:${meta.owner}`, 'usage', { id: meta.id, bytes: roomBytesOf(meta), peek: declared - ((meta.snap && meta.snap.bytes) || 0) });
-        if (total > ROOMS.accountBytes) throw new ApiError(413, 'quota', 'The owner’s shared projects are using all the room they have. Delete one first.');
-      }
+      if (Number.isSafeInteger(declared) && declared > 0) await this.snapshotFits(meta, seq, declared);
     });
     if (!request.body) throw bad('Send the snapshot’s bytes.');
     const gen = hex(randomBytes(6));
@@ -1044,9 +1056,9 @@ export class CreativeRoom {
       if (!bytes) throw bad('Send the snapshot’s bytes.');
       return await this.locked(who, async (meta, me) => {
         await this.snapshotAllowed(meta, me, seq, hash); // again: the room may have moved on meanwhile
+        await this.snapshotFits(meta, seq, bytes); // and now the size is known for sure
         const old = meta.snap;
-        const at = seq === meta.head ? { cum: meta.cum || 0 } : (await this.storage.get(opKey(seq))) || { cum: (old && old.cum) || 0 };
-        meta.snap = { gen, seq, hash, bytes, chunks, cum: at.cum || 0, at: this.now(), by: me.key };
+        meta.snap = { gen, seq, hash, bytes, chunks, cum: await this.cumAt(meta, seq), at: this.now(), by: me.key };
         await this.storage.put('meta', meta);
         committed = true;
         if (old) await this.dropChunks(old.gen, old.chunks);
@@ -1114,13 +1126,12 @@ export class CreativeRoom {
           return {};
         }
         if (op === 'usage') {
-          // a room the account owns says what it keeps; the answer is all its rooms together (`peek`: as it would be
-          // with that many more bytes, without saving it)
+          // a room the account owns says what it keeps; the answer is all its rooms together (`peek`: what the total
+          // would be with the room at that size, nothing saved)
           if (!ROOM_ID.test(String(body.id)) || !Number.isSafeInteger(body.bytes) || body.bytes < 0) throw bad('That isn’t a usage report.');
-          const peek = Number.isSafeInteger(body.peek) ? body.peek : null;
-          if (peek === null) await this.storage.put(`u:${body.id}`, body.bytes);
-          let total = peek === null ? 0 : body.bytes + peek;
-          for (const [key, bytes] of await this.storage.list({ prefix: 'u:' })) if (peek === null || key !== `u:${body.id}`) total += bytes;
+          if (body.peek !== true) await this.storage.put(`u:${body.id}`, body.bytes);
+          let total = body.bytes;
+          for (const [key, bytes] of await this.storage.list({ prefix: 'u:' })) if (key !== `u:${body.id}`) total += bytes;
           return { total };
         }
         if (op === 'charge') {
@@ -1185,12 +1196,43 @@ export class CreativeRoom {
           this.drop(ws, 4001, 'removed');
         }
       }
+      const keys = new Set(gone.map((m) => m.key));
+      for (const m of Object.values(meta.members)) if (keys.has(m.by)) m.by = null; // who invited whom
+      if (meta.snap && keys.has(meta.snap.by)) meta.snap.by = null;
       await this.storage.put('meta', meta);
+      await this.scrub(gone);
       this.broadcastMembers(meta);
       return { removed: gone.length };
     });
     for (const job of jobs) await job().catch((e) => console.error('creative room: an index update failed', e && e.message));
     return out;
+  }
+
+  /** What's left of people who've gone with their account: their name on the activity and comments becomes "Former
+   *  member", their email goes from the activity's text, and their op ids and checks go. (Their name stays on their
+   *  ops in the log until the next snapshot clears it.) */
+  async scrub(gone) {
+    const pks = new Set(gone.map((m) => m.pk));
+    const emails = gone.map((m) => m.email).filter(Boolean).map((e) => new RegExp(e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'));
+    const unnamed = (item) => (pks.has(item.by) ? { ...item, name: 'Former member' } : item);
+    const rewrite = async (prefix, change) => {
+      let startAfter;
+      for (;;) {
+        const page = await this.storage.list({ prefix, ...(startAfter ? { startAfter } : {}), limit: 64 });
+        const puts = {};
+        for (const [key, value] of page) {
+          const next = change(value);
+          if (JSON.stringify(next) !== JSON.stringify(value)) puts[key] = next;
+        }
+        if (Object.keys(puts).length) await this.storage.put(puts);
+        if (page.size < 64) return;
+        startAfter = [...page.keys()].pop();
+      }
+    };
+    await rewrite('act:', (a) => ({ ...unnamed(a), text: emails.reduce((text, e) => text.replace(e, 'someone'), a.text) }));
+    await rewrite('cm:', (c) => ({ ...unnamed(c), replies: c.replies.map(unnamed) }));
+    await rewrite('chk:', (checks) => checksOf(checks).filter(([key]) => !gone.some((m) => m.key === key)));
+    for (const m of gone) await this.deleteKeys([...(await this.storage.list({ prefix: `oid:${m.key}:` })).keys()]);
   }
 }
 
