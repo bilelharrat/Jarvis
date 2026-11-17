@@ -29,6 +29,10 @@
 //   /api/chat/browser       the browser panel's cloud browser, a WebSocket (browser/api.js, browser/session.js)
 //   /api/chat/…, /api/route hosted Eden (eden/chat.js)
 //   /eden/connect, /api/eden/…   @Eden for Eden Messenger: connect, then ask (eden/ask.js)
+//   /creative/link, /api/creative/…   the Eden Creative Suite's apps: link once, then Eden, EVES and generated media
+//                            (creative/api.js, docs/creative-api.md)
+//   /api/creative/rooms…    editing a Creative Suite project together: rooms and their WebSocket (creative/rooms.js,
+//                            docs/creative-rooms.md)
 //   POST /api/stripe/webhook   Stripe's events for Plus bought on the web (eden/billing.js); nothing else under /api/stripe
 //   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to /
@@ -47,6 +51,7 @@ import { tokenFrom } from './accounts/util.js';
 // Worker's startup CPU). Every page, sign-in and Durable Object start that doesn't chat skips that.
 const chatModule = () => import('./eden/chat.js');
 const askModule = () => import('./eden/ask.js');
+const creativeModule = () => import('./creative/api.js'); // the Creative Suite's door: it routes with the Model Router too
 import { stripeApi } from './eden/billing.js';
 import { promoAdmin } from './accounts/promo.js';
 import { ltiAdmin, ltiRoute } from './edu/lti.js';
@@ -60,6 +65,8 @@ export { Account, Identity, Link, Space } from './accounts/index.js';
 export { Promo } from './accounts/promo.js';
 export { BrowserSession } from './browser/session.js';
 export { Course } from './edu/course.js';
+export { CreativeRoom } from './creative/rooms.js'; // Creative Suite projects, editing together (wrangler.toml CREATIVE_ROOMS)
+import { roomsApi } from './creative/rooms.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
@@ -104,6 +111,10 @@ async function route(request, env, ctx) {
     // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
     if (path === '/api/eden/voice') return voice(request, env, path); // Talk in the Ask Eden extension (its token: eden/ask.js voiceCaller)
     if (path.startsWith('/api/eden/')) return (await askModule()).edenApi(request, env, ctx, path);
+    // Editing a Creative Suite project together: the same token and no-browser rule, its own rooms (creative/rooms.js).
+    if (path === '/api/creative/rooms' || path.startsWith('/api/creative/rooms/')) return roomsApi(request, env, ctx, path);
+    // The Eden Creative Suite's Mac apps: their scoped token, no browsers at all (creative/api.js, docs/creative-api.md).
+    if (path.startsWith('/api/creative/')) return (await creativeModule()).creativeApi(request, env, ctx, path);
     // Stripe's webhook: a server, so no Origin and no session; its signature is the guard (eden/billing.js).
     if (path === '/api/stripe' || path.startsWith('/api/stripe/')) return stripeApi(request, env, ctx, path);
     // Minting promo codes: the owner's server call, guarded by PROMO_ADMIN_TOKEN (accounts/promo.js).
@@ -134,6 +145,7 @@ async function route(request, env, ctx) {
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
   if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
   if (path === '/eden/connect') return (await askModule()).connectPage(request, env, url); // "Connect Eden Messenger?" (eden/ask.js)
+  if (path === '/creative/link') return (await creativeModule()).creativeLinkPage(request, env, url); // "Link Scorsese to Eden?" (creative/api.js)
   const addin = await addinFile(request, env, path); // Ask Eden for Excel's pane and manifest (eden/addins.js)
   if (addin) return addin;
   const eden = await edenPage(request, env, path);

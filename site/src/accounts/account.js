@@ -24,6 +24,7 @@ import {
 import { forgetGoogleOnDelete, googleOp } from './tokens.js';
 import { approvalOp } from './approvals.js';
 import { scopedOp } from './scoped.js';
+import { creativeDue, creativeOp } from '../creative/ops.js';
 import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
 import { GRANT_CLIENTS } from './apple.js';
@@ -81,7 +82,7 @@ const RELAY = { frame: 64 * 1024, held: 256 * 1024, streams: 16 };
 // its Stripe price in STRIPE_PRICE_PLUS_LEGACY, and the App Store's), and the trial.
 export const LIMITS = { plus: 6, legacy: 20, trial: 1 };
 
-function allowances(env = {}) {
+export function allowances(env = {}) {
   const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v !== undefined ? Number(v) : d);
   return {
     plus: n(env.PLUS_BUDGET_USD, LIMITS.plus),
@@ -146,6 +147,7 @@ export class Account {
       if (op === 'identity-link') return json(await this.linkIdentity(body));
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
+      if (op.startsWith('creative-')) { const out = await creativeOp(this, op, body); return out instanceof Response ? out : json(out); } // the Creative Suite's apps, on their scoped token (src/creative/ops.js checks it; a result is streamed)
       if (op === 'rcpt-open') return json(await receiptOp(this, op, body)); // a read receipt's pixel loaded (the Worker's /r/ route; receipts.js)
       const device = await this.authenticate(request);
       // A browser may delete the account only when the person typed DELETE (the account page).
@@ -451,14 +453,16 @@ export class Account {
     const grant = await this.storage.get('apple_grant');
     const grants = (await this.storage.get('apple_grants')) || {};
     const stripe = await stripeToCancel(this); // the Worker cancels it at Stripe (eden/billing.js)
-    const identities = (await this.identities()).filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
+    const all = await this.identities();
+    const identities = all.filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
+    const emails = [...new Set(all.map((i) => i.email).filter((e) => typeof e === 'string' && e))]; // the Worker takes them out of shared projects (creative/rooms.js)
     const published = [...(await this.storage.list({ prefix: 'pubh:' })).keys()].map((k) => k.slice(5)); // the Worker drops their /p/ links
     const shared = await sharedIds(this.storage); // and their /s/ links (shared-chats.js)
     this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
-    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared };
+    return { apple_grant: grant || null, apple_grants: grants, identities, emails, stripe_subscription: stripe, published, shared };
   }
 
   publicDevice(device, me) {
@@ -669,7 +673,7 @@ export class Account {
     const want = Number(usd);
     if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
     this.held(''); // drop expired holds
-    if ([...this.holds.values()].filter((h) => !h.proxy && !h.edu).length >= EDEN_TURNS) { // students' course turns (edu/budget.js) don't take the owner's two
+    if ([...this.holds.values()].filter((h) => !h.proxy && !h.edu && !h.media).length >= EDEN_TURNS) { // students' course turns (edu/budget.js) and clips being made (holdMedia) don't take the owner's two
       throw new ApiError(429, 'slow_down', `Eden is already writing ${EDEN_TURNS} replies for this account; wait for one to finish.`, { 'retry-after': '10' });
     }
     const allow = await this.allowAi(device);
@@ -680,6 +684,21 @@ export class Account {
     const id = crypto.randomUUID();
     this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS, pool: allow.pool || null });
     return { ok: true, bucket: allow.bucket, hold: id, left: allow.left, markup: allow.markup || 1 };
+  }
+
+  // A generated clip's hold (creative/ops.js; never an op of its own): its quote on the same allowance, kept until the
+  // clip is made or fails. It isn't a reply being written, so it never takes one of the EDEN_TURNS (the suite's own
+  // MEDIA.running caps how many are made at once).
+  async holdMedia({ usd }) {
+    const want = Number(usd);
+    if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
+    this.held(''); // drop expired holds
+    const allow = await this.allowAi();
+    if (!allow.ok) return allow;
+    if (want > allow.left) return { ok: false, why: 'Not enough of your included AI is left for this.' };
+    const id = crypto.randomUUID();
+    this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS, pool: null, media: true });
+    return { ok: true, bucket: allow.bucket, hold: id, left: allow.left };
   }
 
   // One request of the apps' proxy (index.js anthropic): at most PROXY_TURNS at once, each holding
@@ -931,6 +950,7 @@ export class Account {
       task: (job) => taskDue(this, job),
       autodraft: () => autodraftDue(this),
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
+      creative: (job) => creativeDue(this, job), // the Creative Suite's generated media: a job's next step, or its expiry (src/creative/ops.js)
     });
   }
 

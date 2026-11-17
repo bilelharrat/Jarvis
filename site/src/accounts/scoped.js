@@ -10,7 +10,11 @@
 //   `scoped:<id>` → { id, client, scope, secret_hash, created, expires, last_used, by }. Its
 //   prefix isn't jv1, so no other door of askeden.com takes it (util.js parseToken): it can
 //   only hold the included AI for one ask (`scoped-hold`) and revoke itself.
-// - At most SCOPED.max per account (a new one retires the oldest), each for SCOPED.days.
+// - At most SCOPED.max per account and app, and per suite app for the Creative Suite (a new one retires that app's
+//   oldest, and its answer names what went: `unlinked`), each for SCOPED.days (or the app's own `days`). The Eden
+//   Creative Suite (`creative`, src/creative/) links the same way from its native apps, its ticket coming back to that
+//   app's own scheme, edenstudio-<app>://link (creative/api.js callbackFor); its token also carries which suite app and
+//   Mac it is (`app`, `label`), and it answers only the `creative-*` ops (creative/ops.js), never `scoped-hold`.
 // - Deleting the account deletes them with everything else (storage.deleteAll).
 
 import { ApiError, b64url, randomBytes, sameText, sha256, sha256Hex, signedOut, validAccountId } from './util.js';
@@ -57,6 +61,9 @@ export const CLIENTS = {
     does: 'answer questions about the cells you select in Google Sheets, write and explain formulas, and fill or clean data',
     sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell; to fill an empty column, the filled columns beside it), the sheet’s name and what you type, when you press one of its buttons or use =EDEN',
   },
+  // The Creative Suite's Mac apps (src/creative/api.js has the flow): a native scheme per app, never a web page; a year
+  // long. No /api/eden/* route takes its token (`routes` empty, and its scope isn't `ask`).
+  creative: { name: 'Eden Creative Suite', scope: 'creative', callback: 'edenstudio-<app>://link', days: 365, routes: [] }, // per app: creative/api.js callbackFor
 };
 
 const ID = /^[0-9a-f]{16}$/;
@@ -141,8 +148,8 @@ async function webCaller(account, request) {
   return device;
 }
 
-/** A scoped token, checked: its record (an expired one goes). */
-async function tokenCaller(account, { id, secret }) {
+/** A scoped token, checked: its record (an expired one goes). Also the Creative Suite's ops (src/creative/ops.js). */
+export async function tokenCaller(account, { id, secret }) {
   if (!ID.test(String(id || '')) || !SECRET.test(String(secret || ''))) throw notConnected();
   const token = await account.storage.get(`scoped:${id}`);
   if (!token || !sameText(token.secret_hash, await sha256Hex(secret))) throw notConnected();
@@ -168,11 +175,12 @@ async function live(account) {
   return out.sort((a, b) => a.created - b.created);
 }
 
-function publicConnection({ id, client, scope, created, expires, last_used }) {
-  return { id, client, name: CLIENTS[client]?.name || client, scope, created, expires, last_used: last_used || null };
+function publicConnection({ id, client, scope, created, expires, last_used, label, app }) {
+  const name = CLIENTS[client]?.name || client;
+  return { id, client, ...(app ? { app, label: label || null } : {}), name: label ? `${name}: ${label}` : name, scope, created, expires, last_used: last_used || null };
 }
 
-async function makeCode(account, device, { client, redirect_uri, challenge, scope }) {
+async function makeCode(account, device, { client, redirect_uri, challenge, scope, app: suiteApp = null, label = null }) {
   const app = CLIENTS[client];
   if (!app) throw new ApiError(400, 'bad_request', 'Unknown app.');
   if (scope !== app.scope) throw new ApiError(400, 'bad_request', 'That app may ask only for what it is for.');
@@ -188,7 +196,11 @@ async function makeCode(account, device, { client, redirect_uri, challenge, scop
   if (waiting.length >= SCOPED.codes) throw new ApiError(429, 'slow_down', 'Too many connections started at once; wait a minute.', { 'retry-after': '60' });
   const secret = b64url(randomBytes(32));
   const expires = now + SCOPED.codeSeconds * 1000;
-  await account.storage.put(`sccode:${await sha256Hex(secret)}`, { client, scope, redirect_uri, challenge, device: device.id, expires });
+  const extra = {
+    ...(typeof suiteApp === 'string' && /^[a-z]{1,20}$/.test(suiteApp) ? { app: suiteApp } : {}),
+    ...(typeof label === 'string' && label ? { label: label.slice(0, 120) } : {}),
+  };
+  await account.storage.put(`sccode:${await sha256Hex(secret)}`, { client, scope, redirect_uri, challenge, device: device.id, expires, ...extra });
   return { code: secret, expires };
 }
 
@@ -204,8 +216,11 @@ async function redeem(account, { code, client, redirect_uri, verifier }) {
   // The browser that approved it must still be signed in (two minutes is long enough to sign out).
   const approver = await account.storage.get(`dev:${held.device}`);
   if (!approver || (approver.expires && approver.expires <= now)) throw signedOut();
-  const tokens = await live(account);
-  for (const old of tokens.slice(0, Math.max(0, tokens.length - (SCOPED.max - 1)))) await account.storage.delete(`scoped:${old.id}`);
+  // each app's own room: a suite app's links are its own (an 11th Scorsese retires the oldest Scorsese, never an Ansel
+  // or a Messenger), and whatever goes is said in the answer, so the app can tell the person
+  const tokens = (await live(account)).filter((t) => t.client === client && (t.app || null) === (held.app || null));
+  const retired = tokens.slice(0, Math.max(0, tokens.length - (SCOPED.max - 1)));
+  for (const old of retired) await account.storage.delete(`scoped:${old.id}`);
   const id = [...randomBytes(8)].map((b) => b.toString(16).padStart(2, '0')).join('');
   const secret = b64url(randomBytes(32));
   const token = {
@@ -214,10 +229,18 @@ async function redeem(account, { code, client, redirect_uri, verifier }) {
     scope: held.scope,
     secret_hash: await sha256Hex(secret),
     created: now,
-    expires: now + SCOPED.days * 86400_000,
+    expires: now + (CLIENTS[client]?.days || SCOPED.days) * 86400_000,
     last_used: null,
     by: held.device,
+    ...(held.app ? { app: held.app } : {}),
+    ...(held.label ? { label: held.label } : {}),
   };
   await account.storage.put(`scoped:${id}`, token);
-  return { id, secret, scope: token.scope, expires: token.expires };
+  return { id, secret, scope: token.scope, expires: token.expires, created: now, ...(held.app ? { app: held.app } : {}), unlinked: retired.map(publicConnection) };
 }
+
+/** The links one more approval of this app would retire (oldest first): what the approval page says before Link. */
+export const retiredBy = (connections, client, app = null) => {
+  const mine = connections.filter((c) => c.client === client && (c.app || null) === (app || null));
+  return mine.slice(0, Math.max(0, mine.length - (SCOPED.max - 1)));
+};

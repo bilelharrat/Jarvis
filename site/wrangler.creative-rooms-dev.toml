@@ -1,0 +1,23 @@
+# Creative rooms, locally (docs/creative-rooms.md "Local test"):
+#   npx wrangler dev -c wrangler.creative-rooms-dev.toml --port 8788 --ip 127.0.0.1
+# Only the rooms are bound (no [ai], no [browser], no R2, no routes): nothing remote opens, nothing is billed and no
+# login is asked for. The three tokens are fake people, and src/creative/token.js takes them only with
+# CREATIVE_ROOMS_DEV = "1" on localhost. Never deploy this file (workers_dev off and no routes: it'd answer nowhere).
+name = "creative-rooms-dev"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["enable_request_signal"]
+workers_dev = false
+
+[vars]
+CREATIVE_ROOMS_DEV = "1"
+CREATIVE_ROOMS_DEV_TOKENS = '{"dev-ana":{"account":"acct-ana","name":"Ana","email":"ana@example.com"},"dev-maya":{"account":"acct-maya","name":"Maya","email":"maya@example.com"},"dev-jon":{"account":"acct-jon","name":"Jon","email":"jon@example.com"}}'
+
+# The same binding and migration as wrangler.toml.
+[[durable_objects.bindings]]
+name = "CREATIVE_ROOMS"
+class_name = "CreativeRoom"
+
+[[migrations]]
+tag = "creative-rooms-v1"
+new_sqlite_classes = ["CreativeRoom"]
