@@ -2172,6 +2172,7 @@ ZH_TEXTS: dict[str, str] = {
     "Went back in the browser": "浏览器后退了一页",
     "Looked at the browser page": "查看了浏览器页面",
     "Looked over the browser page": "查看了浏览器页面的元素",
+    "Looked for something on the browser page": "在浏览器页面上查找了内容",
     "Acted in the browser": "在浏览器中进行了操作",
     "Waited for the browser page": "等候了浏览器页面",
     "Worked with browser tabs": "操作了浏览器标签页",
@@ -2919,12 +2920,12 @@ def is_echo(heard: str, speaking: str, lang: str = "en", threshold: float = 0.6)
     return wake.is_echo(heard, speaking, threshold)
 
 
-def sounds_finished(text: str, lang: str = "en") -> bool:
+def sounds_finished(text: str, lang: str = "en", loose: bool = False) -> bool:
     if is_zh(lang):
         return sounds_finished_zh(text)
     from .listen import sounds_finished as english
 
-    return english(text)
+    return english(text, loose=loose)
 
 
 def parse_research(text: str, lang: str = "en") -> research.Command | None:

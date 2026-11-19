@@ -8,7 +8,7 @@ Settings (prefs.features):
 - orders_renewal_days: remind this many days before a renewal (3; 0 turns reminders off).
 
 Claude cost policy: rules read every email first, for nothing. Only an email that looks
-like shopping but that the rules can't place goes to Haiku 4.5: one tool-less turn on its
+like shopping but that the rules can't place goes to Haiku 5.5: one tool-less turn on its
 sender, subject and Mail's preview (at most 1,500 characters), at most ORDER_CALLS_HOUR an
 hour and ORDER_CALLS_DAY a day (code_ai's budget, kind "order_email"). The email is data in
 that turn: the prompt says so, and nothing it says is acted on.

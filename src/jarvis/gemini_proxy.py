@@ -2,9 +2,9 @@
 and Google's Gemini API on the other, so JARVIS and Eden Code run on Gemini with every
 tool, picture and streamed word they have on Claude.
 
-It listens on 127.0.0.1 only. The key never lives here: each request carries it (Claude
-Code gets it from the Keychain through the provider's apiKeyHelper) and it goes on to
-Google and nowhere else. Two kinds of Google key work: a Gemini API key ("AIza…", Google AI
+It listens on 127.0.0.1 only. The key never lives here: a session's request carries its
+run's pass (key_proxy), swapped here for the key only when it was made for a Gemini
+provider, and the key goes on to Google and nowhere else. Two kinds of Google key work: a Gemini API key ("AIza…", Google AI
 Studio) and a Vertex AI express-mode key ("AQ.…"); the endpoint that accepts a key is
 remembered (by a hash of it, not the key).
 
@@ -13,7 +13,13 @@ What's translated:
   pictures and PDFs (as inline data), tool calls and their results (pictures in results too);
 - tools, as Gemini function declarations with their JSON Schemas, and tool_choice;
 - streaming, as Anthropic's server-sent events (message_start, content blocks, text and
-  input_json deltas, message_delta with the stop reason and usage, message_stop);
+  input_json deltas, message_delta with the stop reason and usage, message_stop). The
+  usage carries the request's size (input_tokens: an estimate at the start, Google's count
+  at the end), which Claude Code reads to know when to compact the conversation; without
+  it a long Gemini session would grow until Google turns it down;
+- a reply that isn't one (a blocked prompt, a safety stop, a tool call Gemini couldn't
+  write, a stream that ends without finishing, an empty answer) as Anthropic's error, never
+  as an empty answer taken as done;
 - Gemini's thought signatures, which Gemini 3 needs back with each tool call: kept here by
   tool-call id and put back on the call when Claude Code sends its history again;
 - errors, as Anthropic error JSON with the matching status (429 stays a rate limit).
@@ -27,24 +33,18 @@ import json
 import logging
 import re
 import secrets
-import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
+from . import key_proxy
+
 log = logging.getLogger(__name__)
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models"
-GEMINI_CACHES = "https://generativelanguage.googleapis.com/v1beta/cachedContents"
 VERTEX_EXPRESS = "https://aiplatform.googleapis.com/v1/publishers/google/models"
-CACHE_MIN_CHARS = 16_000  # ~4,000 tokens (Gemini's minimum for explicit context caching)
-HISTORY_CHECKPOINT_STRIDE = 4  # checkpoint conversation history every 4 content messages (~2 turns)
-HISTORY_CHECKPOINT_MIN_CHARS = 12_000  # ~3,000 tokens of history before checkpointing contents
-CACHE_TTL_SECONDS = 3600
-CACHE_REFRESH_SECONDS = 3000
-CACHES_KEPT = 64
 # Google's "-latest" names follow each family's newest model; numbered ones get retired
 # (gemini-2.5-flash was, for new keys, in 2026).
 SUGGESTED = (
@@ -243,18 +243,18 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
 
 
 def thinking_level(body: dict[str, Any]) -> str | None:
-    """How hard Gemini 3 Flash and Gemini 4 Argon think, from what the request asked of
-    Claude: a session that thinks (Eden Code at high effort and up) gets Gemini's full
-    thinking, one that thinks at low or medium effort (the session's effort, Model Router's
-    pick) that level; one with thinking off (JARVIS's voice turns) thinks lightly, about
-    three times faster to the first word.
+    """How hard Gemini 3 Flash thinks, from what the request asked of Claude: a session that
+    thinks (Eden Code at high effort and up) gets Gemini's full thinking, one that thinks
+    at low or medium effort (the session's effort, Model Router's pick) that level; one with
+    thinking off (JARVIS's voice turns) thinks lightly, about three times faster to the first
+    word.
     None leaves Gemini's default: Pro (thinking lightly, it leaks stray words into its reply
     and writes tool calls out as text instead of making them) and older models, which take
     no level."""
     model = str(body.get("model") or "").removeprefix("google/")
     if not model.startswith("gemini-") or re.match(r"gemini-[12]\b|gemini-[12]\.", model):
         return None
-    if "flash" not in model and not re.match(r"gemini-4(?:[.-]|$)", model):
+    if "flash" not in model:
         return None
     thinking = body.get("thinking") if isinstance(body.get("thinking"), dict) else {}
     effort = str((body.get("output_config") or {}).get("effort") or "").lower()
@@ -271,6 +271,12 @@ FINISH = {
     "SAFETY": "refusal",
     "RECITATION": "refusal",
 }
+# The finishes that are an answer; any other is Gemini not answering (Stream.problem).
+ANSWERED = frozenset({"STOP", "MAX_TOKENS"})
+# Of the others, what Google's own rules stopped (asking again gets the same).
+REFUSED = frozenset(
+    {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "LANGUAGE"}
+)
 
 
 class Stream:
@@ -284,21 +290,15 @@ class Stream:
         self.used_tools = False
         self.finish = ""
         self.input_tokens = input_tokens
-        self.cache_read_tokens = 0
         self.output_tokens = 0
+        # The reply's tokens and its thinking's, as Google last counted each (a chunk may
+        # carry one without the other): output_tokens is their sum, each counted once.
+        self._answer_tokens = self._thought_tokens = 0
+        self.blocked = ""  # promptFeedback.blockReason: Google turned the prompt down
         self.blocks: list[dict[str, Any]] = []  # the whole message, for a non-streamed reply
         # The open text block's pieces, its text once it closes (added to a string piece by
         # piece, a long reply copied all of itself again for each piece: 1.5 s for a MB).
         self._words: list[str] = []
-
-    def _usage(self, output: int = 0) -> dict[str, int]:
-        out = {
-            "input_tokens": max(0, self.input_tokens - self.cache_read_tokens),
-            "output_tokens": output,
-        }
-        if self.cache_read_tokens > 0:
-            out["cache_read_input_tokens"] = self.cache_read_tokens
-        return out
 
     @staticmethod
     def event(kind: str, data: dict[str, Any]) -> str:
@@ -313,7 +313,7 @@ class Stream:
             "content": [],
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": self._usage(0),
+            "usage": {"input_tokens": self.input_tokens, "output_tokens": 0},
         }
         return self.event("message_start", {"message": message})
 
@@ -330,10 +330,12 @@ class Stream:
         usage = data.get("usageMetadata") or {}
         if usage:
             self.input_tokens = usage.get("promptTokenCount", self.input_tokens)
-            self.cache_read_tokens = usage.get("cachedContentTokenCount", self.cache_read_tokens)
-            self.output_tokens = usage.get("candidatesTokenCount", self.output_tokens) + usage.get(
-                "thoughtsTokenCount", 0
-            )
+            self._answer_tokens = usage.get("candidatesTokenCount", self._answer_tokens)
+            self._thought_tokens = usage.get("thoughtsTokenCount", self._thought_tokens)
+            self.output_tokens = self._answer_tokens + self._thought_tokens
+        feedback = data.get("promptFeedback")
+        if isinstance(feedback, dict) and feedback.get("blockReason"):
+            self.blocked = str(feedback["blockReason"])[:60]
         for candidate in (data.get("candidates") or [])[:1]:
             for part in (candidate.get("content") or {}).get("parts") or []:
                 if part.get("thought"):
@@ -413,6 +415,30 @@ class Stream:
     def stop_reason(self) -> str:
         return "tool_use" if self.used_tools else FINISH.get(self.finish, "end_turn")
 
+    def problem(self, streamed: bool = True) -> tuple[str, bool]:
+        """Why what Google sent isn't an answer, in words ("" when it is one), and whether
+        Google's own rules stopped it (asking again gets the same). Not one: a prompt Google
+        blocked, a finish other than STOP or MAX_TOKENS (a safety stop, a tool call it
+        couldn't write: MALFORMED_FUNCTION_CALL), a stream that ended with no finish at all
+        (cut off), or a STOP with nothing said and no tool called."""
+        if self.blocked:
+            return f"Gemini turned the request down ({self.blocked}).", True
+        if self.finish and self.finish not in ANSWERED:
+            if self.finish == "MALFORMED_FUNCTION_CALL":
+                return (
+                    "Gemini wrote a tool call it couldn't finish (MALFORMED_FUNCTION_CALL).",
+                    False,
+                )
+            refused = self.finish in REFUSED
+            return f"Gemini stopped without an answer ({self.finish[:60]}).", refused
+        if streamed and not self.finish:
+            return "Gemini's answer stopped before it finished; try again.", False
+        said = self._words or any(b.get("text") for b in self.blocks)
+        if self.finish != "MAX_TOKENS" and not self.used_tools and not said:
+            # (out of tokens before a word, its thinking used them: an answer, if a short one)
+            return "Gemini answered with nothing.", False
+        return "", False
+
     @classmethod
     def failed(cls, message: str, kind: str = "api_error") -> str:
         """Anthropic's error event: a stream that didn't finish ends in it, and Claude Code
@@ -426,7 +452,11 @@ class Stream:
                 "message_delta",
                 {
                     "delta": {"stop_reason": self.stop_reason(), "stop_sequence": None},
-                    "usage": self._usage(self.output_tokens),
+                    # (input_tokens: Google's count, over message_start's estimate)
+                    "usage": {
+                        "input_tokens": self.input_tokens,
+                        "output_tokens": self.output_tokens,
+                    },
                 },
             )
             + self.event("message_stop", {})
@@ -443,7 +473,7 @@ class Stream:
             "content": self.blocks,
             "stop_reason": self.stop_reason(),
             "stop_sequence": None,
-            "usage": self._usage(self.output_tokens),
+            "usage": {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens},
         }
 
 
@@ -463,142 +493,10 @@ def anthropic_error(status: int, message: str) -> tuple[int, dict[str, Any]]:
 class GeminiRelay:
     """The translation and the calls to Google; the HTTP server around it is below."""
 
-    def __init__(
-        self, client: httpx.AsyncClient | None = None, *, cost_saver: bool = True
-    ) -> None:
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(300, connect=15))
         self.signatures = Signatures()
         self.endpoints: dict[str, str] = {}  # sha256(key)[:16] -> "gemini" | "vertex"
-        self.caches: OrderedDict[str, tuple[str | None, int, float]] = OrderedDict()
-        self.cost_saver = cost_saver
-
-    @staticmethod
-    def _inline_image_weight(contents: list[dict[str, Any]]) -> int:
-        """Each inlineData image part counts for ~1,600 tokens (~6,400 chars equivalent)."""
-        images = sum(
-            1
-            for c in contents
-            for p in (c.get("parts") or [])
-            if isinstance(p, dict) and ("inlineData" in p or "inline_data" in p)
-        )
-        return images * 6400
-
-    @classmethod
-    def _history_cutoff(cls, contents: list[dict[str, Any]]) -> int:
-        """Largest multiple of HISTORY_CHECKPOINT_STRIDE that leaves at least one live message
-        and ends on a 'model' turn (or even index) with >= HISTORY_CHECKPOINT_MIN_CHARS."""
-        if len(contents) <= HISTORY_CHECKPOINT_STRIDE:
-            return 0
-        max_cut = ((len(contents) - 1) // HISTORY_CHECKPOINT_STRIDE) * HISTORY_CHECKPOINT_STRIDE
-        while max_cut > 0 and contents[max_cut - 1].get("role") != "model":
-            max_cut -= 1
-        if max_cut <= 0:
-            return 0
-        prefix = contents[:max_cut]
-        raw_hist = json.dumps(prefix, sort_keys=True, separators=(",", ":"))
-        return (
-            max_cut
-            if len(raw_hist) + cls._inline_image_weight(prefix) >= HISTORY_CHECKPOINT_MIN_CHARS
-            else 0
-        )
-
-    @classmethod
-    def _cache_candidates(
-        cls, key: str, model: str, payload: dict[str, Any]
-    ) -> list[tuple[str, int, dict[str, Any]]]:
-        """Candidate cache payloads, most specific first:
-        1) Rolling history checkpoint (systemInstruction + tools + toolConfig + contents[:cutoff])
-        2) Static prefix (systemInstruction + tools + toolConfig)
-        """
-        if key.startswith("AQ."):
-            return []  # Vertex express uses implicit caching only
-        base = {
-            k: payload[k]
-            for k in ("systemInstruction", "tools", "toolConfig")
-            if k in payload
-        }
-        contents = payload.get("contents")
-        key_id = hashlib.sha256(key.encode()).hexdigest()[:16]
-        out: list[tuple[str, int, dict[str, Any]]] = []
-        if isinstance(contents, list):
-            cutoff = cls._history_cutoff(contents)
-            if cutoff > 0:
-                prefix = contents[:cutoff]
-                hist_spec = {**base, "contents": prefix}
-                raw_hist = json.dumps(hist_spec, sort_keys=True, separators=(",", ":"))
-                if len(raw_hist) + cls._inline_image_weight(prefix) >= CACHE_MIN_CHARS:
-                    digest = hashlib.sha256(
-                        f"{key_id}:{model}:h{cutoff}:{raw_hist}".encode()
-                    ).hexdigest()[:24]
-                    out.append((digest, cutoff, hist_spec))
-        if base:
-            raw_base = json.dumps(base, sort_keys=True, separators=(",", ":"))
-            if len(raw_base) >= CACHE_MIN_CHARS:
-                digest = hashlib.sha256(f"{key_id}:{model}:{raw_base}".encode()).hexdigest()[:24]
-                out.append((digest, 0, base))
-        return out
-
-    async def _ensure_cache(
-        self, key: str, model: str, payload: dict[str, Any]
-    ) -> tuple[str | None, int, str | None]:
-        if not self.cost_saver:
-            return None, 0, None
-        candidates = self._cache_candidates(key, model, payload)
-        if not candidates:
-            return None, 0, None
-        now = time.monotonic()
-        for digest, cutoff, spec in candidates:
-            cached = self.caches.get(digest)
-            if cached is not None:
-                name, cached_cutoff, expires = cached
-                if now < expires:
-                    self.caches.move_to_end(digest)
-                    if name is not None:
-                        return name, cached_cutoff, digest
-                    continue  # This candidate failed earlier; try fallback candidate
-            body: dict[str, Any] = {
-                "model": f"models/{model}",
-                "ttl": f"{CACHE_TTL_SECONDS}s",
-                **spec,
-            }
-            try:
-                response = await self.client.post(
-                    GEMINI_CACHES,
-                    json=body,
-                    headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    name = data.get("name") if isinstance(data, dict) else None
-                    if isinstance(name, str) and name.startswith("cachedContents/"):
-                        self.caches[digest] = (name, cutoff, now + CACHE_REFRESH_SECONDS)
-                        self.caches.move_to_end(digest)
-                        while len(self.caches) > CACHES_KEPT:
-                            self.caches.popitem(last=False)
-                        return name, cutoff, digest
-            except (httpx.HTTPError, ValueError):
-                pass
-            # Remember if this candidate failed so we don't retry it every turn.
-            self.caches[digest] = (None, cutoff, now + 600)
-            while len(self.caches) > CACHES_KEPT:
-                self.caches.popitem(last=False)
-        return None, 0, None
-
-    @staticmethod
-    def _with_cache(
-        payload: dict[str, Any], cache_name: str | None, cutoff: int = 0
-    ) -> dict[str, Any]:
-        if not cache_name:
-            return payload
-        out = {
-            k: v
-            for k, v in payload.items()
-            if k not in ("systemInstruction", "tools", "toolConfig")
-        }
-        if cutoff > 0 and isinstance(out.get("contents"), list):
-            out["contents"] = out["contents"][cutoff:]
-        out["cachedContent"] = cache_name
-        return out
 
     def _urls(self, key: str, model: str, stream: bool) -> list[tuple[str, str, dict[str, str]]]:
         method = "streamGenerateContent?alt=sse" if stream else "generateContent"
@@ -619,6 +517,14 @@ class GeminiRelay:
                 "POST", url, json=payload, headers={**headers, "Content-Type": "application/json"}
             )
             response = await self.client.send(request, stream=True)
+            if response.status_code in (400, 401, 403, 404) and last is not None:
+                # The other endpoint didn't take it either. A 404 (a retired model, with a
+                # key that's fine where it was sent first) is the one to answer with, so
+                # messages() can move it to its successor; else this one, as before.
+                if last.status_code == 404 and response.status_code != 404:
+                    await response.aclose()
+                    return last
+                return response
             if response.status_code in (400, 401, 403, 404) and not last:
                 body = (await response.aread()).decode(errors="replace")
                 if (
@@ -652,25 +558,11 @@ class GeminiRelay:
         self, key: str, body: dict[str, Any]
     ) -> tuple[int, dict[str, Any] | None, AsyncIterator[str] | None]:
         """(status, json, None) for an error or a whole reply; (200, None, events) to stream."""
-        raw_model = str(body.get("model") or SUGGESTED[0]).removeprefix("google/")
-        # If a Claude model ID was passed into the Gemini relay (e.g. from an unmapped or fallback session),
-        # use the default Gemini model instead of asking Google for models/claude-...
-        if not raw_model.startswith("gemini-") and not raw_model.startswith("gemma-"):
-            model = SUGGESTED[0]
-        else:
-            model = raw_model
+        model = str(body.get("model") or SUGGESTED[0]).removeprefix("google/")
         payload = to_gemini(body, self.signatures)
         stream = bool(body.get("stream"))
         try:
-            cache_name, cutoff, cache_digest = await self._ensure_cache(key, model, payload)
-            sent_payload = self._with_cache(payload, cache_name, cutoff)
-            response = await self._open(key, model, sent_payload, stream)
-            if cache_name and response.status_code in (400, 404):
-                # Cache expired or rejected: retry once with inline systemInstruction & tools.
-                if cache_digest:
-                    self.caches.pop(cache_digest, None)
-                await response.aclose()
-                response = await self._open(key, model, payload, stream)
+            response = await self._open(key, model, payload, stream)
             newer = successor(model) if response.status_code == 404 else None
             if newer:
                 text = await self._error_text(response)
@@ -685,7 +577,8 @@ class GeminiRelay:
             text = await self._error_text(response)
             await response.aclose()
             return (*anthropic_error(response.status_code, f"Gemini: {text}"), None)
-        converter = Stream(model, self.signatures)
+        # (the request's size from the start: Claude Code compacts the conversation by it)
+        converter = Stream(model, self.signatures, count_tokens(body))
         if not stream:
             try:
                 raw = await response.aread()
@@ -698,6 +591,10 @@ class GeminiRelay:
             except (ValueError, RecursionError):  # a Wi-Fi sign-in page, a proxy's: not Gemini
                 return (*anthropic_error(400, "Gemini didn't answer in JSON."), None)
             converter.chunk(data if isinstance(data, dict) else {})
+            why, refused = converter.problem(streamed=False)
+            if why:
+                log.warning("gemini: no answer: %s", why)
+                return (*anthropic_error(400 if refused else 502, why), None)
             return 200, converter.message(), None
 
         async def events() -> AsyncIterator[str]:
@@ -732,8 +629,13 @@ class GeminiRelay:
                 await response.aclose()
             if not failed and not heard:
                 failed = "Gemini answered, but no streamed reply came."
+            refused = False
+            if not failed:
+                failed, refused = converter.problem()
+                if failed:
+                    log.warning("gemini: no answer: %s", failed)
             if failed:
-                yield Stream.failed(failed)
+                yield Stream.failed(failed, "invalid_request_error" if refused else "api_error")
                 return
             yield converter.end()
 
@@ -768,7 +670,8 @@ def build_app(relay: GeminiRelay):
     async def messages(request: Request):
         if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
             return JSONResponse(anthropic_error(403, "Only this Mac.")[1], status_code=403)
-        key = _key_from(request.headers)
+        # A run's pass (key_proxy) stands for the key: one made for a Gemini provider only.
+        key = await asyncio.to_thread(key_proxy.swap, _key_from(request.headers), key_proxy.GEMINI)
         if not key:
             status, body = anthropic_error(401, "No Gemini key came with the request.")
             return JSONResponse(body, status_code=status)
@@ -791,23 +694,10 @@ def build_app(relay: GeminiRelay):
             body = {}
         return JSONResponse({"input_tokens": count_tokens(body)})
 
-    async def mode(request: Request):
-        if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
-            return JSONResponse(anthropic_error(403, "Only this Mac.")[1], status_code=403)
-        if request.method == "POST":
-            try:
-                body = await request.json()
-            except ValueError:
-                body = {}
-            if isinstance(body, dict) and isinstance(body.get("cost_saver"), bool):
-                relay.cost_saver = body["cost_saver"]
-        return JSONResponse({"cost_saver": relay.cost_saver, "caches": len(relay.caches)})
-
     return Starlette(
         routes=[
             Route("/v1/messages", messages, methods=["POST"]),
             Route("/v1/messages/count_tokens", tokens, methods=["POST"]),
-            Route("/v1/mode", mode, methods=["GET", "POST"]),
         ]
     )
 
@@ -818,15 +708,9 @@ class GeminiProxy:
     def __init__(self) -> None:
         self.relay: GeminiRelay | None = None
         self.port = 0
-        self.cost_saver = True
         self._server: Any = None
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
-
-    def set_cost_saver(self, enabled: bool) -> None:
-        self.cost_saver = bool(enabled)
-        if self.relay is not None:
-            self.relay.cost_saver = self.cost_saver
 
     @property
     def address(self) -> str:
@@ -838,7 +722,7 @@ class GeminiProxy:
                 return self.address
             import uvicorn
 
-            self.relay = GeminiRelay(cost_saver=self.cost_saver)
+            self.relay = GeminiRelay()
             config = uvicorn.Config(
                 build_app(self.relay), host="127.0.0.1", port=0, log_level="warning", lifespan="off"
             )

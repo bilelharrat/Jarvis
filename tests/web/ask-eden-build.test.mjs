@@ -113,8 +113,8 @@ test('what is checked is what the window loads: /vision and /xterm, as the backe
   const server = fs.readFileSync(path.join(REPO, 'src', 'jarvis', 'server.py'), 'utf8');
   assert.match(server, /^VISION_DIR = packaged\.app_dir\(\) \/ "node_modules" \/ "@mediapipe" \/ "tasks-vision"$/m);
   assert.match(server, /^XTERM_DIR = packaged\.app_dir\(\) \/ "node_modules" \/ "@xterm"$/m);
-  assert.match(server, /Mount\("\/vision", StaticFiles\(directory=VISION_DIR\b/);
-  assert.match(server, /Mount\("\/xterm", StaticFiles\(directory=XTERM_DIR\b/);
+  assert.match(server, /Mount\("\/vision", (Optional)?StaticFiles\(directory=VISION_DIR\b/);
+  assert.match(server, /Mount\("\/xterm", (Optional)?StaticFiles\(directory=XTERM_DIR\b/);
   const checked = appDirs.PACKAGES.flatMap(({ name, files }) => files.map((file) => `node_modules/${name}/${file}`));
   const web = path.join(REPO, 'src', 'jarvis', 'web');
   const urls = [];
@@ -429,4 +429,30 @@ test("the helpers' macOS is the app's minimum: what Electron and the engine need
   plistWith(app, null);
   assert.equal(build.minimumMacos(app), electron);
   assert.equal(declaredIn(app), electron, 'added');
+});
+
+// The release's Electron fuses (scripts/release/fuses.js): off, nothing on the Mac can run the signed
+// app as Node, so Eden's local server can't be started that way any more.
+test('the build flips the fuses before signing, and the local server needs no run-as-Node', () => {
+  const build = fs.readFileSync(path.join(APP, 'eden', 'build.js'), 'utf8');
+  assert.ok(build.indexOf('await flipMacApp(app)') > 0 && build.indexOf('await flipMacApp(app)') < build.indexOf('if (identity) signApp(app, identity)'));
+  const main = fs.readFileSync(path.join(APP, 'eden', 'main.js'), 'utf8');
+  assert.match(main, /utilityProcess\.fork\(entry/);
+  assert.doesNotMatch(main, /ELECTRON_RUN_AS_NODE/);
+});
+
+// With GrantFileProtocolExtraPrivileges off, file:// can't read inside app.asar: the app's own pages
+// come from its own scheme (app/eden/page-path.js), and nothing but them.
+test("the app's own pages are served from its scheme, and nothing else is", () => {
+  const pages = require('../../app/eden/page-path.js');
+  const dir = path.join(APP, 'eden');
+  for (const name of pages.PAGES) assert.equal(pages.respond(dir, pages.pageUrl(name)).status, 200, name);
+  assert.match(String(pages.respond(dir, pages.pageUrl('loading.html')).body), /Opening Ask Eden/);
+  for (const url of [pages.pageUrl('main.js'), pages.pageUrl('preload.js'), `${pages.SCHEME}://app/..%2Fpackage.json`, `${pages.SCHEME}://other/loading.html`, 'https://askeden.com/loading.html']) {
+    assert.equal(pages.respond(dir, url).status, 404, url);
+  }
+  const main = fs.readFileSync(path.join(dir, 'main.js'), 'utf8');
+  assert.doesNotMatch(main, /loadFile\(/);
+  assert.doesNotMatch(main, /startsWith\('file:'\)/);
+  assert.match(fs.readFileSync(path.join(dir, 'build.js'), 'utf8'), /'page-path\.js'/);
 });

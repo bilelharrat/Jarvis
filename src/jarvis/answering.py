@@ -373,6 +373,34 @@ def decode_wav(data: bytes, rate: int = WHISPER_RATE) -> np.ndarray:
 
 
 @dataclass
+class ErrandPlan:
+    """A conversation call Jarvis would hold, checked and ready for the owner's yes."""
+
+    goal: str
+    shared: dict[str, str]
+    bounds: dict[str, Any]
+    who: str
+    number: str
+    owner: str
+
+    def card(self, when: str = "") -> str:
+        """What the owner is shown before the yes (when: "at 3:45 PM"-style words for a call
+        that is scheduled, so the card says when it will happen)."""
+        lines = "\n".join(f"{k}: {v}" for k, v in self.shared.items())
+        return (
+            f"To {self.who} ({shown_number(self.number)}), from your Twilio number"
+            + (f", {when}" if when else "")
+            + f". Jarvis says it's an AI assistant calling for {self.owner}, then talks with "
+            f"them to:\n“{self.goal}”"
+            + (f"\n\nWhat it may tell them:\n{lines}" if lines else "")
+            + "\nEverything else about you is off limits."
+            + f"\n\n{limits_said(self.bounds)}"
+            + "\n\nIt never gives card numbers, passwords, Social Security numbers or codes. "
+            "How it goes comes back to you as a heads-up."
+        )
+
+
+@dataclass
 class Call:
     id: str  # Twilio's call id
     number: str = ""  # the caller's number ("" when they withheld it)
@@ -1569,24 +1597,20 @@ class Answering:
             raise PhoneError(f"{name} has no phone number in Contacts.")
         return name, number
 
-    async def errand(
+    async def prepare_errand(
         self,
         to: str,
         goal: str,
         details: dict[str, str] | None = None,
         *,
         name: str = "",
-        kind: str = "errand",
-        title: str = "",
-        minutes: int = 0,
         limits: dict[str, Any] | None = None,
-    ) -> str:
-        """Calls to (a number, or a name in Contacts) from the Jarvis number, where Jarvis
-        holds the conversation to get goal done, after the owner's yes on a card showing
-        who, what, the details Jarvis may share (everything else off limits), the most it may
-        agree to and whether it may commit at all (limits, see call_limits). The Function
-        holds Jarvis to that card itself. How it went comes back as a heads-up; with title, a
-        time agreed on the call goes in the calendar."""
+    ) -> ErrandPlan:
+        """Everything that must be true before Jarvis may be asked to hold a conversation
+        with `to` for the owner: the goal and what it may share are clean (nothing sensitive),
+        the number is a number, the line and the Claude key are set up and the day's calls
+        aren't used up. Changes nothing and calls no one; raises PhoneError saying what's
+        wrong."""
         goal = re.sub(r"\s+", " ", str(goal or "")).strip()
         shared = {
             str(k)[:60]: re.sub(r"\s+", " ", str(v)).strip()[:300]
@@ -1600,29 +1624,48 @@ class Answering:
                 raise PhoneError(f"{why} never goes on a call Jarvis makes. Leave it out.")
         found_name, number = await self._number(to)
         who = re.sub(r"\s+", " ", str(name or found_name)).strip()[:80] or shown_number(number)
-        creds = await self._creds()
-        if not creds:
+        if not await self._creds():
             raise PhoneError(NO_TWILIO)
         if not self.log.line:
             raise PhoneError(NEEDS_LINE)
         if not self._key():
             raise PhoneError(NO_CLAUDE)
         self.phone.check_someone(number, goal)  # the number, the goal's length, the day's calls
+        return ErrandPlan(goal, shared, bounds, who, number, self.owner())
+
+    async def errand(
+        self,
+        to: str,
+        goal: str,
+        details: dict[str, str] | None = None,
+        *,
+        name: str = "",
+        kind: str = "errand",
+        title: str = "",
+        minutes: int = 0,
+        limits: dict[str, Any] | None = None,
+        approved: bool = False,
+    ) -> str:
+        """Calls to (a number, or a name in Contacts) from the Jarvis number, where Jarvis
+        holds the conversation to get goal done, after the owner's yes on a card showing
+        who, what, the details Jarvis may share (everything else off limits), the most it may
+        agree to and whether it may commit at all (limits, see call_limits). The Function
+        holds Jarvis to that card itself. How it went comes back as a heads-up; with title, a
+        time agreed on the call goes in the calendar. approved: the owner already said yes to
+        exactly this card (a call they scheduled), so it isn't asked again."""
+        plan = await self.prepare_errand(to, goal, details, name=name, limits=limits)
+        goal, shared, bounds, who, number, owner = (
+            plan.goal, plan.shared, plan.bounds, plan.who, plan.number, plan.owner
+        )  # fmt: skip
+        creds = await self._creds()
+        assert creds is not None  # prepare_errand saw them
         if fingerprint(self._key()) != self.log.line.get("talk_key"):
             await self.turn_on()  # the Function hasn't the key yet: it goes up first
-        owner = self.owner()
-        lines = "\n".join(f"{k}: {v}" for k, v in shared.items())
-        detail = (
-            f"To {who} ({shown_number(number)}), from your Twilio number. Jarvis says it's an "
-            f"AI assistant calling for {owner}, then talks with them to:\n“{goal}”"
-            + (f"\n\nWhat it may tell them:\n{lines}" if lines else "")
-            + "\nEverything else about you is off limits."
-            + f"\n\n{limits_said(bounds)}"
-            + "\n\nIt never gives card numbers, passwords, Social Security numbers or codes. "
-            "How it goes comes back to you as a heads-up."
-        )
-        if self.ask_call is None or not await self.ask_call(
-            f"Call {who} for you?", detail, f"{_sentence(goal)} Shall I call {who}?"
+        if not approved and (
+            self.ask_call is None
+            or not await self.ask_call(
+                f"Call {who} for you?", plan.card(), f"{_sentence(goal)} Shall I call {who}?"
+            )
         ):
             raise SaidNo("The user said no. No call was made.")
         talk_id = "m" + secrets.token_hex(8)

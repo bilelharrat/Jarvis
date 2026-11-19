@@ -397,7 +397,7 @@
   "A short sound as the app opens": "打开应用时播放一段简短的音效",
   "Opens quietly": "安静地打开",
   "On": "开",
-  "Off": "关",
+  "Off": "关闭",
   "Boot-up sound?": "要开机音效吗？",
   "Eden Secretary plays a short sound as it opens. Keep it, or open quietly.": "Eden Secretary 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
   "Jarvis plays a short sound as it opens. Keep it, or open quietly.": "Eden Secretary 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
@@ -405,17 +405,19 @@
   "J.A.R.V.I.S. plays a short sound as it opens. Keep it, or open quietly.": "Eden Secretary 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
   "Eden Code plays a short sound as it opens. Keep it, or open quietly.": "Eden Code 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
   "You can change this any time in Settings › General.": "你可以随时在“设置 › 通用”中更改。",
-  "The easiest way: use the AI included with your Eden account at askeden.com. Sign in once, with no keys to copy. It uses your plan’s monthly AI, and any credits.": "最简单的方式：使用 Eden 账户在 askeden.com 附带的 AI。只需登录一次，无需复制任何密钥。它会使用你套餐每月的 AI 额度，以及你的点数。",
-  "Sign in with your Eden account": "用你的 Eden 账户登录",
-  "Eden account connected": "Eden 账户已连接",
-  "Signed in to your Eden account": "已登录你的 Eden 账户",
-  "Eden Secretary’s AI now comes from your account’s included AI each month, and any credits you add. Settings › Account shows what is left. You can still add your own Claude key later.": "Eden Secretary 的 AI 现在来自你账户每月附带的 AI，以及你添加的点数。“设置 › 账户”会显示剩余额度。之后你仍可添加自己的 Claude 密钥。",
-  "Or use your own Claude:": "或者使用你自己的 Claude："
+  "Code, errors, deployments and data, for your Eden Code sessions.": "代码、错误、部署和数据，供你的 Eden Code 会话使用。",
+  "Pick a project in the sidebar, or add one.": "在侧边栏选一个项目，或添加一个。",
+  "Ask: “How is this project put together?”": "问：“这个项目是怎么组织的？”",
+  "Ask: “Run the tests and fix what fails.”": "问：“运行测试，修好失败的部分。”",
+  "Type / in the composer for the commands.": "在输入框里输入 / 查看命令。",
+  "Start using Eden Code": "开始使用 Eden Code",
+  "Anything you skipped is in Eden Code’s Settings (⌘,), under General and Models & API keys.": "跳过的内容都在 Eden Code 的设置（⌘,）里，位于“通用”和“模型与 API 密钥”下。",
+  "Under Settings › API keys, press Create key and name it Eden Code.": "在“Settings › API keys”中点按“Create key”，命名为 Eden Code。",
+  "Paste it here. Eden Code checks it with Anthropic and keeps it in your Keychain.": "粘贴到这里。Eden Code 会向 Anthropic 验证，并将其保存在你的钥匙串中。",
+  "You pay Anthropic only for what Eden Code uses. You can set a monthly limit under Settings › Billing › Spend limits.": "你只为 Eden Code 实际用量向 Anthropic 付费。可以在“Settings › Billing › Spend limits”中设置每月上限。",
+  "Eden Code works with Claude, Anthropic’s AI.": "Eden Code 使用 Anthropic 的 AI——Claude。",
+  "More models are in Eden Code’s Settings › Models & API keys.": "更多模型在 Eden Code 的“设置 › 模型与 API 密钥”里。",
+  "A session can run on another model too, so a Claude usage limit or outage doesn’t stop your work. Optional.": "会话也可以用另一个模型运行，这样 Claude 的用量限制或服务中断不会耽误你的工作。可选。"
  },
- "patterns": [
-  [
-   "^Approve the code (.+) on askeden\\.com\\. The page is opening\\.$",
-   "请在 askeden.com 上批准代码 $1。页面正在打开。"
-  ]
- ]
+ "patterns": []
 }

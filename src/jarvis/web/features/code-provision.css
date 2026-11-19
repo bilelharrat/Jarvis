@@ -1,0 +1,13 @@
+/* Eden Code: set up a cloud machine (features/code-provision.js), in Settings › Machines.
+   Built on the settings' own rows and cards; works in light, dark and the glass look. */
+.jcp { margin-top: 18px; }
+.jcp-mono { font-family: var(--mono); font-size: 12.5px; }
+.jcp-check { margin: 2px 2px 6px; }
+.jcp-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.jcp-plan { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface) / 0.7); box-shadow: inset 0 0 0 1px rgb(var(--c-ink) / 0.08); }
+.jcp-plan[hidden] { display: none; }
+.jcp-cost { margin: 0 0 6px; padding-left: 18px; font-size: 12.5px; line-height: 1.5; color: rgb(var(--c-ink-2)); }
+.jcp-steps { margin: 0 0 8px; padding: 8px 10px; max-height: 220px; overflow: auto; border-radius: 9px; white-space: pre-wrap; word-break: break-all; font: 11.5px/1.5 var(--mono); color: rgb(var(--c-ink)); background: rgb(var(--c-ink) / 0.05); }
+.jcp-boot summary { cursor: pointer; font-size: 12.5px; color: rgb(var(--c-muted)); margin: 4px 0; }
+.jcp-pick { max-width: 160px; }
+.jch-list[hidden], .jcs-label[hidden] { display: none; }

@@ -22,7 +22,7 @@
     send({ type: 'voice_settings', changes });
   }
 
-  const PROVIDERS = [['jarvis', 'Eden Secretary'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio'], ['local', 'Eden Secretary (on this Mac)']];
+  const PROVIDERS = [['jarvis', 'JARVIS'], ['say', 'Mac'], ['elevenlabs', 'ElevenLabs'], ['fish', 'Fish Audio'], ['local', 'Eden Secretary (on this Mac)']];
   // The Eden Secretary voice is a Fish Audio voice: its optional key is Fish Audio's.
   const keyProvider = () => (state && state.provider === 'jarvis' ? 'fish' : state && state.provider);
   const NAMES = Object.fromEntries(PROVIDERS);

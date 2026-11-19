@@ -23,6 +23,7 @@ const { buildBackend } = require('../scripts/release/backend');
 const { appDirIn, checkAppDir, fillAppDir } = require('../scripts/release/backend-app-dir');
 const { helpersDirIn, fillHelpers, checkHelpers, signatureProblems } = require('../scripts/release/backend-helpers');
 const { electronZipDir, minimumFor } = require('../scripts/release/dist');
+const { flipMacApp } = require('../scripts/release/fuses');
 const macho = require('../scripts/release/macho');
 const { ENTITLEMENTS: HELPER_ENTITLEMENTS, entitlementsFor: helperEntitlementsFor } = require('../scripts/release/sign');
 const EDEN_SRC = process.env.ASKEDEN_HOME || path.join(os.homedir(), 'askeden');
@@ -184,7 +185,7 @@ async function main() {
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-eden-'));
   const put = (from, to = from) => { fs.mkdirSync(path.dirname(path.join(stage, to)), { recursive: true }); fs.cpSync(path.join(APP_DIR, from), path.join(stage, to), { recursive: true }); };
   for (const f of ['backend-launch.js', 'backend-share.js', 'update-feed.js', 'features/updates.js']) put(f);
-  for (const f of ['main.js', 'preload.js', 'local-browser.js', 'quick.html', 'quick-preload.js', 'loading.html', 'loading.css']) put(`eden/${f}`);
+  for (const f of ['main.js', 'preload.js', 'local-browser.js', 'page-path.js', 'quick.html', 'quick-preload.js', 'loading.html', 'loading.css']) put(`eden/${f}`);
   put('eden/build/icon-1024.png');
   put('eden/build/boot-sound.wav');
   for (const f of fs.readdirSync(path.join(APP_DIR, 'eden', 'build')).filter((n) => /Template(@2x)?\.png$/.test(n))) put(`eden/build/${f}`);
@@ -205,6 +206,7 @@ async function main() {
     addHelpers(app);
   }
   fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'update.json'), `${JSON.stringify({ feed: process.env.ASK_EDEN_UPDATE_URL || DEFAULT_FEED })}\n`);
+  await flipMacApp(app); // in the Electron binary: before signing
   const identity = teamIdentity();
   if (identity) signApp(app, identity);
   else execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });

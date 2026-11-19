@@ -1,6 +1,9 @@
 {
   "strings": {
     "Low risk": "低风险",
+    "tokens": "token",
+    "Estimated: the agent didn’t report its tokens": "估算值：代理没有报告它的 token 用量",
+    "As the agent reported it": "按代理自己的报告",
     "Medium risk": "中等风险",
     "High risk": "高风险",
     "file changed": "个文件有改动",
@@ -8,12 +11,38 @@
     "Tests passed": "测试通过",
     "Tests failed": "测试失败",
     "No tests run": "没有运行测试",
+    "Tests ran (no result shown)": "测试已运行（没有显示结果）",
     "The page after this turn": "这一轮之后的页面",
     "Files": "文件",
     "Try it like a user": "像用户一样试一试",
     "Eden Secretary has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
     "Jarvis has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
     "JARVIS has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
-    "J.A.R.V.I.S. has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了"
-  }
+    "J.A.R.V.I.S. has the session use what it built in the browser or Simulator, then report what broke": "Eden Secretary 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
+    "Eden Code has the session use what it built in the browser or Simulator, then report what broke": "Eden Code 让会话在浏览器或模拟器里实际使用它做出的东西，然后报告哪里坏了",
+    "Guardrails": "护栏",
+    "blocked": "已阻止",
+    "asked": "已询问",
+    "flagged": "已标出",
+    "Security findings": "安全问题",
+    "Security scan clean": "安全扫描未发现问题",
+    "Not security-scanned": "未做安全扫描",
+    "Security scan": "安全扫描",
+    "isn't installed": "未安装",
+    "Tests passed before its last edits": "测试在最后几处修改之前通过",
+    "Tests didn’t finish": "测试没有跑完",
+    "Tests not run (not allowed)": "测试没有运行（未获允许）",
+    "Stopped before it finished": "没完成就停了",
+    "Receipts": "收据",
+    "Check tests weren’t weakened": "检查测试有没有被削弱",
+    "Before a receipt says the tests passed, read the turn’s test changes for assertions taken out or loosened, skips, a test command that can’t fail, tests deleted and mocks of the code under test.": "在收据说测试通过之前，先检查这一轮对测试的改动：有没有删掉或放宽断言、跳过测试、让测试命令永远不会失败、删除测试，或者把被测代码本身换成模拟。",
+    "Quick mutation pass": "快速变异检查",
+    "After a turn whose tests passed, make a few small changes to the lines it changed and rerun the relevant tests in a scratch copy, to show how many they catch. Up to 3 minutes; no AI is used.": "测试通过的一轮之后，对它改动的代码行做几处小改动，在临时副本里重跑相关测试，看测试能发现其中多少处。最多 3 分钟；不使用 AI。"
+  },
+  "patterns": [
+    [
+      "^Guardrails: (.+)$",
+      "护栏：$1"
+    ]
+  ]
 }

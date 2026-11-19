@@ -4,7 +4,7 @@ The cost policy, one line per kind of call: the model, when it runs, and a cap p
 (a day's count is kept in code_ai_usage.json beside the settings; past the cap the owner
 is told, and nothing is called):
 
-  commit_message   Haiku 4.5   when the owner asks the Git panel to write a commit
+  commit_message   Haiku 5.5   when the owner asks the Git panel to write a commit
                                message; one tool-less turn on at most 24,000 characters
                                of the staged diff                          60 a day
   review           Sonnet 5.5  the Review button or "review this": one tool-less turn on
@@ -14,29 +14,29 @@ is told, and nothing is called):
                                at once, each reading the project (read-only, up to 8
                                turns), then one verifier (read-only, up to 10 turns);
                                four calls, counted as one deep review       5 a day
-  judge            Haiku 4.5   once a best-of-N comparison's sessions are all done: one
+  judge            Haiku 5.5   once a best-of-N comparison's sessions are all done: one
                                tool-less turn on at most 30,000 characters of their diffs
                                and test results                            20 a day
-  pr_draft         Haiku 4.5   a pull request's title and description, when the owner
+  pr_draft         Haiku 5.5   a pull request's title and description, when the owner
                                asks for a draft or an issue's session has finished: one
                                tool-less turn on at most 24,000 characters of the branch's
                                diff, its commit subjects and the session's last reply
                                                                            30 a day
-  spec_check       Haiku 4.5   after a Spec mode task's turn, for the acceptance criteria
+  spec_check       Haiku 5.5   after a Spec mode task's turn, for the acceptance criteria
                                no test named after them answered: one tool-less turn on at
                                most 24,000 characters of the task's diff, its criteria and
                                the tests' outcome (features/code_spec.py)  40 a day
-  assume_risk      Haiku 4.5   only with code_assume_model on (off by default): a guess a
+  assume_risk      Haiku 5.5   only with code_assume_model on (off by default): a guess a
                                session made instead of asking, that the word rules rate
                                low or medium; one tool-less turn on at most 2,000
                                characters of its question, answer and evidence
                                (features/code_assumptions.py)             100 a day
-  guardrail        Haiku 4.5   when the owner presses Suggest on one of their rules that
+  guardrail        Haiku 5.5   when the owner presses Suggest on one of their rules that
                                the guardrails compiler couldn't turn into a check: one
                                tool-less turn on that rule's words (features/
                                code_guardrails.py); it holds only once they confirm it
                                                                            30 a day
-  delegate_easy    Haiku 4.5   only with code_delegate_model on (off by default): a to-do
+  delegate_easy    Haiku 5.5   only with code_delegate_model on (off by default): a to-do
                                card the word rules rate easy, before Eden starts it
                                without the owner; one tool-less turn on at most 2,000
                                characters of its title and prompt; it can only say no

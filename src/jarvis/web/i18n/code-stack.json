@@ -1,0 +1,26 @@
+{
+  "strings": {
+    "Part": "部分",
+    "An imperative commit subject": "一个祈使语气的提交标题",
+    "Title of part": "部分标题",
+    "Move part up": "上移部分",
+    "Move part down": "下移部分",
+    "Part for": "所属部分",
+    "A new part": "新的部分",
+    "Merged": "已合并",
+    "Closed": "已关闭",
+    "Open": "打开",
+    "Open a session to split its changes into a stack.": "请先打开一个会话，再把它的改动拆成堆叠。",
+    "Split this branch’s changes into small pull requests, each based on the one before. Its own branch and folder aren’t touched.": "把这个分支的改动拆成多个小的拉取请求，每个都基于前一个。它自己的分支和文件夹不受影响。",
+    "Propose a stack": "提议堆叠",
+    "Group by topic": "按主题分组",
+    "Open the stack…": "创建堆叠…",
+    "This session’s stacks": "这个会话的堆叠",
+    "Stacked pull requests": "堆叠拉取请求",
+    "is a binary file: it can’t go in a stack.": "是二进制文件：不能放进堆叠。",
+    "holds credentials: it can’t go in a stack.": "含有凭据：不能放进堆叠。",
+    "was renamed: commit the rename on the branch itself first.": "被改了名：请先直接在分支上提交改名。",
+    "has no lines to split (a mode change).": "没有可拆分的行（只改了权限）。"
+  },
+  "patterns": []
+}

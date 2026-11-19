@@ -5,12 +5,16 @@ to session 3 instead, as the owner's own message; the session it was written in 
 note, and another once session 3 has answered (on screen only, never to its Claude).
 
 jarvis_sessions: an MCP server every Eden Code session gets, so one can coordinate the
-others: list_sessions, session_summary and message_session. A message follows the
-target's permission mode: it goes straight in when the target accepts edits, is on Auto
-or bypasses permissions, and asks the owner first (a card, said aloud while voice
-coding) when it's on Manual or planning. It's framed as another session's words, not the
-owner's; nothing here can answer a permission request, so a session can never approve
-another's; and a session may message the others at most PER_HOUR times an hour.
+others: list_sessions, session_summary and message_session. Looking needs no OK; sending
+follows the sender's permission mode first (message_session isn't on the allow list, so a
+Manual session asks before it sends, as for any step), then the target's: it goes straight
+in only when the target accepts edits, and asks the owner (a card, said aloud while voice
+coding) when it's on Manual or planning, and always when it's on Auto or bypasses
+permissions, since there nothing would stop what the message asks for (a Manual session
+that read a hostile page could otherwise drive a Bypass one). It's framed as another
+session's words, not the owner's; nothing here can answer a permission request, so a
+session can never approve another's; and a session may message the others at most
+PER_HOUR times an hour.
 """
 
 from __future__ import annotations
@@ -23,17 +27,28 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import codesupervisor as cs
-from .tasks import MODE_LABELS
+from .tasks import FEATURE_TOOLS, MODE_LABELS
 
 SERVER = "jarvis_sessions"
-TOOLS = [
-    f"mcp__{SERVER}__{name}" for name in ("list_sessions", "session_summary", "message_session")
-]
+# The allow-listed ones: they only look. message_session goes through the sender's policy.
+TOOLS = [f"mcp__{SERVER}__{name}" for name in ("list_sessions", "session_summary")]
+MESSAGE_TOOL = f"mcp__{SERVER}__message_session"
 PER_HOUR = 20  # messages one session may send the others in an hour
-FREE_MODES = ("edits", "smart", "auto")  # a target in these takes messages without asking
+# A target in these takes messages without asking: Accept edits still asks for commands and
+# anything outside the project. Auto and Bypass would act on the message unasked, so they
+# ask, as Manual and Plan do.
+FREE_MODES = ("edits",)
 MESSAGE_LIMIT = 8000  # characters of one message between sessions
 MENTION = re.compile(r"^\s*@(?:session[-\s]?|s)?(\d{1,4})\b[\s,:]*", re.IGNORECASE)
 SHOWN_RESULT = 600  # characters of an answer noted in the session that asked
+
+# The sender's own card, when its mode asks: which session, and the words that would go.
+FEATURE_TOOLS[MESSAGE_TOOL] = (
+    "message another session",
+    lambda args, _cwd: (
+        f"To session {args.get('session')}:\n“{str(args.get('message') or '')[:600]}”"
+    ),
+)
 
 
 def _text(text: str, error: bool = False) -> dict[str, Any]:

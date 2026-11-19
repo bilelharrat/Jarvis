@@ -1,0 +1,24 @@
+{
+  "strings": {
+    "On this PC": "在这台电脑上",
+    "Works another way": "以另一种方式工作",
+    "Mac only": "仅限 Mac",
+    "Touch ID for Bypass and risky steps": "绕过权限和有风险的步骤使用触控 ID",
+    "Windows Hello asks instead (your face, fingerprint or PIN); without Windows Hello set up, the app asks you to confirm.": "改由 Windows Hello 验证（你的面容、指纹或 PIN）；没有设置 Windows Hello 时，应用会请你确认。",
+    "Sandbox for Bypass and unattended sessions": "绕过权限和无人值守会话的沙盒",
+    "Claude Code's sandbox isn't available on Windows (it's built on macOS's and Linux's own), so with the sandbox switch on each command of a Bypass or unattended session asks you first instead.": "Claude Code 的沙盒在 Windows 上不可用（它基于 macOS 和 Linux 自带的机制），所以开启沙盒开关后，绕过权限或无人值守会话的每条命令都会先问你。",
+    "Secrets for commands": "命令使用的密钥",
+    "A command gets a saved secret over a Unix socket, which Windows' Python lacks. Run such commands yourself in the Terminal pane.": "命令通过 Unix 套接字获得保存的密钥，而 Windows 上的 Python 没有它。请在终端面板里自己运行这类命令。",
+    "Code interpreter (run_python)": "代码解释器（run_python）",
+    "Its Python runs in macOS's sandbox (no network, none of your files); Windows has no such sandbox for it, so it's off rather than unsandboxed.": "它的 Python 在 macOS 的沙盒里运行（不能联网，也读不到你的文件）；Windows 没有这样的沙盒，所以它是关闭的，而不是在沙盒外运行。",
+    "iOS Simulator and Xcode tools": "iOS 模拟器和 Xcode 工具",
+    "The iOS Simulator and Xcode run only on a Mac.": "iOS 模拟器和 Xcode 只能在 Mac 上运行。",
+    "It sends the app, its window's title and a picture of the screen; the text selected there isn't read on Windows yet.": "它会发送应用、窗口标题和屏幕截图；在 Windows 上暂时还不会读取那里选中的文字。",
+    "Shared node_modules and .venv in isolated copies": "隔离副本中共享的 node_modules 和 .venv",
+    "Linked only with Windows' Developer Mode on; otherwise install them in the copy.": "只有开启 Windows 的开发者模式时才会链接；否则请在副本里安装它们。",
+    "Open in an editor": "在编辑器中打开",
+    "VS Code, Cursor and Zed are found where Windows installs them; Xcode is the Mac's alone.": "会在 Windows 安装它们的位置找到 VS Code、Cursor 和 Zed；Xcode 仅限 Mac。",
+    "The look-at-this key": "“看看这个”快捷键"
+  },
+  "patterns": []
+}

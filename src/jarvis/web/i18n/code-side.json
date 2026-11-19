@@ -1,0 +1,8 @@
+{
+  "strings": {
+    "Resize sidebar": "调整侧边栏宽度"
+  },
+  "patterns": [
+    ["^(\\d+) px$", "$1 像素"]
+  ]
+}

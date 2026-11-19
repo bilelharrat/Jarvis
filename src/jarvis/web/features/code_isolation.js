@@ -7,6 +7,9 @@
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (window.jarvisFocus ? window.jarvisFocus.keep(box, drawIt) : drawIt());
   const byId = (id) => document.getElementById(id);
   const state = {
     features: {}, // prefs.features
@@ -21,7 +24,9 @@
   const project = () => (typeof deckProject === 'string' ? deckProject : '');
   const busyHere = (name) => state.tasks.some((x) => x.kind === 'code' && x.busy && x.folder === name && !(x.workspace && x.workspace.branch));
   const byDefault = () => !!state.features.code_isolate_default;
-  const switchOn = () => (state.touched !== null ? state.touched : byDefault() || busyHere(project()));
+  // A second session where another works gets a copy of its own (code_isolate_auto: on unless turned off).
+  const autoIsolate = () => state.features.code_isolate_auto !== false;
+  const switchOn = () => (state.touched !== null ? state.touched : byDefault() || (autoIsolate() && busyHere(project())));
 
   // ── the composer's switch ──
 
@@ -41,7 +46,7 @@
     const on = switchOn();
     pill.setAttribute('aria-pressed', String(on));
     pill.classList.toggle('on', on);
-    const offered = on && state.touched === null && !byDefault() && busyHere(project());
+    const offered = on && state.touched === null && !byDefault() && autoIsolate() && busyHere(project());
     pill.title = t(offered
       ? 'Another session is working in this project, so this one gets a copy of its own. Click to share the folder instead.'
       : on ? 'This session gets its own copy of the project, on a branch of its own, until you land it.'
@@ -196,7 +201,7 @@
       where.dataset.noI18n = '';
       wrap.append(where);
     }
-    body.replaceChildren(wrap);
+    keepFocus(body, () => body.replaceChildren(wrap));
   }
 
   F.registerPane('copies', {
@@ -216,6 +221,12 @@
   settingsSwitch.setAttribute('role', 'switch');
   settingsSwitch.setAttribute('aria-label', 'Isolated copy for new sessions');
   settingsSwitch.addEventListener('click', () => send({ type: 'feature_prefs', changes: { code_isolate_default: !byDefault() } }));
+  const autoSwitch = el('button', 'jcs-switch');
+  autoSwitch.type = 'button';
+  autoSwitch.id = 'jcx-iso-auto';
+  autoSwitch.setAttribute('role', 'switch');
+  autoSwitch.setAttribute('aria-label', 'Isolated copy when another session is working there');
+  autoSwitch.addEventListener('click', () => send({ type: 'feature_prefs', changes: { code_isolate_auto: !autoIsolate() } }));
   (function addSetting() {
     const general = byId('jcs-general');
     if (!general) return;
@@ -226,20 +237,33 @@
     text.append(document.createTextNode(t('Isolated copy for new sessions')), el('small', '', 'Each new session works on a branch of its own, in a copy of the project, until you land it. The composer’s switch still decides for each one.'));
     row.append(text, settingsSwitch);
     group.append(row);
+    const autoRow = el('div', 'jcs-row');
+    const autoText = el('span');
+    autoText.append(document.createTextNode(t('Isolated copy when another session is working there')), el('small', '', 'A session that starts in a folder another session is working in gets a copy of its own, so the two never edit the same files.'));
+    autoRow.append(autoText, autoSwitch);
+    group.append(autoRow);
     const foot = general.querySelector('.jcs-foot');
     general.insertBefore(label, foot);
     general.insertBefore(group, foot);
   })();
 
-  function drawSettings() { settingsSwitch.setAttribute('aria-checked', String(byDefault())); }
+  function drawSettings() {
+    settingsSwitch.setAttribute('aria-checked', String(byDefault()));
+    autoSwitch.setAttribute('aria-checked', String(autoIsolate()));
+  }
 
   // ── events ──
+
+  // Whether the Copies pane is the one showing: its body is every pane's (#jc-pane-body).
+  /* global currentPane */
+  const copiesShown = () => state.paneBody && state.paneBody.isConnected && state.paneBody.querySelector('.jcx-copies')
+    && typeof currentPane !== 'undefined' && currentPane === 'copies';
 
   function prefsFrom(prefs) {
     if (prefs && prefs.features) state.features = prefs.features;
     drawSettings();
     redraw();
-    if (state.paneBody && state.paneBody.isConnected && state.paneBody.querySelector('.jcx-copies')) renderCopies(state.paneBody);
+    if (copiesShown()) renderCopies(state.paneBody);
   }
   F.on('hello', (ev) => { state.tasks = ev.tasks || []; prefsFrom(ev.prefs); }, { replay: true });
   F.on('prefs', (ev) => prefsFrom(ev), { replay: true });
@@ -248,7 +272,7 @@
     state.copies = ev.copies || [];
     state.trash = ev.trash || [];
     state.root = ev.root || '';
-    if (state.paneBody && state.paneBody.isConnected && state.paneBody.querySelector('.jcx-copies')) renderCopies(state.paneBody);
+    if (copiesShown()) renderCopies(state.paneBody);
   });
   redraw();
   drawSettings();

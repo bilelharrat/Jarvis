@@ -254,7 +254,9 @@ def how_to_answer(code: str, language: str = "en") -> str:
 def eligible(card: dict[str, Any]) -> bool:
     """A card that can be answered by text: a plain yes or no (its choices allow and deny),
     not a purchase (only "confirm purchase" on the Mac pays), not an Eden Code session's
-    (they come too often to text)."""
+    (they come too often to text), and not one only the Mac's window answers (Bypass asked
+    for by voice, one marked for Touch ID: features/code_touchid.mac_only, round 2 R2-7)."""
+    from .features.code_touchid import mac_only
     from .transactions import ASK_KIND
 
     ids = [c.get("id") for c in card.get("choices") or [] if isinstance(c, dict)]
@@ -263,4 +265,5 @@ def eligible(card: dict[str, Any]) -> bool:
         and "deny" in ids
         and not card.get("task_id")
         and card.get("ask_kind") != ASK_KIND
+        and not mac_only(card)
     )

@@ -30,6 +30,7 @@ _NEVER_SERVERS = (
     "mcp__transactions__",
     "mcp__orders__",
     "mcp__calls__",
+    "mcp__call_notes__",  # (the computer's own sound, recorded: never from a group)
     "mcp__delegate__",
     f"mcp__{brain.BROWSER_SERVER}__",
     "mcp__computer__",

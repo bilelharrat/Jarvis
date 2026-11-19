@@ -5,6 +5,7 @@
   'use strict';
   const F = root.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const t = (s) => F.t(s);
   let box = null;
 
@@ -13,7 +14,7 @@
   F.on('code_lesson_ask', (ev) => {
     close();
     box = F.el('form', 'cl-ask');
-    const label = F.el('label', 'cl-label', t('Why undo it? Eden Secretary will remember for next time.'));
+    const label = F.el('label', 'cl-label', t(own('Why undo it? Eden Secretary will remember for next time.', 'Why undo it? Eden Code will remember for next time.')));
     const input = F.el('input', 'cl-input');
     input.type = 'text';
     input.maxLength = 240;

@@ -1,7 +1,6 @@
 {
  "strings": {
   "Agent board": "智能体看板",
-  "Agent board: every session at a glance (⇧⌘B)": "智能体看板：一眼看清所有会话（⇧⌘B）",
   "Every session at a glance": "一眼看清所有会话",
   "All quiet": "一切安静",
   "No sessions yet": "还没有会话",
@@ -13,9 +12,13 @@
   "Resting: it picks up where it left off": "休眠中：会从上次停下的地方继续",
   "just now": "刚刚",
   "Resting": "休眠中",
-  "Pinned": "已置顶",
+  "Pinned": "已固定",
   "New since you looked": "有你还没看过的新内容",
-  "Done": "完成"
+  "Done": "完成",
+  "Next or previous session": "下一个或上一个会话",
+  "Agent board: every session at a glance (⌘⇧B)": "智能体看板：一眼看清所有会话（⌘⇧B）",
+  "Agent board: arrows, Home, End, Enter or Space, 1–4": "智能体看板：方向键、Home、End、回车或空格、1–4",
+  "branch": "分支"
  },
  "patterns": [
   [
@@ -45,6 +48,30 @@
   [
    "^(\\d+) files?$",
    "$1 个文件"
+  ],
+  [
+   "^Session (\\d+), (.+), needs you: (.+)$",
+   "会话 $1，$2，需要你：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), working: (.+)$",
+   "会话 $1，$2，正在工作：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), done: (.+)$",
+   "会话 $1，$2，已完成：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), failed: (.+)$",
+   "会话 $1，$2，失败：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), resting: (.+)$",
+   "会话 $1，$2，休眠中：$3"
+  ],
+  [
+   "^(\\d+) lines added, (\\d+) removed$",
+   "新增 $1 行，删除 $2 行"
   ]
  ]
 }

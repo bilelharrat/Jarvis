@@ -13,14 +13,26 @@ types the value and picks where it's kept:
 Claude only ever gets a placeholder: $SECRET_STRIPE_KEY. How the value reaches a command, and
 nothing else:
 
-- A session's Bash command that names a placeholder is run through secret_run.py (JARVIS's
-  own Python, isolated), which reads the values from the Keychain into that one command's
-  environment and scrubs them from everything it prints, so the tool output Claude and the
-  transcript get carries $SECRET_… instead. The value is never on a command line, in a file
-  or in the session's own environment: a command that doesn't go through it has no value.
-  (The rewrite is the session's permission policy's own answer, after the owner's rules and
-  cards have looked at the command as Claude wrote it; a PreToolUse hook sends every such
-  command there, past any allow rule in the owner's settings.)
+- A session's Bash command that names a placeholder asks the owner on a card, in every
+  mode (Bypass and "don't ask again" rules too: a command that uses a secret can send it
+  anywhere). Let go, it runs through secret_run.py (JARVIS's own Python, isolated), which
+  connects to a socket the backend made for that one run and used once (key_proxy.Handoffs:
+  secret_run never reads the Keychain nor holds a value, so running it again gets nothing);
+  the backend runs the command itself with the values in its environment, in the
+  session's project folder with the owner's own PATH and settings (session_env: never an
+  environment or folder the connecting process names, S3-1), so no process of the
+  session's can race it to the values: they never leave the backend. What the command
+  prints goes to the owner only, scrubbed of the values (their base64, hex, URL-encoded and
+  reversed shapes, and any run of 8 or more of their characters, too), as a "secret-output"
+  entry of the transcript; Claude's tool output says only that it went there, how long it
+  was and the exit status (S3-2: scrubbing is a best effort, `fold -w4` or `od -c` walk a
+  value past it, so none of the output is Claude's). The card says so, and warns when the
+  command runs files the session wrote (they get the value too). The value is never on a
+  command line, in a file or in the session's own environment: a command that doesn't go
+  through it has no value. (The rewrite is the
+  session's permission policy's own answer, after the owner's rules and cards have looked
+  at the command as Claude wrote it; a PreToolUse hook sends every such command there,
+  past any allow rule in the owner's settings.)
 - A step that would show Claude a file holding a value (Read, Edit's snippet, Grep's lines)
   is refused, naming the placeholder to use instead.
 - Everything the session records (transcript entries, tool output, live words, exports) goes
@@ -31,6 +43,13 @@ nothing else:
 
 Values are Keychain items under connectors.SERVICE, "code-secret:<scope>:<NAME>"; the names
 of each project's secrets (no values) are kept in code-secrets.json beside the app's files.
+
+On Windows (codeparity.secret_runs_available is False: Python there has no Unix socket to hand
+a value over), ask_secret tells the session to have the owner run such a command in the
+Terminal pane instead of asking for a value nothing could use, and a command that names a
+placeholder is refused before any card (codeparity.NO_SECRET_RUN): never a card the owner
+says yes to and then a failure. The values would be Credential Manager's (keyring's Windows
+backend), but none is asked for there.
 
 Cost policy: no model is called; ask_secret is a card for the owner, never a model call.
 """
@@ -54,12 +73,12 @@ from typing import Any
 from claude_agent_sdk import (
     HookMatcher,
     PermissionResultAllow,
+    PermissionResultDeny,
     create_sdk_mcp_server,
     tool,
 )
 
-from .. import jsonstore, lang, secret_run, tasks
-from ..connectors import SERVICE
+from .. import codeparity, jsonstore, key_proxy, lang, osplat, secret_run, tasks, tmp_sweep
 
 log = logging.getLogger("jarvis")
 
@@ -122,32 +141,104 @@ def _scope_of_folder(folder: str) -> str:
     return "p-" + hashlib.sha256(folder.encode()).hexdigest()[:20]
 
 
-def wrap(command: str, names: dict[str, str], python: str | None = None) -> str:
-    """The command as it runs: through secret_run.py, with each NAME's Keychain account."""
+def shell_argv(command: str) -> list[str]:
+    """The owner's line as the backend runs it: in a shell that reads no startup file (the
+    owner's or one a session wrote: ~/.zshenv, $ZDOTDIR's, a BASH_ENV's run with the values
+    in its environment). On Windows, Git for Windows' bash (codeparity.git_bash), the shell
+    Claude Code runs the session's commands in, so the line means the same."""
+    if osplat.IS_WIN:
+        return [codeparity.git_bash() or "bash.exe", "--norc", "--noprofile", "-c", command]
     shell = os.environ.get("SHELL", "")
     shell = (
         shell
         if Path(shell).name in ("zsh", "bash") and Path(shell).is_absolute()
         else (shutil.which("bash") or "/bin/bash")
     )
-    pairs = [f"{name}={account}" for name, account in sorted(names.items())]
+    bare = ["-f"] if Path(shell).name == "zsh" else ["--norc", "--noprofile"]
+    return [shell, *bare, "-c", command]
+
+
+def wrap(command: str, pipe: str, python: str | None = None) -> str:
+    """The command as the session runs it: secret_run.py with the socket made for this one
+    run (used once: nothing on this line can fetch a secret again), which has the backend run
+    shell_argv(command) and prints its scrubbed output."""
     return shlex.join(
         [
             python or sys.executable,
             "-I",
             str(Path(secret_run.__file__).resolve()),
-            SERVICE,
-            *pairs,
+            pipe,
             "--",
-            shell,
-            "-c",
-            command,
+            *shell_argv(command),
         ]
     )
 
 
+def session_env(task: Any) -> dict[str, str]:
+    """The environment a secret command runs with: the owner's login shell's, as a terminal
+    has it (their PATH, HOME and the rest), with the session's own settings over it
+    (another provider's env), as the session's own commands get them. The backend's, never
+    the one secret_run, or whatever process of the session's reached its socket first, was
+    started with (S3-1: that one could carry a NODE_OPTIONS or a GIT_SSH_COMMAND of the
+    session's choosing, and the values with it)."""
+    from .. import runproc
+
+    env = dict(runproc.shell_env())
+    env.update({str(k): str(v) for k, v in (getattr(task, "env", None) or {}).items()})
+    return env
+
+
+def written_named(task: Any, command: str) -> list[str]:
+    """The files this session wrote (its edits this run, task.files_changed) that the command
+    names, by path or by name: they run with the owner's secret too, and what they do with
+    it no scrubbing can see (the card says so). Files written by its shell commands aren't
+    known, so this can only ever add a warning, never clear one."""
+    words = set()
+    with contextlib.suppress(ValueError):
+        for word in shlex.split(command or ""):
+            words.add(word)
+            words.add(word.split("=", 1)[-1])
+    cwd = Path(getattr(task, "cwd", "."))
+    found: list[str] = []
+    for raw in sorted(getattr(task, "files_changed", None) or ())[:500]:
+        path = Path(raw)
+        full = path if path.is_absolute() else cwd / path
+        with contextlib.suppress(ValueError):
+            rel = full.relative_to(cwd).as_posix()  # (as a command names it, on a PC too)
+            if {rel, f"./{rel}", str(full), full.name} & words or rel in (command or ""):
+                found.append(rel)
+                continue
+        if str(full) in (command or ""):
+            found.append(str(full))
+    return found[:10]
+
+
 def named_in(command: str) -> set[str]:
     return set(PLACEHOLDER.findall(command or ""))
+
+
+# S3-8: a session whose commands run in its copy's container (code_setup's hook rewrites each
+# into container_run's line) gets no secret in a command. The backend's run with the values is
+# on the Mac, so the container never had them ($SECRET_… empty there), and with the hook's
+# rewrite lost (another hook asking) the command itself ran on the Mac, out of its container.
+# Until the relay can hand a container run its values, a command naming one is refused, and
+# Claude is told why.
+IN_CONTAINER = (
+    "This session's commands run in its copy's container, and the owner's secrets aren't "
+    "given to commands in a container. Don't try to get the value in another way: tell the "
+    "owner, who can run it in a session without a container."
+)
+
+
+def in_container(hub: Any, task: Any) -> bool:
+    """Whether a session's commands go into its copy's container (code_setup)."""
+    desk = getattr(hub, "code_setup", None)
+    if desk is None:
+        return False
+    try:
+        return desk.container_of(task) is not None
+    except Exception:  # (can't tell: as if it were, so no value goes)
+        return True
 
 
 class Secrets:
@@ -246,6 +337,44 @@ class Secrets:
             self.values[key] = found or ""  # (none saved: not asked again on every line)
         return self.values[key] or None
 
+    def offer(self, task: Any, names: set[str], command: str, on_output: Any = None) -> str:
+        """These secrets of a session, read now, for one run of this command (key_proxy's
+        socket): its path. A name with no value saved any more is said to be missing. The
+        backend runs the command itself, and only for the process that runs exactly it
+        through secret_run with this socket (wrap's line): any other of the session's
+        processes that finds the socket first gets nothing, and even one made to look like
+        it gets only the scrubbed output (the values never leave this process)."""
+        scopes = self._scopes(task)
+        values: dict[str, str] = {}
+        missing: list[str] = []
+        for name in sorted(names):
+            found = self.value(scopes[name], name) if name in scopes else None
+            if found:
+                values[name] = found
+            else:
+                missing.append(name)
+        return key_proxy.HANDOFFS.offer(
+            values,
+            missing,
+            expect=lambda pipe: shlex.split(wrap(command, pipe)),
+            command=shell_argv(command),
+            env=session_env(task),
+            cwd=str(task.cwd),
+            on_output=on_output,
+        )
+
+    def show_output(self, task: Any, command: str, text: str, status: int) -> None:
+        """What a secret command printed, scrubbed, as an entry of the owner's transcript
+        ("secret-output": a role nothing that feeds a model reads, nor a Share viewer: S3-2).
+        Claude's own tool output only says it went here."""
+        self.hub.tasks.add_entry(
+            task.id,
+            "secret-output",
+            text or "(It printed nothing.)",
+            command=command[:2000],
+            status=int(status),
+        )
+
     def values_for(self, task: Any) -> dict[str, str]:
         """{value: $NAME} for a session's secrets, for the redaction pass."""
         out: dict[str, str] = {}
@@ -263,11 +392,11 @@ class Secrets:
             return text
         if not self.session_names.get(task.id) and not self.index()["projects"]:
             return text
-        for found, placeholder in sorted(
-            self.values_for(task).items(), key=lambda vp: len(vp[0]), reverse=True
-        ):
-            text = text.replace(found, placeholder)
-        return text
+        values = self.values_for(task)
+        if not values:
+            return text
+        # As a command's output is: each value's shapes and long runs of it too.
+        return secret_run.scrub(values, text)
 
     def save(self, task: Any, name: str, value: str, scope_kind: str) -> str:
         """Keep a value: in the Keychain for the session or the project. Raises ValueError
@@ -355,6 +484,8 @@ class Secrets:
     # ── the card ──
 
     async def ask(self, task: Any, name: str, why: str) -> dict[str, Any]:
+        if not codeparity.secret_runs_available():
+            return _text(codeparity.NO_SECRET_RUNS)
         if name in self.names_for(task) and self.value(self.scope_of(task, name), name):
             return _text(
                 f"${name} is already set for this session. Use it in a command as ${name}."
@@ -399,8 +530,10 @@ class Secrets:
             f"The owner gave ${name} (kept for {where}). Use it in shell commands as ${name} "
             f'(for example: --api-key "${name}"); the command gets the value, you never do. '
             "Don't write it into files: where a tool or config needs it, read it from the "
-            "environment variable at run time. Its value never appears in output: it shows "
-            f"as ${name}."
+            "environment variable at run time. What a command that uses it prints goes to "
+            "the owner, not to you: you're told only its exit status, so keep such commands "
+            "to the step that needs the secret (log in, set it up) and look at results with "
+            "commands that don't use it."
         )
 
     def _settle(self, ask_id: str, state: str, scope: str = "") -> None:
@@ -545,6 +678,14 @@ class Secrets:
             tool_input = input_data.get("tool_input") or {}
             if name == "Bash":
                 wanted = named_in(str(tool_input.get("command", "")))
+                if wanted and wanted & set(self.names_for(task)) and in_container(self.hub, task):
+                    return {  # (a deny wins over the container's rewrite: never on the Mac)
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": IN_CONTAINER,
+                        }
+                    }
                 if wanted and wanted & set(self.names_for(task)):
                     # To the session's own policy, past any allow rule: it runs the command
                     # through secret_run (the only way the value gets to it).
@@ -572,24 +713,89 @@ class Secrets:
     def policy(self, task: Any, inner: Any) -> Any:
         """The session's permission policy, with a Bash command that names a secret run
         through secret_run once the policy (rules, cards, the mode) has let it go as Claude
-        wrote it."""
+        wrote it, and the owner has said yes on a card: if the policy let it by without one
+        (Bypass, a rule, a mode), the card comes now."""
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context: Any):
+            audit = getattr(task, "audit", None)
+            before = audit[-1] if audit else None
             result = await inner(tool_name, tool_input, context)
             if tool_name != "Bash" or not isinstance(result, PermissionResultAllow):
                 return result
             given = getattr(result, "updated_input", None) or tool_input
             command = str(given.get("command", ""))
-            names = self.names_for(task)
-            wanted = {n: a for n, a in names.items() if n in named_in(command)}
+            wanted = named_in(command) & set(self.names_for(task))
             if not wanted:
                 return result
+            if in_container(self.hub, task):  # (S3-8: the hook's deny, should it be missed)
+                return PermissionResultDeny(message=IN_CONTAINER)
+            if not codeparity.secret_runs_available():  # (Windows: before any card)
+                return PermissionResultDeny(message=codeparity.NO_SECRET_RUN)
+            last = audit[-1] if audit else None
+            carded = last is not None and last is not before and last.get("decision") == "allowed"
+            wrote = written_named(task, command)
+            # Files the session wrote run with the secret: the owner hears it on this card
+            # even when another card already let the command by (S3-2).
+            if (wrote or not carded) and not await self._card(task, command, wanted, wrote):
+                return PermissionResultDeny(
+                    message="The user didn't let this command use their secret. Don't try to "
+                    "get it to another command; ask them what to do."
+                )
+            loop = asyncio.get_running_loop()
+
+            def shown(text: str, status: int) -> None:  # (from the run's thread)
+                with contextlib.suppress(RuntimeError):  # (the loop gone: the app quit)
+                    loop.call_soon_threadsafe(self.show_output, task, command, text, status)
+
+            try:
+                pipe = await asyncio.to_thread(self.offer, task, wanted, command, shown)
+            except OSError:
+                return PermissionResultDeny(
+                    message="Eden couldn't hand the secret to the command on this computer."
+                )
             return PermissionResultAllow(
-                updated_input={**given, "command": wrap(command, wanted)},
+                updated_input={**given, "command": wrap(command, pipe)},
                 updated_permissions=getattr(result, "updated_permissions", None),
             )
 
         return can_use_tool
+
+    async def _card(
+        self, task: Any, command: str, names: set[str], wrote: list[str] | None = None
+    ) -> bool:
+        """The owner's yes for a command that uses their secrets, on a card of its own: what
+        it runs, where and with what (S3-1), where its output goes (S3-2), and the files of
+        the session's own it runs (they get the secret too)."""
+        manager = self.hub.tasks
+        shown = ", ".join(f"${n}" for n in sorted(names))
+        detail = tasks.approval_detail("Bash", {"command": command}, Path(task.cwd))
+        detail += (
+            f"\n\nIt runs in {task.cwd} with your own PATH and settings (your dotfiles, as a "
+            "terminal of yours has them). What it prints comes to you only, here in the "
+            "transcript; Claude is told only whether it worked."
+        )
+        if wrote:
+            detail += (
+                "\n\nCareful: it runs files this session wrote ("
+                + ", ".join(wrote)
+                + "). They get your secret too, and can send it anywhere."
+            )
+        choice = await manager.approve(
+            f"Eden Code in {Path(task.cwd).name} wants to run a command with your secret {shown}",
+            detail,
+            [(tasks.ALLOW, "Yes, run it"), (tasks.DENY, "No")],
+            context={"task_id": task.id, "tool": "Bash"},
+        )
+        allowed = choice == tasks.ALLOW
+        with contextlib.suppress(Exception):
+            manager._audit(
+                task,
+                "Bash",
+                {"command": command},
+                "allowed" if allowed else "denied",
+                "you allowed it (it uses your secret)" if allowed else "you said no (a secret)",
+            )
+        return allowed
 
 
 def _holding(values: dict[str, str], path: Path, limit: int) -> str:
@@ -683,6 +889,13 @@ def install(hub: Any) -> None:
 
     async def sweep_once() -> None:
         await asyncio.to_thread(sec.sweep)
+        # (and the socket folders a killed backend's secret runs and relays left: REL3-12)
+        await asyncio.to_thread(tmp_sweep.sweep)
+
+    async def close_handoffs() -> None:  # (at quit: this run's socket folders, if empty)
+        await asyncio.to_thread(key_proxy.HANDOFFS.close)
+
+    hub.tasks.before_close.append(close_handoffs)
 
     hub.register_command("sec_answer", answer)
     hub.register_command("sec_list", listing)

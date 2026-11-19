@@ -536,7 +536,7 @@
     const ul = el('ul', 'wiki-lines');
     for (const e of r.entries.slice(-30)) {
       const li = el('li', e.role === 'user' ? 'wiki-you' : 'wiki-jarvis');
-      li.append(el('span', 'wiki-label', e.role === 'user' ? 'You' : 'Eden Secretary'), mine(el('p', '', e.text.length > 600 ? `${e.text.slice(0, 599)}…` : e.text)));
+      li.append(el('span', 'wiki-label', e.role === 'user' ? 'You' : 'Jarvis'), mine(el('p', '', e.text.length > 600 ? `${e.text.slice(0, 599)}…` : e.text)));
       ul.append(li);
     }
     box.append(ul);

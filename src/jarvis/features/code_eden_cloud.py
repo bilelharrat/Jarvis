@@ -27,7 +27,7 @@ There, Claude Code runs in Bypass permissions (the machine is the sandbox, and n
 there to answer a card), within its budget (--max-budget-usd) and time limit.
 
 Coming back: once the run ends, its branch past the commit sent is fetched (a git bundle) into
-the copy under refs/eden_code/eden-cloud/… and fast-forwarded, ready to land, unless it changes a
+the copy under refs/jarvis/eden-cloud/… and fast-forwarded, ready to land, unless it changes a
 file that can run code on this Mac (code_handoff.risky_paths: Claude Code's settings, hooks,
 MCP servers, CLAUDE.md…): then it stays parked under its ref, named, for the owner to look
 at. Its words (its commits, its last reply) are the other machine's: the session's next
@@ -38,7 +38,7 @@ brief); Cancel stops it there, and whatever it had done still comes back.
 Who: the Mac's Eden account (account.py). Its device token goes to askeden.com alone, which
 trades it for a ten-minute Eden Cloud token (POST /api/cloud/token, docs/accounts.md "Eden
 Cloud"); only that goes to the service. (Developing against a local service, the address
-being localhost, EDEN_CODE_EDEN_CLOUD_TOKEN can stand in for it.)
+being localhost, JARVIS_EDEN_CLOUD_TOKEN can stand in for it.)
 
 Window: code_eden_cloud_state {}, code_eden_cloud_test {}, code_eden_cloud_submit {id,
 brief?, model?, budget?, minutes?}, code_eden_cloud_new {prompt, directory?, …},
@@ -72,7 +72,7 @@ from .. import code_changes, handoff, jsonstore, lang, launches, secret_scan, ta
 from ..code_changes import NO_HOOKS, git
 from ..prefs import register_feature_pref
 
-log = logging.getLogger("eden_code")
+log = logging.getLogger("jarvis")
 
 STORE = "code_eden_cloud"
 jsonstore.register_store(STORE, 1)
@@ -82,8 +82,8 @@ PREF_BUDGET = "code_eden_cloud_budget"
 PREF_MINUTES = "code_eden_cloud_minutes"
 PREF_SOURCE = "code_eden_cloud_source"
 SOURCES = ("snapshot", "remote")
-DEV_TOKEN = "EDEN_CODE_EDEN_CLOUD_TOKEN"
-BACK_REF = "refs/eden_code/eden-cloud/"
+DEV_TOKEN = "JARVIS_EDEN_CLOUD_TOKEN"
+BACK_REF = "refs/jarvis/eden-cloud/"
 LIVE = ("uploading", "queued", "starting", "running")
 ENDED = ("done", "failed", "cancelled", "timed_out", "over_budget")
 WAIT = 20.0  # seconds a long poll for events waits there
@@ -894,13 +894,8 @@ class EdenCloud:
                     task.result = str(block["text"]).strip()
                     tm._log(task, "assistant", task.result)
                 elif btype == "tool_use" and name == "TodoWrite":
-                    items = tasks.todo_items(given.get("todos"))
-                    task.todos = (
-                        []
-                        if items and all(t.get("status") == "completed" for t in items)
-                        else items
-                    )
-                    tm._log(task, "todos", "", todos=items)
+                    task.todos = tasks.todo_items(given.get("todos"))
+                    tm._log(task, "todos", "", todos=task.todos)
                 elif btype == "tool_use":
                     tool_id = str(block.get("id") or "")
                     task.tool_ids[tool_id] = None

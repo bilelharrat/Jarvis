@@ -17,7 +17,9 @@ What the Mac checks, whatever askeden.com already did:
 - the asking device: a `web` device (a browser signed in to Eden) of this same account, from
   GET /api/account's device list;
 - the body: at most MAX_BODY; Jarvis tools only from JARVIS_TOOLS; Code mode never in
-  bypassPermissions from the web.
+  bypassPermissions from the web, nor in acceptEdits, and its allowTools cut to the tools
+  that only read (READ_ONLY_TOOLS), unless the owner allowed edits from the web on the Mac
+  (edits()): otherwise ["Bash"] or acceptEdits would be Bypass by another name.
 
 Frames (askeden.com's side is site/src/accounts/webrelay.js): text frames are JSON, {t: req |
 end | cancel | ack} from askeden.com and {t: res | end | error} back; binary frames are the
@@ -51,6 +53,9 @@ WS_BASE = "wss://askeden.com/api/relay"
 LOCAL = "http://127.0.0.1:5174"  # Eden's server on this Mac (model-router-ui)
 LOCAL_ENV = "JARVIS_EDEN_LOCAL_URL"  # another loopback port, for a test copy of Eden
 EDEN_LINK_PREF = "account_eden_link"  # Settings: Eden on the web reaches this Mac (on by default)
+# Settings: "Let askeden.com edit on this Mac" (off by default, audit S10): Code mode from the
+# web may accept edits and keep allowTools beyond reading (edits()).
+EDEN_LINK_EDITS_PREF = "account_eden_link_edits"
 
 ID_BYTES = 16
 MAX_FRAME = 64 * 1024  # a binary frame's body, each way
@@ -66,6 +71,11 @@ BACKOFF_MISSING = 600.0  # askeden.com without the web relay yet: look again eve
 STEADY_SECONDS = 30.0
 OPEN_SECONDS = 15.0
 LOCAL_TIMEOUT = httpx.Timeout(connect=5.0, read=15 * 60.0, write=30.0, pool=10.0)
+
+# Code mode's allowTools from the web, unless the owner allowed edits from the web on the
+# Mac: only Claude Code's tools that read (a rule like "Read(src/**)" too). Bash, any edit,
+# any MCP tool and anything else is dropped before Eden sees it, so it asks as usual.
+READ_ONLY_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "NotebookRead"})
 
 # The routes Eden on the web may use here: (method, path). The same list as askeden.com's
 # MAC_ROUTES; both have to agree for anything to pass.
@@ -98,9 +108,6 @@ ALLOWED = frozenset(
         # turn, the routing preview and the model list, for the account's owner only (OWNER_ONLY).
         ("POST", "/api/route"),
         ("GET", "/api/chat/meta"),
-        # Eden Calendar (askeden/src/chat/edencal-routes.ts): read status/events and owner-reviewed writes.
-        ("GET", "/api/chat/edencal/status"),
-        ("POST", "/api/chat/edencal"),
     }
 )
 # What only the account's owner may ask (the relay marks such a request `owner`; a delegate's or a
@@ -260,7 +267,9 @@ class EdenLink:
     """The web channel to askeden.com and the requests it brings. account: jarvis.account's
     Account (linked, its token, its device list). base, local, transport, connect, sleep,
     clock: tests point it at fakes. bypass(): whether Code mode may run in bypassPermissions
-    from the web (never, unless a test says so)."""
+    from the web (never, unless a test says so). edits(): whether the owner allowed, on the
+    Mac, Code mode from the web in acceptEdits and with allowTools beyond reading (never,
+    until they do)."""
 
     def __init__(
         self,
@@ -273,6 +282,7 @@ class EdenLink:
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
         bypass: Callable[[], bool] = lambda: False,
+        edits: Callable[[], bool] = lambda: False,
     ) -> None:
         self.account = account
         self._base = base.rstrip("/") if base else None  # tests; else the account's server
@@ -282,6 +292,7 @@ class EdenLink:
         self.sleep = sleep
         self.clock = clock
         self.bypass = bypass
+        self.edits = edits
         self.state = "off"  # off | connecting | open | waiting (to reconnect)
         self.error = ""  # why the line last failed, in words (Settings); "" once it's open
         self.on_change: list[Callable[[], Any]] = []  # Settings › Account redraws
@@ -626,6 +637,20 @@ class EdenLink:
                 "From the web, Code mode asks before it acts: bypassing permissions works only on your Mac.",
                 "not_allowed",
             )
+        if stream.path == "/api/chat/code" and not (self.edits() or self.bypass()):
+            if body.get("mode") == "acceptEdits":
+                raise Refused(
+                    403,
+                    "From the web, Code mode asks before each edit: accepting edits works only "
+                    "on your Mac.",
+                    "not_allowed",
+                )
+            tools = body.get("allowTools")
+            if isinstance(tools, list):
+                kept = [t for t in tools if _reads_only(t)]
+                if kept != tools:
+                    body["allowTools"] = kept  # the rest asks, as on the Mac
+                    stream.body = bytearray(json.dumps(body).encode())
 
     async def browser_ok(self, device_id: str) -> bool:
         """Whether this is a browser (`web` device) signed in to this Mac's own account: the
@@ -645,6 +670,13 @@ class EdenLink:
         if len(self._unknown) > 64:
             self._unknown = {k: t for k, t in self._unknown.items() if now - t < FRESH_SECONDS}
         return _is_browser(await self.account.status(fresh=True), device_id)
+
+
+def _reads_only(rule: Any) -> bool:
+    """An allowTools rule ("Read", "Grep(*.py)") for a tool that only reads."""
+    if not isinstance(rule, str):
+        return False
+    return rule.strip().split("(", 1)[0] in READ_ONLY_TOOLS
 
 
 def _is_browser(info: Any, device_id: str) -> bool:

@@ -39,6 +39,7 @@ LINE_MAX = 1000  # characters kept of one line of output
 PARTIAL_MAX = 16_000  # a line with no end yet: past this it's taken as it is
 STOP_GRACE = 5.0  # seconds between SIGTERM and SIGKILL for a group being stopped
 LINGER = 2.0  # seconds what a finished command left holding its output may stay
+QUIET = 1.0  # seconds of no output after which the reader looks whether the command ended
 ENV_TIMEOUT = 10.0  # seconds for the login shell to say its environment
 ENV_MARK = "__JARVIS_ENV__"
 _WIN_PATHS = (
@@ -343,7 +344,7 @@ class Proc:
         try:
             while True:
                 try:
-                    data = await asyncio.wait_for(self.proc.stdout.read(65536), 1.0)
+                    data = await asyncio.wait_for(self.proc.stdout.read(65536), QUIET)
                 except TimeoutError:
                     # Quiet. Once the command has ended, what it left behind that still holds
                     # its output (a watcher it started in the background) goes too; and one
@@ -442,10 +443,12 @@ def session_pids(sid: int) -> list[int]:
             return [sid, *(c.pid for c in psutil.Process(sid).children(recursive=True))]
         return []
     found = []
-    for p in psutil.process_iter(["pid"]):
+    # (p.pid, never p.info: psutil keeps one Process per pid, and another thread's
+    # process_iter with other attrs writes its p.info over this one's)
+    for p in psutil.process_iter():
         with contextlib.suppress(OSError):
-            if os.getsid(p.info["pid"]) == sid:
-                found.append(p.info["pid"])
+            if os.getsid(p.pid) == sid:
+                found.append(p.pid)
     return found
 
 
@@ -458,6 +461,61 @@ def kill_leftovers(sid: int) -> None:
         for pid in pids or session_pids(sid):
             with contextlib.suppress(OSError):
                 os.kill(pid, _KILL)
+
+
+def kill_marked(
+    name: str, value: str, folder: Path | None = None, since: float | None = None
+) -> list[int]:
+    """SIGKILL to what a run left behind in no group or session of its own any more (a
+    test's child started with setsid, its parent gone): every process of the owner's whose
+    environment has name=value (the run's own random mark), and, since macOS hides a system
+    program's environment (/bin/sleep, /bin/sh), every orphan (its parent gone: launchd's
+    now) started since `since` whose folder is inside `folder`. The pids killed."""
+    if not value:
+        return []
+    root = os.path.realpath(folder) if folder is not None else ""
+    me, killed = os.getpid(), []
+    # Passes until one kills nothing new (at most KILL_PASSES): a marked process can fork
+    # while the list is read, its child, past in the list already, left running when its
+    # parent was killed; the next pass finds it (by its mark, or as an orphan now) (REL3-13).
+    for _ in range(KILL_PASSES):
+        more = _kill_marked_once(name, value, root, since, me, set(killed))
+        if not more:
+            break
+        killed.extend(more)
+    return killed
+
+
+KILL_PASSES = 3
+
+
+def _kill_marked_once(
+    name: str, value: str, root: str, since: float | None, me: int, done: set[int]
+) -> list[int]:
+    """One pass of kill_marked over the process list (done: the pids killed already)."""
+    import psutil
+
+    killed = []
+    # Each process read itself, never p.info: psutil keeps one Process per pid, and another
+    # thread's process_iter with other attrs (kill_leftovers' at every command's end) wrote
+    # its p.info over this one's, so p.info["ppid"] was a KeyError that ended a Stopped
+    # Exterminator run "failed", its suite's leftovers still running.
+    for p in psutil.process_iter():
+        pid = p.pid
+        if pid == me or pid in done:
+            continue
+        try:
+            ours = p.environ().get(name) == value
+            if not ours and root and since is not None and p.ppid() == 1:
+                if (p.create_time() or 0) >= since:
+                    cwd = os.path.realpath(p.cwd())
+                    ours = cwd == root or cwd.startswith(root + os.sep)
+            if ours:
+                p.kill()
+                killed.append(pid)
+        except (psutil.Error, OSError):
+            continue  # (gone, a zombie, or another user's: not ours to read)
+    return killed
 
 
 def kill_all_now(procs: Iterable[Proc], grace: float = 1.5) -> None:

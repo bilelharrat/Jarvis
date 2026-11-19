@@ -12,7 +12,7 @@ const other = (e) => (IS_MAC ? e.ctrlKey : e.metaKey);
 // Screen-reader mode (features/accessibility.js): the page is arranged for a screen reader.
 const srMode = () => document.documentElement.dataset.sr === '1';
 const token = new URLSearchParams(location.search).get('token') || '';
-const app = window.edenCodeApp || null;
+const app = window.jarvisApp || null;
 // The window in full screen (app/main.js): no window buttons to keep room for (eden-code-glass.css).
 if (app && app.onWindowFullscreen) app.onWindowFullscreen((on) => document.body.classList.toggle('win-fullscreen', on));
 if (app) document.body.classList.add('in-app');
@@ -43,7 +43,7 @@ const SPLIT_PANE_QUIET = new Set([
 const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
 const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'sc_call']);
-let edenCodeWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
+let jarvisWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
 // Eden Code's backend alone listens to no one at launch (hub.profile "code": no microphone,
 // no voice loops), so the title bar's voice switch and the composer's Dictate mic once did
 // nothing there and were hidden (round 3, U3-14). Eden Code's own window now turns Eden's
@@ -52,7 +52,7 @@ let edenCodeWindows = 0;  // Eden Secretary windows on this backend (hello.app_w
 function showVoiceControls(on) {
   for (const id of ['cc-voice-head', 'jc-dictate']) { const b = document.getElementById(id); if (b) b.hidden = !on; }
 }
-const edenDefers = () => inEdenCode && edenCodeWindows > 0;
+const edenDefers = () => inEdenCode && jarvisWindows > 0;
 
 // The keys that talk and ask what's on screen, as this computer writes them (the app's shell feature
 // puts in the ones chosen in Settings, in the same style, once the app has answered).
@@ -81,7 +81,7 @@ if (!IS_MAC) {
 // What the hint shows now: the keys the shell feature has from the app (chosen in Settings), or this
 // computer's defaults until it has.
 function hintKeys() {
-  const shell = window.edenCodeShell;
+  const shell = window.jarvisShell;
   return {
     talk: (shell && shell.askLabel && shell.askLabel()) || KEYS.talk,
     whats: (shell && shell.whatsThisLabel && shell.whatsThisLabel()) || KEYS.whats,
@@ -111,14 +111,13 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 // had, and from which backend: it gets the snapshot, then the session events it missed.
 let lastSeq = 0;
 // The window's one Eden Code store (code-store.js): every event goes in first, in order.
-const codeStore = window.edenCodeCodeStoreApi ? window.edenCodeCodeStoreApi.createStore() : null;
+const codeStore = window.jarvisCodeStoreApi ? window.jarvisCodeStoreApi.createStore() : null;
 function heard(ev) {
   if (inEdenCode && ev && (ev.type === 'hello' || ev.type === 'app_windows')) {
-    const before = edenCodeWindows;
-    const wins = (ev.type === 'hello' ? ev.app_windows : ev.windows) || {};
-    edenCodeWindows = (Number(wins.eden_code) || 0) + (Number(wins.jarvis) || 0);
+    const before = jarvisWindows;
+    jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
     // Eden Secretary closed: this window takes its jobs back, and says what it can do.
-    if (before > 0 && edenCodeWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
+    if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
     if (ev.profile) showVoiceControls(true);  // (Eden Code's Voice opens the ears itself)
   }
   if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
@@ -140,16 +139,16 @@ function connect() {
   if (bridged) {
     window.addEventListener('message', (e) => {
       if (e.source !== window.parent || e.origin !== location.origin || !e.data) return;
-      if (e.data.edenCodeBridge === 'event') heard(e.data.event);
-      else if (e.data.edenCodeBridge === 'online') { bridgeOnline = !!e.data.value; $('offline').hidden = bridgeOnline; }
+      if (e.data.jarvisBridge === 'event') heard(e.data.event);
+      else if (e.data.jarvisBridge === 'online') { bridgeOnline = !!e.data.value; $('offline').hidden = bridgeOnline; }
     });
-    window.parent.postMessage({ edenCodeBridge: 'ready' }, location.origin);
+    window.parent.postMessage({ jarvisBridge: 'ready' }, location.origin);
     return;
   }
   const resume = hubId ? `&since=${lastSeq}&hub=${encodeURIComponent(hubId)}` : '';
   // Which app's window this is (server.APPS): a Eden Secretary one wakes the voice of a backend
   // Eden Code started (hub.window_joined). A pane of a split names none: its window has.
-  const appName = app && !inSplitPane ? `&app=${inEdenCode ? 'eden-code' : 'eden_code'}` : '';
+  const appName = app && !inSplitPane ? `&app=${inEdenCode ? 'eden-code' : 'jarvis'}` : '';
   ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}${resume}${appName}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
   ws.onmessage = (e) => heard(JSON.parse(e.data));
@@ -169,7 +168,7 @@ function send(msg) {
   if ((inSplitPane || edenDefers()) && msg && SPLIT_PANE_QUIET.has(msg.type)) return true;  // the main window answers
   if (bridged) {
     if (!bridgeOnline) return false;
-    window.parent.postMessage({ edenCodeBridge: 'send', msg }, location.origin);
+    window.parent.postMessage({ jarvisBridge: 'send', msg }, location.origin);
     return true;
   }
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -182,7 +181,7 @@ function send(msg) {
 
 // ── feature modules: web/features/*.js (loaded by features.js, after this file) ──
 // They hear events, add Eden Code panes, menu items and composer @ suggestions, and add
-// their own settings groups and dock buttons to the page, through window.edenCodeFeatures.
+// their own settings groups and dock buttons to the page, through window.jarvisFeatures.
 const featureListeners = new Map();  // event type ('*': every event) -> handlers
 const featureLast = new Map();  // the latest event of each type, for a listener added late
 const featurePanes = new Map();  // Eden Code pane id -> { title, render(body, task) }
@@ -231,7 +230,7 @@ const featureChecks = [];
 function featureCheck(kind, info) {
   // Split view's pane: the main window checks (with its Touch ID), never this one on its own.
   if (inSplitPane) {
-    try { return window.parent.edenCodeFeatures.check(kind, info); } catch (err) { console.error('split pane check', err); }
+    try { return window.parent.jarvisFeatures.check(kind, info); } catch (err) { console.error('split pane check', err); }
   }
   for (const check of featureChecks) {
     try {
@@ -258,7 +257,7 @@ function featureEvent(ev) {
     try { fn(ev); } catch (err) { console.error('feature event', ev.type, err); }
   }
 }
-window.edenCodeFeatures = {
+window.jarvisFeatures = {
   on(type, fn, { replay = false } = {}) {
     if (!featureListeners.has(type)) featureListeners.set(type, []);
     featureListeners.get(type).push(fn);
@@ -268,17 +267,10 @@ window.edenCodeFeatures = {
   },
   send: (msg) => send(msg),
   store: codeStore,  // the one Eden Code store (code-store.js), fed by this window's socket
-  t: (text) => (window.edenCodeI18n ? window.edenCodeI18n.t(text) : String(text)),
+  t: (text) => (window.jarvisI18n ? window.jarvisI18n.t(text) : String(text)),
   el: (tag, cls, text) => el(tag, cls, text),
   $: (id) => $(id),
-  registerPane(id, pane) {
-    featurePanes.set(id, pane);
-    PANE_TITLES[id] = pane.title || id;
-    if (currentPane === id) {
-      $('jc-pane-title').textContent = PANE_TITLES[id] || id;
-      renderPaneBody();
-    }
-  },
+  registerPane(id, pane) { featurePanes.set(id, pane); PANE_TITLES[id] = pane.title || id; },
   openPane: (id) => openPane(id),
   closePane: () => closePane(),
   registerMoreItem(item) { featureMoreItems.push(item); },
@@ -321,7 +313,7 @@ window.edenCodeFeatures = {
 };
 
 function onEvent(ev) {
-  if (onEdenCodeCodeEvent(ev)) return;
+  if (onJarvisCodeEvent(ev)) return;
   switch (ev.type) {
     case 'hello': {
       let reselect = null;
@@ -787,7 +779,7 @@ const HAND_HELP = {
 // Hands steering the whole Mac: gestures go to the backend, which moves the real pointer;
 // a small indicator stays on top of every app.
 let deskTarget = null;
-const handHud = (u) => window.edenCodeApp && window.edenCodeApp.handHud && window.edenCodeApp.handHud(u);
+const handHud = (u) => window.jarvisApp && window.jarvisApp.handHud && window.jarvisApp.handHud(u);
 function desktopTarget() {
   if (!deskTarget) {
     deskTarget = {
@@ -909,7 +901,7 @@ async function startHandControl({ fromClaps = false } = {}) {
     handsModule = handsModule || (await import(`/static/hands.js?v=${Date.now()}`));
     const { target, close, help } = handTarget(); // now that the Mac's target can be made
     $('hand-help').textContent = help;
-    if (target.kind === 'desktop' && window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(true);
+    if (target.kind === 'desktop' && window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(true);
     const startedAt = performance.now(); // the same clock as hands.js's frame stamps
     await handsModule.startHands(target, {
       overlayCanvas: $('hand-overlay'),
@@ -937,7 +929,7 @@ async function startHandControl({ fromClaps = false } = {}) {
     $('hand-status').textContent = `Hand control couldn't start: ${err.message || err}`;
     handsOn = false;
     setHandButtons(false);
-    if (window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(false);
+    if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
   }
 }
 
@@ -954,7 +946,7 @@ function stopHandControl() {
   noHandTimer = 0;
   handsOn = false;
   if (handsModule) handsModule.stopHands();
-  if (window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(false);
+  if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
   if (handHover) handHover.classList.remove('hand-hover');
   handHover = null;
   setHandButtons(false);
@@ -1089,12 +1081,12 @@ function renderPrefs(p) {
   $('tone-row').hidden = p.look !== 'glass';
   document.querySelectorAll('#tone-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tone === (p.glass_tone || 'auto'))));
   document.querySelectorAll('#lang-group button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.lang === (p.language || 'en'))));
-  if (window.edenCodeI18n) window.edenCodeI18n.setLang(p.language || 'en');
+  if (window.jarvisI18n) window.jarvisI18n.setLang(p.language || 'en');
   if (document.activeElement !== $('weather-city')) $('weather-city').value = p.weather_city || '';
   const modelName = (p.models || []).find((m) => m.id === p.model);
   if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
-  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.edenCodeAccessibility && window.edenCodeAccessibility.homeName ? window.edenCodeAccessibility.homeName() : 'Eden Code');
+  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Jarvis');
   const model = (p.models || []).find((m) => m.id === p.model);
   $('model-chip').textContent = model ? model.name : p.model;
   $('hf-indicator').hidden = !p.hands_free;
@@ -1230,7 +1222,7 @@ function toggleSettings(open) {
 // data-keywords (so "dark mode" finds Look, "twilio" the whole of Phone). A section with
 // nothing left goes; the words found are highlighted (CSS custom highlights, so the text
 // itself is never touched: translation and the controls' own updates carry on). The
-// sections features add (window.edenCodeFeatures) are searched too: they're read each time.
+// sections features add (window.jarvisFeatures) are searched too: they're read each time.
 // Curly quotes are straightened so "can't" finds "can’t"; the text keeps its length, so
 // a word's place in it is where to highlight.
 function searchText(text) {
@@ -1357,7 +1349,7 @@ $('sw-desktop-hands').addEventListener('click', () => {
   prefs.desktop_hands = on; // retarget now, not on the round trip
   if (handsOn) {
     retargetHands();
-    if (window.edenCodeApp && window.edenCodeApp.desktopHands) window.edenCodeApp.desktopHands(on);
+    if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(on);
   }
 });
 $('sw-briefing').addEventListener('click', () => setPrefs({ briefing_enabled: !prefs.briefing_enabled }));
@@ -2899,12 +2891,10 @@ function selectProject(name) {
   if (other && !ccSelected && currentPane) renderPaneBody();
   send({ type: 'claude_sessions', directory: name });
   if (!projectFiles[name]) send({ type: 'project_files', directory: name });
-  if (name && (!projectGit[name] || other)) send({ type: 'project_git', directory: name });
   document.querySelectorAll('.cc-project-name').forEach((n) => { n.textContent = name; });
   renderProjects(deckProjects);
   renderPast();
   if (!ccSelected) renderHeader(null);
-  renderGhostSuggestion();
 }
 
 function renderPast() {
@@ -2920,11 +2910,7 @@ function renderPast() {
   }));
 }
 
-const projectGit = {};
-function renderGit(ev) {
-  if (ev && ev.directory) projectGit[ev.directory] = ev;
-  renderGhostSuggestion();
-}
+function renderGit() { /* the Changes pane shows the diff */ }
 
 function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
 function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended', running: 'starting' }[t.status] || t.status; }
@@ -2938,7 +2924,7 @@ const MODE_LINES = {
   smart: '✦ Auto: safe steps go ahead, a safety check asks about risky ones',
   auto: '⚡ Bypass permissions: runs anything without asking',
 };
-const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-4-5': 'Haiku 4.5', 'claude-fable-5-1': 'Fable 5.1' };
+const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5', 'claude-haiku-4-5': 'Haiku 4.5', 'claude-fable-5-1': 'Fable 5.1' };
 let ccContext = {};
 let workingSince = 0;
 let renaming = null;  // the session whose new name is being typed in the title
@@ -3361,7 +3347,6 @@ function replayTranscript(entries) {
   live.thinking = null;
   for (const e of entries.slice(-TIMELINE_MAX)) appendEntry(e, true);
   renderInlineApprovals();
-  renderGhostSuggestion();
   followBottom('jump');
 }
 
@@ -3371,8 +3356,6 @@ function appendEntry(e, replaying = false) {
   let li;
   if (e.role === 'user') {
     if (!replaying) {
-      // The message was shown the moment it was sent (appendPendingUser): this is its real entry
-      // arriving, which settles that line instead of adding a second one.
       const pending = tl.querySelector(':scope > .jc-user[data-pending]');
       if (pending && (pending.querySelector('.jc-user-text') || {}).textContent === String(e.text || '')) {
         delete pending.dataset.pending;
@@ -3485,31 +3468,14 @@ function appendEntry(e, replaying = false) {
     if (t) t.busy = false;
     renderTodos(t ? (t.todos || []) : [], false);
     tl.querySelectorAll(':scope > .jc-inline-todos').forEach((n) => n.remove());
-    if (!replaying) dismissedGhost = '';
     const parts = [e.seconds ? `${e.seconds}s` : '', e.tokens ? `${(e.tokens / 1000).toFixed(1)}k tokens` : '', e.cost ? `$${e.cost.toFixed(2)}` : ''].filter(Boolean);
-    if (!parts.length && !e.suggestion) return;
+    if (!parts.length) return;
     li = el('li', 'jc-turn', parts.join(' · '));
-    if (e.suggestion) li.dataset.suggestion = e.suggestion;
   } else if (featureEntries.has(e.role)) {
     try { li = featureEntries.get(e.role)(e); } catch (err) { console.error('feature entry', e.role, err); }
     if (!li) return;
   } else {
-    const targetNode = tl.querySelector(':scope > .jc-ask') || ((e.role === 'tool' || e.role === 'subtool') ? (live.thinking || live.text) : null);
-    const prevLi = targetNode ? targetNode.previousElementSibling : tl.lastElementChild;
-    if (prevLi && prevLi.classList.contains('jc-note')) {
-      const prevSpan = prevLi.querySelector('span:last-child');
-      const baseText = prevLi.dataset.baseText || (prevSpan ? prevSpan.textContent : '');
-      if (baseText === e.text) {
-        if (baseText === 'Interrupted.') return;
-        const count = (Number(prevLi.dataset.repeatCount) || 1) + 1;
-        prevLi.dataset.repeatCount = count;
-        prevLi.dataset.baseText = baseText;
-        if (prevSpan) prevSpan.textContent = `${baseText} (×${count})`;
-        return;
-      }
-    }
     li = el('li', 'jc-note');
-    li.dataset.baseText = e.text;
     li.append(el('span', '', e.role === 'note' ? '⎿' : 'ⓘ'), el('span', '', e.text));
   }
   const decoratedTarget = (li && li.classList.contains('jc-tool-group')) ? (li.querySelector('.jc-tool-group-list > li') || li) : li;
@@ -4165,301 +4131,15 @@ if (composerExpanded) setComposerExpanded(true, { focus: false });
 $('jc-steer').addEventListener('click', steerSubmit);
 $('deck-composer').addEventListener('submit', (e) => {
   e.preventDefault();
-  finishGhostTyping();
   const steer = steerThis;
   steerThis = undefined;
   if (!sendToSession($('deck-input').value, steer)) return;  // not sent: the draft stays
   recall.index = -1;
-  dismissedGhost = '';
   $('deck-input').value = '';
   $('deck-input').style.height = '';
   $('cc-slash').hidden = true;
-  renderGhostSuggestion();
   if (!composerPinned) setComposerExpanded(false, { focus: true });
 });
-
-// ── Claude Code-style smart prompt suggestions (ghost completion in #deck-input) ──
-let dismissedGhost = '';
-let currentGhostFull = '';
-let ghostTyping = null; // { full, pos, timer }
-const GHOST_OFFER_RE = /(?:want me to|would you like me to|should i|shall i|do you want me to|if you(?:'d| would) like,\s*i can)\s+([^?.!\n]{6,96})[?.!]?\s*$/i;
-
-function primarySmartSuggestion(t) {
-  if (prefs && prefs.suggestions === false) return '';
-  if (voiceFocus && voiceFocus.id === ccSelected) return '';
-  if (t && t.busy) return '';
-  const tl = $('deck-timeline');
-  if (t) {
-    if (t.prompt_suggestion) return t.prompt_suggestion;
-    if (tl) {
-      const turnEl = [...tl.querySelectorAll(':scope > .jc-turn[data-suggestion]')].pop();
-      if (turnEl && turnEl.dataset.suggestion) return turnEl.dataset.suggestion;
-      const lastEntry = tl.lastElementChild;
-      if (lastEntry && lastEntry.classList.contains('jc-plan')) return 'Approved — go ahead and implement this plan';
-      const lastSay = [...tl.querySelectorAll(':scope > .jc-say[data-raw]')].pop();
-      if (lastSay && lastSay.dataset.raw) {
-        const tail = lastSay.dataset.raw.trim().split('\n').slice(-4).join('\n').trim();
-        const m = GHOST_OFFER_RE.exec(tail);
-        if (m) {
-          const act = m[1].trim().replace(/[?.!,:;]+$/, '').replace(/\s+or\s+.*$/i, '').trim();
-          if (act.length >= 6 && act.length <= 84) return act[0].toUpperCase() + act.slice(1);
-        }
-      }
-      const failedTool = [...tl.querySelectorAll('.jc-tool.error, .jc-dot.failed')].pop();
-      if (failedTool) return 'Fix the failing command and re-run to verify';
-    }
-    if (Array.isArray(t.todos)) {
-      const nextTodo = t.todos.find((x) => x.status === 'in_progress' || x.status === 'pending');
-      if (nextTodo && nextTodo.content) {
-        const clean = String(nextTodo.content).trim().replace(/\.$/, '');
-        if (clean) return clean.length <= 76 ? clean : `${clean.slice(0, 73).replace(/\s+\S*$/, '')}…`;
-      }
-    }
-    if (Array.isArray(t.files_changed) && t.files_changed.length) {
-      const names = t.files_changed.map((f) => String(f).split('/').pop()).filter(Boolean);
-      if (names.length === 1) return `Run the tests to verify ${names[0]}`;
-      return 'Run the tests to verify these changes';
-    }
-  }
-  const git = deckProject && projectGit[deckProject];
-  if (git && Array.isArray(git.files) && git.files.length) {
-    const firstFile = String(git.files[0].path || '').split('/').pop();
-    if (git.files.length === 1 && firstFile) return `Review the uncommitted changes in ${firstFile}`;
-    return `Review the ${git.files.length} uncommitted files for issues`;
-  }
-  return '';
-}
-
-function smartCompletionPool(t, primary) {
-  const pool = [];
-  if (primary) pool.push(primary);
-  if (t && Array.isArray(t.files_changed) && t.files_changed.length) {
-    const first = String(t.files_changed[0]).split('/').pop();
-    if (first) pool.push(`Run the tests for ${first}`, `Review the changes in ${first}`);
-  }
-  const git = deckProject && projectGit[deckProject];
-  if (git && Array.isArray(git.files) && git.files.length) {
-    const first = String(git.files[0].path || '').split('/').pop();
-    if (first) pool.push(`Review the uncommitted changes in ${first}`);
-  }
-  pool.push(
-    'Run the tests to verify these changes',
-    'Commit these changes with a clear commit message',
-    'Review the uncommitted diff for bugs and edge cases',
-    'Fix the failing test and re-run it',
-    'Explain how this project is structured',
-    'Create a pull request for this branch',
-    'Write unit tests for the new changes',
-    'Check for lint or type errors and fix them',
-    'Refactor this code for clarity without changing behavior',
-  );
-  return [...new Set(pool)];
-}
-
-function computeGhostMatch() {
-  const input = $('deck-input');
-  if (!input || !$('cc-slash').hidden) return null;
-  const val = input.value;
-  if (val.includes('\n')) return null;
-  if (val && input.selectionStart !== val.length) return null;
-  if (/^[/?@]/.test(val)) return null;
-  const t = currentTask();
-  const primary = primarySmartSuggestion(t);
-  if (!val) {
-    if (!primary || primary === dismissedGhost) return null;
-    return { typed: '', rest: primary, full: primary };
-  }
-  const lower = val.toLowerCase();
-  if (lower.length < 2) return null;
-  for (const cand of smartCompletionPool(t, primary)) {
-    if (cand === dismissedGhost) continue;
-    if (cand.length > val.length && cand.toLowerCase().startsWith(lower)) {
-      return { typed: val, rest: cand.slice(val.length), full: val + cand.slice(val.length) };
-    }
-  }
-  return null;
-}
-
-function finishGhostTyping() {
-  if (!ghostTyping) return false;
-  cancelAnimationFrame(ghostTyping.timer);
-  const full = ghostTyping.full;
-  ghostTyping = null;
-  const input = $('deck-input');
-  input.value = full;
-  input.selectionStart = input.selectionEnd = full.length;
-  currentGhostFull = '';
-  const ghost = $('jc-ghost');
-  const wrap = $('jc-input-wrap');
-  if (ghost) { ghost.hidden = true; ghost.classList.remove('swiping'); ghost.style.removeProperty('--ghost-swipe'); }
-  if (wrap) wrap.classList.remove('has-ghost', 'typing-ghost');
-  renderSuggestions();
-  input.style.height = 'auto';
-  input.style.height = `${Math.min(220, input.scrollHeight)}px`;
-  return true;
-}
-
-function renderGhostSuggestion() {
-  if (ghostTyping) return;
-  const ghost = $('jc-ghost');
-  const wrap = $('jc-input-wrap');
-  if (!ghost || !wrap) return;
-  const m = computeGhostMatch();
-  if (!m) {
-    currentGhostFull = '';
-    ghost.hidden = true;
-    ghost.classList.remove('swiping');
-    ghost.style.removeProperty('--ghost-swipe');
-    wrap.classList.remove('has-ghost', 'typing-ghost');
-    return;
-  }
-  currentGhostFull = m.full;
-  $('jc-ghost-typed').textContent = m.typed;
-  $('jc-ghost-rest').textContent = m.rest;
-  const tabBadge = $('jc-ghost-tab');
-  if (tabBadge) {
-    const isMobileDevice = ('ontouchstart' in window) || (typeof window.matchMedia === 'function' && window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 680px)').matches);
-    tabBadge.hidden = isMobileDevice;
-  }
-  ghost.hidden = false;
-  wrap.classList.add('has-ghost');
-}
-
-function acceptGhostSuggestion({ animate = true } = {}) {
-  if (ghostTyping) return finishGhostTyping();
-  if (!currentGhostFull) return false;
-  const input = $('deck-input');
-  const full = currentGhostFull;
-  const startPos = input.value.length;
-  currentGhostFull = '';
-  const ghost = $('jc-ghost');
-  const wrap = $('jc-input-wrap');
-  const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!animate || reducedMotion || full.length <= startPos + 1 || !ghost || !wrap) {
-    input.value = full;
-    input.selectionStart = input.selectionEnd = full.length;
-    renderGhostSuggestion();
-    renderSuggestions();
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(220, input.scrollHeight)}px`;
-    input.focus({ preventScroll: true });
-    return true;
-  }
-  ghost.hidden = false;
-  ghost.classList.remove('swiping');
-  ghost.style.removeProperty('--ghost-swipe');
-  wrap.classList.add('has-ghost', 'typing-ghost');
-  input.focus({ preventScroll: true });
-  const stepChars = Math.max(2, Math.ceil((full.length - startPos) / 11));
-  ghostTyping = { full, pos: startPos, timer: 0 };
-  const tick = () => {
-    if (!ghostTyping) return;
-    ghostTyping.pos = Math.min(full.length, ghostTyping.pos + stepChars);
-    const cur = full.slice(0, ghostTyping.pos);
-    const rem = full.slice(ghostTyping.pos);
-    input.value = cur;
-    input.selectionStart = input.selectionEnd = cur.length;
-    $('jc-ghost-typed').textContent = cur;
-    $('jc-ghost-rest').textContent = rem;
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(220, input.scrollHeight)}px`;
-    if (ghostTyping.pos >= full.length) {
-      finishGhostTyping();
-      return;
-    }
-    ghostTyping.timer = requestAnimationFrame(tick);
-  };
-  ghostTyping.timer = requestAnimationFrame(tick);
-  return true;
-}
-
-if ($('jc-ghost-tab')) {
-  $('jc-ghost-tab').addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    acceptGhostSuggestion({ animate: true });
-  });
-}
-
-const ghostWrap = $('jc-input-wrap');
-if (ghostWrap) {
-  ghostWrap.setAttribute('data-noswipe', '');
-  let swipeState = null; // { x0, y0, t0, dx, dy, accepted }
-  const clearSwipeVisual = () => {
-    const g = $('jc-ghost');
-    if (g) { g.classList.remove('swiping'); g.style.removeProperty('--ghost-swipe'); }
-  };
-  const startSwipe = (x, y) => {
-    if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; return; }
-    swipeState = { x0: x, y0: y, t0: performance.now(), dx: 0, dy: 0, accepted: false };
-  };
-  const moveSwipe = (x, y, ev) => {
-    if (!swipeState || swipeState.accepted) return;
-    if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) { swipeState = null; clearSwipeVisual(); return; }
-    const dx = x - swipeState.x0;
-    const dy = y - swipeState.y0;
-    swipeState.dx = dx;
-    swipeState.dy = dy;
-    if (Math.abs(dy) > 22 && Math.abs(dy) > Math.abs(dx)) {
-      swipeState = null;
-      clearSwipeVisual();
-      return;
-    }
-    if (dx > 6 && dx > Math.abs(dy) * 1.2) {
-      if (ev && ev.cancelable) ev.preventDefault();
-      const g = $('jc-ghost');
-      if (g) {
-        g.classList.add('swiping');
-        g.style.setProperty('--ghost-swipe', String(Math.min(1, dx / 36)));
-      }
-      if (dx >= 36 && performance.now() - swipeState.t0 < 800) {
-        swipeState.accepted = true;
-        clearSwipeVisual();
-        acceptGhostSuggestion({ animate: true });
-      }
-    }
-  };
-  const endSwipe = () => {
-    if (!swipeState) return;
-    const { dx, dy, t0, accepted } = swipeState;
-    swipeState = null;
-    clearSwipeVisual();
-    if (accepted) return;
-    const dt = Math.max(1, performance.now() - t0);
-    const vx = dx / dt;
-    if (dx >= 24 && dx > Math.abs(dy) * 1.3 && (dx >= 30 || vx >= 0.28) && dt < 700) {
-      acceptGhostSuggestion({ animate: true });
-    }
-  };
-  ghostWrap.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { swipeState = null; return; }
-    startSwipe(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: true });
-  ghostWrap.addEventListener('touchmove', (e) => {
-    if (!swipeState || e.touches.length !== 1) return;
-    moveSwipe(e.touches[0].clientX, e.touches[0].clientY, e);
-  }, { passive: false });
-  ghostWrap.addEventListener('touchend', endSwipe, { passive: true });
-  ghostWrap.addEventListener('touchcancel', () => { swipeState = null; clearSwipeVisual(); }, { passive: true });
-  ghostWrap.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch' || e.button !== 0) return;
-    const inp = $('deck-input');
-    if (inp && inp.value && inp.selectionStart !== inp.value.length) return;
-    startSwipe(e.clientX, e.clientY);
-  });
-  ghostWrap.addEventListener('pointermove', (e) => {
-    if (!swipeState || e.pointerType === 'touch' || !(e.buttons & 1)) return;
-    moveSwipe(e.clientX, e.clientY, e);
-  });
-  ghostWrap.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') endSwipe(); });
-  ghostWrap.addEventListener('pointercancel', () => { swipeState = null; clearSwipeVisual(); });
-  ghostWrap.addEventListener('wheel', (e) => {
-    if (!currentGhostFull || !$('jc-ghost') || $('jc-ghost').hidden) return;
-    if (Math.abs(e.deltaX) >= 24 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.8) {
-      e.preventDefault();
-      acceptGhostSuggestion({ animate: true });
-    }
-  }, { passive: false });
-}
 
 const MODE_CYCLE = ['ask', 'edits', 'plan', 'smart'];
 function nextMode() {
@@ -4468,55 +4148,30 @@ function nextMode() {
   return cycle[(cycle.indexOf(s.mode) + 1) % cycle.length];  // from Bypass: back to Manual
 }
 $('deck-input').addEventListener('keydown', (e) => {
-  if (ghostTyping) {
-    finishGhostTyping();
-    if (e.key === 'Tab' || e.key === 'ArrowRight') { e.preventDefault(); return; }
-  }
   const s = suggestions();
   if (s.items.length && !$('cc-slash').hidden) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); pickIndex = (pickIndex + (e.key === 'ArrowDown' ? 1 : -1) + s.items.length) % s.items.length; renderSuggestions(); return; }
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; renderGhostSuggestion(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; return; }
   }
   if (e.key === 'Tab' && e.shiftKey) {  // shift+tab cycles the mode, as in Claude Code
     e.preventDefault();
     setMode(nextMode());
     return;
   }
-  if (currentGhostFull && !$('jc-ghost').hidden) {
-    if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      acceptGhostSuggestion();
-      return;
-    }
-    if (e.key === 'ArrowRight' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && $('deck-input').selectionStart === $('deck-input').value.length) {
-      e.preventDefault();
-      acceptGhostSuggestion();
-      return;
-    }
-    if (e.key === 'Escape' && !$('deck-input').value) {
-      e.preventDefault();
-      e.stopPropagation();
-      dismissedGhost = currentGhostFull;
-      renderGhostSuggestion();
-      return;
-    }
-  }
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) {
     const input = e.target;
     const up = e.key === 'ArrowUp';
     const onEdge = up ? !input.value.slice(0, input.selectionStart).includes('\n') : !input.value.slice(input.selectionEnd).includes('\n');
-    if ((recall.index >= 0 || (up && !input.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); renderGhostSuggestion(); return; }
+    if ((recall.index >= 0 || (up && !input.value)) && onEdge && recallMessage(up ? -1 : 1)) { e.preventDefault(); return; }
   }
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && steerSubmit()) { e.preventDefault(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('deck-composer').requestSubmit(); }
 });
 $('deck-input').addEventListener('input', () => {
-  if (ghostTyping) finishGhostTyping();
   recall.index = -1;
   pickIndex = 0;
   renderSuggestions();
-  renderGhostSuggestion();
   $('deck-input').style.height = 'auto';
   $('deck-input').style.height = `${Math.min(220, $('deck-input').scrollHeight)}px`;
 });
@@ -4544,12 +4199,12 @@ function addFile(file) {
   const kind = fileKind(file);
   if (!kind) { jcNote(`${file.name} can’t be attached: pictures, PDFs and text or code files only.`); return; }
   // A Retina screenshot is often over the 6 MB limit: it's scaled down first (fitPicture).
-  if (kind === 'image' && file.size > window.EdenCodeAttach.LIMITS.binary && !fittedPictures.has(file)) {
+  if (kind === 'image' && file.size > window.JarvisAttach.LIMITS.binary && !fittedPictures.has(file)) {
     fitPicture(file).then((fitted) => (fitted ? addFile(fitted) : jcNote(`${file.name} couldn’t be read.`)));
     return;
   }
   const held = [...attachments, ...reading].map((a) => ({ kind: a.kind, size: a.size || 0 }));
-  const why = window.EdenCodeAttach.check(held, kind, file.size);
+  const why = window.JarvisAttach.check(held, kind, file.size);
   if (why === 'files') { jcNote('Up to six attachments per message.'); return; }
   if (why === 'size' && kind === 'text') { jcNote(`${file.name} is over 400 KB. Put it in the project and mention it with @ instead.`); return; }
   if (why === 'size') { jcNote(`${file.name} is over 6 MB.`); return; }
@@ -4621,7 +4276,7 @@ function attachItems(items) {
     const kind = image ? 'image' : 'text';
     const size = image ? Math.round(item.data.length * 0.75) : item.data.length;
     const held = attachments.map((a) => ({ kind: a.kind, size: a.size || 0 }));
-    if (window.EdenCodeAttach.check(held, kind, size)) { jcNote('Up to six attachments per message.'); break; }
+    if (window.JarvisAttach.check(held, kind, size)) { jcNote('Up to six attachments per message.'); break; }
     attachments.push(image
       ? { kind, type: item.media_type, data: item.data, url: `data:${item.media_type};base64,${item.data}`, name: String(item.name || 'picture'), size }
       : { kind, type: 'text/plain', data: item.data, name: String(item.name || 'text'), size });
@@ -4816,10 +4471,10 @@ function renderJcPalette() {
   if (filter === 'all' || filter === 'symbols') {
     const symList = [
       { sym: 'openPalette', kind: 'ƒ', file: 'web/chat/app.js', line: 120 },
-      { sym: 'renderCC', kind: 'ƒ', file: 'src/eden_code/web/app.js', line: 2942 },
-      { sym: 'EdenEngineClient', kind: '◈', file: 'src/eden_code/engine/client.py', line: 45 },
+      { sym: 'renderCC', kind: 'ƒ', file: 'src/jarvis/web/app.js', line: 2942 },
+      { sym: 'EdenEngine', kind: '◈', file: 'src/chat/engine.ts', line: 45 },
       { sym: 'ModelRouter', kind: '◈', file: 'src/router.ts', line: 28 },
-      { sym: 'selectTask', kind: 'ƒ', file: 'src/eden_code/web/app.js', line: 2745 },
+      { sym: 'selectTask', kind: 'ƒ', file: 'src/jarvis/web/app.js', line: 2745 },
       { sym: 'initPalette', kind: 'ƒ', file: 'web/chat/eden-code-glass.js', line: 64 },
     ];
     const symItems = symList
@@ -4842,9 +4497,9 @@ function renderJcPalette() {
   // 3. Code Grep (?) - full-text search across source
   if (filter === 'all' || filter === 'code') {
     const grepDummies = [
-      { file: 'src/eden_code/web/app.js', line: 4312, code: 'function openJcPalette(initialQuery) {\n  pal.classList.add("open");' },
-      { file: 'src/eden_code/engine/client.py', line: 85, code: 'class EdenEngineClient:\n  async def query(self, prompt: str):' },
-      { file: 'src/eden_code/code_runner.py', line: 112, code: 'def _use_native_engine() -> bool:\n  return os.environ.get("EDEN_ENGINE", "native")' },
+      { file: 'src/jarvis/web/app.js', line: 4240, code: 'function openJcPalette(initialQuery) {\n  pal.classList.add("open");' },
+      { file: 'web/chat/eden-code-glass.js', line: 85, code: 'function renderPaletteItems(rawQ) {\n  let filter = activePalFilter;' },
+      { file: 'src/chat/engine.ts', line: 112, code: 'export class EdenEngine {\n  constructor(config: EngineConfig) {' },
     ];
     const grepItems = grepDummies
       .filter((g) => !q || g.code.toLowerCase().includes(q) || g.file.toLowerCase().includes(q))
@@ -4960,11 +4615,6 @@ if ($('jc-side-search')) {
   });
 }
 if ($('palette')) {
-  // A press on the dimmed backdrop (not the box) closes it, as in Eden chat: on the press itself,
-  // so it doesn't depend on a whole click reaching it (the window's drag regions can eat one).
-  $('palette').addEventListener('mousedown', (e) => {
-    if (e.target === $('palette')) closeJcPalette();
-  });
   $('palette').addEventListener('click', (e) => {
     if (e.target === $('palette')) closeJcPalette();
   });
@@ -5209,7 +4859,6 @@ function renderComposer() {
   for (const fn of featureComposerRenders) {
     try { fn(s); } catch (err) { console.error('feature composer render', err); }
   }
-  renderGhostSuggestion();
 }
 
 // ── menus: glass, with icons, notes, submenus and the keyboard ──
@@ -5582,7 +5231,7 @@ $('ep-range').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.pr
 // ── + : files, folders, slash commands, connectors, plugins ──
 
 async function pickFolderPath(question) {
-  if (inSplitPane) { try { return await window.parent.edenCodeFeatures.pickFolder(question); } catch (_) { /* its own way */ } }  // the app's picker
+  if (inSplitPane) { try { return await window.parent.jarvisFeatures.pickFolder(question); } catch (_) { /* its own way */ } }  // the app's picker
   if (app && app.pickFolder) return app.pickFolder();
   const typed = prompt(tr(question));
   return typed ? typed.trim() : null;
@@ -5704,10 +5353,10 @@ function checkGeminiOnce() {
 function openJcSettings(tab = 'general') {
   closeMenu();
   closeEffort();
-  if (window.edenCodeSettingsNav) {
+  if (window.jarvisSettingsNav) {
     $('jc-settings').hidden = true;
     if ($('settings').hidden) toggleSettings(true);
-    window.edenCodeSettingsNav.choose('code');
+    window.jarvisSettingsNav.choose('code');
     selectJcsTab(tab);
     renderJcGeneral();
     renderProviders();
@@ -5726,7 +5375,7 @@ function openJcSettings(tab = 'general') {
 }
 function closeJcSettings() {
   $('jc-settings').hidden = true;
-  if (!$('settings').hidden && window.edenCodeSettingsNav) toggleSettings(false);
+  if (!$('settings').hidden && window.jarvisSettingsNav) toggleSettings(false);
   $('jcs-key').value = '';  // a key never lingers in the window
   $('deck-input').focus();
 }
@@ -5746,10 +5395,10 @@ function option(value, label, selected) {
 }
 function renderJcGeneral() {
   const fallback = (prefs && prefs.model) || 'opus';
-  const edenCodeModel = modelEntry(fallback);
+  const jarvisModel = modelEntry(fallback);
   const sel = $('jcs-model');
   const mine = modelList.filter((m) => !m.eden && !m.builtin);
-  const same = edenCodeModel ? edenCodeModel.label : 'default';
+  const same = jarvisModel ? jarvisModel.label : 'default';
   // Eden chat's models under its headings (one with no key yet shown, not choosable), then
   // the owner's other models; a default no longer offered (Haiku, Fable) stays as it is.
   const groups = [];
@@ -6037,7 +5686,7 @@ function awakeNewSessionFork(t) { awaitingNewSession = true; send({ type: 'task_
 // ── the workbench pane ──
 
 let currentPane = null;
-const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', browser: 'Browser', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions', audit: 'Activity' };
+const PANE_TITLES = { terminal: 'Terminal', diff: 'Changes', sim: 'iOS Simulator', files: 'Files', artifacts: 'Artifacts', background: 'Background tasks', mcp: 'MCP servers', rules: 'Permissions', audit: 'Activity' };
 const term = { id: null, xterm: null, fit: null, loading: null, observer: null };
 let diffFiles = [];
 let simPanel = null; // the iOS Simulator pane (simulator.js) while it's showing
@@ -6158,7 +5807,7 @@ function renderSimPane(body) {
   // Mounted once: renderPaneBody runs again on unrelated changes and mustn't restart the stream.
   if (simPanel && !simPanel.closed && body.contains(simPanel.el)) return;
   closeSimPanel();
-  simPanel = window.EdenCodeSim.mount(body, { send });
+  simPanel = window.JarvisSim.mount(body, { send });
 }
 
 function renderFilesPane(body, files, placeholder) {
@@ -6338,7 +5987,7 @@ $('cc-voice-head').addEventListener('click', () => {
 $('code-exit').addEventListener('click', () => send({ type: 'voicecode_exit' }));
 
 // Events for Eden Code beyond the core ones.
-function onEdenCodeCodeEvent(ev) {
+function onJarvisCodeEvent(ev) {
   switch (ev.type) {
     case 'task_stream': onStream(ev); return true;
     case 'task_entry_meta': onEntryMeta(ev); return true;
@@ -6420,7 +6069,7 @@ function pageName(url, title, base = '') {
 function dockWidth() {
   if (document.body.classList.contains('browser-full') || document.body.classList.contains('browser-page-full')) return window.innerWidth;
   let saved = 0;
-  try { saved = Number(localStorage.getItem('eden_code.browserWidth')) || 0; } catch (_) { /* private mode */ }
+  try { saved = Number(localStorage.getItem('jarvis.browserWidth')) || 0; } catch (_) { /* private mode */ }
   const max = Math.max(BD_MIN, window.innerWidth - 420);
   return Math.round(Math.min(max, Math.max(BD_MIN, saved || window.innerWidth * 0.46)));
 }
@@ -6558,7 +6207,7 @@ function renderTabs(list) {
 // The same shortcuts as Chrome, whether the page or Eden Secretary's window has the keyboard (the
 // page's come from the main process as 'browser:shortcut').
 function browserKey(action) {
-  if (inEdenCode) { if (window.edenCodeCodeBrowser) window.edenCodeCodeBrowser.key(action); return; }  // (its Browser pane)
+  if (inEdenCode) { if (window.jarvisCodeBrowser) window.jarvisCodeBrowser.key(action); return; }  // (its Browser pane)
   switch (action) {
     case 'address': $('br-url').focus(); $('br-url').select(); break;
     case 'find': openFind(); break;
@@ -6862,10 +6511,10 @@ async function runBrowserCommand(ev) {
   if (!app || !app.browser) return;
   // Eden Code's Browser pane watches a session drive it, and holds its commands while the
   // owner has taken over (features/code-browser.js).
-  const pane = window.edenCodeCodeBrowser;
+  const pane = window.jarvisCodeBrowser;
   const held = pane ? pane.agentStart(ev) : '';
   if (held) { send({ type: 'browser_result', id: ev.id, result: { error: held } }); return; }
-  $('br-eden-code').hidden = false;
+  $('br-jarvis').hidden = false;
   const behind = ev.args && (ev.args.background || ev.args.op === 'list'); // work in a tab behind, or a list
   if (!browserOpenNow && !behind && !['read', 'snapshot', 'describe', 'wait', 'console', 'network'].includes(ev.action)) toggleBrowser(true); // looks don't open it
   let result;
@@ -6874,7 +6523,7 @@ async function runBrowserCommand(ev) {
   } catch (err) {
     result = { error: String(err) };
   }
-  $('br-eden-code').hidden = true;
+  $('br-jarvis').hidden = true;
   if (pane) pane.agentEnd(ev, result);
   send({ type: 'browser_result', id: ev.id, result });
 }
@@ -6985,7 +6634,7 @@ if (app && app.browser) {
     handle.classList.remove('dragging');
     document.body.classList.remove('bd-resizing');
     const w = parseInt(getComputedStyle(document.body).getPropertyValue('--bd-w'), 10);
-    try { if (w) localStorage.setItem('eden_code.browserWidth', String(w)); } catch (_) { /* private mode */ }
+    try { if (w) localStorage.setItem('jarvis.browserWidth', String(w)); } catch (_) { /* private mode */ }
     if ($('br-message').hidden) app.browser.show(slotBounds());
   };
   handle.addEventListener('pointerdown', (e) => {
@@ -7007,7 +6656,7 @@ if (app && app.browser) {
     const w = parseInt(getComputedStyle(document.body).getPropertyValue('--bd-w'), 10) || dockWidth();
     const next = Math.round(Math.min(window.innerWidth - 420, Math.max(BD_MIN, w + (e.key === 'ArrowLeft' ? 40 : -40))));
     applyDockWidth(next);
-    try { localStorage.setItem('eden_code.browserWidth', String(next)); } catch (_) { /* private mode */ }
+    try { localStorage.setItem('jarvis.browserWidth', String(next)); } catch (_) { /* private mode */ }
     syncBrowserBounds();
   });
 }
@@ -7308,7 +6957,7 @@ document.addEventListener('drop', (e) => {
   addPictures(files.filter(isPicture));
   const file = files.find(isMedia);
   if (!file) return;
-  const path = window.edenCodeApp && window.edenCodeApp.pathFor ? window.edenCodeApp.pathFor(file) : '';
+  const path = window.jarvisApp && window.jarvisApp.pathFor ? window.jarvisApp.pathFor(file) : '';
   if (!path) { notice('Video', '', 'Drop the file from Finder.', 5000); return; }
   send({ type: 'video_summarize', path });
 });
@@ -7360,7 +7009,7 @@ function addPictures(files) {
 }
 
 async function addAskPicture(file) {
-  if (askPics.length + picsReading.size >= window.EdenCodeAttach.LIMITS.files) { notice('Eden Secretary', '', 'Up to six pictures per request.', 5000); return; }
+  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Eden Secretary', '', 'Up to six pictures per request.', 5000); return; }
   const slot = { kind: 'image', size: 0 };
   const order = picsOrder++;
   picsReading.add(slot);
@@ -7369,7 +7018,7 @@ async function addAskPicture(file) {
     if (!fitted) { notice('Eden Secretary', '', `${file.name} isn’t a picture Eden Secretary can read.`, 5000); return; }
     slot.size = fitted.size;
     const held = [...askPics].map((p) => ({ kind: 'image', size: p.size }));
-    if (window.EdenCodeAttach.check(held, 'image', fitted.size)) { notice('Eden Secretary', '', `${file.name} would make this request too big to send.`, 5000); return; }
+    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Eden Secretary', '', `${file.name} would make this request too big to send.`, 5000); return; }
     const url = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -7478,7 +7127,7 @@ function onVideoSummary(ev) {
 
 // What the user, Claude or their data says stays as it is; the window's own words are
 // translated around it (i18n.js skips anything inside data-no-i18n).
-function tr(text) { return window.edenCodeI18n ? window.edenCodeI18n.t(text) : text; }
+function tr(text) { return window.jarvisI18n ? window.jarvisI18n.t(text) : text; }
 
 // A time as the lists show it. Intl formatters are costly to make (toLocaleTimeString makes
 // one per call): one per language and style, kept.
@@ -7506,7 +7155,7 @@ function changed(part, data, more) {
   drawnParts.set(part, sig);
   return true;
 }
-function uiLocale() { return window.edenCodeI18n && window.edenCodeI18n.lang() === 'zh' ? 'zh-CN' : undefined; }
+function uiLocale() { return window.jarvisI18n && window.jarvisI18n.lang() === 'zh' ? 'zh-CN' : undefined; }
 
 function mine(node) {
   node.setAttribute('data-no-i18n', '');
@@ -7608,7 +7257,7 @@ function onAlert(ev) {
   }
   if (document.hidden || !document.hasFocus()) {
     // A feature can raise it instead (the app's shell: clicking it opens Eden Secretary on this card).
-    const taken = !window.dispatchEvent(new CustomEvent('eden-code-notify', { cancelable: true, detail: ev }));
+    const taken = !window.dispatchEvent(new CustomEvent('jarvis-notify', { cancelable: true, detail: ev }));
     if (!taken) {
       try { new Notification(ev.title, { body: ev.text, silent: true }); } catch (_) { /* notifications off */ }
     }

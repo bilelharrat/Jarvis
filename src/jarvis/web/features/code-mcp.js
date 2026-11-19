@@ -51,6 +51,7 @@
 
   const F = root.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const { el, t } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
 
@@ -80,7 +81,7 @@
     li.dataset.name = s.name;
     const [words, dot] = statusOf(s);
     const head = el('div', 'cm-head');
-    head.append(el('span', `jc-dot ${dot}`), mine(el('strong', 'cm-name', s.name)), el('span', 'cm-scope', SCOPES[s.scope] || SCOPES.other));
+    head.append(el('span', `jc-dot ${dot}`), mine(el('strong', 'cm-name', s.name)), el('span', 'cm-scope', s.scope !== 'other' && SCOPES[s.scope] ? SCOPES[s.scope] : own(SCOPES.other, 'From Eden Code or a plugin')));
     if (words) head.append(el('span', `cm-status ${dot}`, words));
     li.append(head);
     if (s.target) li.append(mine(el('code', 'cm-target', s.target)));
@@ -192,7 +193,7 @@
     }
     if (state.note) parts.push(el('p', 'cr-note', state.note));
     parts.push(addForm(task, state));
-    parts.push(el('p', 'jc-label cr-head', 'Eden Secretary’s connectors'));
+    parts.push(el('p', 'jc-label cr-head', own('Eden Secretary’s connectors', 'Eden’s connectors')));
     const conns = state.connectors || [];
     if (!conns.length) parts.push(el('p', 'jc-dim cr-none', 'Connect services in Tools & Accounts, then share them with a session here.'));
     else {
@@ -212,7 +213,7 @@
         li.append(text, sw);
         return li;
       }));
-      parts.push(ul, el('p', 'jc-dim cr-intro', 'Eden Secretary keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.'));
+      parts.push(ul, el('p', 'jc-dim cr-intro', own('Eden Secretary keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.', 'Eden keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.')));
     }
     body.replaceChildren(...parts);
   }

@@ -12,7 +12,11 @@
   UTF-8, or mix their line endings, open read-only too (a save would change their bytes).
 
 "Open in": the editors on this Mac (VS Code, Cursor, Xcode, Zed) open a file, at its
-line where the editor can be told one, or the whole project.
+line where the editor can be told one, or the whole project. On Windows (item 49) VS Code,
+Cursor and Zed are found where their installers put them (WIN_EDITORS: the user's own
+install, then the one for everyone, then beside their command on the PATH), each opened by
+its own program (launch: started and left running, as `open` leaves a Mac app); Xcode is the
+Mac's alone.
 """
 
 from __future__ import annotations
@@ -249,6 +253,40 @@ def _app_folders() -> list[Path]:
     return [Path("/Applications"), Path.home() / "Applications"]
 
 
+# Windows: each editor's program, under %LOCALAPPDATA%\Programs (installed for the user, the
+# usual way) or %ProgramFiles% (for everyone), and its command-line name on the PATH (VS
+# Code's bin\code.cmd sits one folder below Code.exe).
+WIN_EDITORS: dict[str, tuple[tuple[tuple[str, str], ...], tuple[str, ...]]] = {
+    "vscode": ((("Microsoft VS Code", "Code.exe"), ("Microsoft VS Code Insiders", "Code - Insiders.exe")),
+               ("code", "code-insiders")),
+    "cursor": ((("cursor", "Cursor.exe"),), ("cursor",)),
+    "zed": ((("Zed", "Zed.exe"), ("Zed", "zed.exe")), ("zed",)),
+}  # fmt: skip
+
+
+def find_windows_editors(env: dict[str, str] | None = None) -> list[dict[str, str]]:
+    """The editors installed on this PC: {id, name, bundle: "", path: its program}."""
+    import os
+
+    env = dict(os.environ if env is None else env)
+    roots = [Path(env["LOCALAPPDATA"]) / "Programs"] if env.get("LOCALAPPDATA") else []
+    roots += [Path(r) for r in (env.get("ProgramFiles"), env.get("ProgramFiles(x86)")) if r]
+    found = []
+    for editor_id, name, *_ in EDITORS:
+        if editor_id not in WIN_EDITORS:
+            continue  # (Xcode)
+        programs, clis = WIN_EDITORS[editor_id]
+        places = [root.joinpath(*p) for root in roots for p in programs]
+        for cli in clis:  # …\Microsoft VS Code\bin\code.cmd -> …\Microsoft VS Code\Code.exe
+            on_path = shutil.which(cli, path=env.get("PATH"))
+            if on_path:
+                places += [Path(on_path).parent.parent / p[-1] for p in programs]
+        hit = next((str(p) for p in places if p.is_file()), None)
+        if hit is not None:
+            found.append({"id": editor_id, "name": name, "bundle": "", "path": hit})
+    return found
+
+
 def find_editors(
     folders: Callable[[], list[Path]] = _app_folders,
     spotlight: Callable[[tuple[str, ...]], bool] | None = None,
@@ -288,7 +326,11 @@ class Editors:
     """The installed editors, looked for at most every EDITORS_FRESH seconds."""
 
     def __init__(self, find: Callable[[], list[dict[str, str]]] | None = None) -> None:
-        self.find = find or (lambda: find_editors(spotlight=spotlight_has))
+        from . import osplat
+
+        self.find = find or (
+            find_windows_editors if osplat.IS_WIN else lambda: find_editors(spotlight=spotlight_has)
+        )
         self._found: list[dict[str, str]] | None = None
         self._at = 0.0
 
@@ -302,7 +344,15 @@ class Editors:
 
 
 def open_command(editor: dict[str, str], path: Path, line: int = 0) -> list[str]:
-    """The command that opens a file (at a line, where the editor takes one) or a folder."""
+    """The command that opens a file (at a line, where the editor takes one) or a folder. On
+    Windows, the editor's own program (VS Code and Cursor take --goto file:line, Zed
+    file:line), for launch() to start."""
+    if editor.get("path"):
+        exe = editor["path"]
+        if line > 0 and path.is_file():
+            at = f"{path}:{int(line)}"
+            return [exe, at] if editor["id"] == "zed" else [exe, "--goto", at]
+        return [exe, str(path)]
     scheme = next((e[4] for e in EDITORS if e[0] == editor["id"]), "")
     if line > 0 and path.is_file():
         if scheme:
@@ -311,3 +361,28 @@ def open_command(editor: dict[str, str], path: Path, line: int = 0) -> list[str]
         if editor["id"] == "xcode" and shutil.which("xed"):
             return ["xed", "--line", str(int(line)), str(path)]
     return ["open", "-b", editor["bundle"], str(path)]
+
+
+def launch(command: list[str]) -> None:
+    """Windows: what open_command (or the Finder/"its own app" choices' `open`) gave, started
+    and left running, as the Mac's `open` leaves the app: `open …` the way this PC opens it
+    (osplat.mac_open: Explorer, the file's own app), an editor's program on its own, with no
+    console window and nothing waited for. ValueError or OSError when it can't."""
+    import subprocess
+
+    from . import osplat
+
+    if not command:
+        raise ValueError("Nothing to open.")
+    if command[0] == "open":
+        osplat.mac_open(list(command[1:]))
+        return
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.Popen(  # noqa: S603 - the editor's own program, found where it's installed
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=flags,
+    )

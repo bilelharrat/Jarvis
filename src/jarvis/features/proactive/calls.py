@@ -43,7 +43,9 @@ from .meetings import covers, is_call
 
 log = logging.getLogger("jarvis")
 
-SERVER_NAME = "calls"
+# Its own name: features/calls.py's live-call server is "calls", and the hub keeps one server
+# a name, so the second registered took the first's place and tell_call was gone (REL3-9).
+SERVER_NAME = "call_notes"
 HELPER = "jarvis-callaudio"
 RATE = listen.SAMPLE_RATE
 BLOCK = int(RATE * listen.BLOCK_SECONDS)  # samples in one block, as the microphone's

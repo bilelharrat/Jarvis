@@ -16,7 +16,7 @@
     "Stopped": "已停止",
     "Didn’t start": "未能启动",
     "Not running": "未运行",
-    "Start": "启动",
+    "Start": "开始",
     "Stop": "停止",
     "Restart": "重启",
     "Save": "保存",
@@ -68,7 +68,7 @@
     "Stopped: it ran for an hour.": "已停止：它运行了一个小时。",
     "It took too long and was stopped.": "它用时太长，已被停止。",
     "When this session changes files: the dev server’s page is reloaded and pictured, and its errors and the server’s are collected. What’s wrong goes back to Eden Code, twice in a row at most.": "当这个会话修改了文件时：重新加载开发服务器的页面并截图，收集页面和服务器的错误。发现的问题会发回给 Eden Code，最多连续两次。",
-    "Check now": "立即检查",
+    "Check now": "现在检查",
     "See the picture": "查看截图",
     "The page as the check saw it": "检查时看到的页面",
     "Preview check": "预览检查",
@@ -94,7 +94,7 @@
     "The page is checked in the Eden Secretary app window, and it isn't open.": "页面要在 Eden Secretary 应用窗口中检查，而它没有打开。",
     "The page is checked in the Jarvis app window, and it isn't open.": "页面要在 Eden Secretary 应用窗口中检查，而它没有打开。",
     "The page is checked in the JARVIS app window, and it isn't open.": "页面要在 Eden Secretary 应用窗口中检查，而它没有打开。",
-    "The page is checked in the J.A.R.V.I.S. app window, and it isn't open.": "页面要在 Eden Secretary 应用窗口中检查，而它没有打开。",
+    "The page is checked in the Eden app window, and it isn't open.": "页面要在 Eden 应用窗口中检查，而它没有打开。",
     "The app window didn't answer the page check in time.": "应用窗口没有及时回应页面检查。",
     "Not sent: the session had moved on to your next message.": "未发送：会话已经在处理你的下一条消息。",
     "Not sent: the session couldn't take another message.": "未发送：会话无法接收新消息。",
@@ -118,7 +118,10 @@
     "Let this session use the Mac": "允许这个会话使用这台 Mac",
     "See the screen, click and type. Every step asks, except in Bypass permissions.": "查看屏幕、点击和输入。每一步都会先询问，绕过权限模式除外。",
     "This session may use the Mac now: it can see the screen, click and type. Every step asks first, unless the session is in Bypass permissions.": "这个会话现在可以使用这台 Mac：它可以查看屏幕、点击和输入。每一步都会先询问，除非会话处于绕过权限模式。",
-    "This session no longer uses the Mac.": "这个会话不再使用这台 Mac。"
+    "This session no longer uses the Mac.": "这个会话不再使用这台 Mac。",
+    "Passed": "通过",
+    "Error": "错误",
+    "Warning": "警告"
   },
   "patterns": [
     [

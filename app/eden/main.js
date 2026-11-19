@@ -14,7 +14,7 @@
 'use strict';
 
 const {
-  app, BrowserWindow, Menu, Notification, Tray, WebContentsView, autoUpdater, clipboard, globalShortcut, ipcMain, nativeImage, net, powerMonitor, screen, session, shell,
+  app, BrowserWindow, Menu, Notification, Tray, WebContentsView, autoUpdater, clipboard, globalShortcut, ipcMain, nativeImage, net, powerMonitor, protocol, screen, session, shell, utilityProcess,
 } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -26,6 +26,9 @@ const { backendCommand, BackendLog } = require('../backend-launch');
 const share = require('../backend-share');
 const { createUpdater, fetchFeed, feedFrom } = require('../features/updates');
 const localBrowser = require('./local-browser');
+const pages = require('./page-path');
+
+protocol.registerSchemesAsPrivileged(pages.PRIVILEGES); // (before ready, as Electron asks)
 
 const NAME = 'Ask Eden';
 // ASK_EDEN_HOME (unpackaged runs only): Eden's page from elsewhere, e.g. http://localhost:5174/ to try a change.
@@ -124,11 +127,11 @@ function createMain() {
   win.once('show', () => {
     playBootSound();
     // (unless a link or the sign-in has already taken the window elsewhere)
-    if (win && !win.isDestroyed() && win.webContents.getURL().startsWith('file:')) win.loadURL(first).catch(() => {});
+    if (win && !win.isDestroyed() && pages.isOwnPage(win.webContents.getURL())) win.loadURL(first).catch(() => {});
   });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } }); // stays in the menu bar
   win.on('closed', () => { browser.detach(win); win = null; });
-  win.loadFile(path.join(__dirname, 'loading.html')).catch(() => {});
+  win.loadURL(pages.pageUrl('loading.html')).catch(() => {});
   pendingUrl = '';
 }
 
@@ -167,7 +170,7 @@ function createQuick() {
     webPreferences: { preload: path.join(__dirname, 'quick-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   quick.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  quick.loadFile(path.join(__dirname, 'quick.html'));
+  quick.loadURL(pages.pageUrl('quick.html')).catch(() => {});
   let focused = false;
   quick.on('focus', () => { focused = true; });
   quick.on('show', () => { focused = false; });
@@ -305,9 +308,10 @@ async function startEdenServer() {
   ].filter(Boolean);
   const entry = candidates.find((f) => fs.existsSync(f));
   if (!entry) return;
-  eden = spawn(process.execPath, [entry, '--port', String(EDEN_PORT)], {
-    cwd: path.dirname(path.dirname(path.dirname(entry))), stdio: 'ignore',
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PATH: [...EXTRA_PATH, process.env.PATH || '/usr/bin:/bin'].join(':') },
+  // A utility process: the release turns off running this app as plain Node (scripts/release/fuses.js).
+  eden = utilityProcess.fork(entry, ['--port', String(EDEN_PORT)], {
+    cwd: path.dirname(path.dirname(path.dirname(entry))), stdio: 'ignore', serviceName: 'Eden server',
+    env: { ...process.env, PATH: [...EXTRA_PATH, process.env.PATH || '/usr/bin:/bin'].join(':') },
   });
   eden.on('exit', () => { eden = null; });
 }
@@ -472,6 +476,7 @@ function playBootSound() {
 }
 
 app.whenReady().then(async () => {
+  pages.serve(protocol, __dirname); // before the first window asks for its page
   if (app.dock) app.dock.setIcon(path.join(__dirname, 'build', 'icon-1024.png'));
   buildMenu();
   createMain();
@@ -491,6 +496,6 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (stopWatching) stopWatching();
   if (engine && engine.child) { try { engine.child.kill('SIGTERM'); } catch { /* gone */ } }
-  if (eden) { try { eden.kill('SIGTERM'); } catch { /* gone */ } }
+  if (eden) { try { eden.kill(); } catch { /* gone */ } }
   share.withdraw(DATA_DIR, process.pid);
 });

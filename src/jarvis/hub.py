@@ -297,6 +297,7 @@ PERSONAL_LOOPS = frozenset(
         "invoicing",
         "mail_index",  # winmail: the PC's mail
         "calls_live",
+        "scheduled_calls",  # calls the owner asked for later
         "paper_alerts",
         "browser_watches",
         "meeting_offer",
@@ -358,14 +359,21 @@ class Stages:
     queued: float
     stt: float
 
-    def line(self, now: float, asked_at: float, voice_wait: float) -> str:
+    def line(self, now: float, asked_at: float, voice_wait: float, first_text: float = 0.0) -> str:
         answering = now - asked_at
         return (
             f"{now - self.spoke_end:.2f}s after you stopped talking "
             f"(end of speech {self.endpoint:.2f}s, in line {self.queued:.2f}s, "
             f"transcribing {self.stt:.2f}s, voice check {voice_wait:.2f}s, "
-            f"answering {answering:.2f}s), {answering:.2f}s after the request"
+            f"answering {answering:.2f}s{_first_words(first_text, asked_at)}), "
+            f"{answering:.2f}s after the request"
         )
+
+
+def _first_words(first_text: float, asked_at: float) -> str:
+    """'; Claude's first words 0.62s': when the reply's first words came, after the request
+    (none for a reply that wasn't streamed, or a sound before any words)."""
+    return f"; Claude's first words {first_text - asked_at:.2f}s" if first_text else ""
 
 
 # Talking again this soon after a request ended, before its answer is spoken, is the rest of
@@ -1267,6 +1275,10 @@ class Hub:
         self.waiting: list[dict[str, Any]] = []  # requests queued behind the current one
         self._heard_at = 0.0
         self._asked_at = 0.0
+        self._first_text_at = 0.0  # when the turn's first streamed words came (0: not yet)
+        # The early look's transcript (its copy's number, the words as Whisper heard them):
+        # the whole utterance's too when nothing was said after that copy.
+        self._early_heard: tuple[int, str] | None = None
         # A spoken request's stages, for the log's first-sound line (Stages): what happened
         # between the owner's last word and the request, and the wait for its voice check.
         self._voice_stages: Stages | None = None
@@ -3427,6 +3439,7 @@ class Hub:
             self.emit("turn", rid=rid, user=display or text)
             self.set_state("thinking")
             self._asked_at = time.monotonic()
+            self._first_text_at = 0.0
             self._turn_stages, self._voice_wait = stages, 0.0
             self._first_sound_logged = False
             self._spoke_this_turn = False
@@ -3584,6 +3597,9 @@ class Hub:
                     self.history.append(
                         {"role": "assistant", "text": self.turn["reply"], "at": _now()}
                     )
+                # A turn that ended without a sound has no first sound: the next sound (a
+                # heads-up, a later turn's reply) isn't this request's, however late it comes.
+                self._first_sound_logged = True
                 await self._apply_pending_model()
                 log.info("turn %s done in %.1fs", rid, time.monotonic() - started)
                 follow_up = (
@@ -3632,10 +3648,16 @@ class Hub:
                 self._first_sound_logged = True
                 now = time.monotonic()
                 stages = self._turn_stages
+                first = self._first_text_at
                 if stages is not None:
-                    log.info("first sound %s", stages.line(now, self._asked_at, self._voice_wait))
+                    line = stages.line(now, self._asked_at, self._voice_wait, first)
+                    log.info("first sound %s", line)
                 else:
-                    log.info("first sound %.2fs after the request", now - self._asked_at)
+                    log.info(
+                        "first sound %.2fs after the request%s",
+                        now - self._asked_at,
+                        _first_words(first, self._asked_at),
+                    )
             self.set_state("speaking")
         elif self.state == "speaking":
             self._spoke_until = time.monotonic()
@@ -3779,6 +3801,8 @@ class Hub:
                 self.turn["reply"] += " "
         elif kind == "content_block_delta" and event.get("delta", {}).get("type") == "text_delta":
             chunk = event["delta"].get("text", "")
+            if not self._first_text_at and chunk.strip():
+                self._first_text_at = time.monotonic()
             self._streamed = True
             self._turn_progress = True  # words went out: a retry would say them twice
             self.turn["reply"] = self.turn.get("reply", "") + chunk
@@ -4136,7 +4160,12 @@ class Hub:
             queue = self._heard
 
             def on_utterance(audio) -> None:
-                loop.call_soon_threadsafe(queue.put_nowait, ("full", time.monotonic(), audio))
+                # Runs on the microphone's thread, right after the utterance ended: which
+                # early copy (if any) it can use is read before another can end.
+                early = getattr(self._listener, "ended_early", 0) or 0
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, ("full", time.monotonic(), audio, early)
+                )
 
             factory = self.listener_factory
             if factory is None:
@@ -4183,9 +4212,10 @@ class Hub:
                 except Exception:
                     log.exception("early transcription failed")
                 continue
-            ended = time.monotonic()
-            if isinstance(audio, tuple):  # ("full", when it ended, audio)
-                _, ended, audio = audio
+            ended, early = time.monotonic(), 0
+            if isinstance(audio, tuple):  # ("full", when it ended, audio, its early copy)
+                _, ended, audio, *rest = audio
+                early = rest[0] if rest else 0
             stale = time.monotonic() - ended > STALE_UTTERANCE
             if stale and self.meeting is None:
                 # Behind (a TV, a busy room): what was said this long ago is not for now,
@@ -4195,8 +4225,15 @@ class Hub:
             self._heard_at = time.monotonic()
             self._start_voice_check(audio)
             transcribing = time.monotonic()
+            heard_early = self._early_heard
+            self._early_heard = None
             try:
-                if self.voicecode.focus is not None and self._code_hotwords:
+                if early and heard_early is not None and heard_early[0] == early:
+                    # Nothing was said after the early copy: its transcript is this one's.
+                    # (Hearing the same words twice cost a second Whisper run for every
+                    # utterance the early look didn't answer, a TV's included.)
+                    text = heard_early[1]
+                elif self.voicecode.focus is not None and self._code_hotwords:
                     stt = (
                         self._code_stt
                         if self._code_stt and self._code_stt.loaded()
@@ -4249,6 +4286,7 @@ class Hub:
             text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
         else:
             text = await asyncio.to_thread(self._transcribe, stt, audio)
+        self._early_heard = (number, text)  # the full utterance's, if nothing follows it
         text = self.hearing.fix(text)
         transcribed = time.monotonic()
 
@@ -4259,9 +4297,13 @@ class Hub:
         # Just the name, then a pause ("Jarvis."): listening starts now, not after the full
         # quiet, and what they say next is heard in the listening window.
         bare = woke and not command
-        if not (for_me and (lang.sounds_finished(text, self.language) or bare)):
+        if not for_me:
+            return
+        if not (bare or lang.sounds_finished(text, self.language, loose=True)):
+            log.info("early answer: waited, it sounds unfinished")
             return
         if self._listener is None or not self._listener.commit(number):
+            log.info("early answer: too late, the full utterance is on its way")
             return  # they kept talking: the full utterance will come instead
         log.info("answered early (smart endpoint)")
         self._heard_at = heard_at
@@ -6571,7 +6613,6 @@ class Hub:
         if self.providers.kind_of(ref) == "gemini":
             from .gemini_proxy import PROXY
 
-            PROXY.set_cost_saver(self.prefs.feature("code_router_cost_saver") is not False)
             await PROXY.start()
         await openai_relay.ready(self.providers, ref)  # an OpenAI-compatible one: its relay
 

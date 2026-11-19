@@ -1,0 +1,45 @@
+/* Eden Code's Debug pane (features/code-debug.js): who has the run and where it's stopped,
+   the buttons that move it, the stack, variables to open, expressions, breakpoints and the
+   output. Section heads and rows are the Health pane's (code-health.css: ch-head, ch-row).
+   Colours are the window's tokens, so it follows light, dark and the glass look. */
+
+.dbg-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 2px 6px; }
+.dbg-state { font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgb(var(--c-fill)); color: rgb(var(--c-ink-2)); }
+.dbg-state.stopped { background: rgb(var(--c-warning-soft)); color: rgb(var(--c-warning-ink)); }
+.dbg-state.running { background: rgb(var(--c-success-soft)); color: rgb(var(--c-success-ink)); }
+.dbg-state.ended { background: rgb(var(--c-fill-2)); color: rgb(var(--c-muted)); }
+.dbg-target { font-family: var(--mono); overflow-wrap: anywhere; }
+.dbg-who { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 2px; color: rgb(var(--c-ink-2)); }
+.dbg-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.dbg-exception { margin: 6px 0; padding: 8px 10px; border-radius: 9px; white-space: pre-wrap; font: 11.5px/1.5 var(--mono); background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.dbg-frames li { padding: 0; }
+.dbg-frame { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: 8px; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.dbg-frame:hover { background: rgb(var(--c-fill)); }
+.dbg-frame.on { background: rgb(var(--c-accent-soft)); color: rgb(var(--c-accent-ink)); }
+.dbg-frame .dbg-fname { flex: 0 0 auto; max-width: 100%; font-family: var(--mono); font-weight: 550; overflow-wrap: anywhere; }
+/* (a long path keeps its end, the file and line, and loses its start) */
+.dbg-frame .dbg-floc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; font-family: var(--mono); color: rgb(var(--c-muted)); }
+.dbg-vars { list-style: none; margin: 0; padding: 0; }
+.dbg-var-row { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; font: 11.5px/1.5 var(--mono); }
+.dbg-twist, .dbg-twist-gap { flex: none; width: 16px; }
+.dbg-twist { border: 0; padding: 0; background: transparent; color: rgb(var(--c-muted)); cursor: pointer; font-size: 11px; }
+.dbg-name { color: rgb(var(--c-accent-ink)); }
+.dbg-name:not(.bare)::after { content: ' ='; color: rgb(var(--c-muted)); }
+.dbg-value { min-width: 0; overflow-wrap: anywhere; color: rgb(var(--c-ink)); }
+.dbg-type { color: rgb(var(--c-muted)); }
+.dbg-loading { margin: 2px 0 2px 22px; }
+.dbg-eval, .dbg-start { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.dbg-eval .jc-field { flex: 1; min-width: 140px; font-family: var(--mono); }
+.dbg-start .jc-field { flex: 1 1 100%; }
+.dbg-check { display: flex; align-items: center; gap: 6px; color: rgb(var(--c-ink-2)); }
+.dbg-evals { list-style: none; margin: 4px 0; padding: 0; }
+.dbg-evals li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; border-top: 0.5px solid rgb(var(--c-border)); font: 11.5px/1.5 var(--mono); }
+.dbg-expr { flex: none; max-width: 45%; overflow-wrap: anywhere; }
+.dbg-bps li { display: flex; align-items: baseline; gap: 8px; }
+.dbg-bps li > span:first-child { flex: 1; font-family: var(--mono); overflow-wrap: anywhere; }
+.dbg-bad { color: rgb(var(--c-danger-ink)); }
+.dbg-error { margin: 6px 2px; }
+.dbg-output { margin: 4px 0; padding: 8px 10px; max-height: 180px; overflow: auto; border-radius: 9px; white-space: pre-wrap; font: 11.5px/1.5 var(--mono); background: rgb(var(--c-surface-muted)); color: rgb(var(--c-ink-2)); }
+.dbg-limits { margin: 10px 2px 0; font-size: 11px; }
+.dbg-hint { display: flex; align-items: center; gap: 8px; padding-top: 0; }
+.dbg-hint small { flex: 1; overflow-wrap: anywhere; }

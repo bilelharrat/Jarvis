@@ -70,7 +70,10 @@ Window commands:
 - model_router_call {rid, op, ...} -> model_router_reply {rid, ok, data | error}: op
   "learned" (the report rows), "reset" (delete learned.json; the learner then only reads
   what comes after), "freeze" {frozen}, "spend" (this calendar month from the log),
-  "budget" {usd}.
+  "budget" {usd}, "recent" {limit?} (the newest routed and Shadow messages from the log,
+  newest first, at most RECENT_MAX: when, the pick, the model the session was on, Gemini's
+  rating, what the turn cost and what a Shadow pick would have saved; numbers and model ids
+  only, as the log has them), for the Model Router pane (web/features/code-router-pane.js).
 
 Settings (prefs.features): code_router_agentic_calls (model calls per message in an agentic
 session, default 8), code_router_budget (USD a month, 0: none), code_router_projects
@@ -121,7 +124,6 @@ STATE_FILE = "model_router_state.json"
 PREF_AGENTIC = "code_router_agentic_calls"
 PREF_BUDGET = "code_router_budget"
 PREF_PROJECTS = "code_router_projects"
-PREF_COST_SAVER = "code_router_cost_saver"
 PREF_FALLBACK = FALLBACK_PREF
 AGENTIC_DEFAULT = 8
 BUDGET_MAX = 100_000.0
@@ -139,6 +141,8 @@ BUDGET_BOOST = 40  # efficiency points added at 100% of the budget (linear from 
 LEARN_EVERY = 50
 LEARN_GAP_SECONDS = 3600.0
 LEARN_TIMEOUT = 180.0
+RECENT_MAX = 50  # routed messages the Model Router pane lists ("recent")
+RECENT_DAYS = 30  # and how far back it reads the log for them
 NIGHTLY = (3, 40)  # local time: the learner and the log's retention
 STATE_EVERY = 0.5  # pushes of model_router_state, at most this often
 MAX_LEARNED_BYTES = 1_000_000
@@ -253,6 +257,26 @@ def _row(value: Any) -> dict[str, Any] | None:
     return out
 
 
+def shadow_saving(route: dict[str, Any]) -> float | None:
+    """What a route's pick would have saved against the model the session was on (its
+    "current" row's cost less the pick's; negative when the pick costs more), or None when
+    either has no price or they're the same model and effort."""
+    pick, current = route.get("pick") or {}, route.get("current") or {}
+    p, c = pick.get("costUSD"), current.get("costUSD")
+    if not isinstance(p, int | float) or not isinstance(c, int | float):
+        return None
+    if pick.get("model") == current.get("model") and pick.get("effort") == current.get("effort"):
+        return None
+    return float(c) - float(p)
+
+
+def _from(route: dict[str, Any]) -> str | None:
+    """Where a logged message came from when it wasn't an Eden Code window ("phone",
+    "api", "queue"), for the Model Router pane's recent list; None for the window's own."""
+    source = (route.get("route") or {}).get("source")
+    return source if source in ("phone", "api", "queue") else None
+
+
 def _compact(out: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in out.items() if v is not None}
 
@@ -314,6 +338,11 @@ def clean_info(value: Any) -> dict[str, Any]:
     best = _row(value.get("best"))
     if best:
         info["best"] = best
+    # The router's own row for the model the session is on now: what Shadow mode's pick
+    # would save (or cost) against it (shadow_saving).
+    current = _row(value.get("current"))
+    if current:
+        info["current"] = current
     alternatives = value.get("alternatives")
     if isinstance(alternatives, list):
         rows = [r for r in (_row(a) for a in alternatives[:3]) if r]
@@ -368,9 +397,6 @@ def clean_projects(value: Any) -> dict[str, dict[str, int]] | None:
 register_feature_pref(PREF_AGENTIC, AGENTIC_DEFAULT, _clean_agentic)
 register_feature_pref(PREF_BUDGET, 0.0, _clean_budget)
 register_feature_pref(PREF_PROJECTS, {}, clean_projects)
-register_feature_pref(
-    PREF_COST_SAVER, True, lambda v: v if isinstance(v, bool) else None
-)
 
 
 # ── what's remembered about a routed message ──
@@ -455,9 +481,6 @@ class Events:
         value = self.hub.prefs.feature(PREF_BUDGET)
         return float(value) if isinstance(value, int | float) and value > 0 else 0.0
 
-    def cost_saver_on(self) -> bool:
-        return self.hub.prefs.feature(PREF_COST_SAVER) is not False
-
     # ── ids ──
 
     def track(self, task: Any) -> Track:
@@ -500,17 +523,24 @@ class Events:
         shadow: bool = False,
         waited_ms: int = 0,
         new: bool = False,
+        via: str = "",
     ) -> str:
-        """Log a routed (or Shadow) message and expect its turn: its msg id ("" if not)."""
+        """Log a routed (or Shadow) message and expect its turn: its msg id ("" if not).
+        source: how the window's route was made ("chip", "rules", "rated"), or where a
+        message from elsewhere came from ("phone", "api"; "queue" for the to-do queue's);
+        via: what picked for one from elsewhere ("worker": the backend's Node worker,
+        "window": an Eden Code window asked for it; code_router_backend)."""
         try:
             return self._routed(
-                task, text, route or {}, source, moved, skipped, shadow, waited_ms, new
+                task, text, route or {}, source, moved, skipped, shadow, waited_ms, new, via
             )
         except Exception:
             log.exception("Model Router: couldn't log a routed message")
             return ""
 
-    def _routed(self, task, text, route, source, moved, skipped, shadow, waited_ms, new) -> str:
+    def _routed(
+        self, task, text, route, source, moved, skipped, shadow, waited_ms, new, via=""
+    ) -> str:
         if task is None or getattr(task, "kind", "") != "code":
             return ""
         track = self.track(task)
@@ -541,12 +571,13 @@ class Events:
                     "waitedMs": max(0, int(waited_ms)) or None,
                     "skipped": skipped or None,
                     "new": True if new else None,
+                    "via": _word(via),
                 }
             ),
         }
         if info.get("profile"):
             record["prompt"]["profile"] = info["profile"]
-        for key in ("rating", "alternatives", "best", "extras"):
+        for key in ("rating", "alternatives", "best", "current", "extras"):
             if info.get(key):
                 record[key] = info[key]
         self.log.append(record)
@@ -717,20 +748,19 @@ class Events:
         if turn is None:
             return
         usage = getattr(message, "usage", None) or {}
-        cache_read = int(usage.get("cache_read_input_tokens") or 0)
         tokens_in = sum(
             int(usage.get(k) or 0)
             for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
         )
         tokens_out = int(usage.get("output_tokens") or 0)
         notional = self._turn_cost(task)
-        usd, notional, uncached_usd = self._real_cost(
-            task, notional, tokens_in, tokens_out, cache_read
-        )
+        usd, notional = self._real_cost(task, notional, tokens_in, tokens_out)
         a = turn.actual
         a["inputTokens"] = a.get("inputTokens", 0) + tokens_in
         a["outputTokens"] = a.get("outputTokens", 0) + tokens_out
-        a["cacheReadTokens"] = a.get("cacheReadTokens", 0) + cache_read
+        a["cacheReadTokens"] = a.get("cacheReadTokens", 0) + int(
+            usage.get("cache_read_input_tokens") or 0
+        )
         a["latencyMs"] = a.get("latencyMs", 0) + int(getattr(message, "duration_ms", 0) or 0)
         a["apiMs"] = a.get("apiMs", 0) + int(getattr(message, "duration_api_ms", 0) or 0)
         a["calls"] = a.get("calls", 0) + int(getattr(message, "num_turns", 0) or 0)
@@ -741,12 +771,6 @@ class Events:
             a["costUSD"] = round((before or 0.0) + usd, 6)
         if notional is not None:
             a["notionalUSD"] = round(a.get("notionalUSD", 0.0) + notional, 6)
-        if uncached_usd is not None:
-            a["uncachedUSD"] = round(a.get("uncachedUSD", 0.0) + uncached_usd, 6)
-            if usd is not None and uncached_usd > usd:
-                a["cacheSavedUSD"] = round(
-                    a.get("cacheSavedUSD", 0.0) + (uncached_usd - usd), 6
-                )
         self._spent(a.get("costUSD", 0.0) - (before or 0.0))
         reason = str(getattr(message, "terminal_reason", "") or "")
         found: dict[str, Any] = {}
@@ -775,36 +799,28 @@ class Events:
         return None
 
     def _real_cost(
-        self,
-        task: Any,
-        notional: float | None,
-        tokens_in: int,
-        tokens_out: int,
-        cache_read: int = 0,
-    ) -> tuple[float | None, float | None, float | None]:
-        """(API dollars, the API price, uncached baseline USD) of a turn: Claude on the owner's
-        sign-in is the plan (no dollars, with Claude counted as a subscription); Claude through
-        an Anthropic key is Claude Code's price; another provider's model is its tokens at the
-        router's prices (Claude Code can't price it), or unknown."""
+        self, task: Any, notional: float | None, tokens_in: int, tokens_out: int
+    ) -> tuple[float | None, float | None]:
+        """(API dollars, the API price) of a turn: Claude on the owner's sign-in is the plan
+        (no dollars, with Claude counted as a subscription); Claude through an Anthropic key
+        is Claude Code's price; another provider's model is its tokens at the router's
+        prices (Claude Code can't price it), or unknown."""
         ref = str(task.model_ref or "")
         if not ref.startswith("custom:"):
             subscription = self.settings().get("subscriptionClaude", True) is not False
-            return (0.0 if subscription else notional), notional, notional
+            return (0.0 if subscription else notional), notional
         provider = None
         with contextlib.suppress(Exception):
             provider = self.hub.providers.provider_of(ref)
         if provider is not None and provider.kind == "anthropic":
-            return notional, notional, notional
+            return notional, notional
         self._load_state()  # (the prices the window sent before a restart)
         model = str(task.model or "")
         price = self.prices.get(model) or self.prices.get(model.rsplit("/", 1)[-1])
         if price:
-            uncached_in = max(0, tokens_in - cache_read)
-            cached_rate = price["in"] * 0.1  # Gemini & OpenAI cached input tokens bill at 10% of input rate
-            usd = (uncached_in * price["in"] + cache_read * cached_rate + tokens_out * price["out"]) / 1e6
-            uncached_usd = (tokens_in * price["in"] + tokens_out * price["out"]) / 1e6
-            return usd, usd, uncached_usd
-        return None, None, None
+            usd = (tokens_in * price["in"] + tokens_out * price["out"]) / 1e6
+            return usd, usd
+        return None, None
 
     # ── the owner's acts, heard on their way (each handler returns False) ──
 
@@ -1042,7 +1058,6 @@ class Events:
             "budget": self.budget_state(),
             "agenticCallsPerTurn": self.agentic(),
             "autoFallback": self.hub.prefs.feature(PREF_FALLBACK) is not False,
-            "costSaver": self.cost_saver_on(),
             "sessions": sessions,
             "learner": {
                 "installed": self.learner_installed(),
@@ -1197,16 +1212,69 @@ class Events:
             self.hub.set_feature_prefs({PREF_BUDGET: usd})
             self._push_now()
             return {"budgetUSD": usd}
-        if op == "cost_saver":
-            enabled = msg.get("enabled") is not False
-            self.hub.set_feature_prefs({PREF_COST_SAVER: enabled})
-            with contextlib.suppress(Exception):
-                from ..gemini_proxy import PROXY
-
-                PROXY.set_cost_saver(enabled)
-            self._push_now()
-            return {"costSaver": enabled}
+        if op == "recent":
+            limit = msg.get("limit")
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+                limit = 20
+            await self.log.flush()
+            return await asyncio.to_thread(self.recent_now, min(limit, RECENT_MAX))
         raise ValueError(f"unknown op {str(op)[:40]!r}")
+
+    def recent_now(self, limit: int = 20) -> list[dict[str, Any]]:
+        """The newest routed (and Shadow) messages, newest first: each route record with what
+        its later updates say the turn used (the last "actual": cumulative) and the owner's
+        verdict signals. Only what the log keeps: never a prompt's words (there are none)."""
+        since = self.clock() - RECENT_DAYS * 86400.0
+        routes: dict[str, dict[str, Any]] = {}
+        actual: dict[str, dict[str, Any]] = {}
+        signals: dict[str, dict[str, Any]] = {}
+        for record in self.log.read(since=since):
+            msg = str(record.get("msg") or "")
+            if not msg:
+                continue
+            if record.get("kind") is None:
+                routes[msg] = record
+                while len(routes) > limit:
+                    routes.pop(next(iter(routes)))
+            elif record.get("kind") == "update":
+                if isinstance(record.get("actual"), dict):
+                    actual[msg] = record["actual"]
+                if isinstance(record.get("signals"), dict):
+                    signals.setdefault(msg, {}).update(record["signals"])
+        out = []
+        for msg, route in reversed(routes.items()):
+            settings = route.get("settings") or {}
+            rating = route.get("rating") or {}
+            used = actual.get(msg) or {}
+            said = signals.get(msg) or {}
+            profile = (route.get("prompt") or {}).get("profile") or {}
+            row: dict[str, Any] = {
+                "ts": route.get("ts"),
+                "shadow": bool(settings.get("shadow")),
+                "pick": route.get("pick") or {},
+                "applied": route.get("applied") or {},
+                "rated": rating.get("used") is True,
+                "ratedBy": rating.get("by") if rating.get("used") is True else None,
+                "complexity": rating.get("complexity") or profile.get("complexity"),
+                "level": settings.get("level"),
+                "project": settings.get("project") is True,
+                "skipped": (route.get("route") or {}).get("skipped"),
+                "from": _from(route),
+            }
+            cost = used.get("costUSD")
+            if isinstance(cost, int | float) and math.isfinite(cost):
+                row["costUSD"] = float(cost)
+            if used.get("model"):
+                row["ranOn"] = used["model"]
+            if row["shadow"]:
+                row["wouldSaveUSD"] = shadow_saving(route)
+            verdict = [k for k in ("wrongPick", "override", "retry", "reverted") if said.get(k)]
+            if said.get("thumbs") in ("up", "down"):
+                verdict.append("thumbs-" + said["thumbs"])
+            if verdict:
+                row["signals"] = verdict
+            out.append({k: v for k, v in row.items() if v is not None})
+        return out
 
     def _reset(self) -> None:
         """Reset learning: learned.json goes, and the learner reads only what comes after."""
@@ -1314,48 +1382,43 @@ class Events:
                 actual[msg] = record["actual"]
         by_model: dict[str, dict[str, Any]] = {}
         saved = 0.0
-        cache_saved = 0.0
-        would_have_cost = 0.0
+        shadow_msgs, would_save = 0, 0.0
         for msg, used in actual.items():
             route = routes.get(msg) or {}
             model = str(used.get("model") or (route.get("applied") or {}).get("model") or "?")
             row = by_model.setdefault(model, {"model": model, "calls": 0, "usd": 0.0})
             row["calls"] += 1
-            cost_val = float(used["costUSD"]) if isinstance(used.get("costUSD"), int | float) else 0.0
             if isinstance(used.get("costUSD"), int | float):
-                row["usd"] = round(row["usd"] + cost_val, 6)
+                row["usd"] = round(row["usd"] + float(used["costUSD"]), 6)
             if isinstance(used.get("notionalUSD"), int | float):
                 row["notionalUSD"] = round(
                     row.get("notionalUSD", 0.0) + float(used["notionalUSD"]), 6
                 )
-            cs = float(used["cacheSavedUSD"]) if isinstance(used.get("cacheSavedUSD"), int | float) else 0.0
-            if cs > 0:
-                row["cacheSavedUSD"] = round(row.get("cacheSavedUSD", 0.0) + cs, 6)
-                cache_saved += cs
-            unc = float(used["uncachedUSD"]) if isinstance(used.get("uncachedUSD"), int | float) else cost_val + cs
-            would_have_cost += unc
         for route in routes.values():
             settings = route.get("settings") or {}
             best, pick = route.get("best") or {}, route.get("pick") or {}
-            if settings.get("shadow") or (route.get("route") or {}).get("skipped"):
+            if settings.get("shadow"):
+                # Shadow mode: what its pick would have saved against the model the session
+                # stayed on (negative: it would have cost more), for the "would save" line.
+                shadow_msgs += 1
+                gain = shadow_saving(route)
+                if gain is not None:
+                    would_save += gain
+                continue
+            if (route.get("route") or {}).get("skipped"):
                 continue
             b, p = best.get("costUSD"), pick.get("costUSD")
             if isinstance(b, int | float) and isinstance(p, int | float) and b > p:
                 saved += b - p
         rows = sorted(by_model.values(), key=lambda r: (-r["usd"], -r["calls"]))
-        total_usd = round(sum(r["usd"] for r in rows), 4)
-        total_saved = round(saved + cache_saved, 4)
         out: dict[str, Any] = {
             "periodStart": iso(start),
-            "totalUSD": total_usd,
+            "totalUSD": round(sum(r["usd"] for r in rows), 4),
             "byModel": rows,
             "savedVsBestUSD": round(saved, 4),
-            "cacheSavedUSD": round(cache_saved, 4),
-            "totalSavedUSD": total_saved,
-            "wouldHaveCostUSD": round(max(would_have_cost, total_usd + total_saved), 4),
-            "costSaver": self.cost_saver_on(),
             "notionalUSD": round(sum(r.get("notionalUSD", 0.0) for r in rows), 4),
             "messages": len(routes),
+            "shadow": {"messages": shadow_msgs, "wouldSaveUSD": round(would_save, 4)},
         }
         if self.budget():
             out["budgetUSD"] = self.budget()
@@ -1530,6 +1593,9 @@ async def _run_learner(events: Events) -> str:
         if scratch is not None:
             with contextlib.suppress(OSError):
                 scratch.unlink()
+        if proc.returncode != 0:  # (killed, or failed: its copy or half-written output goes)
+            with contextlib.suppress(OSError):
+                out.unlink()
     if proc.returncode != 0:
         log.warning("Model Router: the learner said %s", err.decode("utf-8", "replace")[-500:])
         return f"exit {proc.returncode}"

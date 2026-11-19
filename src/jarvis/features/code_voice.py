@@ -40,7 +40,7 @@ gets the jarvis_sessions tools (list_sessions, session_summary, message_session)
 TaskManager.session_extras.
 
 Claude cost policy: "what's everyone doing" and the rest never call a model. "Catch me
-up" calls Haiku 4.5 once for a session only when several of its replies need condensing
+up" calls Haiku 5.5 once for a session only when several of its replies need condensing
 into one sentence, and "read lines…" once to describe the lines. All such calls share a
 cap of HAIKU_PER_HOUR a rolling hour, past which the app's own words are said instead
 (the session's last words; which function the lines are in). Tests never call a model
@@ -66,7 +66,6 @@ from .. import codesupervisor as cs
 from ..claude_signin import signed_in
 from ..code_vocab import normalize
 from ..hub import _msg_int
-from ..prefs import MODELS
 from ..voicecode import parse as voice_command
 from ..voicecode import speakable
 

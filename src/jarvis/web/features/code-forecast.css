@@ -1,0 +1,6 @@
+/* Eden Code's cost forecast (features/code-forecast.js): a few quiet words at the end of the
+   status line under the composer, warmer when the message may not fit the 5-hour limit. The
+   composer itself is untouched. */
+
+.cf-line { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cf-line.warn .cf-text { color: rgb(var(--c-warning-ink)); }

@@ -62,7 +62,19 @@
     return moved;
   }
 
-  const api = { rowShown, goalAction, snippetCommands, effectiveDefaults, movedDefaults };
+  // A rewind asked from the editor. It's answered by code_rewound; until then the editor's
+  // buttons wait. When it can't be sent (no connection) or no answer comes in REWIND_WAIT_MS,
+  // fail(why) runs once, so the editor says so and its buttons work again instead of
+  // staying greyed out with nothing said. Gives the timer (to clear on the answer), or null.
+  const REWIND_WAIT_MS = 15000;
+  const REWIND_NOT_SENT = 'Not sent: Eden Code isn’t connected. Try again in a moment.';
+  const REWIND_NO_ANSWER = 'Eden Code didn’t answer. Try again.';
+  function askRewind(send, msg, fail, wait = setTimeout, ms = REWIND_WAIT_MS) {
+    if (!send(msg)) { fail(REWIND_NOT_SENT); return null; }
+    return wait(() => fail(REWIND_NO_ANSWER), ms);
+  }
+
+  const api = { rowShown, goalAction, snippetCommands, effectiveDefaults, movedDefaults, askRewind, REWIND_NOT_SENT, REWIND_NO_ANSWER, REWIND_WAIT_MS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
@@ -374,6 +386,7 @@
     input.value = value || '';
     input.maxLength = 40;
     input.placeholder = t('Name');
+    input.setAttribute('aria-label', title);  // (what's asked: "Name the group", "Rename")
     const ok = el('button', 'jc-btn small filled', 'Save');
     ok.type = 'submit';
     pop.append(el('p', 'cs-ask-title', title), input, ok);
@@ -451,20 +464,29 @@
     tick.type = 'checkbox';
     files.append(tick, el('span', '', 'Also put the files back as they were before it'));
     const err = el('p', 'cs-editor-err');
+    err.setAttribute('role', 'alert');  // (read out when it says why the rewind didn't go)
     err.hidden = true;
     const row = el('div', 'cs-editor-row');
     const button = (label, cls, run) => { const b = el('button', `jc-btn small ${cls}`, label); b.type = 'button'; b.addEventListener('click', run); return b; };
-    const close = () => { box.remove(); li.classList.remove('cs-editing'); editing.delete(uuid); };
+    const stopWaiting = () => { const p = editing.get(uuid); if (p && p.timer) clearTimeout(p.timer); };
+    const close = () => { stopWaiting(); box.remove(); li.classList.remove('cs-editing'); editing.delete(uuid); };
+    // Not sent, or no answer in time: say why and let the buttons work again.
+    const fail = (why) => {
+      stopWaiting();
+      editing.delete(uuid);
+      err.textContent = t(why);
+      err.hidden = false;
+      row.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    };
     const go = (fork, withText) => {
       const text = area.value.trim();
       if (withText && !text) { area.focus(); return; }
-      editing.set(uuid, { text, rewindOnly: !withText, close, err, box });
+      const pending = { text, rewindOnly: !withText, close, err, box, timer: null };
+      editing.set(uuid, pending);
+      err.hidden = true;
       row.querySelectorAll('button').forEach((b) => { b.disabled = true; });
-      if (!F.send({ type: 'code_rewind', id: task.id, uuid, text: withText ? text : '', files: !fork && tick.checked, fork })) {
-        editing.delete(uuid);
-        row.querySelectorAll('button').forEach((b) => { b.disabled = false; });
-        return;
-      }
+      pending.timer = askRewind(F.send, { type: 'code_rewind', id: task.id, uuid, text: withText ? text : '', files: !fork && tick.checked, fork }, fail);
+      if (pending.timer === null) return;
       if (fork) close();  // the fork opens by itself; this one stays as it was
     };
     row.append(
@@ -489,6 +511,7 @@
   F.on('code_rewound', (ev) => {
     const pending = editing.get(ev.uuid);
     if (!pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
     editing.delete(ev.uuid);
     if (!ev.ok) {
       pending.err.textContent = ev.text || '';
@@ -737,7 +760,7 @@
   function select(options, value, onChange, label) {
     const s = el('select', 'jcs-select');
     s.setAttribute('aria-label', label);
-    s.append(...options.map(([v, text]) => option(v, text, v === value)));
+    s.append(...options.map(([v, text, off]) => { const o = option(v, text, v === value); o.disabled = !!off; return o; }));
     s.addEventListener('change', () => onChange(s.value));
     return s;
   }
@@ -756,7 +779,8 @@
     const own = ownDefaults(defaultsFor) || {};
     const path = projectPath(defaultsFor);
     const set = (field, value) => setProjectDefaults(path, { ...own, [field]: value });
-    const models = [['', 'Eden Code’s default'], ...modelList.map((m) => [m.ref, m.builtin ? m.label : `${m.label} · ${m.provider_name}`])];
+    // The picker's models (Eden chat's, then the owner's); one with no key yet is shown, not choosable.
+    const models = [['', 'Eden Code’s default'], ...modelList.map((m) => [m.ref, m.needs_key ? `${m.label} (needs a key)` : m.builtin || m.eden ? m.label : `${m.label} · ${m.provider_name}`, !!m.needs_key])];
     const rows = el('div', 'jcs-group');
     const row = (label, control) => { const r = el('label', 'jcs-row'); r.append(el('span', '', label), control); return r; };
     // Bypass for the new sessions here is asked about first (Touch ID, or the usual question),
@@ -775,6 +799,8 @@
       row('Check each turn’s work', select([['', 'Eden Code’s default'], ['on', 'On'], ['off', 'Off']], own.verify === undefined ? '' : own.verify ? 'on' : 'off', (v) => set('verify', v === '' ? undefined : v === 'on'), 'Check each turn’s work')),
       // Video proof (features/code_video.py): off unless the project turns it on.
       row('Video proof after UI changes', select([['off', 'Off'], ['on', 'On']], own.video_proof ? 'on' : 'off', (v) => set('video_proof', v === 'on' ? true : undefined), 'Video proof after UI changes')),
+      // Check it yourself (features/code_selfcheck.py): by default on with a dev server or an iOS app.
+      row('Check it yourself', select([['', 'Eden Code’s default'], ['on', 'On'], ['off', 'Off']], own.self_check === undefined ? '' : own.self_check ? 'on' : 'off', (v) => set('self_check', v === '' ? undefined : v === 'on'), 'Check it yourself')),
     );
     rows.querySelectorAll('select').forEach((s, i) => { if (i && !path) s.disabled = true; });
     if (names.length) rows.firstChild.querySelector('select').querySelectorAll('option').forEach(mine);

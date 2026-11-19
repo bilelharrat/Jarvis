@@ -25,7 +25,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
-from . import osplat, packaged
+from . import osplat, packaged, share_record
 from .hub import Hub
 from .prefs import GLASS_TONES, LOOKS
 
@@ -77,6 +77,18 @@ class FreshStaticFiles(StaticFiles):
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = "no-cache"
         return response
+
+
+class OptionalStaticFiles(StaticFiles):
+    """A folder that may not be there: app/node_modules before an npm install, or a build
+    that left hand tracking's or the terminal's files out. Its paths answer 404 then, as any
+    missing file does; Starlette's own check raised RuntimeError on the first request (a 500
+    and a traceback in the log for each page that asked)."""
+
+    async def check_config(self) -> None:
+        if self.directory is not None and not Path(self.directory).is_dir():
+            return
+        await super().check_config()
 
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -150,8 +162,29 @@ def body_look(html: str, look: str, glass_tone: str = "dark") -> str:
 
 
 # The apps whose windows open on this server: J.A.R.V.I.S.'s own, and Eden Code's
-# (app/main.js loads it as /?app=code and names it on the socket as ws?app=eden-code).
-APPS = {"jarvis", "eden-code"}
+# (app/main.js loads it as /?app=code and names it on the socket as ws?app=eden-code), and
+# Ask Eden's link to it (app/eden/main.js: no page, a socket of its own). Each counts as an
+# app on this backend: a released one stays up while any of them is here (launcher_watch).
+APPS = {"jarvis", "eden-code", "ask-eden"}
+
+
+def detach_stdio() -> None:
+    """Points stdout and stderr at nothing: the app whose pipes they were is quitting while
+    this backend stays up for another app's window (/share/release). A print to a closed pipe
+    would raise; every line still goes to jarvis.log through logging's file handler."""
+    import os
+
+    with contextlib.suppress(OSError):
+        null = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null, 1)
+        os.dup2(null, 2)
+        os.close(null)
+
+
+def _stop_self() -> None:
+    from . import launcher_watch
+
+    launcher_watch._stop_self()
 
 
 def eden_code_page(html: str) -> str:
@@ -186,7 +219,18 @@ def daredevil_page(html: str, colors: str = "yellow") -> str:
     return re.sub(r"<body ", '<body data-edition="daredevil" ', html, count=1)
 
 
-def create_app(hub: Hub, token: str) -> Starlette:
+def create_app(
+    hub: Hub,
+    token: str,
+    share_folder: Path | None = None,
+    release: Any = None,
+    stop: Any = None,
+    detach: Any = None,
+) -> Starlette:
+    # The window's launch token: with it, features/code_touchid's gate is on (audit S30).
+    # Its proofs are signed under a key of their own the page never sees (proof_pipe.py).
+    hub.launch_token = token
+
     async def index(request):
         # Stamp script and stylesheet links with a version so an update is never hidden by
         # the window's cache.
@@ -208,7 +252,66 @@ def create_app(hub: Hub, token: str) -> Starlette:
             busy = bool(hub.busy())
         except Exception:
             busy = True
-        return JSONResponse({"ok": True, "busy": busy})
+        # protocol: what an app checks before opening its window here (share_record.PROTOCOL).
+        return JSONResponse({"ok": True, "busy": busy, "protocol": share_record.PROTOCOL})
+
+    def app_asks(request) -> bool:
+        """A request from an Eden app on this Mac that holds the launch token: no browser page
+        (a page's POST carries an Origin; the app's own http.request none), this machine's own
+        address, and the token as a bearer."""
+        host = request.headers.get("host", "")
+        port = (request.scope.get("server") or ("", 0))[1]
+        loopback = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+        offered = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        return (
+            host in loopback
+            and not request.headers.get("origin")
+            and secrets.compare_digest(offered.encode(errors="replace"), token.encode())
+        )
+
+    def other_windows(app: str) -> int:
+        return sum(n for name, n in dict(hub.app_windows).items() if name != app)
+
+    async def share_release(request):
+        """The app that started this backend is quitting. When another app still has a window
+        here, the backend stays for it ({"staying": true}): it stops watching that app, lets
+        go of its pipes, and stops once the last window has gone (launcher_watch.release).
+        Otherwise {"staying": false}, and the app stops it as it always has."""
+        if not app_asks(request):
+            return JSONResponse({"ok": False}, status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        leaving = str((body or {}).get("app", "")) if isinstance(body, dict) else ""
+        others = other_windows(leaving)
+        if others <= 0:
+            return JSONResponse({"ok": True, "staying": False})
+        if release is not None:
+            release(lambda: sum(dict(hub.app_windows).values()))
+        else:
+            from . import launcher_watch
+
+            launcher_watch.release(lambda: sum(dict(hub.app_windows).values()))
+        (detach or detach_stdio)()
+        if share_folder is not None:
+            share_record.update(share_folder, launcher=0, released=_now_ms())
+        log.info("the app that started this backend quit; staying for %d other window(s)", others)
+        return JSONResponse({"ok": True, "staying": True, "windows": others})
+
+    async def share_shutdown(request):
+        """Another Eden app, newer than this backend, asked to take the data over (the owner
+        chose "Restart Eden's engine with this version"): stop gently, as a quit does, and end
+        with HANDED_OVER so the app that started this one opens on the new one instead of
+        starting this again (app/main.js)."""
+        if not app_asks(request):
+            return JSONResponse({"ok": False}, status_code=403)
+        hub.handed_over = True
+        if share_folder is not None:
+            share_record.update(share_folder, handover=_now_ms())
+        log.info("another Eden app is taking the data over: stopping")
+        asyncio.get_running_loop().call_later(0.2, stop or _stop_self)
+        return JSONResponse({"ok": True})
 
     async def zh_json(_request):
         # Some 85 files read, merged and written out again (15 ms or so): in a thread, so
@@ -271,7 +374,10 @@ def create_app(hub: Hub, token: str) -> Starlette:
         app = ws.query_params.get("app", "")
         app = app if app in APPS else ""
         if app and hasattr(hub, "window_joined"):
+            was = getattr(hub, "profile", "")
             hub.window_joined(app)
+            if share_folder is not None and getattr(hub, "profile", "") != was:
+                share_record.update(share_folder, profile=hub.profile)  # code → full, in place
         queue = hub.subscribe()
         at = getattr(hub, "seq", 0)  # what this window's queue starts after
         sender: asyncio.Task | None = None
@@ -351,12 +457,14 @@ def create_app(hub: Hub, token: str) -> Starlette:
             Route("/static/i18n-zh.json", zh_json),
             Route("/features.json", features_json),
             Route("/hooks/{name}", inbound_hook, methods=["POST"]),
+            Route("/share/release", share_release, methods=["POST"]),
+            Route("/share/shutdown", share_shutdown, methods=["POST"]),
             Route("/models/hand_landmarker.task", hand_model),
             *getattr(hub, "routes", ()),  # the feature modules' own (hub.register_route)
             WebSocketRoute("/ws", socket),
             Mount("/static", FreshStaticFiles(directory=WEB_DIR)),
-            Mount("/vision", StaticFiles(directory=VISION_DIR, check_dir=False)),
-            Mount("/xterm", StaticFiles(directory=XTERM_DIR, check_dir=False)),
+            Mount("/vision", OptionalStaticFiles(directory=VISION_DIR, check_dir=False)),
+            Mount("/xterm", OptionalStaticFiles(directory=XTERM_DIR, check_dir=False)),
         ],
         lifespan=lifespan,
     )
@@ -424,6 +532,12 @@ def event_text(event: dict[str, Any]) -> str:
     return text
 
 
+def _now_ms() -> int:
+    import time
+
+    return int(time.time() * 1000)
+
+
 # How long a starting backend waits for the data folder when another backend holds it:
 # enough for the one of a Jarvis that was just quit or updated to finish quitting.
 FOLDER_WAIT_S = 20.0
@@ -441,7 +555,14 @@ def thread_lock_for_progress_bars() -> None:
     tqdm.set_lock(threading.RLock())
 
 
-def serve(port: int, token: str) -> None:
+def listening_line(port: int) -> str:
+    """What the backend prints once it's listening: the port, never the launch token. Run by
+    the app, what it prints goes to backend.log, a file that's kept for weeks; whoever
+    started it has the token already (it gave it in JARVIS_TOKEN)."""
+    return f"JARVIS listening on http://127.0.0.1:{port}/"
+
+
+def serve(port: int, token: str, proofs: Any = None) -> None:
     import logging
     import logging.handlers
     import os
@@ -519,11 +640,37 @@ def serve(port: int, token: str) -> None:
     from . import launcher_watch
 
     launcher_watch.start()  # the app quits or crashes: this backend goes too, lock and all
-    app = create_app(Hub(load_settings()), token)
-    print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, **SERVE_OPTIONS)
-    left = end_children()  # nothing it started outlives it (hub.close left it behind)
-    if left:
-        log.info("stopping: ended %d process%s still running", left, "" if left == 1 else "es")
-    if instance is not None:  # held until the server has stopped
-        instance.close()
+    hub = Hub(load_settings())
+    hub.proof_pipe = proofs  # the app's own key for Touch ID's proofs (proof_pipe.py), or None
+    # Every Eden app finds this backend here, starting or not (share_record.py): it holds
+    # the lock now, so the record can only ever name the owner.
+    if instance is not None:
+        share_record.publish(
+            APP_SUPPORT, port=port, token=token, profile=getattr(hub, "profile", "full")
+        )
+    app = create_app(hub, token, share_folder=APP_SUPPORT if instance is not None else None)
+    print(listening_line(port), flush=True)
+    # uvicorn stops gently on SIGTERM (a quit, launcher_watch, /share/shutdown) and then
+    # raises that signal again once it has put the handler it found back: with the default
+    # one, the process died right there, and nothing below ever ran (the record stayed, the
+    # children were left). The handler it finds is this one, which only notes it; the signal
+    # is raised again for real once everything below is done.
+    import signal
+
+    stopped_by: list[int] = []
+    with contextlib.suppress(ValueError):  # (not the main thread: nothing to catch)
+        signal.signal(signal.SIGTERM, lambda signum, _frame: stopped_by.append(signum))
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=port, **SERVE_OPTIONS)
+    finally:
+        left = end_children()  # nothing it started outlives it (hub.close left it behind)
+        if left:
+            log.info("stopping: ended %d process%s still running", left, "" if left == 1 else "es")
+        if instance is not None:  # the record goes first, then the lock (held until now)
+            share_record.withdraw(APP_SUPPORT)
+            instance.close()
+    if getattr(hub, "handed_over", False):
+        raise SystemExit(share_record.HANDED_OVER)
+    if stopped_by:  # ended by SIGTERM, as before: whoever sent it sees it so
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.raise_signal(signal.SIGTERM)

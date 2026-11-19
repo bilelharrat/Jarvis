@@ -5,7 +5,10 @@ thing here that leaves the Mac).
 
 Before a commit and before a push, what goes in is checked for keys and tokens
 (secret_scan.py): a finding stops it with what was found, masked, and where, on a card;
-the owner can still go ahead, explicitly.
+the owner can still go ahead, explicitly. Before a push, the commits are also checked by
+the security scanners the owner has installed (features/code_security.py: Semgrep and
+the dependency audits); what they find is on the push card, and a high-severity finding
+makes its choice "Push anyway" (and asks even when the push wouldn't have).
 
 Window commands (each names its folder by session id or project directory):
 code_git, code_git_file {path, staged}, code_git_stage {paths | all, unstage?},
@@ -15,7 +18,7 @@ Events: code_git (the state), code_git_file (one file's hunks), code_git_message
 code_git_committed.
 
 Cost: the commit message is the only Claude call (code_ai.POLICY["commit_message"]:
-Haiku 4.5, on the owner's click, 60 a day).
+Haiku 5.5, on the owner's click, 60 a day).
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, lang, secret_scan, worktrees
+from .. import code_ai, code_changes, lang, secret_scan, security_scan, worktrees
 from ..code_changes import git
 from ..hub import _msg_int
 
@@ -75,6 +78,7 @@ ZH = {
     "{n} commit to {url}:": "{n} 个提交，推送到 {url}：",
     "{n} commits to {url}:": "{n} 个提交，推送到 {url}：",
     "Possible secrets in what it would push:": "要推送的内容里可能有密钥：",
+    "Security checks on what it would push:": "要推送的内容的安全检查：",
     "Push": "推送",
     "Don't push": "不推送",
     "Push anyway": "仍然推送",
@@ -245,7 +249,10 @@ class GitPanel:
         self.hub._spawn(coro)
 
     async def publish(self, folder: Path, key: str) -> None:
-        found = await asyncio.to_thread(state, folder)
+        try:
+            found = await asyncio.to_thread(state, folder)
+        except OSError as exc:  # (the folder went away between the ask and the look)
+            found = {"repo": None, "error": f"Eden Code couldn't read {folder.name}: {exc}"}
         self.hub.emit("code_git", key=key, **found)
 
     # ── commands ──
@@ -254,6 +261,15 @@ class GitPanel:
         where = self.folder(msg)
         if where is not None:
             self.spawn(self.publish(where[0], where[2]))
+            return
+        # A session that's gone or a folder it can't use is still answered, under the key
+        # the window asked by, so the pane says why instead of "Loading…" for good.
+        if msg.get("id") not in (None, "", 0, "0"):
+            key, error = f"id:{msg.get('id')}", "That session isn't open anymore."
+        else:
+            key = f"dir:{msg.get('directory') or ''}"
+            error = "That project folder isn't there, or isn't in your projects folder."
+        self.hub.emit("code_git", key=key, repo=None, error=error)
 
     def cmd_file(self, msg: dict[str, Any]) -> None:
         self.spawn(self.file(msg))
@@ -468,9 +484,15 @@ class GitPanel:
                 input=message + "\n",
                 timeout=COMMIT_SECONDS,
             )
+        if done.ok:  # git notes beside it, never in its message (features/code_provenance.py)
+            prov = getattr(self.hub, "code_provenance", None)
+            if prov is not None:
+                await prov.committed(repo.top)
         await self.publish(folder, key)
         if done.ok:
-            sha = git(repo.top, "rev-parse", "--short", "HEAD").out.strip()
+            sha = (
+                await asyncio.to_thread(git, repo.top, "rev-parse", "--short", "HEAD")
+            ).out.strip()
             self.hub.emit("code_git_committed", key=key, sha=sha)
             return f"Committed {sha}: {subject}"
         why = (done.err or done.out).strip()
@@ -542,9 +564,12 @@ class GitPanel:
     def cmd_push(self, msg: dict[str, Any]) -> None:
         self.spawn(self._reply(self.push(msg)))
 
-    async def push(self, msg: dict[str, Any], by_voice: bool = False) -> str:
+    async def push(self, msg: dict[str, Any], by_voice: bool = False, unasked: bool = False) -> str:
         """Push the branch, always after a card: where it goes, the commits, and any secrets
-        in them (then the choice says so)."""
+        in them (then the choice says so). unasked: the owner chose, on a card of its own,
+        to have a pull request's fixes pushed without asking (features/code_pr_green.py's
+        "push fixes without asking"): no card then, unless something in the commits looks
+        like a secret, which still asks."""
         where = self.folder(msg)
         if where is None:
             return ""
@@ -553,6 +578,8 @@ class GitPanel:
         if isinstance(plan, str):
             return plan
         commits, findings = plan["commits"], plan["findings"]
+        security = plan.get("security")
+        risky = bool(security and security.high)
         n = len(commits)
         lines = [f"{n} commit{'s' if n != 1 else ''} to {plan['url']}:"]
         lines += [f"• {c}" for c in commits[:8]]
@@ -562,8 +589,15 @@ class GitPanel:
         if findings:
             lines += ["", "Possible secrets in what it would push:", secret_scan.summary(findings)]
             choices = [("push", "Push anyway"), ("deny", "Don't push")]
+        if security and security.findings:
+            lines += ["", "Security checks on what it would push:"]
+            lines.append(security_scan.summary(security.findings))
+            if risky:
+                choices = [("push", "Push anyway"), ("deny", "Don't push")]
         question = f"Push {plan['branch']} to {plan['remote']}?"
-        if await self.ask(question, "\n".join(lines), choices, speak=by_voice) != "push":
+        if not (unasked and not findings and not risky) and (
+            await self.ask(question, "\n".join(lines), choices, speak=by_voice) != "push"
+        ):
             return "Not pushed."
         args = ["push", "-q"] + ([] if plan["upstream"] else ["-u", plan["remote"], plan["branch"]])
         async with self.lock(folder):
@@ -605,6 +639,8 @@ class GitPanel:
             "HEAD", "--not", f"--remotes={remote}", "--max-count=200", timeout=60,
         )  # fmt: skip
         findings = secret_scan.scan(code_changes.parse_patch(patch.out), repo.shown)
+        scanners = getattr(self.hub, "code_security", None)  # (features/code_security.py)
+        security = scanners.push_report(repo.top, remote, repo.shown) if scanners else None
         url = _strip_urls(git(repo.top, "remote", "get-url", remote).out.strip()) or remote
         return {
             "branch": branch,
@@ -612,6 +648,7 @@ class GitPanel:
             "upstream": upstream_name,
             "commits": commits,
             "findings": findings,
+            "security": security,
             "url": url,
         }
 

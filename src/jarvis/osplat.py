@@ -107,6 +107,23 @@ def keyring_backend():
 SCREEN_READERS = ("nvda.exe", "jfw.exe", "narrator.exe", "supernova.exe", "zt.exe", "zoomtext.exe")
 
 
+def process_names() -> list[str]:
+    """The names of the programs running (lower case), each read from its process itself.
+    Never process_iter(["name"])'s p.info: psutil keeps one Process a pid, and another
+    thread's process_iter with other attrs (runproc's, at every command's end) wrote its
+    p.info over this one's, so p.info["name"] was a KeyError (REL3-14). A process gone or
+    not ours to read is left out."""
+    import psutil
+
+    names = []
+    for p in psutil.process_iter():
+        try:
+            names.append((p.name() or "").lower())
+        except (psutil.Error, OSError):
+            continue
+    return names
+
+
 def screen_reader_running() -> bool | None:
     """Is a screen reader running on this PC? Windows' own flag for it (set by NVDA, JAWS and
     most others), or one of the well-known ones among the programs. Chromium's idea of it is
@@ -126,11 +143,7 @@ def screen_reader_running() -> bool | None:
     except (OSError, AttributeError):
         pass
     try:
-        import psutil
-
-        return any(
-            (p.info["name"] or "").lower() in SCREEN_READERS for p in psutil.process_iter(["name"])
-        )
+        return any(name in SCREEN_READERS for name in process_names())
     except Exception:  # noqa: BLE001 - the program list can't be read: only the flag could say
         return False
 

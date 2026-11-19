@@ -18,7 +18,9 @@
     "An issue labelled for JARVIS in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.": "这些仓库里贴上给我的标签的议题，会开启一个无人值守的会话。议题内容只当作数据，它的拉取请求会等你确认。",
     "An issue labelled for J.A.R.V.I.S. in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.": "这些仓库里贴上给我的标签的议题，会开启一个无人值守的会话。议题内容只当作数据，它的拉取请求会等你确认。",
     "Connect GitHub in Tools & Accounts first.": "请先在“工具与账户”里连接 GitHub。",
-    "GitHub: pull requests and issues": "GitHub：拉取请求与议题"
+    "GitHub: pull requests and issues": "GitHub：拉取请求与议题",
+    "Issues for Eden Code": "交给 Eden Code 的议题",
+    "An issue labelled for Eden Code in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.": "这些仓库里贴上给 Eden Code 的标签的议题，会开启一个无人值守的会话。议题内容只当作数据，它的拉取请求会等你确认。"
   },
   "patterns": []
 }

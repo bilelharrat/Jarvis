@@ -46,13 +46,13 @@ CAUTIOUS = {
 MODELS = {
     "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5-5",
-    "haiku": "claude-haiku-4-5",
+    "haiku": "claude-haiku-5-5",
     "fable": "claude-fable-5-1",
 }
 MODEL_NAMES = {
     "opus": "Opus 5.5",
     "sonnet": "Sonnet 5.5",
-    "haiku": "Haiku 4.5",
+    "haiku": "Haiku 5.5",
     "fable": "Fable 5.1",
 }
 

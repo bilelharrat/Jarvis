@@ -1,0 +1,20 @@
+{
+  "strings": {
+    "Turn on Eden’s voice in Eden Code": "打开 Eden Code 里的 Eden 语音",
+    "Eden Code can’t use the microphone": "Eden Code 用不了麦克风",
+    "Allow Eden Code in System Settings › Privacy & Security › Microphone, then turn Voice on again.": "请在“系统设置 › 隐私与安全性 › 麦克风”里允许 Eden Code，然后再打开语音。",
+    "Eden’s voice": "Eden 的声音",
+    "Voice on this Mac": "这台 Mac 上的声音",
+    "The voice Eden speaks with, here and in Eden Secretary (Settings › Speaking there has the rest)": "Eden 说话用的声音，这里和 Eden Secretary 里一样（其余设置在那边的“设置 › 朗读”）",
+    "Eden’s voice in Eden Code": "Eden Code 里的 Eden 语音",
+    "Eden listens and speaks while you code: replies, progress and reviews out loud. The microphone opens only while this is on": "写代码时 Eden 会听也会说：回复、进度和审查都读出来。只有打开这项时才会打开麦克风",
+    "Hands-free conversation": "免提对话",
+    "Off: the microphone opens only while you hold right ⌥": "关闭时：只有按住右侧 ⌥ 键时才打开麦克风",
+    "Wake word “Eden”": "唤醒词“Eden”",
+    "Say “Eden” or “Hey Eden” first. Off, everything you say goes to the session in front; on, Eden Secretary and Eden Code don’t both answer": "先说“Eden”或“Hey Eden”。关闭时，你说的每句话都发给眼前的会话；打开时，Eden Secretary 和 Eden Code 不会同时回答",
+    "Eden (cloud)": "Eden（云端）",
+    "On this Mac (offline)": "这台 Mac 上（离线）",
+    "Mac voice": "Mac 声音",
+    "Say “read me the changes”, then “next change”, “keep it” or “undo it”. “Stop”, “approve” and “what changed” work too. Hold right ⌥ to talk at any time.": "说“读一下改动”，然后说“下一处”、“保留它”或“撤销它”。“停下”、“批准”和“改了什么”也可以。随时按住右侧 ⌥ 键说话。"
+  }
+}

@@ -66,7 +66,6 @@
   const AGENTIC_DEFAULT = 8;  // = code_router_events.AGENTIC_DEFAULT
   const FALLBACK = 'code_router_auto_fallback';  // = code_router.FALLBACK_PREF (on unless turned off)
   const CROSS = 'code_router_cross_fallback';  // = code_router.CROSS_PREF (off unless turned on)
-  const CODEX_FALLBACK = 'codex_key_fallback';  // = code_router.CODEX_FALLBACK_PREF (on unless turned off)
   const PROVIDERS_OFF = 'code_router_providers_off';  // = code_router.PROVIDERS_PREF
   const SUBSCRIPTION = ['anthropic'];  // Claude on the owner's sign-in: plan quota, not API dollars
 
@@ -80,8 +79,8 @@
     for (const m of models || []) if (m && m.model && m.ref && !m.needs_key && !out.some((x) => x.model === m.model)) out.push(m);
     return out;
   }
-  // Gemini 3+ Flash and Gemini 4+ models: gemini_proxy gives them the session's effort as a thinking level.
-  const geminiFlash = (model) => /^gemini-(?:(?![12](?:[.-]|$))[a-z0-9.-]*flash|4(?:[.-]|$))/i.test(String(model || ''));
+  // Gemini 3 and later Flash models: gemini_proxy gives them the session's effort as a thinking level.
+  const geminiFlash = (model) => /^gemini-(?![12](?:[.-]|$))[a-z0-9.-]*flash/i.test(String(model || ''));
   // Whether a session on this model runs at the effort it's given (the picker's kind).
   function takesEffort(entry) {
     if (!entry) return false;
@@ -137,7 +136,7 @@
     const kept = list.filter((m) => !(m && skip.has(providerOf(m.model))));
     return routable(kept).length ? kept : list;
   }
-  // Settings › General › Model Router: its fallback switches, as features has them.
+  // Settings › General › Model Router: its two fallback switches, as features has them.
   function fallbackSwitches(features) {
     const f = features || {};
     const auto = f[FALLBACK] !== false;
@@ -146,8 +145,6 @@
         note: 'A routed message whose model hits a limit or an outage moves to the route’s next pick and carries on.' },
       { key: CROSS, on: auto && f[CROSS] === true, disabled: !auto, label: 'Fall back to another company’s model',
         note: 'Off: the fallback stays with the same company, so your code and the conversation go nowhere new. On: it may move to another provider’s model.' },
-      { key: CODEX_FALLBACK, on: f[CODEX_FALLBACK] !== false, disabled: false, label: 'Fall back to OpenAI API keys when Codex hits its limit',
-        note: 'When your ChatGPT Codex subscription reaches its usage limit, requests switch to your saved OpenAI API keys in order (newest first, then older keys).' },
     ];
   }
   // Settings › General › Model Router: Shadow mode while Model Router isn't the model.
@@ -184,12 +181,11 @@
       for (const k of ['efficiency', 'performance']) if (Number.isFinite(s[k])) out[k] = Math.max(0, Math.min(100, Math.round(s[k])));
       if (['off', 'auto', 'always'].includes(s.classifier)) out.classifier = s.classifier;
       for (const k of SWITCHES) if (typeof s[k] === 'boolean') out[k] = s[k];
-      if (typeof s.riskAware === 'boolean') out.riskAware = s.riskAware;
     }
     return out;
   }
   // The same routing (what a pick depends on), and the same settings in every field.
-  const sameSettings = (a, b) => a.efficiency === b.efficiency && a.performance === b.performance && a.classifier === b.classifier && (a.riskAware !== false) === (b.riskAware !== false);
+  const sameSettings = (a, b) => a.efficiency === b.efficiency && a.performance === b.performance && a.classifier === b.classifier;
   const sameAll = (a, b) => sameSettings(a, b) && SWITCHES.every((k) => a[k] === b[k]);
   // The composer's text and what goes (trimmed, as app.js sends it) are the same prompt.
   const sameText = (a, b) => String(a || '').trim() === String(b || '').trim();
@@ -394,7 +390,7 @@
   // What createLocalRouter is made with for these models (the caller adds fetch and the rest).
   function routerOptions(list) {
     const models = routable(list);
-    return { profile: 'eden-code', models: models.map((m) => m.model), efforts: effortsFor(models) };
+    return { models: models.map((m) => m.model), efforts: effortsFor(models) };
   }
   // What tells two routers apart (the models, how they run, the learned overrides' stamp).
   function routerKeyOf(list, stampOrEmpty) {
@@ -437,7 +433,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, withoutProviders, fallbackSwitches, FALLBACK, CROSS, CODEX_FALLBACK, takesEffort,
+      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, withoutProviders, fallbackSwitches, FALLBACK, CROSS, takesEffort,
       shadowSwitch, currentRow, shadowSummary, shadowWords, PASSIVE, geminiFlash, cleanSettings, sameSettings, sameAll,
       sameText, isTrivial, isRated, needsRating, ratedRoute, pauseAfter, newToken, errorText, within, extrasFor,
       budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf, composerLook,
@@ -449,7 +445,7 @@
 
   // ── the window ──
 
-  const F = root.edenCodeFeatures;
+  const F = root.jarvisFeatures;
   if (!F || !F.$('jc-model')) return;
 
   let features = (typeof prefs !== 'undefined' && prefs && prefs.features) || {};
@@ -568,11 +564,9 @@
         router = lib.createLocalRouter(opts);
       }
       routerKey = key;
-      if (!F.splitPane) {
-        const prices = pricesOf(lib, router.ids);
-        const said = JSON.stringify(prices);
-        if (said !== pricesSent && said !== '{}' && F.send({ type: 'model_router_prices', prices })) pricesSent = said;
-      }
+      const prices = pricesOf(lib, router.ids);
+      const said = JSON.stringify(prices);
+      if (said !== pricesSent && said !== '{}' && F.send({ type: 'model_router_prices', prices })) pricesSent = said;
     }
     return router;
   }
@@ -630,7 +624,7 @@
     // "Open Model Router": the pane in this window, with the draft (no fullUrl: nothing
     // to open in a browser).
     openFull: () => { if (chip && typeof chip.toggle === 'function') chip.toggle(false, false); openRouterPane(); },
-    loadSettings: () => { const r = routing(task()); return { ...r, riskAware: r.riskAware !== false }; },
+    loadSettings: () => routing(task()),
     // The sliders: the session's project's own while it has some, else everyone's.
     saveSettings: (s) => {
       const t = task();
@@ -859,7 +853,6 @@
   // once (the rules'); then, while Model Router is the model and the message may be rated
   // (rate), Gemini's within ROUTE_WAIT_MS, as final. No route: nothing to pick.
   F.on('model_router_ask', async (ev) => {
-    if (F.splitPane) return;
     const rid = ev && typeof ev.rid === 'string' ? ev.rid.slice(0, 40) : '';
     if (!rid) return;
     const reply = (route, final) => F.send(route ? { type: 'model_router_answer', rid, route, final } : { type: 'model_router_answer', rid, final });
@@ -991,7 +984,7 @@
     const off = providersOff();
     features = p.features;
     if (settings().learn !== wasLearn) router = null;
-    if (chip && !sameAll(before, routing(t))) chip.applySettings(routing(t));
+    if (chip && !sameSettings(before, routing(t))) chip.applySettings(routing(t));
     if (wasOn !== isOn()) renderComposer();
     if (shadowOn() && !lib && !libError) loadLib().catch(() => {});
     if (chip && !chip.hidden && JSON.stringify(off) !== JSON.stringify(providersOff())) chip.refresh();
@@ -1061,10 +1054,8 @@
   }
   F.on('hello', (ev) => {
     onPrefs(ev.prefs);
-    if (!F.splitPane) {
-      F.send({ type: 'model_router_state_get' });
-      F.send({ type: 'model_router_claude_get' });
-    }
+    F.send({ type: 'model_router_state_get' });
+    F.send({ type: 'model_router_claude_get' });
   }, { replay: true });
   // Claude can't answer until `until` (ms), or can again: the router leaves it out meanwhile.
   F.on('model_router_claude', (ev) => {

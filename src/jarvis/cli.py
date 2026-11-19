@@ -205,6 +205,7 @@ def main() -> None:
         import secrets
         import signal
 
+        from . import proof_pipe
         from .packaged import take_token
 
         # `kill -USR1 <pid>` writes every thread's stack to the backend's log: what a busy or
@@ -215,7 +216,10 @@ def main() -> None:
 
         # The app passes its own token; a manual run gets a fresh one. It's taken out of the
         # environment: nothing this backend starts (sessions, terminals, dev servers) gets it.
-        serve(args.port, take_token() or secrets.token_urlsafe(24))
+        token = take_token() or secrets.token_urlsafe(24)
+        # And the app's own pipe for Touch ID's proofs (proof_pipe.py): off stdin before
+        # anything is started, so nothing this backend starts can read the key on it.
+        serve(args.port, token, proof_pipe.take())
         return
     from claude_agent_sdk import CLINotFoundError
 

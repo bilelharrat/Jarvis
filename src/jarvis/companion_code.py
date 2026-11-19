@@ -94,6 +94,10 @@ LISTENED = sorted({kind for a in ACTIONS.values() for kind in a.wait})
 _ASKER: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar(
     "phone_code_asker", default=None
 )
+# Which window command the phone request is (its "type"), for the Touch ID gate: Bypass from
+# the phone only through the commands whose Face ID the iPhone app asks first (round 2, R2-2;
+# features/code_touchid.py PHONE_ASKS).
+_COMMAND: contextvars.ContextVar[str] = contextvars.ContextVar("phone_code_command", default="")
 
 
 class CodeDesk:
@@ -131,9 +135,11 @@ class CodeDesk:
             self.waiting.append(entry)
         try:
             asking = _ASKER.set(queue)
+            commanding = _COMMAND.set(str(command.get("type") or ""))
             try:
                 await self.hub.handle(command)
             finally:
+                _COMMAND.reset(commanding)
                 _ASKER.reset(asking)
             heard: list[dict[str, Any]] = []
             if not wait or (done is not None and done()):
@@ -234,6 +240,8 @@ def routes(api: Any) -> list[Route]:
                 command[key] = data[key][:200]
         if isinstance(data.get("isolated"), bool):
             command["isolated"] = data["isolated"]
+        if "model" not in command:
+            command["from"] = "phone"  # (Model Router picks for it: code_router_backend)
         pictures = _pictures(data)
         if pictures:
             command["images"] = pictures
@@ -241,17 +249,25 @@ def routes(api: Any) -> list[Route]:
         # answered the newest, and the phone opened the wrong session for the first. One
         # that starts as it's handled answers at once; else its error, if any, comes within
         # three seconds (a mention read first, a cloud machine's).
+        # The session is this request's by its launch token (launches.py), never "whichever
+        # is new": another started meanwhile (the window, a queue) was taken for it (REL3-10).
+        from . import launches
+
+        token = launches.token()
+        command[launches.KEY] = token
         async with desk.starting:
-            known = set(hub.tasks.tasks)
             said = await desk.run(
-                command, ("error",), 3, done=lambda: bool(set(hub.tasks.tasks) - known)
+                command,
+                ("error",),
+                3,
+                done=lambda: launches.find(hub.tasks, token) is not None,
             )
-            new = sorted(set(hub.tasks.tasks) - known)
-        if not new:
+            found = launches.find(hub.tasks, token)
+        if found is None:
             problem = next((e.get("text") for e in said if e.get("type") == "error"), "")
             return _bad(str(problem or "the session didn't start"))
-        api.companion.record(device, "code_started", f"#{new[0]}")
-        return JSONResponse({"ok": True, "id": new[0]})
+        api.companion.record(device, "code_started", f"#{found.id}")
+        return JSONResponse({"ok": True, "id": found.id})
 
     async def code_action(request: Request) -> Response:
         device, data, refused = await api._post(request, "act")

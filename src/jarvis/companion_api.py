@@ -32,7 +32,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from . import companion_sensors, push
+from . import code_changes, companion_sensors, push
 from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 log = logging.getLogger("jarvis")
@@ -238,9 +238,12 @@ def parse_unified(diff: str) -> list[dict[str, Any]]:
 
 
 def _git(cwd: Path, *args: str) -> str | None:
+    env = code_changes.git_env(cwd)  # (a container's copy: its git data pinned)
+    if env is None:
+        return None
     try:
         out = subprocess.run(
-            ["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=15
+            ["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=15, env=env
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -733,8 +736,13 @@ class Api:
         if not text and not images:
             return _bad("empty")
         steer = data["steer"] if isinstance(data.get("steer"), bool) else None
-        # Queued as the composer queues it; steer: into the running step now.
-        ok = self.hub.tasks.send(task.id, text, images, steer=steer)
+        # Queued as the composer queues it; steer: into the running step now. Routed by
+        # Model Router first, as the window's messages are (code_router_backend).
+        router = getattr(self.hub, "code_router", None)
+        if router is not None:
+            ok = router.send(task.id, text, images, source="phone", steer=steer)
+        else:
+            ok = self.hub.tasks.send(task.id, text, images, steer=steer)
         if ok:
             self.companion.record(device, "code_sent", f"#{task.id}")
         return _ok(ok)

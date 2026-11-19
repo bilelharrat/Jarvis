@@ -101,7 +101,7 @@
     "Apple's recognizer fell behind": "Apple 的识别器跟不上了",
     "Apple's recognizer stopped": "Apple 的识别器停止了",
     "no audio format for the speech model": "语音模型没有可用的音频格式",
-    "Eden Secretary": "Eden Secretary",
+    "JARVIS": "JARVIS",
     "Optional. Without one, the Eden Secretary voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
     "Optional. Without one, the Jarvis voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",
     "Optional. Without one, the JARVIS voice comes with a daily allowance. Add your own Fish Audio key (fish.audio) to speak without a limit.": "可选。没有密钥时，Eden Secretary 声音每天有使用额度。添加你自己的 Fish Audio 密钥（fish.audio）即可不受限制。",

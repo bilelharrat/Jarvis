@@ -12,6 +12,20 @@
       if (!state.ready) return `${state.machine} isn't ready: ${state.problem || 'test it in Machines.'}`;
       return `Runs on ${state.machine}: it keeps working while your Mac sleeps or is shut.`;
     },
+    // How the switch shows. "on" is the owner's choice and is kept as it was until a session
+    // starts: a start that failed, or the machine going not-ready for a moment, no longer
+    // forgets it. It's only pressed (and sent) while the machine can take the session. When
+    // it can't, the switch stays focusable (aria-disabled, not disabled) and the why is a
+    // visible note it's described by, not only a tooltip a screen reader can't reach.
+    view(state, on, starting) {
+      const usable = !!(state && state.machine && state.ready);
+      return {
+        hidden: !starting || !(state && state.machine),
+        usable,
+        pressed: on && usable,
+        note: usable ? '' : helpers.tip(state),
+      };
+    },
   };
 
   if (typeof module === 'object' && module.exports) { module.exports = helpers; return; }
@@ -27,25 +41,37 @@
   pill.id = 'jcx-cloud-switch';
   pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5h7a2.75 2.75 0 0 0 .4-5.47A4 4 0 0 0 4.2 7.1 2.7 2.7 0 0 0 4.5 12.5z"/></svg>';
   pill.append(el('span', '', 'Cloud'));
-  pill.addEventListener('click', () => { on = !on; draw(); });
+  pill.setAttribute('aria-describedby', 'jcx-cloud-note');
+  const note = el('span', 'jcx-cloud-note');
+  note.id = 'jcx-cloud-note';
+  note.hidden = true;
+  pill.addEventListener('click', () => {
+    if (pill.getAttribute('aria-disabled') === 'true') return;  // (the note says why)
+    on = !on;
+    draw();
+  });
+  let sent = false;  // a session was asked for with the switch on: it's turned off once it starts
 
   function draw() {
     const row = document.querySelector('#deck-composer .jc-composer-row');
     if (row && !pill.isConnected) row.insertBefore(pill, row.querySelector('.jc-spacer'));
+    if (row && !note.isConnected) pill.after(note);
     const starting = !F.currentTask() && typeof deckProject === 'string' && !!deckProject;
-    const usable = !!(state && state.machine && state.ready);
-    pill.hidden = !starting || !(state && state.machine);
-    pill.disabled = !usable;
-    if (!usable) on = false;
-    pill.setAttribute('aria-pressed', String(on));
-    pill.classList.toggle('on', on);
+    if (sent && !starting) { sent = false; on = false; }  // it started: the next one starts here
+    const v = helpers.view(state, on, starting);
+    pill.hidden = v.hidden;
+    pill.setAttribute('aria-disabled', String(!v.usable));
+    pill.setAttribute('aria-pressed', String(v.pressed));
+    pill.classList.toggle('on', v.pressed);
     pill.title = t(helpers.tip(state));
+    note.hidden = v.hidden || !v.note;
+    note.textContent = v.note ? t(v.note) : '';
   }
 
   /* global deckProject */
   F.registerSessionOption(() => {
-    if (pill.hidden || !on) return {};
-    setTimeout(() => { on = false; draw(); });  // the next session starts here unless switched again
+    if (pill.hidden || !helpers.view(state, on, true).pressed) return {};
+    sent = true;  // (kept on if the start fails; off once the session is open)
     return { cloud: true, isolated: true };
   });
 

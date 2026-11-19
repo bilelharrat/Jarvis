@@ -42,7 +42,6 @@ from claude_agent_sdk import (
 from .claude_signin import signed_in
 from .computer import is_sensitive
 from .config import MAX_BUFFER
-from .prefs import MODELS
 from .tasks import _inside, _read_paths
 
 MODEL = "gemini-3.8-flash"

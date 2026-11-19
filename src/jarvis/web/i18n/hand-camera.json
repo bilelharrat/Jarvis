@@ -1,0 +1,13 @@
+{
+  "strings": {
+    "Camera": "摄像头",
+    "Default camera": "默认摄像头",
+    "Camera for hand control": "手势控制使用的摄像头"
+  },
+  "patterns": [
+    [
+      "^(.+) \\(not connected\\)$",
+      "$1（未连接）"
+    ]
+  ]
+}

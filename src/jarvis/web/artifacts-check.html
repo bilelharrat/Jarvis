@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Eden Code — Artifacts Harness</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/eden-code.css">
+  <link rel="stylesheet" href="/static/eden-code-glass.css">
+  <link rel="stylesheet" href="/static/features/code-artifacts.css">
+  <link rel="stylesheet" href="/static/features/settings-nav.css">
+  <style>
+    body { margin: 0; height: 100vh; overflow: hidden; }
+  </style>
+</head>
+<body class="eden-code in-app" data-app="eden-code">
+  <div id="cc" class="deck open jc">
+    <aside class="jc-side">
+      <div class="jc-side-head">
+        <strong>Eden Code</strong>
+      </div>
+      <div class="jc-side-foot">
+        <button id="jc-eden-settings" class="jc-btn" type="button">Settings</button>
+      </div>
+    </aside>
+    <main class="jc-main">
+      <header class="jc-toolbar">
+        <div class="jc-titles"><strong id="jc-title">Artifacts Demo Session</strong></div>
+        <div class="jc-capsule">
+          <button id="jc-more-btn" class="jc-cap-btn" type="button">More</button>
+        </div>
+      </header>
+      <div class="jc-scroll">
+        <ul id="deck-timeline" class="jc-timeline"></ul>
+      </div>
+    </main>
+    <aside id="jc-pane" class="jc-pane" hidden>
+      <header id="jc-pane-head" class="jc-pane-head">
+        <strong id="jc-pane-title">Artifact</strong>
+        <button id="jc-pane-close" class="jc-mini" type="button">Close</button>
+      </header>
+      <div id="jc-pane-body" class="jc-pane-body"></div>
+    </aside>
+  </div>
+  <script>
+    const listeners = new Map();
+    const panes = new Map();
+    const entries = new Map();
+    const moreItems = [];
+    const aid1 = 'ab'.repeat(12);
+    const aid2 = 'cd'.repeat(12);
+    const mockTask = {
+      id: 1,
+      entries: [
+        { n: 1, role: 'artifact', aid: aid1, version: 2, title: 'Interactive Pricing Card', kind: 'react' },
+        { n: 2, role: 'artifact', aid: aid2, version: 1, title: 'Architecture Flow', kind: 'mermaid' },
+      ],
+    };
+    const mockStore = {
+      [aid1]: {
+        1: { version: 1, versions: 2, title: 'Interactive Pricing Card', format: 'react', content: 'export default function App() {\n  return <div className="p-6"><h1>Starter Plan</h1></div>;\n}' },
+        2: { version: 2, versions: 2, title: 'Interactive Pricing Card', format: 'react', content: 'export default function App() {\n  const [annual, setAnnual] = useState(true);\n  return (\n    <div className="p-8 max-w-md mx-auto">\n      <h2 className="text-2xl font-bold">Pro Workspace</h2>\n      <p className="mt-2 text-lg">{annual ? "$19 / mo" : "$24 / mo"}</p>\n      <button onClick={() => setAnnual(!annual)}>Toggle Billing</button>\n    </div>\n  );\n}' },
+      },
+      [aid2]: {
+        1: { version: 1, versions: 1, title: 'Architecture Flow', format: 'mermaid', content: 'flowchart LR\n  Chat[Eden Code Chat] --> MCP[create_artifact]\n  MCP --> Pane[Live Artifact Pane]' },
+      },
+    };
+    function emit(type, ev) {
+      for (const fn of (listeners.get(type) || [])) fn(ev);
+    }
+    window.jarvisFeatures = {
+      $: (id) => document.getElementById(id),
+      el: (tag, cls, text) => {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text != null) n.textContent = text;
+        return n;
+      },
+      t: (s) => String(s),
+      on: (type, fn) => {
+        if (!listeners.has(type)) listeners.set(type, []);
+        listeners.get(type).push(fn);
+      },
+      send: (msg) => {
+        window.__lastSent = msg;
+        if (msg.type === 'art_get') {
+          const byVer = mockStore[msg.aid] || {};
+          const v = msg.version || Object.keys(byVer).length || 1;
+          const data = byVer[v] || byVer[1];
+          if (data) setTimeout(() => emit('artifact_content', { aid: msg.aid, ...data }), 10);
+        } else if (msg.type === 'art_create') {
+          const newId = 'ef'.repeat(12);
+          mockStore[newId] = { 1: { version: 1, versions: 1, title: msg.title, format: msg.kind, content: msg.content } };
+          mockTask.entries.push({ n: 3, role: 'artifact', aid: newId, version: 1, title: msg.title, kind: msg.kind });
+          const cardEl = entries.get('artifact')({ aid: newId, version: 1, title: msg.title, kind: msg.kind });
+          if (cardEl) document.getElementById('deck-timeline').append(cardEl);
+          setTimeout(() => emit('artifact', { id: 1, aid: newId, version: 1, title: msg.title }), 10);
+        }
+      },
+      registerPane: (id, spec) => panes.set(id, spec),
+      openPane: (id) => {
+        const pane = document.getElementById('jc-pane');
+        pane.dataset.kind = id;
+        pane.hidden = false;
+        const spec = panes.get(id);
+        if (spec) spec.render(document.getElementById('jc-pane-body'));
+      },
+      closePane: () => {
+        document.getElementById('jc-pane').hidden = true;
+      },
+      registerEntry: (role, fn) => entries.set(role, fn),
+      registerMoreItem: (item) => moreItems.push(item),
+      currentTask: () => mockTask,
+      richText: (txt) => { const d = document.createElement('div'); d.textContent = txt; return d; },
+    };
+    document.getElementById('jc-pane-close').addEventListener('click', () => window.jarvisFeatures.closePane());
+  </script>
+  <script src="/static/features/code-artifacts.js"></script>
+  <script>
+    const tl = document.getElementById('deck-timeline');
+    for (const e of mockTask.entries) {
+      const node = entries.get('artifact')(e);
+      if (node) tl.append(node);
+    }
+    const say = document.createElement('li');
+    say.className = 'jc-say';
+    say.innerHTML = '<div class="jc-md"><pre><div class="jc-code-head"><span>svg</span><button class="jc-copy" type="button">Copy</button></div><code>&lt;svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"&gt;&lt;circle cx="60" cy="60" r="48" fill="#0b87d6"/&gt;&lt;/svg&gt;</code></pre></div>';
+    tl.append(say);
+    emit('init', {});
+    emit('active', {});
+  </script>
+</body>
+</html>

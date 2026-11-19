@@ -1,0 +1,20 @@
+{
+ "strings": {
+  "Pick an element": "选取元素",
+  "Pick an element on the page": "选取页面上的元素",
+  "Send it with your next message": "随下一条消息发送",
+  "Pick an element of the Preview to send": "在预览里选取一个元素发送",
+  "Pick mode: point at an element on the page and click it. Escape gives up.": "选取模式：指向页面上的元素并点击它。按 Esc 放弃。",
+  "Picking an element works in the Eden Code app: its Preview opens in the app’s own browser.": "选取元素需要在 Eden Code 应用里使用：它的预览在应用自带的浏览器里打开。",
+  "That element couldn’t be picked.": "没能选取这个元素。",
+  "Only an element of a page on this Mac can be picked.": "只能选取这台 Mac 上网页里的元素。",
+  "Pick works on your dev server’s page (an address on this Mac) or a file you opened yourself. Open it in the browser first.": "选取只适用于你的开发服务器页面（这台 Mac 上的地址）或你自己打开的文件。请先在浏览器里打开它。",
+  "No page is open in the browser.": "浏览器里没有打开网页。"
+ },
+ "patterns": [
+  [
+   "^(.+) is on your message\\. Say or type what to do with it\\.$",
+   "$1 已附在你的消息上。说出或输入要怎么处理它。"
+  ]
+ ]
+}

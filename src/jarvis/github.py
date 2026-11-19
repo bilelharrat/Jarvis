@@ -1,5 +1,8 @@
 """GitHub for Eden Code: its REST API (over httpx, HTTP/1.1), for pull requests, their
-checks, reviews and comments, merging, and the issues that start sessions.
+checks, reviews and comments, merging, and the issues that start sessions; anyone's open
+pull requests and their files, for the automated review (features/code_pr_review.py),
+which posts its findings as a review; and a pull request's base changed, for a stack of
+them (features/code_stack.py).
 
 Which repository a project is: its git remote (the branch's upstream remote, else origin,
 else its only one), in any of the forms git writes (https with or without a user and token
@@ -69,6 +72,11 @@ ZH = {
     "GitHub had a problem ({status}). Try again in a moment.": "GitHub 出了问题（{status}）。请稍后再试。",
 }
 lang.add_texts(ZH)
+
+
+# GitHub's repository roles, least first; ROLE_FRESH: how long one is kept once asked.
+ROLES = ("none", "read", "triage", "write", "maintain", "admin")
+ROLE_FRESH = 600.0
 
 
 class GitHubError(Exception):
@@ -239,6 +247,7 @@ class Client:
         self.reset_at = 0.0  # when the hourly limit resets
         self.limited_until = 0.0  # a used-up limit: nothing is asked before this
         self._login: str = ""
+        self._roles: dict[tuple[str, str], tuple[str, float]] = {}  # (repo, login) -> (role, when)
 
     # ── plumbing ──
 
@@ -437,6 +446,46 @@ class Client:
             self._login = str((me or {}).get("login") or "")
         return self._login
 
+    async def role(self, ref: RepoRef, login: str) -> str:
+        """What a GitHub user may do in the repository, in GitHub's own role names, least
+        first (ROLES): what an author_association can't say (MEMBER is anyone in the
+        organisation, COLLABORATOR includes read-only ones). A custom role counts as the
+        one it's built on. "none" for someone GitHub doesn't know there. Kept ROLE_FRESH
+        seconds."""
+        key = (ref.full.lower(), login.lower())
+        kept = self._roles.get(key)
+        if kept is not None and self.clock() - kept[1] < ROLE_FRESH:
+            return kept[0]
+        try:
+            found = await self.request(
+                "GET", f"/repos/{ref.full}/collaborators/{login}/permission", repo=ref.full
+            )
+        except GitHubError as exc:
+            if exc.status != 404:
+                raise
+            found = None
+        found = found if isinstance(found, dict) else {}
+        named = str(found.get("role_name") or "").lower()
+        legacy = str(found.get("permission") or "").lower()
+        role = named if named in ROLES else legacy if legacy in ROLES else "none"
+        self._roles[key] = (role, self.clock())
+        while len(self._roles) > 500:
+            self._roles.pop(next(iter(self._roles)))
+        return role
+
+    async def may(self, ref: RepoRef, login: str, least: str) -> bool:
+        """Whether login has at least that role in the repository ("triage", "write"…).
+        False when GitHub can't say (the token isn't allowed to ask): never a guess."""
+        if not login:
+            return False
+        try:
+            role = await self.role(ref, login)
+        except RateLimited:
+            raise
+        except GitHubError:
+            return False
+        return ROLES.index(role) >= ROLES.index(least)
+
     # ── repositories and pull requests ──
 
     async def repo(self, ref: RepoRef) -> dict[str, Any]:
@@ -457,6 +506,12 @@ class Client:
     ) -> dict[str, Any]:
         data = {"title": title, "head": head, "base": base, "body": body, "draft": bool(draft)}
         return await self.request("POST", f"/repos/{ref.full}/pulls", body=data, repo=ref.full)
+
+    async def update_pull(self, ref: RepoRef, number: int, *, body: str) -> dict[str, Any]:
+        """A pull request's description, rewritten (a multi-repo task's links to the others)."""
+        return await self.request(
+            "PATCH", f"/repos/{ref.full}/pulls/{number}", body={"body": body}, repo=ref.full
+        )
 
     async def pull(self, ref: RepoRef, number: int) -> dict[str, Any]:
         return await self.request("GET", f"/repos/{ref.full}/pulls/{number}", repo=ref.full) or {}
@@ -495,6 +550,35 @@ class Client:
     async def issue_comments(self, ref: RepoRef, number: int) -> list[dict[str, Any]]:
         return await self.paged(f"/repos/{ref.full}/issues/{number}/comments", repo=ref.full)
 
+    async def comment(self, ref: RepoRef, number: int, body: str) -> dict[str, Any]:
+        """A comment on a pull request's (or issue's) conversation, in the token's name."""
+        return (
+            await self.request(
+                "POST",
+                f"/repos/{ref.full}/issues/{number}/comments",
+                body={"body": body[:60_000]},
+                repo=ref.full,
+            )  # fmt: skip
+            or {}
+        )
+
+    async def deployments(self, ref: RepoRef, sha: str) -> list[dict[str, Any]]:
+        """The deployments made from a commit, newest first (Vercel, Netlify and the like
+        make one for each preview)."""
+        found = await self.request(
+            "GET", f"/repos/{ref.full}/deployments", params={"sha": sha, "per_page": 10},
+            repo=ref.full,
+        )  # fmt: skip
+        return found if isinstance(found, list) else []
+
+    async def deployment_statuses(self, ref: RepoRef, deployment: int) -> list[dict[str, Any]]:
+        """A deployment's statuses, newest first (a successful one has its environment_url)."""
+        found = await self.request(
+            "GET", f"/repos/{ref.full}/deployments/{int(deployment)}/statuses",
+            params={"per_page": 10}, repo=ref.full,
+        )  # fmt: skip
+        return found if isinstance(found, list) else []
+
     async def merge(
         self, ref: RepoRef, number: int, *, method: str, sha: str, title: str = ""
     ) -> dict[str, Any]:
@@ -504,6 +588,52 @@ class Client:
             data["commit_title"] = title[:250]
         return await self.request(
             "PUT", f"/repos/{ref.full}/pulls/{number}/merge", body=data, repo=ref.full
+        )
+
+    async def open_pulls(self, ref: RepoRef) -> list[dict[str, Any]]:
+        """The repository's open pull requests, anyone's, the most recently updated first
+        (the newest 50: an unchanged answer is a free 304)."""
+        found = await self.request(
+            "GET",
+            f"/repos/{ref.full}/pulls",
+            params={"state": "open", "sort": "updated", "direction": "desc", "per_page": 50},
+            repo=ref.full,
+        )
+        return found if isinstance(found, list) else []
+
+    async def pull_files(self, ref: RepoRef, number: int) -> list[dict[str, Any]]:
+        """A pull request's changed files, each with its patch (GitHub leaves the patch out
+        of a file too big to show)."""
+        return await self.paged(f"/repos/{ref.full}/pulls/{number}/files", limit=300, repo=ref.full)
+
+    async def create_review(
+        self,
+        ref: RepoRef,
+        number: int,
+        *,
+        commit_id: str,
+        body: str,
+        comments: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """A review of the pull request at commit_id, as a plain comment (never an approval
+        or a request for changes): its body and line comments, each {path, line, side,
+        body} on the new side of the diff."""
+        data = {"commit_id": commit_id, "body": body, "event": "COMMENT", "comments": comments}
+        return (
+            await self.request(
+                "POST", f"/repos/{ref.full}/pulls/{number}/reviews", body=data, repo=ref.full
+            )
+            or {}
+        )
+
+    async def retarget(self, ref: RepoRef, number: int, base: str) -> dict[str, Any]:
+        """Point an open pull request at another base branch (a stacked one, once the one
+        under it is merged)."""
+        return (
+            await self.request(
+                "PATCH", f"/repos/{ref.full}/pulls/{number}", body={"base": base}, repo=ref.full
+            )
+            or {}
         )
 
     async def issue(self, ref: RepoRef, number: int) -> dict[str, Any]:
@@ -554,6 +684,9 @@ class Client:
 
 # ── what the answers mean ──
 
+# The CI whose jobs' logs can be read (job_log): GitHub Actions, and the other hosts' own
+# pipelines in their clients' check runs (githosts/).
+LOG_APPS = ("github-actions", "gitlab-ci", "bitbucket-pipelines", "azure-pipelines")
 FAILED = ("failure", "timed_out", "action_required", "startup_failure")
 PASSED = ("success", "neutral", "skipped")
 
@@ -603,7 +736,7 @@ def checks_from(runs: list[dict[str, Any]], statuses: list[dict[str, Any]]) -> l
             state,
             str(run.get("html_url") or run.get("details_url") or ""),
             int(run.get("id") or 0),
-            app.get("slug") == "github-actions",
+            app.get("slug") in LOG_APPS,
             str(output.get("title") or "")[:300],
         )
     for status in statuses:

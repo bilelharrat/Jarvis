@@ -1,0 +1,46 @@
+/* Eden Code's Rollouts: settings › Watching after a merge, and the Rollouts pane (each watch's card, its evidence and offers). Colours are the theme's tokens, so light, dark and the glass look all hold. */
+
+.jcx-ro .jcx-ro-tools { display: inline-flex; align-items: center; gap: 6px; }
+.jcx-ro .jcx-ro-num { flex: none; width: 80px; }
+.jcx-ro .jcx-ro-list, .jcx-ro-others .jcx-ro-list { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 4px; border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-ro-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.jcx-ro-proj { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-ro-proj small { color: rgb(var(--c-muted)); }
+.jcx-ro-form { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-ro-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px; }
+.deck.jc .jcx-ro .jc-btn.danger, .deck.jc .jcx-ro-card .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-ro-card .jc-btn.filled { color: #fff; }
+
+.jcx-ro-pane { display: flex; flex-direction: column; gap: 10px; }
+.jcx-ro-card { padding: 9px 11px; border-radius: 11px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 6px; }
+.jcx-ro-card.bad { box-shadow: inset 3px 0 0 rgb(var(--c-danger)), var(--shadow-card); }
+.jcx-ro-card.good { box-shadow: inset 3px 0 0 rgb(var(--c-success)), var(--shadow-card); }
+.jcx-ro-head { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.jcx-ro-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--c-ink)); text-decoration: none; }
+.jcx-ro-link:hover, .jcx-ro-link:focus-visible { text-decoration: underline; }
+.jcx-ro-link code, .jcx-ro-hit code, .jcx-ro-fact-v code { font: 11.5px var(--mono); color: rgb(var(--c-accent-ink)); overflow-wrap: anywhere; }
+.jcx-ro-card .jcx-chip { flex: none; margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.07); white-space: nowrap; }
+.jcx-ro-card .jcx-chip.good { color: rgb(var(--c-success-ink)); background: rgb(var(--c-success-soft)); }
+.jcx-ro-card .jcx-chip.bad { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger-soft)); }
+.jcx-ro-where { margin: 0; font-size: 11.5px; }
+.jcx-ro-facts { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.jcx-ro-fact { display: flex; gap: 8px; align-items: baseline; }
+.jcx-ro-fact-k { flex: none; width: 130px; color: rgb(var(--c-muted)); }
+.jcx-ro-fact-v { min-width: 0; overflow-wrap: anywhere; }
+.jcx-ro-fact.bad .jcx-ro-fact-v { color: rgb(var(--c-danger-ink)); }
+.jcx-ro-fact.good .jcx-ro-fact-v { color: rgb(var(--c-success-ink)); }
+.jcx-ro-why { list-style: none; margin: 0; padding: 6px 9px; border-radius: 9px; background: rgb(var(--c-danger-soft)); display: flex; flex-direction: column; gap: 3px; font: 12.5px/1.45 var(--sans); color: rgb(var(--c-ink)); }
+.jcx-ro-why li { overflow-wrap: anywhere; }
+.jcx-ro-why li.suspect { color: rgb(var(--c-warning-ink)); }
+.jcx-ro-why li.past { opacity: 0.75; }
+.jcx-ro-why small { color: rgb(var(--c-muted)); }
+.jcx-ro-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.jcx-ro-issue { padding: 5px 9px; border-radius: 9px; background: rgb(var(--c-surface-muted)); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.jcx-ro-issue.hit { box-shadow: inset 3px 0 0 rgb(var(--c-danger)); }
+.jcx-ro-issue-head { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.jcx-ro-issue-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-ro-issue-meta, .jcx-ro-hit { margin: 0; font-size: 11.5px; }
+.jcx-ro-page { margin: 0; font: 11.5px var(--mono); color: rgb(var(--c-danger-ink)); overflow-wrap: anywhere; }
+.jcx-ro-note, .jcx-ro-offer { margin: 0; font-size: 11.5px; }
+.jcx-ro-others { display: flex; flex-direction: column; }
+.jcx-ro-form .jcs-input:not(.jcx-ro-num) { flex: none; width: 230px; max-width: 45%; }

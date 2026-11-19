@@ -57,7 +57,7 @@
     "For “Ask Jarvis” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.": "用于“服务”菜单中的“Ask Eden Secretary”：文字留在请求框中，直到你按下 Return。关闭时会立即发送。来自网页的链接始终会等待。",
     "For “Ask JARVIS” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.": "用于“服务”菜单中的“Ask Eden Secretary”：文字留在请求框中，直到你按下 Return。关闭时会立即发送。来自网页的链接始终会等待。",
     "For “Ask J.A.R.V.I.S.” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.": "用于“服务”菜单中的“Ask Eden Secretary”：文字留在请求框中，直到你按下 Return。关闭时会立即发送。来自网页的链接始终会等待。",
-    "There’s already a Quick Action named “Ask JARVIS” in ~/Library/Services. Rename or remove it first.": "~/Library/Services 中已有名为“Ask JARVIS”的快速操作。请先重命名或移除它。",
+    "There’s already a Quick Action named “Ask Eden Secretary” in ~/Library/Services. Rename or remove it first.": "~/Library/Services 中已有名为“Ask Eden Secretary”的快速操作。请先重命名或移除它。",
     "That didn’t work. Try again.": "没有成功，请再试一次。",
     "About Eden Secretary": "关于 Eden Secretary",
     "About Jarvis": "关于 Eden Secretary",

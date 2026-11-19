@@ -57,6 +57,27 @@ SWITCHES: dict[str, tuple[str, bool]] = {
     "journal": ("brain_journal", True),
     "browsing": ("browser_memories", False),
 }
+# What the owner's own life is in (other apps' data, their documents and pictures, what
+# they browsed): read only for Eden Secretary (the "full" profile). Eden Code on its own
+# (JARVIS_PROFILE=code) is a coding app: like the microphone, voice and screen it leaves
+# these alone, keeping whatever an earlier full rebuild read, until an Eden Secretary
+# window joins its backend. What's left is the owner's own choice of folders, the BSH
+# desk, and the app's own records (research, meetings, conversations, the journal).
+PERSONAL = frozenset(
+    {
+        "notes",
+        "mail",
+        "messages",
+        "photos",
+        "computer",
+        "images",
+        "safari",
+        "bookmarks",
+        "reminders",
+        "voicememos",
+        "browsing",
+    }
+)
 SEMANTIC = ("brain_semantic", False)  # search by meaning: may download Apple's model files
 VECTORS = "vectors"  # rebuild_brain(only={VECTORS}): re-read nothing, make vectors
 FULL_DISK_ACCESS = (

@@ -52,7 +52,7 @@
   "Goal": "目标",
   "Working toward it": "努力中",
   "Paused": "已暂停",
-  "Met": "已达成",
+  "Met": "已满足",
   "kept by Eden Code itself": "由 Eden Code 自己跟进",
   "Work on it again": "再做一次",
   "The goal": "目标",
@@ -60,6 +60,7 @@
   "Not listed, since another project has the same name:": "未列出，因为已有同名项目：",
   "Eden Code’s default": "Eden Code 的默认设置",
   "Check each turn’s work": "检查每一轮的成果",
+  "Check it yourself": "自己检查",
   "Folders of projects": "项目所在的文件夹",
   "No other folders of projects yet.": "还没有其他项目文件夹。",
   "Add a folder of projects…": "添加一个项目所在的文件夹…",
@@ -94,7 +95,7 @@
   "Pictures and files attached to a waiting message didn't outlast the restart.": "排队消息附带的图片和文件没能在重启后保留。",
   "Eden Secretary restarted while this session was working. Send a message to carry on.": "Eden Secretary 在这个会话工作时重启了。发一条消息让它继续。",
   "Jarvis restarted while this session was working. Send a message to carry on.": "Eden Secretary 在这个会话工作时重启了。发一条消息让它继续。",
-  "JARVIS restarted while this session was working. Send a message to carry on.": "Eden Secretary 在这个会话工作时重启了。发一条消息让它继续。",
+  "Eden restarted while this session was working. Send a message to carry on.": "Eden 在这个会话工作时重启了。发一条消息让它继续。",
   "J.A.R.V.I.S. restarted while this session was working. Send a message to carry on.": "Eden Secretary 在这个会话工作时重启了。发一条消息让它继续。",
   "Goal met.": "目标已达成。",
   "Goal paused: that's as many checks as it gets for now. Resume it to go on.": "目标已暂停：检查次数已到上限。继续目标即可接着做。",
@@ -108,7 +109,7 @@
   "Eden Code kept at it until it held.": "Eden Code 一直坚持到目标达成。",
   "Eden Code couldn't keep this goal itself here, so Eden Secretary checks it.": "Eden Code 在这里无法自己跟进这个目标，所以由 Eden Secretary 来检查。",
   "Eden Code couldn't keep this goal itself here, so Jarvis checks it.": "Eden Code 在这里无法自己跟进这个目标，所以由 Eden Secretary 来检查。",
-  "Eden Code couldn't keep this goal itself here, so JARVIS checks it.": "Eden Code 在这里无法自己跟进这个目标，所以由 Eden Secretary 来检查。",
+  "Eden Code couldn't keep this goal itself here, so Eden checks it.": "Eden Code 在这里无法自己跟进这个目标，所以由 Eden 来检查。",
   "Eden Code couldn't keep this goal itself here, so J.A.R.V.I.S. checks it.": "Eden Code 在这里无法自己跟进这个目标，所以由 Eden Secretary 来检查。",
   "That isn't a folder.": "那不是一个文件夹。",
   "That folder can't be found.": "找不到那个文件夹。",
@@ -125,7 +126,9 @@
   "That took too long to answer.": "回答用时太长了。",
   "Couldn't answer that just now.": "暂时无法回答。",
   "No answer came back.": "没有收到回答。",
-  "Back after the restart: it picks up where it left off with your next message.": "重启后已恢复：你发送下一条消息时，它会从上次停下的地方继续。"
+  "Back after the restart: it picks up where it left off with your next message.": "重启后已恢复：你发送下一条消息时，它会从上次停下的地方继续。",
+  "Not sent: Eden Code isn’t connected. Try again in a moment.": "没有发送：Eden Code 未连接。请稍后再试。",
+  "Eden Code didn’t answer. Try again.": "Eden Code 没有回应。请再试一次。"
  },
  "patterns": [
   [

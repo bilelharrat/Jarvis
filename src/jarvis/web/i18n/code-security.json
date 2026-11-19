@@ -1,0 +1,18 @@
+{
+  "strings": {
+    "Security scanning": "安全扫描",
+    "Scan changes with my security tools": "用我的安全工具扫描改动",
+    "Static analysis of the lines each change adds, and known vulnerabilities in the packages it brings in, shown on the receipt, in Deep review and before a push. Only tools installed on this Mac run; none is installed for you.": "对每次改动新增的代码行做静态分析，并检查它引入的软件包里已知的漏洞，结果显示在凭证、深度审查和推送前。只运行这台 Mac 上已安装的工具；不会替你安装任何工具。",
+    "Looking for the tools…": "正在查找工具…",
+    "Installed": "已安装",
+    "Not installed": "未安装",
+    "Check again": "再次检查",
+    "Look again for the tools, after installing one": "装好工具后，再查找一次",
+    "Install a tool in Terminal, then check again.": "在终端里安装工具，然后再检查一次。",
+    "static analysis of the changed code": "对改动的代码做静态分析",
+    "known vulnerabilities in any lockfile": "检查各种锁文件里的已知漏洞",
+    "known vulnerabilities in npm packages": "检查 npm 软件包里的已知漏洞",
+    "known vulnerabilities in Python requirements": "检查 Python 依赖里的已知漏洞"
+  },
+  "patterns": []
+}

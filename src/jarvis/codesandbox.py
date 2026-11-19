@@ -17,6 +17,8 @@ from typing import Any
 from . import jsonstore
 
 log = logging.getLogger("jarvis")
+STORE = "code_sandbox"  # the sandbox's file, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
 
 DOMAINS_PER_PROJECT = 100
 PROJECTS_KEPT = 500
@@ -60,7 +62,7 @@ class SandboxBook:
         if path is None:
             return
         try:
-            data = jsonstore.load_json(path, dict) or {}
+            data = jsonstore.load_store(path, STORE) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
             log.warning("Eden Code sandbox: %s can't be read (%s)", path.name, exc)
@@ -118,4 +120,4 @@ class SandboxBook:
         if self.unreadable:
             raise jsonstore.refusal(self.path, self.unreadable)
         data: dict[str, Any] = {"projects": {p: {"domains": d} for p, d in self.projects.items()}}
-        jsonstore.save_json(self.path, data)
+        jsonstore.save_store(self.path, STORE, data)

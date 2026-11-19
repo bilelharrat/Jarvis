@@ -1,6 +1,13 @@
-"""Eden Code: pull requests on GitHub (github.py), from opening one to merging it.
+"""Eden Code: pull requests on GitHub (github.py), from opening one to merging it; and the
+same on GitLab (merge requests), Bitbucket and Azure DevOps (githosts/): the project's
+remote says which host, and that host's client answers in GitHub's shapes, so everything
+below works for each (client_for). What a host can't say is said where it matters: on
+Azure DevOps (and on Bitbucket without a workspace admin's token) only the owner's own
+review comments go to a session by themselves, since neither says who may write.
 
 Opening: from a session's branch (its isolated copy's, or the branch its folder is on).
+A Spec mode session's description ends with its "Requirements met" (code_spec.pr_proof),
+and a session that checked its own work with its "Checked by Eden Code" (code_selfcheck).
 Claude (Haiku) drafts the title and description from the branch's diff and the session's
 own summary; the owner edits both and picks the base branch. Opening pushes the branch
 behind the Git panel's card (where it goes, which commits, anything that looks like a
@@ -31,6 +38,10 @@ limit waits for its reset). What happens:
 - merging when green (per pull request, off by default, a card when switched on): once
   every check on its latest commit has passed and GitHub says it can merge, it's merged
   (squash, merge or rebase, as the repository allows), only at that commit.
+- Keep it green (features/code_pr_green.py, per pull request, off until the owner turns it
+  on): fixes past FIX_ATTEMPTS within its own rounds and spending ceiling, a Stop, pushes
+  without the card if the owner chose so, review answers and the preview link posted, and
+  a log in the pane. It's asked here through fix_limit, auto_ok and its own calls.
 
 Window commands: code_pr {id}, code_prs {}, code_pr_draft {id, base?}, code_pr_open {id,
 title, body, base, draft}, code_pr_refresh {id}, code_pr_log {id, check}, code_pr_set {id,
@@ -43,7 +54,7 @@ its failing checks by itself.
 Loop: code_pr_watch.
 
 Cost policy:
-- pr_draft (code_ai.POLICY): Haiku 4.5, when the owner asks for a draft, or when an issue's
+- pr_draft (code_ai.POLICY): Haiku 5.5, when the owner asks for a draft, or when an issue's
   session is done: one tool-less turn on at most 24,000 characters of the diff, the commit
   subjects and the session's last reply; 30 a day. Past the cap, the draft is made from
   the commits alone.
@@ -65,8 +76,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan
-from ..code_changes import git
+from .. import code_ai, code_changes, code_prs, githosts, github, lang, prefs, secret_scan
+from ..code_changes import NO_HOOKS, git
 from ..code_prs import FIX_ATTEMPTS, PullRecord
 from ..hub import _msg_int
 from ..proactive import Alert
@@ -74,6 +85,8 @@ from ..proactive import Alert
 log = logging.getLogger("jarvis")
 
 PREF_AUTOFIX = "code_pr_autofix"
+PREF_GITLAB_HOSTS = "code_hosts_gitlab"  # (features/code_hosts.py keeps it)
+NOT_A_HOST = "This project's remote isn't on GitHub, GitLab, Bitbucket or Azure DevOps."
 prefs.register_feature_pref(PREF_AUTOFIX, True)
 
 FOLLOW_UP_CAPS = {"fix": 10, "review": 10, "conflict": 5, "jarvis": 20}
@@ -86,10 +99,19 @@ POLL_IDLE = 300.0
 POLL_QUIET = 900.0  # nothing has changed for QUIET_AFTER
 QUIET_AFTER = 24 * 3600
 POLL_ERROR = 120.0
+# A follow-up whose session never said it was done (it was closed, the app quit, its turn's
+# end went to another pull request's record) stops holding everything else back after this.
+FOLLOWUP_STALE = 4 * 3600.0
 POLL_SOON = 8.0  # after something the owner did (opened, pushed, refreshed)
 PUSH_SECONDS = 180.0
 MAX_WATCHED = 30
-REVIEWERS = ("OWNER", "MEMBER", "COLLABORATOR")  # who can write to the repository
+# Who might write to the repository, by GitHub's word on a comment: only these are asked
+# about (github.Client.may), since MEMBER is anyone in the organisation and COLLABORATOR
+# includes read-only ones. What counts is GitHub's answer: write access or more.
+REVIEWERS = ("OWNER", "MEMBER", "COLLABORATOR")
+# Sessions that act without asking: Bypass permissions ("auto") and Auto ("smart"). Review
+# comments are anyone-with-write's words, so they wait for the owner there.
+UNASKED_MODES = ("auto", "smart")
 NOTE = "a pull request update (Eden Code's pull request pane has it)"
 
 PR_SYSTEM = (
@@ -170,6 +192,8 @@ ZH = {
     "Don't push": "不推送",
     "Not pushed.": "没有推送。",
     "Couldn't commit the session's work: {error}": "没能提交会话的改动：{error}",
+    "New review comments on pull request #{n} wait for you: its session doesn't ask before it acts, so I don't send them by myself. Switch the session to another mode and they go to it.": "拉取请求 #{n} 有新的审查评论在等你：它的会话行动前不会询问，所以我不会自己把评论发给它。把会话切换到别的模式，评论就会发过去。",
+    "Couldn't read the pull request; I'll try again in a few minutes.": "没能读取这个拉取请求；几分钟后我再试。",
     "A pull request for issue #{n} is ready for your OK in Eden Code.": "为议题 #{n} 准备的拉取请求已就绪，请在 Eden Code 里确认。",
 }
 lang.add_texts(ZH)
@@ -228,6 +252,30 @@ def _names(items: list[str], limit: int = 4, zh: bool = False) -> str:
     return f"{shown}等另外 {more} 项" if zh else f"{shown} and {more} more"
 
 
+class FolderView:
+    """A session as seen from one of its folders: a multi-repo task's session works in a
+    folder holding several isolated copies (features/code_multirepo.py), and each copy's
+    pull request is opened, pushed and followed up from that copy. Everything but the
+    folder (cwd) and its copy (workspace) is the session's own, read and written through."""
+
+    def __init__(self, task: Any, cwd: Path, workspace: dict[str, Any]) -> None:
+        object.__setattr__(self, "_task", task)
+        object.__setattr__(self, "cwd", Path(cwd))
+        object.__setattr__(self, "workspace", dict(workspace))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_task"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(object.__getattribute__(self, "_task"), name, value)
+
+
+def _push_msg(task: Any) -> dict[str, Any]:
+    """What the Git panel's push is told: the session, or (seen from one of its folders)
+    that folder."""
+    return {"directory": str(task.cwd)} if isinstance(task, FolderView) else {"id": task.id}
+
+
 class PullDesk:
     """One hub's pull requests."""
 
@@ -235,6 +283,7 @@ class PullDesk:
         self.hub = hub
         self.ai = code_ai.call  # (the tests put a fake here)
         self._client: github.Client | None = None
+        self._hosts: githosts.Hosts | None = None  # GitLab, Bitbucket, Azure DevOps
         self._store: code_prs.PullStore | None = None
         self._caps: code_ai.Budget | None = None
         self.next_poll: dict[str, float] = {}
@@ -246,6 +295,13 @@ class PullDesk:
         self._repos: dict[str, dict[str, Any]] = {}  # repo -> its settings on GitHub
         self._wake: asyncio.Event | None = None
         self._capped: set[str] = set()  # kinds the owner was told are capped, today
+        self._held: dict[str, str] = {}  # key -> the review comments held (told once)
+        # "Keep it green" (features/code_pr_green.py, installed after this): None until then.
+        # It lifts a pull request's fixes past FIX_ATTEMPTS, stops its automatic follow-ups
+        # at its caps or the owner's Stop, counts what they spend, may push without the card
+        # and posts the preview link. Without it (or for a pull request it isn't on for)
+        # everything here goes as before.
+        self.green: Any = None
 
     # ── plumbing ──
 
@@ -257,6 +313,28 @@ class PullDesk:
                 lambda: github.token_from(vault), language=lambda: self.hub.language
             )
         return self._client
+
+    @property
+    def hosts(self) -> githosts.Hosts:
+        if self._hosts is None:
+            self._hosts = githosts.Hosts(
+                lambda: self.hub.connectors.vault, language=lambda: self.hub.language
+            )
+        return self._hosts
+
+    def client_for(self, ref: Any) -> Any:
+        """The client of the host a repository is on: GitHub's, or another host's that
+        answers in GitHub's shapes (githosts)."""
+        return self.hosts.client_for(ref) if isinstance(ref, githosts.HostRef) else self.client
+
+    def gitlab_hosts(self) -> tuple[str, ...]:
+        """The owner's own GitLab servers (Eden Code settings › Git hosts and Jira)."""
+        listed = self.hub.prefs.feature(PREF_GITLAB_HOSTS)
+        return tuple(h for h in listed if isinstance(h, str)) if isinstance(listed, list) else ()
+
+    def repo_for(self, folder: Any) -> tuple[str, github.RepoRef | None]:
+        """The folder's remote and its repository on any host Eden Code knows (blocking)."""
+        return githosts.repo_for(folder, self.gitlab_hosts())
 
     def store(self) -> code_prs.PullStore:
         if self._store is None:
@@ -302,6 +380,16 @@ class PullDesk:
     def spawn(self, coro: Any) -> None:
         self.hub._spawn(coro)
 
+    def fix_limit(self, rec: PullRecord) -> int:
+        """Fixes sent by themselves for this pull request, at most: FIX_ATTEMPTS, or Keep it
+        green's own rounds while it's on."""
+        return self.green.fix_limit(rec) if self.green is not None else FIX_ATTEMPTS
+
+    def auto_ok(self, rec: PullRecord, kind: str) -> bool:
+        """Whether an automatic follow-up of this kind may go to the session now (Keep it
+        green's caps, spending ceiling and Stop; always, without it)."""
+        return self.green is None or self.green.allows(rec, kind)
+
     def _task(self, msg: dict[str, Any]) -> Any:
         task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         return task if task is not None and task.kind == "code" else None
@@ -340,11 +428,11 @@ class PullDesk:
         branch = git(repo.top, "symbolic-ref", "-q", "--short", "HEAD").out.strip()
         if not branch:
             return "You're not on a branch, so there's nothing to open a pull request from."
-        remote, ref = github.repo_for(task.cwd)
+        remote, ref = self.repo_for(task.cwd)
         if not remote:
             return "There's no remote to push to."
         if ref is None:
-            return "This project's remote isn't a github.com repository."
+            return NOT_A_HOST
         listed = git(
             repo.top, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote}"
         ).out.split()
@@ -447,7 +535,7 @@ class PullDesk:
         if isinstance(plan, str):
             return self._emit_draft(key, note=plan)
         try:
-            existing = await self.client.pulls_for(plan.ref, plan.branch)
+            existing = await self.client_for(plan.ref).pulls_for(plan.ref, plan.branch)
         except github.GitHubError as exc:
             return self._emit_draft(key, note=str(exc))
         if existing:
@@ -461,6 +549,16 @@ class PullDesk:
         issue = self.issue_of(task)
         if issue and f"#{issue}" not in body:
             body = f"{body}\n\nCloses #{issue}".strip()
+        hosts = getattr(self.hub, "code_hosts", None)
+        if hosts is not None:  # (a Jira issue picked up: its key in the title, its link below)
+            title, body = hosts.draft_extras(task, title, body)
+        body = self.with_selfcheck_proof(task, self.with_spec_proof(task, body))
+        deps = getattr(self.hub, "code_deps", None)  # a dependency upgrade's receipt (code_deps)
+        if deps is not None:
+            body = deps.pr_section(task, body)
+        prov = getattr(self.hub, "code_provenance", None)  # opt-in (code_provenance_pr)
+        if prov is not None and plan.fork:
+            body = await asyncio.to_thread(prov.pr_body, plan.top, plan.fork, body)
         draft = {
             "title": title,
             "body": body,
@@ -474,6 +572,32 @@ class PullDesk:
             "issue": issue,
         }
         return self._emit_draft(key, draft=draft, note=note)
+
+    def with_spec_proof(self, task: Any, body: str) -> str:
+        """A Spec mode session's "Requirements met" (features/code_spec.py) at the end of the
+        description, once: each requirement and its evidence, as the receipts have it."""
+        spec = getattr(self.hub, "code_spec", None)
+        if spec is None:
+            return body
+        from .code_spec import PROOF_MARK
+
+        if PROOF_MARK in body:
+            return body
+        proof = spec.pr_proof(task)
+        return f"{body}\n\n{proof}".strip() if proof else body
+
+    def with_selfcheck_proof(self, task: Any, body: str) -> str:
+        """The session's own check of its work (features/code_selfcheck.py, "Check it
+        yourself") at the end of the description, once: its line, verdict and findings."""
+        sc = getattr(self.hub, "code_selfcheck", None)
+        if sc is None:
+            return body
+        from .code_selfcheck import PR_MARK
+
+        if PR_MARK in body:
+            return body
+        proof = sc.pr_section(task)
+        return f"{body}\n\n{proof}".strip() if proof else body
 
     def _emit_draft(self, key: str, draft: dict[str, Any] | None = None, note: str = "") -> dict:
         event = {"key": key, "draft": draft, "note": self.tr(note) if note else ""}
@@ -524,12 +648,14 @@ class PullDesk:
         """Keep a pull request as the session's (opened now, or found on its branch)."""
         store = self.store()
         number = int(pull.get("number") or 0)
-        rec = store.find(plan.ref.full, number)
+        rec = store.find(
+            plan.ref.full, number, plan.ref.tag if isinstance(plan.ref, githosts.HostRef) else ""
+        )
         if rec is None:
             rec = PullRecord(
                 repo=plan.ref.full,
                 number=number,
-                url=str(pull.get("html_url") or f"{plan.ref.url}/pull/{number}"),
+                url=str(pull.get("html_url") or self._pull_url(plan.ref, number)),
                 title=str(pull.get("title") or "")[:300],
                 branch=plan.branch,
                 base=str((pull.get("base") or {}).get("ref") or plan.base),
@@ -543,6 +669,7 @@ class PullDesk:
                 draft=bool(pull.get("draft")),
                 head_sha=str((pull.get("head") or {}).get("sha") or ""),
                 autofix=bool(self.hub.prefs.feature(PREF_AUTOFIX)),
+                host=plan.ref.tag if isinstance(plan.ref, githosts.HostRef) else "",
             )
             store.items.append(rec)
         rec.watch = True
@@ -554,7 +681,9 @@ class PullDesk:
     async def open(self, task: Any, msg: dict[str, Any]) -> str:
         """Open the session's pull request with the owner's title and description."""
         title = " ".join(str(msg.get("title") or "").split())[:256]
-        body = str(msg.get("body") or "")[:60_000]
+        body = self.with_selfcheck_proof(
+            task, self.with_spec_proof(task, str(msg.get("body") or "")[:60_000])
+        )
         if not title:
             return "Give the pull request a title first."
         key = f"id:{task.id}"
@@ -562,8 +691,9 @@ class PullDesk:
             plan = await asyncio.to_thread(self._plan, task, str(msg.get("base") or ""))
             if isinstance(plan, str):
                 return plan
-            if not await self.client.connected():
-                return github.CONNECT
+            client = self.client_for(plan.ref)
+            if not await client.connected():
+                return getattr(client, "connect_text", github.CONNECT)
             if plan.copy and plan.uncommitted:
                 problem = await self._commit_copy(task, plan, title)
                 if problem:
@@ -573,11 +703,11 @@ class PullDesk:
                     return plan
             if not plan.commits:
                 return f"There's nothing on {plan.branch} that isn't in {plan.base} yet."
-            said = await self.hub.code_git.push({"id": task.id})
+            said = await self.hub.code_git.push(_push_msg(task))
             if not await asyncio.to_thread(self._pushed, plan.top, plan.remote):
                 return said or "Not opened."
             try:
-                pull = await self.client.create_pull(
+                pull = await client.create_pull(
                     plan.ref,
                     title=title,
                     head=plan.branch,
@@ -588,7 +718,7 @@ class PullDesk:
             except github.GitHubError as exc:
                 if exc.status != 422 or "already exists" not in str(exc):
                     return str(exc)
-                found = await self.client.pulls_for(plan.ref, plan.branch)
+                found = await client.pulls_for(plan.ref, plan.branch)
                 if not found:
                     return str(exc)
                 rec = self._link(task, plan, found[0])
@@ -620,7 +750,11 @@ class PullDesk:
             )
             if choice != "commit":
                 return "Not opened."
-        return await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, message)
+        problem = await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, message)
+        prov = getattr(self.hub, "code_provenance", None)
+        if not problem and prov is not None:  # (git notes, features/code_provenance.py)
+            await prov.committed(plan.top, [task])
+        return problem
 
     @staticmethod
     def _scan_uncommitted(plan: Plan) -> list[secret_scan.Finding]:
@@ -636,7 +770,7 @@ class PullDesk:
             return f"Couldn't commit the session's work: {added.err.strip()[:300]}"
         if not git(top, "diff", "--cached", "--quiet").code:
             return ""  # nothing to commit after all
-        done = git(top, "commit", "-q", "-m", message, timeout=120)
+        done = git(top, *NO_HOOKS, "commit", "-q", "-m", message, timeout=120)
         if done.ok:
             return ""
         why = (done.err or done.out).strip()
@@ -655,7 +789,10 @@ class PullDesk:
             if not rec.session_id:
                 rec.session_id = task.session_id
                 self.save()
-        connected = await self.client.connected()
+        ref = self._ref(rec) if rec is not None else where.pop("ref", None)
+        where.pop("ref", None)
+        client = self.client_for(ref)
+        connected = await client.connected()
         data = self.details.get(rec.key, {}) if rec else {}
         methods = await self._methods(rec) if rec and connected else []
         self.hub.emit(
@@ -665,11 +802,13 @@ class PullDesk:
             checks=data.get("checks", []),
             reviews=data.get("reviews", []),
             comments=data.get("comments", []),
+            green=self.green.public(rec) if self.green is not None and rec else None,
             polled=data.get("polled", 0),
             error=data.get("error", ""),
             methods=methods,
             draft=self.drafts.get(task.id),
             github=connected,
+            host=githosts.NAMES.get(githosts.kind_of(ref), "GitHub"),
             where=where,
         )
 
@@ -678,13 +817,14 @@ class PullDesk:
         if repo is None:
             return {"git": False}
         branch = git(repo.top, "symbolic-ref", "-q", "--short", "HEAD").out.strip()
-        remote, ref = github.repo_for(task.cwd)
+        remote, ref = self.repo_for(task.cwd)
         return {
             "git": True,
             "branch": branch,
             "remote": remote,
             "repo": ref.full if ref else "",
             "copy": bool(task.workspace),
+            "ref": ref,  # (taken out before it's sent)
         }
 
     def publish_all(self) -> None:
@@ -696,14 +836,14 @@ class PullDesk:
 
     async def _methods(self, rec: PullRecord) -> list[str]:
         """The merge methods the repository allows (asked once a run)."""
-        found = self._repos.get(rec.repo)
+        found = self._repos.get(rec.key.rpartition("#")[0])
         if found is None:
-            owner, _, name = rec.repo.partition("/")
+            ref = self._ref(rec)
             try:
-                found = await self.client.repo(github.RepoRef(owner, name))
+                found = await self.client_for(ref).repo(ref)
             except github.GitHubError:
                 return list(code_prs.MERGE_METHODS)
-            self._repos[rec.repo] = found
+            self._repos[rec.key.rpartition("#")[0]] = found
         allowed = {
             "squash": found.get("allow_squash_merge", True),
             "merge": found.get("allow_merge_commit", True),
@@ -735,17 +875,20 @@ class PullDesk:
     async def tick(self, now: float | None = None) -> None:
         """Poll the watched pull requests that are due (a few at a time)."""
         now = time.time() if now is None else now
-        wait = self.client.wait_seconds()
-        if wait > 0:
-            return  # the rate limit: nothing until it resets
         due = [
             r for r in self.store().watched()[:MAX_WATCHED] if self.next_poll.get(r.key, 0.0) <= now
         ]
-        if not due:
-            return
-        if not await self.client.connected():
-            for rec in due:
+        ready = []
+        for rec in due:  # (each host's own limit and token: GitHub's, GitLab's…)
+            client = self.client_for(self._ref(rec))
+            if client.wait_seconds() > 0:
+                continue  # the rate limit: nothing until it resets
+            if not await client.connected():
                 self.next_poll[rec.key] = now + POLL_IDLE
+                continue
+            ready.append(rec)
+        due = ready
+        if not due:
             return
         results = await github.gather_limited([self.poll(r) for r in due], limit=3)
         for rec, result in zip(due, results, strict=True):
@@ -769,12 +912,24 @@ class PullDesk:
     async def poll(self, rec: PullRecord) -> None:
         """Read one pull request's state, checks and comments, and act on what changed."""
         async with self.lock(rec.key):
+            if rec.followup and time.time() - rec.followup_at > FOLLOWUP_STALE:
+                rec.followup, rec.followup_task = "", 0  # its end never came: let go
             try:
                 changed = await self._poll(rec)
             except github.RateLimited:
                 return
             except github.GitHubError as exc:
                 self.details.setdefault(rec.key, {})["error"] = str(exc)
+                self.next_poll[rec.key] = time.time() + POLL_ERROR
+                self._publish_rec(rec)
+                return
+            except Exception:
+                # A bug, or an answer nobody expected: it's logged and tried again after
+                # POLL_ERROR, never at every TICK (each try is a few GitHub calls).
+                log.exception("pull requests: %s couldn't be read", rec.key)
+                self.details.setdefault(rec.key, {})["error"] = self.tr(
+                    "Couldn't read the pull request; I'll try again in a few minutes."
+                )
                 self.next_poll[rec.key] = time.time() + POLL_ERROR
                 self._publish_rec(rec)
                 return
@@ -789,12 +944,18 @@ class PullDesk:
             self.spawn(self.publish(task))
 
     def _ref(self, rec: PullRecord) -> github.RepoRef:
-        owner, _, name = rec.repo.partition("/")
-        return github.RepoRef(owner, name)
+        return githosts.ref_from(rec.host, rec.repo)
+
+    @staticmethod
+    def _pull_url(ref: Any, number: int) -> str:
+        if isinstance(ref, githosts.HostRef):
+            return ref.pull_url(number)
+        return f"{ref.url}/pull/{number}"
 
     async def _poll(self, rec: PullRecord) -> bool:
         ref = self._ref(rec)
-        pull = await self.client.pull(ref, rec.number)
+        client = self.client_for(ref)
+        pull = await client.pull(ref, rec.number)
         before = (rec.state, rec.head_sha, rec.checks, rec.mergeable, rec.title)
         rec.title = str(pull.get("title") or rec.title)[:300]
         rec.draft = bool(pull.get("draft"))
@@ -815,7 +976,7 @@ class PullDesk:
             rec.state, rec.watch = "closed", False
             return True
         runs, statuses = await asyncio.gather(
-            self.client.check_runs(ref, rec.head_sha), self.client.statuses(ref, rec.head_sha)
+            client.check_runs(ref, rec.head_sha), client.statuses(ref, rec.head_sha)
         )
         checks = github.checks_from(runs, statuses)
         status = github.overall(checks)
@@ -826,6 +987,8 @@ class PullDesk:
         details["checks"] = [c.public() for c in checks]
         details["polled"] = time.time()
         await self._comments(rec, ref, details)
+        if self.green is not None:
+            await self.green.polled(rec, ref, runs, statuses)
         if status == "failed":
             await self._failed(rec, ref, checks)
         elif status == "passed" and (was == "failed" or rec.told_failed):
@@ -848,11 +1011,13 @@ class PullDesk:
         failing = [c for c in checks if c.state == "failed"]
         names = _names([c.name for c in failing], zh=lang.is_zh(self.hub.language))
         task = self.task_for(rec)
+        limit = self.fix_limit(rec)
         will_fix = (
             rec.autofix
             and rec.head_sha not in rec.fixed_shas
-            and rec.fix_attempts < FIX_ATTEMPTS
             and not rec.followup
+            and self.auto_ok(rec, "fix")  # (Keep it green past its rounds stops itself here)
+            and rec.fix_attempts < limit
         )
         if will_fix and (task is None or self.idle(task)) and self._take("fix"):
             logs = await self._logs(ref, failing)
@@ -863,7 +1028,7 @@ class PullDesk:
             if not said:
                 if rec.told_failed != rec.head_sha:
                     rec.told_failed = rec.head_sha
-                    k, total = rec.fix_attempts, FIX_ATTEMPTS
+                    k, total = rec.fix_attempts, limit
                     self.notify(
                         f"pr-failed:{rec.key}:{rec.head_sha[:7]}",
                         f"Checks failed on pull request #{rec.number}: {names}. The session is "
@@ -875,7 +1040,7 @@ class PullDesk:
         if rec.told_failed == rec.head_sha:
             return
         rec.told_failed = rec.head_sha
-        if rec.autofix and rec.fix_attempts >= FIX_ATTEMPTS:
+        if rec.autofix and rec.fix_attempts >= limit:
             self.notify(
                 f"pr-failed:{rec.key}:{rec.head_sha[:7]}",
                 f"Pull request #{rec.number} still fails after {rec.fix_attempts} fixes; it's "
@@ -893,13 +1058,15 @@ class PullDesk:
         """Each failing check's log, trimmed (an Actions job's own; any other check's
         summary and annotations)."""
 
+        client = self.client_for(ref)
+
         async def one(check: github.Check) -> tuple[str, str]:
             text = ""
             try:
                 if check.actions and check.check_id:
-                    text = github.trim_log(await self.client.job_log(ref, check.check_id))
+                    text = github.trim_log(await client.job_log(ref, check.check_id))
                 elif check.check_id:
-                    notes = await self.client.annotations(ref, check.check_id)
+                    notes = await client.annotations(ref, check.check_id)
                     text = "\n".join(
                         f"{a.get('path', '')}:{a.get('start_line', '')}: {a.get('message', '')}"
                         for a in notes[:30]
@@ -946,11 +1113,13 @@ class PullDesk:
                 return str(exc)
         if not self.hub.tasks.send(task.id, text, note=True):
             return "Too many messages are waiting for that session already."
-        rec.followup = kind
+        rec.followup, rec.followup_task, rec.followup_at = kind, task.id, time.time()
         rec.awaiting_push = False
+        if self.green is not None:
+            self.green.sent(rec, task, kind, text, manual=manual)
         self.save()
         said = {
-            "fix": f"Sent the failing checks' logs to the session (fix {rec.fix_attempts} of {FIX_ATTEMPTS}).",
+            "fix": f"Sent the failing checks' logs to the session (fix {rec.fix_attempts} of {self.fix_limit(rec)}).",
             "conflict": f"Asked the session to resolve the conflicts with {rec.base}.",
             "jarvis": "Sent your @jarvis comment to the session.",
         }.get(kind, "")
@@ -969,25 +1138,59 @@ class PullDesk:
         task = self.hub.tasks.tasks.get(data.get("id"))
         if task is None:
             return
-        rec = self.store().for_session(task.session_id, str(task.cwd))
+        found = self.store().for_session(task.session_id, str(task.cwd))
+        if found is not None and found.state == "open" and task.session_id and not found.session_id:
+            found.session_id = task.session_id
+            self.save()
+        # The record the follow-up was sent from, by the session it went to: with two pull
+        # requests in one folder, the newest isn't always it. (A record kept from before
+        # follow-ups named their session: the session's own, as then.)
+        rec = next(
+            (
+                r
+                for r in self.store().items
+                if r.state == "open"
+                and r.followup
+                and r.followup_task == task.id
+                and self._folder_of(task, r)
+            ),
+            None,
+        )
+        if rec is None and found is not None and found.followup and not found.followup_task:
+            rec = found
         if rec is None or rec.state != "open":
             return
-        if task.session_id and not rec.session_id:
-            rec.session_id = task.session_id
-            self.save()
-        if not rec.followup:
-            return
+        if self.green is not None:
+            self.green.turn_over(rec, task, str(data.get("status") or ""))
         if data.get("status") != "done":
-            rec.followup = ""
+            rec.followup, rec.followup_task = "", 0
             self.save()
             return
         if self.idle(task):
             self.spawn(self.after_follow_up(rec, task))
 
+    @staticmethod
+    def _folder_of(task: Any, rec: PullRecord) -> bool:
+        """Whether a pull request is from the session's folder (or one inside it: a
+        multi-repo task's copies)."""
+        folder, cwd = Path(rec.folder), Path(task.cwd)
+        return folder == cwd or cwd in folder.parents
+
+    @staticmethod
+    def at(rec: PullRecord, task: Any) -> Any:
+        """The session as its pull request's folder sees it (itself, unless the pull
+        request is from a copy inside its folder)."""
+        if isinstance(task, FolderView) or Path(rec.folder) == Path(task.cwd):
+            return task
+        if Path(task.cwd) not in Path(rec.folder).parents:
+            return task
+        return FolderView(task, Path(rec.folder), {"slug": rec.copy} if rec.copy else {})
+
     async def after_follow_up(self, rec: PullRecord, task: Any) -> str:
         """The session's done with a follow-up: its work committed (in its isolated copy)
         and pushed, behind the Git panel's card."""
-        kind, rec.followup = rec.followup, ""
+        task = self.at(rec, task)
+        kind, rec.followup, rec.followup_task = rec.followup, "", 0
         self.save()
         async with self.lock(rec.key):
             plan = await asyncio.to_thread(self._plan, task, rec.base)
@@ -1015,14 +1218,18 @@ class PullDesk:
                 problem = await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, words)
                 if problem:
                     return problem
-            return await self._push(rec, task, plan)
+            unasked = self.green is not None and self.green.push_unasked(rec)
+            said = await self._push(rec, task, plan, unasked=unasked)
+        if self.green is not None and said == f"Pushed the work for pull request #{rec.number}.":
+            await self.green.pushed(rec, kind, plan)
+        return said
 
-    async def _push(self, rec: PullRecord, task: Any, plan: Plan) -> str:
+    async def _push(self, rec: PullRecord, task: Any, plan: Plan, unasked: bool = False) -> str:
         if await asyncio.to_thread(self._pushed, plan.top, plan.remote):
             rec.awaiting_push = False
             self.save()
             return ""
-        said = await self.hub.code_git.push({"id": task.id})
+        said = await self.hub.code_git.push(_push_msg(task), unasked=unasked)
         if await asyncio.to_thread(self._pushed, plan.top, plan.remote):
             rec.awaiting_push = False
             self.save()
@@ -1032,21 +1239,22 @@ class PullDesk:
         self.save()
         self.notify(
             f"pr-push:{rec.key}:{time.time():.0f}",
-            f"The work for pull request #{rec.number} is ready to push: push it from Jarvis "
-            "Code's pull request pane.",
+            f"The work for pull request #{rec.number} is ready to push: push it "
+            "from Eden Code's pull request pane.",
         )
         return said or "Not pushed."
 
     # ── review comments and @jarvis ──
 
     async def _comments(self, rec: PullRecord, ref: github.RepoRef, details: dict) -> None:
+        client = self.client_for(ref)
         reviews, inline, talk = await asyncio.gather(
-            self.client.reviews(ref, rec.number),
-            self.client.review_comments(ref, rec.number),
-            self.client.issue_comments(ref, rec.number),
+            client.reviews(ref, rec.number),
+            client.review_comments(ref, rec.number),
+            client.issue_comments(ref, rec.number),
         )
         try:
-            owner = await self.client.login()
+            owner = await client.login()
         except github.GitHubError:
             owner = ""
         shown: list[dict[str, Any]] = []
@@ -1057,7 +1265,7 @@ class PullDesk:
                 {
                     "id": int(item.get("id") or 0),
                     "author": str((item.get("user") or {}).get("login") or ""),
-                    "trusted": item.get("author_association") in REVIEWERS,
+                    "trusted": item.get("author_association") in REVIEWERS,  # (asked below)
                     "path": str(item.get("path") or ""),
                     "line": int(item.get("line") or item.get("original_line") or 0),
                     "body": str(item.get("body") or "")[:4000],
@@ -1078,6 +1286,7 @@ class PullDesk:
                 "at": str(item.get("submitted_at") or ""),
             }
             review_rows.append(row)
+        await self._writers(ref, [*shown, *review_rows])
         details["reviews"] = review_rows[-30:]
         details["comments"] = sorted(shown, key=lambda c: c["at"])[-60:]
         every = [c["id"] for c in shown] + [r["id"] for r in review_rows if r["body"].strip()]
@@ -1112,10 +1321,35 @@ class PullDesk:
             if not await self.follow_up(rec, "jarvis", code_prs.owner_message(rec, request)):
                 handled.append(c["id"])
                 free = False
-        if batch and free and not rec.followup and self._take("review"):
+        unasked = task is not None and task.mode in UNASKED_MODES
+        if batch and unasked:
+            # Not sent by itself, nor marked seen: once the session is in another mode, the
+            # next look sends them. The owner hears once for each set.
+            marker = ",".join(str(c["id"]) for c in batch)
+            if self._held.get(rec.key) != marker:
+                self._held[rec.key] = marker
+                self.notify(
+                    f"pr-held:{rec.key}:{marker[-40:]}",
+                    f"New review comments on pull request #{rec.number} wait for you: its "
+                    "session doesn't ask before it acts, so I don't send them by myself. "
+                    "Switch the session to another mode and they go to it.",
+                )
+        elif batch and not self.auto_ok(rec, "review"):
+            pass  # (Keep it green stopped or at its caps: they wait, unseen, in the pane)
+        elif batch and free and not rec.followup and self._take("review"):
             if not await self.follow_up(rec, "review", code_prs.review_message(rec, batch)):
                 handled += [c["id"] for c in batch]
         rec.seen = [*rec.seen, *handled][-code_prs.SEEN_KEPT :]
+
+    async def _writers(self, ref: github.RepoRef, rows: list[dict[str, Any]]) -> None:
+        """Each row trusted only when GitHub says its author can write to the repository
+        (asked once for each author, and only for those whose comment says they might)."""
+        authors = sorted({r["author"] for r in rows if r["trusted"] and r["author"]})
+        client = self.client_for(ref)
+        answers = await asyncio.gather(*(client.may(ref, a, "write") for a in authors))
+        writers = {a for a, ok in zip(authors, answers, strict=True) if ok}
+        for row in rows:
+            row["trusted"] = row["author"] in writers
 
     # ── conflicts ──
 
@@ -1127,6 +1361,8 @@ class PullDesk:
     async def _conflicts(self, rec: PullRecord) -> None:
         marker = self._conflict_marker(rec)
         if not rec.autofix or rec.conflict_sent == marker or rec.followup:
+            return
+        if not self.auto_ok(rec, "conflict"):
             return
         task = self.task_for(rec)
         if task is not None and not self.idle(task):
@@ -1162,7 +1398,7 @@ class PullDesk:
     async def merge(self, rec: PullRecord, ref: github.RepoRef | None = None) -> str:
         ref = ref or self._ref(rec)
         try:
-            await self.client.merge(
+            await self.client_for(ref).merge(
                 ref, rec.number, method=rec.merge_method, sha=rec.head_sha, title=rec.title
             )
         except github.GitHubError as exc:
@@ -1345,10 +1581,10 @@ class PullDesk:
             return
 
         async def run() -> str:
-            plan = await asyncio.to_thread(self._plan, task, rec.base)
+            plan = await asyncio.to_thread(self._plan, self.at(rec, task), rec.base)
             if isinstance(plan, str):
                 return plan
-            said = await self._push(rec, task, plan)
+            said = await self._push(rec, self.at(rec, task), plan)
             await self.publish(task)
             return said
 

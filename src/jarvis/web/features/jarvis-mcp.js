@@ -193,7 +193,18 @@
     }));
   }
 
-  F.on('hello', () => { group(); send({ type: 'mcp_state' }); }, { replay: true });
+  // Which apps have Eden Secretary set up means reading Claude Desktop's settings: asked when
+  // Settings opens, never at start (reading another app's data unasked makes macOS say the app
+  // "tried to read data from other apps"), and never in a window without these Settings.
+  function ask() {
+    const settings = F.$('settings');
+    if (settings && !settings.hidden && group()) send({ type: 'mcp_state' });
+  }
+  F.on('hello', () => { group(); ask(); }, { replay: true });
+  const settingsEl = F.$('settings');
+  if (settingsEl && typeof MutationObserver === 'function') {
+    new MutationObserver(ask).observe(settingsEl, { attributes: true, attributeFilter: ['hidden'] });
+  }
   F.on('jarvis_mcp', (ev) => { busy.clear(); state = ev; render(); });
 
   // An app asking to use Eden Secretary while the window is behind: a notification, so the card

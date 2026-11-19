@@ -30,6 +30,8 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
+import hashlib
+import json
 import logging
 import re
 import time
@@ -46,6 +48,8 @@ from .. import (
     computer,
     devservers,
     diagnostics,
+    jsonstore,
+    osplat,
     prefs,
     previewcheck,
     runproc,
@@ -70,8 +74,14 @@ SCHEMES_FRESH = 300.0  # seconds a project's Xcode schemes are kept before askin
 TESTS_START = 3.0  # after a turn, seconds for the watch's run to begin
 TESTS_WAIT = 180.0  # ... and for it to end, before the check goes on without it
 
-PREF_VERIFY = "code_verify_new_sessions"  # new sessions check the preview after each turn
-prefs.register_feature_pref(PREF_VERIFY, False)
+PREF_VERIFY = "code_verify_new_sessions"  # new sessions check their work after each turn
+# On by default (2026-10-16; it was off): checking its own work is the lever owners and rival
+# tools lean on most, and what it sends back is already capped (FOLLOW_UPS_IN_A_ROW in a row,
+# FOLLOW_UPS_PER_HOUR an hour, nothing when a check passes), so it can't run up a bill. A
+# project with nothing to check says so once a session, not after every turn. The owner
+# turns it off in Settings › Eden Code, a project in Settings › Projects, a session in its
+# Preview pane.
+prefs.register_feature_pref(PREF_VERIFY, True)
 # A project's own say (Settings › Projects › New sessions in a project start with), over
 # PREF_VERIFY for new sessions there: kept in code_project_defaults as "verify".
 PROJECT_VERIFY = "verify"
@@ -170,7 +180,11 @@ class CodeVerify:
     def session(self, task_id: int) -> SessionChecks:
         checks = self.sessions.get(task_id)
         if checks is None:
-            checks = self.sessions[task_id] = SessionChecks(verify=False)
+            # A new session checks after each turn if its project says so, else if the owner
+            # chose that for all of them.
+            own = self.project_verify(self.hub.tasks.tasks.get(task_id))
+            verify = own if own is not None else bool(self.hub.prefs.feature(PREF_VERIFY))
+            checks = self.sessions[task_id] = SessionChecks(verify=verify)
         return checks
 
     def project_verify(self, task: Any) -> bool | None:
@@ -209,12 +223,21 @@ class CodeVerify:
     # ── the window's commands ──
 
     async def cmd_state(self, msg: dict[str, Any]) -> None:
+        # A project it can't read is answered as the pane's state, with why: the pane
+        # asked and waits on "Looking at the project…" until a cv_state comes (a toast
+        # alone left it waiting for good).
         try:
             project, task = self.project_of(msg)
-        except ValueError as exc:
-            self.error(str(exc))
+            found = await asyncio.to_thread(self.servers.configs, project)
+        except (ValueError, OSError) as exc:
+            asked = _int(msg.get("id"))
+            self.hub.emit(
+                "cv_state",
+                project=str(msg.get("directory") or ""),
+                id=asked or None,
+                error=str(exc) or "Eden Code couldn't read this project.",
+            )
             return
-        found = await asyncio.to_thread(self.servers.configs, project)
         checks = self.session(task.id) if task is not None else None
         self.hub.emit(
             "cv_state",
@@ -243,7 +266,12 @@ class CodeVerify:
             elif action == "forget":
                 self.servers.forget(key)
             else:
+                server = self.servers.servers.get(key)
                 try:
+                    if server is not None and not await self.owner_may_start(
+                        server.project, server.config.name
+                    ):
+                        return
                     await self.servers.restart(key)
                 except ValueError as exc:
                     self.error(str(exc))
@@ -252,10 +280,58 @@ class CodeVerify:
             return
         try:
             project, _task = self.project_of(msg)
+            name = str(msg.get("name") or "")
+            if not await self.owner_may_start(project, name):
+                return
             # Started from the pane: the owner's own server, whatever session is open.
-            await self.servers.start(project, str(msg.get("name") or ""), started_by=None)
+            await self.servers.start(project, name, started_by=None)
         except ValueError as exc:
             self.error(str(exc))
+
+    # ── which configs the owner has said yes to ──
+
+    def _starts_path(self) -> Path:
+        return self.hub.feature_path("code-verify-starts.json")
+
+    def _started_ok(self) -> dict[str, list[str]]:
+        try:
+            data = jsonstore.load_json(self._starts_path(), dict) or {}
+        except jsonstore.Unreadable:
+            data = {}
+        return {
+            k: [f for f in v if isinstance(f, str)] for k, v in data.items() if isinstance(v, list)
+        }
+
+    def _remember_start(self, project: Path, config: devservers.LaunchConfig) -> None:
+        kept = self._started_ok()
+        mine = [f for f in kept.get(str(project), []) if f != _fingerprint(config)]
+        kept[str(project)] = [*mine, _fingerprint(config)][-50:]
+        with contextlib.suppress(OSError):  # a full disk: it asks again next time
+            jsonstore.save_json(self._starts_path(), kept)
+
+    async def owner_may_start(self, project: Path, name: str) -> bool:
+        """Whether the owner's click on a project's dev server may run it. A launch.json is
+        the repository's to write (a cloned one's authors', or a session's): the first time
+        each config is started from the pane, and again whenever its command, folder or
+        environment changes, a card shows all of it. A config that isn't there: True, and
+        the start says so."""
+        config = await asyncio.to_thread(self.servers.config, project, name)
+        if config is None:
+            return True
+        if _fingerprint(config) in self._started_ok().get(str(project), []):
+            return True
+        choice = await self.hub.request_approval(
+            f"Start {name} from {project.name}'s launch.json?",
+            _config_detail(config)
+            + "\n\nIt runs as you, outside any sandbox. A launch.json is written by whoever "
+            "wrote the repository (or by a session): start it only if that command is one you "
+            "trust. I ask again if it changes.",
+            [("start", "Start it"), ("deny", "Not now")],
+        )
+        if choice != "start":
+            return False
+        await asyncio.to_thread(self._remember_start, project, config)
+        return True
 
     def cmd_logs(self, msg: dict[str, Any]) -> None:
         key = str(msg.get("key") or "")
@@ -276,6 +352,9 @@ class CodeVerify:
             if found is None:
                 raise ValueError("That suggestion isn't there anymore.")
             await asyncio.to_thread(devservers.save_config, project, found)
+            saved = await asyncio.to_thread(self.servers.config, project, found.name)
+            if saved is not None:  # the owner's own pick of Eden's suggestion: no card for it
+                await asyncio.to_thread(self._remember_start, project, saved)
         except (ValueError, OSError) as exc:
             self.error(str(exc) if isinstance(exc, ValueError) else "Couldn't save it.")
             return
@@ -729,7 +808,15 @@ class CodeVerify:
             self.tests.changed(task.cwd)  # a watch runs again, without waiting to look
 
     def _turn_ended(self, data: dict[str, Any]) -> None:
-        return  # Preview checks only run when explicitly requested by the user (cv_check)
+        task = self.hub.tasks.tasks.get(data.get("id"))
+        if task is None or task.kind != "code":
+            return
+        checks = self.session(task.id)  # (a new session's switch follows the owner's setting)
+        if not (checks.verify or checks.problems):
+            return
+        if data.get("status") != "done" or not data.get("files"):
+            return  # stopped, failed, or nothing changed: nothing to check
+        self.spawn(self.check_turn(task))
 
     def _sessions_changed(self, items: list[dict[str, Any]]) -> None:
         """A session that ended (End session, a crash) or was let go: the dev servers it
@@ -757,17 +844,23 @@ class CodeVerify:
     def session_servers(self, task: Any) -> dict[str, Any]:
         servers: dict[str, Any] = {
             DEV: create_sdk_mcp_server(name=DEV, version="0.1.0", tools=dev_tools(self, task)),
-            simtools.SERVER: create_sdk_mcp_server(
+        }
+        if not osplat.IS_WIN:  # (item 49: the iOS Simulator and Xcode are the Mac's alone)
+            servers[simtools.SERVER] = create_sdk_mcp_server(
                 name=simtools.SERVER,
                 version="0.1.0",
                 tools=simtools.sim_tools(self.sim, lambda: task.cwd),
-            ),
-        }
+            )
         checks = self.sessions.get(task.id)
         if checks is not None and checks.mac:
             checks.screen = checks.screen or computer.Screen()
             servers[sessionmac.SERVER] = sessionmac.build(checks.screen)
-        if checks is not None and checks.xcode and codetests.xcode_container(task.cwd) is not None:
+        if (
+            checks is not None
+            and checks.xcode
+            and not osplat.IS_WIN
+            and codetests.xcode_container(task.cwd) is not None
+        ):
             # Xcode's MCP bridge, as `xcrun mcpbridge --help` describes it: with no
             # subcommand it's a stdio bridge to the running Xcode's tool service.
             servers[XCODE] = {"type": "stdio", "command": "/usr/bin/xcrun", "args": ["mcpbridge"]}
@@ -918,15 +1011,45 @@ def ask_every_time(tools: tuple[str, ...] = RUNS_PROJECT_CODE) -> HookMatcher:
     return HookMatcher(matcher="|".join(re.escape(t) for t in tools), hooks=[hook])
 
 
+# Variables that change what a program loads or runs, beyond the command itself: flagged on
+# the card, since a launch.json's env is as much its command as runtimeExecutable is.
+_RUNS_CODE_ENV = re.compile(
+    r"^(NODE_OPTIONS|DYLD_\w+|LD_\w+|PYTHON(STARTUP|PATH|HOME|INSPECT)|PERL5?(OPT|LIB)|"
+    r"RUBYOPT|RUBYLIB|BASH_ENV|ENV|ZDOTDIR|PATH|GIT_\w+|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|"
+    r"npm_config_\w+|NPM_CONFIG_\w+)$"
+)
+
+
+def _fingerprint(config: devservers.LaunchConfig) -> str:
+    """What a yes to a config covers: its command, folder and environment, as read."""
+    shape = config.to_json() | {"source": config.source}
+    return hashlib.sha256(json.dumps(shape, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def _config_detail(config: devservers.LaunchConfig) -> str:
+    """A config on a card: the command, where it runs, every environment variable it sets
+    (those that change what runs marked), and the file it's from."""
+    where = f"\nin {config.cwd}/" if config.cwd else ""
+    lines = [f"{config.name}: $ {config.command_line}{where}"]
+    if config.env:
+        lines.append("with environment:")
+        for key, value in config.env:
+            shown = value if len(value) <= 200 else value[:200] + "…"
+            mark = "  ← changes what runs" if _RUNS_CODE_ENV.match(key) else ""
+            lines.append(f"  {key}={shown}{mark}")
+    lines.append(f"from {config.source}")
+    return "\n".join(lines)
+
+
 def _start_detail(tool_input: dict[str, Any], cwd: Path) -> str:
-    """What an approval card shows for dev_server_start: the command it would run."""
+    """What an approval card shows for dev_server_start: the command it would run, with
+    its environment."""
     name = str(tool_input.get("name") or "")
     configs, _ = devservers.read_launch(cwd)
     config = next((c for c in configs if c.name == name), None)
     if config is None:
         return f"{name} (not in the project's launch.json)"
-    where = f"\nin {config.cwd}/" if config.cwd else ""
-    return f"{name}: $ {config.command_line}{where}\nfrom {config.source}"
+    return _config_detail(config)
 
 
 class _SessionOptions:

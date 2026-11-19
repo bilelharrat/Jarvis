@@ -1,0 +1,58 @@
+/* "Bring over from…" (code-import.js): a sheet over Eden Code's window (the tool picker, the
+   preview, the summary, the history from other tools), its card in the welcome (it takes
+   .jc-card / .gs-card's own look) and its group in Settings › General (.jcs-group's). Colours
+   are Eden Code's tokens (app.css: light and dark), the sheet frosted as the glass look's
+   panels are (eden-code-glass.css' --glass-* where they're set). The composer isn't touched. */
+.cimp-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 56px); padding: 0; border: 0; border-radius: 20px;
+  color: rgb(var(--c-ink)); background: var(--glass-fill-strong, rgb(var(--c-surface)));
+  -webkit-backdrop-filter: var(--glass-blur, none); backdrop-filter: var(--glass-blur, none);
+  box-shadow: var(--glass-rim, 0 0 0 0), var(--shadow-sheet); font-family: var(--sans); overflow: hidden; }
+.cimp-dialog[open] { display: flex; flex-direction: column; }
+.cimp-dialog::backdrop { background: rgb(0 0 0 / 0.28); }
+.cimp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 8px; }
+.cimp-title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.015em; }
+.cimp-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 20px 18px; overflow: auto; }
+.cimp-intro, .cimp-note { margin: 0; font-size: 13px; line-height: 1.45; color: rgb(var(--c-muted)); }
+.cimp-tool { margin: 0; font-size: 15px; font-weight: 650; }
+.cimp-summary { margin: -6px 0 0; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.cimp-back { align-self: flex-start; }
+.cimp-sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.cimp-source { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px 12px; border: 0; border-radius: 14px;
+  text-align: left; cursor: pointer; font: inherit; color: inherit; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.cimp-source:hover:not(:disabled) { background: rgb(var(--c-surface-muted)); }
+.cimp-source:focus-visible, .cimp-check:focus-visible, .cimp-chat-row:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }
+.cimp-source.off { cursor: default; opacity: 0.5; box-shadow: none; background: rgb(var(--c-fill-3)); }
+.cimp-source-name { font-size: 13.5px; font-weight: 600; }
+.cimp-source-blurb { font-size: 11.5px; line-height: 1.35; color: rgb(var(--c-muted)); }
+.cimp-source-note { font-size: 11.5px; color: rgb(var(--c-accent)); }
+.cimp-source.off .cimp-source-note { color: rgb(var(--c-muted)); }
+.cimp-groups { display: flex; flex-direction: column; gap: 6px; }
+.cimp-group .jcs-label { display: flex; gap: 4px; }
+.cimp-count { opacity: 0.6; font-weight: 400; }
+.cimp-item { align-items: flex-start; gap: 10px; }
+label.cimp-item { cursor: pointer; }
+.cimp-check, .cimp-check-space { flex: none; width: 16px; height: 16px; margin: 2px 0 0; }
+.cimp-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cimp-item-title { font-size: 13px; overflow-wrap: anywhere; }
+.cimp-item-detail { font-family: var(--mono); font-size: 11px; color: rgb(var(--c-muted)); overflow-wrap: anywhere; }
+.cimp-item-why { font-size: 11.5px; line-height: 1.4; color: rgb(var(--c-ink-2)); }
+.cimp-pill { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap;
+  background: rgb(var(--c-fill-2)); color: rgb(var(--c-ink-2)); }
+.cimp-pill.new { background: rgb(var(--c-accent) / 0.14); color: rgb(var(--c-accent)); }
+.cimp-pill.already, .cimp-pill.added { background: rgb(var(--c-success-soft)); color: rgb(var(--c-success-ink)); }
+.cimp-pill.manual { background: rgb(var(--c-warning-soft, var(--c-fill-2))); color: rgb(var(--c-warning-ink, var(--c-ink-2))); }
+.cimp-pill.error { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.cimp-item.skip .cimp-item-title, .cimp-item.error .cimp-item-title { color: rgb(var(--c-muted)); }
+.cimp-acts { position: sticky; bottom: -18px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 0 2px;
+  background: linear-gradient(to bottom, transparent, var(--glass-fill-strong, rgb(var(--c-surface))) 30%); }
+.cimp-result .jcs-row small { display: block; }
+.cimp-chat-row { width: 100%; border: 0; text-align: left; font: inherit; color: inherit; background: transparent; cursor: pointer; }
+.cimp-chat-row:hover { background: rgb(var(--c-fill-3)); }
+.cimp-messages { display: flex; flex-direction: column; gap: 8px; }
+.cimp-msg { max-width: 88%; padding: 8px 12px; border-radius: 14px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cimp-msg p { margin: 0; }
+.cimp-msg.user { align-self: flex-end; background: rgb(var(--c-accent) / 0.14); }
+.cimp-msg.assistant { align-self: flex-start; background: rgb(var(--c-fill-3)); }
+.cimp-card[hidden] { display: none; }
+@media (max-width: 520px) { .cimp-sources { grid-template-columns: 1fr; } .cimp-pill { display: none; } }
+@media (prefers-reduced-motion: reduce) { .cimp-source { transition: none; } }

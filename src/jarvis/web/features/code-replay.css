@@ -1,0 +1,55 @@
+/* Eden Code's step-by-step replay (features/code-replay.js): the scrubber, the step on show,
+   the files at its turn's checkpoint, and forking from there. Theme tokens only, so it's
+   right in light, dark and the glass look. */
+
+.rp-root { display: flex; flex-direction: column; gap: 10px; padding-top: 2px; min-width: 0; }
+.rp-scrub { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; z-index: 1; padding: 8px 10px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.rp-bar { display: flex; align-items: center; gap: 6px; }
+.rp-bar .jc-mini { min-width: 28px; font-size: 13px; }
+.rp-bar .jc-mini:disabled { opacity: 0.4; cursor: default; }
+.rp-play { min-width: 52px !important; font-size: 11px !important; }
+.rp-range { flex: 1; min-width: 60px; accent-color: rgb(var(--c-accent)); }
+.rp-pos { margin: 0; font-size: 11.5px; color: rgb(var(--c-muted)); font-variant-numeric: tabular-nums; }
+.rp-turns { display: flex; flex-wrap: wrap; gap: 4px; max-height: 58px; overflow: auto; }
+.rp-turn { border: 0; border-radius: 6px; min-width: 22px; padding: 1px 5px; font: 10.5px var(--mono); cursor: pointer; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.06); }
+.rp-turn.cp { box-shadow: inset 0 -2px 0 rgb(var(--c-accent) / 0.7); }
+.rp-turn[aria-current="true"] { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.18); }
+.rp-turn:focus-visible, .rp-file:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 1px; }
+
+.rp-step { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); min-width: 0; }
+.rp-step-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.rp-kind { flex: none; font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: rgb(var(--c-muted)); }
+.k-user .rp-kind { color: rgb(var(--c-accent-ink)); }
+.k-agent .rp-kind { color: rgb(var(--c-purple-ink)); }
+.rp-title { font-size: 12.5px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.rp-at { margin-left: auto; font-size: 10.5px; color: rgb(var(--c-muted)); font-variant-numeric: tabular-nums; }
+.rp-bad { font-size: 10.5px; font-weight: 600; color: rgb(var(--c-danger-ink)); }
+.rp-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.45; max-height: 320px; overflow: auto; }
+.rp-pre.io { font: 11.5px/1.45 var(--mono); padding: 6px 8px; border-radius: 8px; background: rgb(var(--c-ink) / 0.05); }
+.k-thinking .rp-pre.text { color: rgb(var(--c-ink-2)); font-style: italic; }
+.rp-io summary { cursor: pointer; font-size: 11.5px; color: rgb(var(--c-muted)); padding: 2px 0; }
+.rp-io[open] summary { margin-bottom: 4px; }
+.rp-meta { margin: 0; font-size: 11.5px; color: rgb(var(--c-muted)); overflow-wrap: anywhere; }
+.rp-wait { margin: 0; font-size: 11.5px; color: rgb(var(--c-muted)); }
+.rp-wait.bad, .rp-meta.bad { color: rgb(var(--c-danger-ink)); }
+
+.rp-diff { font: 11.5px/1.45 var(--mono); border-radius: 8px; overflow: auto; max-height: 360px; background: rgb(var(--c-ink) / 0.04); padding: 4px 0; }
+.rp-l { white-space: pre; padding: 0 8px; min-width: max-content; }
+.rp-l.add { background: rgb(var(--c-success-soft)); color: rgb(var(--c-success-ink)); }
+.rp-l.del { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.rp-l.hunk { color: rgb(var(--c-accent-ink)); }
+.rp-l.file, .rp-l.more { color: rgb(var(--c-muted)); }
+
+.rp-files { display: flex; flex-direction: column; gap: 6px; }
+.rp-label { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: rgb(var(--c-muted)); }
+.rp-file-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-file { font-family: var(--mono); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-file.changed { box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.55), var(--shadow-control); }
+.rp-file[aria-pressed="true"] { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.16); }
+.rp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-bottom: 4px; }
+
+.otel-row { flex-wrap: wrap; }
+.otel-row .jcs-input { flex: 1 1 100%; max-width: none; font-family: var(--mono); font-size: 12.5px; }
+.otel-line { font-size: 12px; color: rgb(var(--c-muted)); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) { .rp-turn, .rp-file { transition: none; } }

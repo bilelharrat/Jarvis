@@ -55,15 +55,24 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"\b[a-z][a-z0-9+.-]{1,20}://[^\s:/@'\"]{1,64}:([^\s/@'\"]{3,128})@[\w.-]+"),
     ),
 ]
-# A value given to a name that says it's secret: `api_key = "…"`, `"password": "…"`.
-ASSIGNED = re.compile(
-    r"""(?ix)
-    (?P<name>[\w.-]*(?:api[_-]?key|apikey|secret|token|passw(?:or)?d|passwd|pwd|auth[_-]?key
-        |access[_-]?key|private[_-]?key|client[_-]?secret|credential|signing[_-]?key)[\w.-]*)
-    ["']?\s*(?::=|=>|[:=])\s*
-    (?P<q>["'`]?)(?P<value>[^\s"'`,;)}\]]{12,256})(?P=q)
-    """
-)
+
+
+def assigned(shortest: int) -> re.Pattern[str]:
+    """A value given to a name that says it's secret: `api_key = "…"`, `"password": "…"`,
+    at least this many characters long."""
+    return re.compile(
+        r"""(?ix)
+        (?P<name>[\w.-]*(?:api[_-]?key|apikey|secret|token|passw(?:or)?d|passwd|pwd|auth[_-]?key
+            |access[_-]?key|private[_-]?key|client[_-]?secret|credential|signing[_-]?key)[\w.-]*)
+        ["']?\s*(?::=|=>|[:=])\s*
+        (?P<q>["'`]?)(?P<value>[^\s"'`,;)}\]]{SHORTEST,256})(?P=q)
+        """.replace("SHORTEST", str(int(shortest)))
+    )
+
+
+# Before a commit, long ones only: a short value there is a test's or a config's, and
+# blocking on it would block every commit. A share-safe export takes them all (code_export).
+ASSIGNED = assigned(12)
 QUOTED = re.compile(r"""["'`]([A-Za-z0-9+/_=.-]{32,512})["'`]""")
 # Values that are plainly not secrets: placeholders, lookups, templates.
 _PLACEHOLDER = re.compile(

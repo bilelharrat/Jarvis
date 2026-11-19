@@ -25,9 +25,13 @@ import asyncio
 import contextlib
 import logging
 import math
+import os
+import plistlib
+import subprocess
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
@@ -43,15 +47,90 @@ YIELD_S = 1.5  # the hands keep off the cursor this long after the mouse last mo
 DISPLAYS_TTL = 5.0  # s between looks at the display arrangement
 BUTTONS = ("left", "right")
 
-# macOS keeps a permission for the build it was given to: after J.A.R.V.I.S. is rebuilt or
-# signed differently the switch there can still show on while the Mac refuses it.
-NOT_PERMITTED = (
-    "To steer the Mac with your hands, allow J.A.R.V.I.S. in System Settings › Privacy & "
-    "Security › Accessibility. If it's already on there, macOS is keeping the permission for "
-    "an earlier build of J.A.R.V.I.S. (switching it off and on doesn't renew it): in Terminal "
-    "run  tccutil reset PostEvent com.bshventures.jarvis  then reopen J.A.R.V.I.S. and allow "
-    "it when the Mac asks."
-)
+# The app macOS asks about is the one that started this backend, and that isn't always Eden
+# Secretary: the Eden apps share one backend, so it may be Eden Code's or Ask Eden's (or
+# Terminal's, run from there). host_app() finds it; without it, Eden Secretary's are named.
+DEFAULT_APP = ("Eden Secretary", "com.bshventures.jarvis")
+
+
+def not_permitted(app: str = DEFAULT_APP[0], bundle_id: str = DEFAULT_APP[1]) -> str:
+    """What to do when macOS won't let this backend post events. macOS keeps a permission for
+    the build it was given to: after the app is rebuilt or signed differently the switch can
+    still show on while the Mac refuses it, and switching it off and on doesn't renew it.
+    Removing and adding it again does; so does resetting both services the grant can sit
+    under (Accessibility, or PostEvent for an older one)."""
+    text = (
+        f"To steer the Mac with your hands, allow {app} in System Settings › Privacy & Security "
+        f"› Accessibility, then turn hand control of the Mac on again. If it's already on there, "
+        f"that was an earlier build of {app}: remove it with −, then add it again with +."
+    )
+    if bundle_id:
+        text += (
+            f" If it's still refused, run  tccutil reset Accessibility {bundle_id}; tccutil reset "
+            f"PostEvent {bundle_id}  in Terminal, then turn hand control on again and allow {app} "
+            "when the Mac asks."
+        )
+    return text
+
+
+NOT_PERMITTED = not_permitted()
+
+
+def _ps(pid: int) -> tuple[int, str] | None:
+    """(parent pid, executable path) of a process, or None when ps can't say."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        ).stdout
+        parent, path = out.strip().split(None, 1)
+        return int(parent), path
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _app_identity(bundle: str) -> tuple[str, str]:
+    """(name as System Settings lists it, bundle id) of an .app, from its Info.plist."""
+    try:
+        with open(Path(bundle) / "Contents" / "Info.plist", "rb") as f:
+            info = plistlib.load(f)
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        info = {}
+    if not isinstance(info, dict):
+        info = {}
+    name = info.get("CFBundleDisplayName") or info.get("CFBundleName") or Path(bundle).stem
+    return str(name), str(info.get("CFBundleIdentifier") or "")
+
+
+def host_app(
+    env: Mapping[str, str] | None = None,
+    ps: Callable[[int], tuple[int, str] | None] = _ps,
+    identity: Callable[[str], tuple[str, str]] = _app_identity,
+) -> tuple[str, str] | None:
+    """The app macOS asks about this backend's Accessibility: the one that started it. The
+    Eden apps' launcher says which (JARVIS_LAUNCHER_PID, app/main.js); otherwise it's the
+    nearest app up the process tree from this backend (Terminal, run from there). The
+    outermost .app counts, so an Electron helper's is its app's. (name, bundle id), or None."""
+    env = os.environ if env is None else env
+    launcher = str(env.get("JARVIS_LAUNCHER_PID", "")).strip()
+    pid = int(launcher) if launcher.isdigit() else os.getpid()
+    for _ in range(8):  # this backend, uv, a shell or two, the app
+        if pid <= 1:
+            return None
+        found = ps(pid)
+        if not found:
+            return None
+        parent, path = found
+        head, dot_app, _rest = path.partition(".app/")
+        if dot_app:
+            return identity(head + ".app")
+        pid = parent
+    return None
+
+
 FAILED = "Hand control of the Mac stopped: the Mac refused a mouse event."
 RECHECK_S = 2.0  # after a refusal, how often the permission is looked at again
 RECHECK_FOR_S = 600.0  # and for how long: switching it on in System Settings is noticed
@@ -191,10 +270,13 @@ class DesktopHands:
         poster: Poster | None = None,
         clock: Callable[[], float] = time.monotonic,
         span: str = "all",
+        find_host: Callable[[], tuple[str, str] | None] = host_app,
     ) -> None:
         self.poster: Poster = poster or QuartzPoster()
         self.clock = clock
         self.span = span
+        self.find_host = find_host
+        self.host: tuple[str, str] | None = None  # (name, bundle id) macOS asks about: watch()
         self.active = False
         self.stopped = False  # stopped by the window: only its start begins again
         self.held: str | None = None  # the button that's down
@@ -226,12 +308,13 @@ class DesktopHands:
             ok = False
         if not ok:
             self.active = False
+            app, bundle_id = self.host or DEFAULT_APP
             if self.blocked_at is None:
-                log.info("hand control of the Mac: Accessibility not granted to this app yet")
+                log.info("hand control of the Mac: Accessibility not granted to %s yet", app)
                 self.blocked_at = self.clock()
             with contextlib.suppress(Exception):
                 self.poster.request()
-            return {"state": "blocked", "text": NOT_PERMITTED}
+            return {"state": "blocked", "text": not_permitted(app, bundle_id)}
         self.blocked_at = None
         self.active = True
         self.pos = None
@@ -482,17 +565,22 @@ class DesktopHands:
         """check() every `interval` for as long as JARVIS runs, while there's something to
         watch: at rest (hand control off, or nothing held) it waits for the window's next
         message instead of waking four times a second for nothing."""
+        # Asked in a worker thread, like the permission below: finding the app asks ps.
+        with contextlib.suppress(Exception):
+            self.host = await asyncio.to_thread(self.find_host)
         with contextlib.suppress(Exception):  # one line at start: what the Mac allows this backend
-            import os
-
             # Asked in a worker thread: the first look imports Quartz, a third of a second on
             # a busy Mac, and on the loop that held up everything else the hub was starting.
             granted = await asyncio.to_thread(self.poster.permitted)
+            app, bundle_id = self.host or ("an app it couldn't find", "")
             log.info(
-                "hand control of the Mac: Accessibility %s for this backend (pid %d, parent %d)",
+                "hand control of the Mac: Accessibility %s for this backend (pid %d, parent %d), "
+                "which macOS asks about as %s%s",
                 "granted" if granted else "NOT granted",
                 os.getpid(),
                 os.getppid(),
+                app,
+                f" ({bundle_id})" if bundle_id else "",
             )
         self._wake = asyncio.Event()
         while True:

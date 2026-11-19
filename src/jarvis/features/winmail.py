@@ -360,6 +360,7 @@ def install(hub: Any) -> None:
         prompt=PROMPT,
         labels=LABELS,
         quiet=("mail_accounts",),
+        replace=True,  # (in place of Mail.app's "mail", features/comms.py: there's none here)
     )
     hub.register_command("mail_status", feature.status)
     hub.register_command("mail_guess", feature.guess)

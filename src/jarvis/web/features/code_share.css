@@ -1,0 +1,47 @@
+/* Eden Code's Share live pane. */
+.jcx-sharepane { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.jcx-sharepane > p { margin: 0; }
+.deck.jc .jcx-sharepane .jc-btn { font-size: 12px; }
+.deck.jc .jcx-sharepane .jc-btn.filled { color: #fff; }
+.deck.jc .jcx-sharepane .jc-btn:not(.filled) { color: rgb(var(--c-ink)); }
+.jcx-share { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.jcx-share-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.jcx-share-url { font: 12px var(--mono); }
+.jcx-share-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.jcx-share-watchers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.jcx-share-watchers li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.jcx-share-watchers span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-share-note { margin: 0; font-size: 11.5px; }
+.jcx-share-error { margin: 0; font-size: 12.5px; color: rgb(var(--c-danger-ink)); }
+.jcx-share-form { display: flex; flex-direction: column; gap: 8px; }
+.jcx-share-switch { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.jcx-share-start { align-self: flex-end; }
+.jcx-share-comment { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: rgb(var(--c-purple-soft)); }
+.jcx-share-comment strong { font-size: 11.5px; color: rgb(var(--c-purple-ink)); }
+.jcx-share-comment p { margin: 0; font-size: 12.5px; line-height: 1.45; color: rgb(var(--c-ink)); white-space: pre-wrap; overflow-wrap: anywhere; }
+.jcx-share-field { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: rgb(var(--c-ink-2)); }
+.jcx-share-field > span { flex: none; }
+.jcx-share-field .jcs-select { flex: 1; min-width: 0; }
+/* Phase 3 and 4: the link that works anywhere, personal links, drivers' requests, the log, teams. */
+.jcx-share-net, .jcx-share-invites { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid rgb(var(--c-ink) / 0.08); }
+.jcx-share-net > p, .jcx-share-invites > h4 { margin: 0; font-size: 12px; }
+.jcx-share-invites > h4, .jcx-share-team > h4 { font-weight: 600; color: rgb(var(--c-ink)); }
+.jcx-share-watchers li .jc-btn { flex: none; }
+.jcx-share-form .jc-field { min-width: 0; }
+.jcx-share-request { background: rgb(var(--c-accent-soft)); }
+.jcx-share-request strong { color: rgb(var(--c-accent-ink)); }
+.jcx-share-log, .jcx-share-teams { font-size: 12px; color: rgb(var(--c-ink-2)); }
+.jcx-share-log summary, .jcx-share-teams summary { cursor: pointer; font-weight: 600; color: rgb(var(--c-ink)); }
+.jcx-share-log ul { margin: 4px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.jcx-share-teams { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.jcx-share-teams > p { margin: 4px 0; }
+.jcx-share-team { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid rgb(var(--c-ink) / 0.08); }
+.jcx-share-team > h4 { margin: 0; font-size: 12.5px; }
+.jcx-share-team .jcs-select { flex: none; max-width: 40%; }
+.jcx-share-teams .jcx-share-form, .jcx-share-invites .jcx-share-form { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+.jcx-share-teams .jcx-share-form .jc-field, .jcx-share-invites .jcx-share-form .jc-field { flex: 1 1 140px; }
+.jcx-share-invites .jcx-share-switch { flex-basis: 100%; }
+.jcx-share-team li > span { flex: 1; }
+.jcx-share-net > .jc-btn { align-self: flex-start; }
+.jcx-share-invites li, .jcx-share-team li { flex-wrap: wrap; justify-content: flex-start; }
+.jcx-share-invites li > span, .jcx-share-team li > span { flex: 1 0 100%; white-space: normal; }

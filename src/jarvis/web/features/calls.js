@@ -14,7 +14,7 @@
     done: 'Ending',
     yours: 'Putting you through',
   };
-  const WHO = { them: 'Them', jarvis: 'Eden Secretary', owner: 'You' };
+  const WHO = { them: 'Them', jarvis: 'Jarvis', owner: 'You' };
 
   function statusLabel(call) {
     if (call && call.yours) return STATUS.yours;

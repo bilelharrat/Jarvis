@@ -1,0 +1,26 @@
+/* The owner's rules, enforced (features/code-guardrails.js): the Permissions pane's Guardrails
+   section, in the pane's own cards, switches and type (code-rules.css), light, dark and glass. */
+
+.gr-summary { margin: 0 4px 6px; font-size: 12px; }
+.gr-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.gr-row { padding: 8px 10px 8px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-ink) / 0.12); }
+.gr-row.gr-deny, .gr-row.gr-tests { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-danger) / 0.75); }
+.gr-row.gr-ask { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-warning) / 0.8); }
+.gr-row.gr-check { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-accent, 0 122 255) / 0.6); }
+.gr-row.off, .gr-all-off .gr-row { opacity: 0.55; }
+.gr-line { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.gr-rule { font-weight: 500; font-size: 12.5px; overflow-wrap: anywhere; }
+.gr-kind { flex: none; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); color: rgb(var(--c-ink-2)); }
+.gr-k-deny, .gr-k-tests { color: rgb(var(--c-danger-ink)); }
+.gr-k-ask { color: rgb(var(--c-warning-ink)); }
+.gr-from, .gr-hint { display: block; overflow-wrap: anywhere; }
+.gr-what { font-family: var(--mono); font-size: 11px; }
+.gr-forget { flex: none; }
+.gr-prose-box { margin: 4px 2px 10px; font-size: 12.5px; }
+.gr-prose-box > summary { cursor: pointer; color: rgb(var(--c-muted)); padding: 2px 2px 6px; }
+.gr-prose-list li { flex-wrap: wrap; gap: 6px; padding: 6px 8px 6px 12px; }
+.gr-prose-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gr-prose-text small { color: rgb(var(--c-muted)); font-size: 11px; }
+.gr-suggest[disabled] { opacity: 0.6; cursor: default; }
+.gr-proposal { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 10px; background: rgb(var(--c-ink) / 0.04); }
+.gr-proposal code { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }

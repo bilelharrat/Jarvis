@@ -13,6 +13,10 @@ Settings it keeps (prefs.features):
   Mac (jarvis.eden_link; on unless turned off). The "account" event carries
   eden_link: {on, state: off | connecting | open | waiting, error}, sent again as the line
   connects and drops.
+- account_eden_link_edits: "Let askeden.com edit on this Mac" (off unless turned on): Code
+  mode from the web may accept edits by itself and keep allowTools beyond reading
+  (EdenLink.edits); off, every edit from the web asks on the Mac. The "account" event's
+  eden_link carries it as edits.
 
 Window commands: account (the state, asked of askeden.com now), account_link (a new code;
 {browser: true}: approved in the owner's browser, so the server's /link page opens with it),
@@ -49,7 +53,7 @@ from typing import Any
 from .. import claude_signin, lang
 from ..account import PLUS_PREF, RELAY_PREF, SERVER_PREF, SERVERS, Account, AccountError
 from ..account_sync import Sync
-from ..eden_link import EDEN_LINK_PREF, EdenLink
+from ..eden_link import EDEN_LINK_EDITS_PREF, EDEN_LINK_PREF, EdenLink
 from ..eden_trust import EdenTrust
 from ..prefs import register_feature_pref
 from ..relay import Keeper, Relay
@@ -59,6 +63,7 @@ log = logging.getLogger("jarvis")
 register_feature_pref(RELAY_PREF, True)
 register_feature_pref(PLUS_PREF, False)
 register_feature_pref(EDEN_LINK_PREF, True)
+register_feature_pref(EDEN_LINK_EDITS_PREF, False)
 register_feature_pref(SERVER_PREF, SERVERS[0], lambda v: v if v in SERVERS else None)
 
 COMMANDS = (
@@ -125,7 +130,7 @@ class AccountDesk:
         self.relay = Relay(self.account, self._port)
         self.keeper = Keeper(self.relay, self.relay_wanted)
         # Eden on the web's link (askeden.com → Eden's server on this Mac), kept the same way.
-        self.eden_link = EdenLink(self.account)
+        self.eden_link = EdenLink(self.account, edits=self.eden_link_edits)
         self.eden_link.on_change.append(self.emit)  # Settings shows the line as it goes
         self.eden_keeper = Keeper(self.eden_link, self.eden_link_wanted)
         # Eden sync's key on this Mac, to approve browsers (jarvis.eden_trust).
@@ -149,6 +154,10 @@ class AccountDesk:
 
     def eden_link_on(self) -> bool:
         return self.hub.prefs.feature(EDEN_LINK_PREF) is not False
+
+    def eden_link_edits(self) -> bool:
+        """Whether the owner let askeden.com edit on this Mac (asked at each request)."""
+        return self.hub.prefs.feature(EDEN_LINK_EDITS_PREF) is True
 
     def eden_link_wanted(self) -> bool:
         return self.account.linked and self.eden_link_on()
@@ -247,7 +256,11 @@ class AccountDesk:
             "server_choice": self.hub.prefs.feature(SERVER_PREF),
             "servers": list(SERVERS),
             "relay": {"on": self.relay_on(), "state": self.relay.state},
-            "eden_link": {"on": self.eden_link_on(), **self.eden_link.public()},
+            "eden_link": {
+                "on": self.eden_link_on(),
+                "edits": self.eden_link_edits(),
+                **self.eden_link.public(),
+            },
             "plus": {
                 "chosen": self.hub.prefs.feature(PLUS_PREF) is True,
                 "in_use": self.plus_in_use(),

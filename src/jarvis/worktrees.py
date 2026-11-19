@@ -41,8 +41,8 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from . import code_changes
-from .code_changes import git
+from . import code_changes, codeparity, osplat
+from .code_changes import NO_HOOKS, git
 
 BRANCH_PREFIX = "jarvis/"
 TRASH_PREFIX = "refs/jarvis/trash/"
@@ -51,6 +51,7 @@ CREATE_SECONDS = 300.0  # checking out a big repository takes a while
 # A copy whose folder was made this long ago and still isn't on the list never will be (its
 # session went away while it was made): the sweeper may take it in then.
 MAKING_SECONDS = 2 * CREATE_SECONDS
+COPIES_STORE = "code_copies"  # the copies list (CopyStore), versioned (jsonstore.register_store)
 MAX_COPIES = 60  # copies kept on the list (a runaway, past this, is refused)
 ENV_FILES = 30
 ENV_BYTES = 1_000_000
@@ -150,7 +151,8 @@ class CopyStore:
         # never takes one in as a copy the list lost.
         self.making: dict[str, float] = {}
         try:
-            data = jsonstore.load_json(path, dict) or {}
+            jsonstore.register_store(COPIES_STORE, 1)  # (jsonstore is imported late here)
+            data = jsonstore.load_store(path, COPIES_STORE) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
             data = {}
@@ -169,8 +171,10 @@ class CopyStore:
 
         if self.unreadable:
             return
-        jsonstore.save_json(
-            self.path, {"copies": [asdict(c) for c in self.copies], "trash": self.trash[-200:]}
+        jsonstore.save_store(
+            self.path,
+            COPIES_STORE,
+            {"copies": [asdict(c) for c in self.copies], "trash": self.trash[-200:]},
         )
 
     def find(self, slug: str) -> Copy | None:
@@ -218,11 +222,15 @@ def create(
     copy_env: bool = False,
     link_deps: bool = False,
     making: dict[str, float] | None = None,
+    checkout_at: Path | None = None,
 ) -> tuple[Copy, list[str]]:
     """A new copy of the project at its current commit, on a branch of its own. Returns the
     copy and notes for the owner (what was linked or copied, and what wasn't and why).
     making: the store's copies being made; this one is in it from before its folder is
-    (the caller takes it out once the copy is on the list), unless it couldn't be made."""
+    (the caller takes it out once the copy is on the list), unless it couldn't be made.
+    checkout_at: where the checkout goes instead of root/<project>/<slug>/ (a multi-repo
+    task's folder, beside the task's other copies): it must not be there yet, and its
+    folder, outside root, is never removed with the copy."""
     project = project_dir.name
     repo = code_changes.repo_of(project_dir)
     if repo is None:
@@ -239,10 +247,14 @@ def create(
     slug = slug_for(title, taken | {b.removeprefix(BRANCH_PREFIX) for b in branches.out.split()})
     folder = root / project / slug
     checkout = folder / repo.top.name
+    if checkout_at is not None:
+        folder, checkout = checkout_at.parent, checkout_at
+        if checkout.exists():
+            raise CopyError(f"There's already a {checkout.name} folder for that copy.")
     if making is not None:
         making[slug] = time.monotonic()
     try:
-        folder.mkdir(parents=True, exist_ok=False)
+        folder.mkdir(parents=True, exist_ok=checkout_at is not None)
     except OSError as exc:
         _not_making(making, slug)
         raise CopyError(f"Couldn't make a folder for the copy: {exc.strerror or exc}") from exc
@@ -251,7 +263,7 @@ def create(
         repo.top, "worktree", "add", "-b", branch, str(checkout), head, timeout=CREATE_SECONDS
     )
     if not made.ok:
-        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(checkout if checkout_at is not None else folder, ignore_errors=True)
         _not_making(making, slug)
         why = (made.err.strip().splitlines() or ["git refused"])[-1][:300]
         raise CopyError(f"Couldn't make an isolated copy of {project}: {why}")
@@ -329,7 +341,8 @@ def link_dependencies(repo: code_changes.Repo, copy: Copy) -> list[str]:
     """node_modules and .venv from the main folder, as links: nothing to install again,
     but shared (a package added or upgraded in the copy changes the main folder's too). A
     link git would see as a new file isn't made: node_modules then goes one folder above
-    the copy, where Node still finds it; .venv isn't linked."""
+    the copy, where Node still finds it; .venv isn't linked. On Windows a link needs
+    Developer Mode (codeparity.link_folder: never a junction); without it, the note says so."""
     notes: list[str] = []
     main = repo.top / repo.prefix
     here = copy.cwd
@@ -338,8 +351,10 @@ def link_dependencies(repo: code_changes.Repo, copy: Copy) -> list[str]:
         if not source.is_dir() or target.exists() or target.is_symlink():
             continue
         try:
-            target.symlink_to(source, target_is_directory=True)
+            codeparity.link_folder(target, source)
         except OSError:
+            if osplat.IS_WIN:  # (no Developer Mode: Windows lets no app make a link)
+                notes.append(codeparity.NO_LINKS.format(name=name))
             continue
         if _ignored(Path(copy.checkout), f"{copy.prefix}{name}"):
             notes.append(f"Linked {name} from the main folder (shared with it).")
@@ -348,7 +363,7 @@ def link_dependencies(repo: code_changes.Repo, copy: Copy) -> list[str]:
         if name == "node_modules":
             above = copy.folder / name
             with contextlib.suppress(OSError):
-                above.symlink_to(source, target_is_directory=True)
+                codeparity.link_folder(above, source)
                 notes.append("Linked node_modules from the main folder (shared with it).")
                 continue
         notes.append(f"{name} isn't linked: git would see the link as a new file.")
@@ -482,7 +497,7 @@ def commit_all(copy: Copy, message: str) -> str:
     added = git(checkout, "add", "-A")
     if not added.ok:
         return f"Couldn't stage the copy's work: {added.err.strip()[:300]}"
-    done = git(checkout, "commit", "-q", "-m", message, timeout=120)
+    done = git(checkout, *NO_HOOKS, "commit", "-q", "-m", message, timeout=120)
     if done.ok:
         return ""
     why = (done.err or done.out).strip()
@@ -585,7 +600,7 @@ def land(copy: Copy, message: str) -> Landed:
         new = made.out.strip()
     holder = _holder(copy.repo, copy.into)
     if holder:
-        moved = git(holder, "merge", "--ff-only", "--no-edit", new, timeout=120)
+        moved = git(holder, *NO_HOOKS, "merge", "--ff-only", "--no-edit", new, timeout=120)
         if not moved.ok:
             names = overwritten_files(moved.err)
             if names:
@@ -606,6 +621,20 @@ def land(copy: Copy, message: str) -> Landed:
     return Landed(
         True, f"Landed {copy.branch} in {copy.into} ({how}).", commit=new, fast_forward=fast
     )
+
+
+def unlanded(copy: Copy) -> bool:
+    """Whether a copy just landed holds work that didn't land with it: files changed in it
+    since, or commits on its branch that aren't in the branch it landed in (a turn that ran
+    while it was landing). Such a copy is kept in the trash rather than removed by force."""
+    checkout = Path(copy.checkout)
+    if checkout.is_dir():
+        status = git(checkout, "status", "--porcelain", "-z", "--untracked-files=all")
+        if not status.ok or status_entries(status.out):
+            return True
+    head = _rev(copy.repo, f"refs/heads/{copy.branch}")
+    tip = _rev(copy.repo, f"refs/heads/{copy.into}")
+    return bool(head) and head != tip and not (tip and _is_ancestor(copy.repo, head, tip))
 
 
 def remove(copy: Copy, root: Path, force: bool = True) -> str:

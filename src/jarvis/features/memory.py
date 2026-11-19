@@ -26,7 +26,7 @@ cost policy); this puts them on the hub:
   promises scan and its reminders, and facts and intents past their last day.
 
 Cost policy (Claude): see memory_ai (memory_notice, journal, dream, intent_match,
-commitments: Haiku 4.5, each capped per day and per hour). Person cards, imports, standing
+commitments: Haiku 5.5, each capped per day and per hour). Person cards, imports, standing
 intents matched by words, reminders and About me call no model.
 
 Incognito (the conversation track's): read from hub.incognito (a flag or a callable) or the

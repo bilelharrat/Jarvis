@@ -253,7 +253,7 @@
     touchStats, clock, span, tokensText, ago, dayKey, contextSegments, rowState, runEdges,
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
-  const F = root.edenCodeFeatures;
+  const F = root.jarvisFeatures;
   if (!F) return;
 
   const on = () => document.body.dataset.skin === 'obsidian';
@@ -629,7 +629,7 @@
 
   let changesAsked = { id: null, at: 0 };
   function changedFiles(t) {
-    const C = root.EdenCodeChanges;
+    const C = root.JarvisChanges;
     if (!C || !C.store) return null;
     const view = (C.store.views && C.store.views.get(t.id)) || 'session';
     const data = C.store.data.get(`${t.id}:${view}`);

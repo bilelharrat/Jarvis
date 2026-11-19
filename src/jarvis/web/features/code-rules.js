@@ -4,6 +4,8 @@
 // field to add one, and import from and export to the project's .claude settings files (a
 // second press writes). Its Sandbox section is features/code_sandbox.py's: the switch for
 // Bypass and unattended sessions, this session's own choice, and the project's allowlist.
+// Other features add sections after the rules (root.jarvisRulesSections: (task) -> nodes, drawn
+// again with root.jarvisRulesRedraw(id)); code-guardrails.js's lists the rules it enforces.
 //
 // Rules, project and file names are data: text only (textContent), marked data-no-i18n.
 // Pure helpers are exported for node --test (tests/web/code-rules.test.mjs).
@@ -50,6 +52,8 @@
   function sandboxLine(s) {
     if (!s) return '';
     if (s.other) return 'Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.';
+    // Windows (item 49): no sandbox to run in (features/code_sandbox.py asks for each command).
+    if (s.available === false) return s.on ? 'There’s no sandbox on Windows, so each of its commands asks you first.' : 'There’s no sandbox on Windows: its commands run as its mode lets them.';
     if (!s.on) return 'Its commands run outside the sandbox.';
     return s.live ? 'Its commands run in the sandbox.' : 'Its commands run in the sandbox from its next step; until then each one asks.';
   }
@@ -59,11 +63,21 @@
     return String(text || '').split(/[\s,]+/).map((d) => d.trim()).filter(Boolean).slice(0, 20);
   }
 
-  const api = { ruleKind, claudeRows, count, sandboxLine, domainsOf, BEHAVIORS };
+  // GitHub in the allowlist is a way out as much as in: said under the domains, with what to
+  // do instead of a token that reaches everything.
+  const GITHUB_DOMAINS = /(^|\.)(github\.com|githubusercontent\.com)$/;
+  function domainWarning(domains) {
+    return (domains || []).some((d) => GITHUB_DOMAINS.test(String(d).replace(/^\*\./, '')))
+      ? 'With GitHub allowed, a sandboxed command can send what it reads to any repository on GitHub, not just this one, and fetch anyone’s code. If its commands need GitHub, give them a token scoped to this repository only (a fine-grained token with just its access), never your own.'
+      : '';
+  }
+
+  const api = { ruleKind, claudeRows, count, sandboxLine, domainsOf, domainWarning, BEHAVIORS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const { el, t } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
   const KIND_LABEL = { web: 'Web', mcp: 'MCP', files: 'Files', command: 'Command', tool: 'Tool' };
@@ -96,8 +110,9 @@
     if (!s) return parts;
     const row = el('div', 'jc-audit-switch');
     const text = el('span');
+    const none = s.available === false;  // (Windows: the switch makes each command ask instead)
     text.append(el('strong', '', 'Sandbox Bypass and unattended sessions'),
-      el('small', '', 'Their commands can write only in the project and reach only the domains allowed below.'));
+      el('small', '', none ? (s.why || 'Claude Code’s sandbox isn’t available on Windows.') : 'Their commands can write only in the project and reach only the domains allowed below.'));
     const sw = el('button', `sw${s.default ? ' on' : ''} cs-switch`);
     sw.type = 'button';
     sw.setAttribute('role', 'switch');
@@ -105,6 +120,20 @@
     sw.setAttribute('aria-label', 'Sandbox Bypass and unattended sessions');
     sw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { code_sandbox_bypass: !s.default } }));
     row.append(text, sw);
+    // A new session in an isolated copy starts in Auto, in the sandbox, rather than Manual
+    // (code_sandbox.PREF_AUTO_COPIES: on unless turned off; needs the switch above).
+    const autoRow = el('div', 'jc-audit-switch');
+    const autoText = el('span');
+    autoText.append(el('strong', '', 'Auto in sandboxed isolated copies'),
+      el('small', '', 'A new session in an isolated copy starts in Auto, in the sandbox, instead of Manual. Nothing reaches the project folder until you land the copy.'));
+    const autoOn = s.auto_copies !== false;
+    const autoSw = el('button', `sw${autoOn ? ' on' : ''} cs-switch`);
+    autoSw.type = 'button';
+    autoSw.setAttribute('role', 'switch');
+    autoSw.setAttribute('aria-checked', String(autoOn));
+    autoSw.setAttribute('aria-label', 'Auto in sandboxed isolated copies');
+    autoSw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { code_auto_in_copies: !autoOn } }));
+    autoRow.append(autoText, autoSw);
     const mineRow = el('div', 'cs-session');
     mineRow.append(el('span', 'cs-session-label', 'This session'));
     const seg = el('div', 'cr-seg cs-seg');
@@ -121,7 +150,8 @@
     }
     mineRow.append(seg);
     const line = el('p', `jc-dim cs-line${s.on ? (s.live ? ' on' : ' pending') : ''}`, sandboxLine(s));
-    parts.push(row, mineRow, line);
+    parts.push(row, autoRow, mineRow, line);
+    if (none) return parts;  // (no allowlist without a sandbox to keep to it)
     // The project's allowlist.
     const head = el('p', 'cr-group-head cs-domains-head');
     head.append(el('strong', '', 'Domains sandboxed commands may reach'));
@@ -140,6 +170,8 @@
       }));
       parts.push(ul);
     }
+    const warning = domainWarning(domains);
+    if (warning) parts.push(el('p', 'cs-warn', warning));
     const add = el('div', 'cr-add-row cs-add');
     const input = el('input', 'jc-field cs-input');
     input.placeholder = 'registry.npmjs.org';
@@ -183,6 +215,14 @@
     return row;
   }
 
+  // A change that lets a lot more go unasked asks for the fingerprint first (code-touchid.js,
+  // kind 'rules'); any other goes at once.
+  function changeRules(task, msg, info) {
+    const check = F.check ? F.check('rules', info) : null;
+    if (check) check.then((ok) => { if (ok) F.send(msg); });
+    else F.send(msg);
+  }
+
   function ruleRow(task, b, rule) {
     const li = el('li', `cr-rule ${b}`);
     const kind = ruleKind(rule);
@@ -190,7 +230,7 @@
     const rm = el('button', 'jc-btn small cr-remove', 'Remove');
     rm.type = 'button';
     rm.setAttribute('aria-label', t('Remove this rule'));
-    rm.addEventListener('click', () => F.send({ type: 'cr_remove', id: task.id, behavior: b, rule }));
+    rm.addEventListener('click', () => changeRules(task, { type: 'cr_remove', id: task.id, behavior: b, rule }, { behavior: b, rule, have: { deny: b === 'deny' ? [rule] : [] }, removing: true }));
     li.append(rm);
     return li;
   }
@@ -221,7 +261,7 @@
     const go = () => {
       const rule = input.value.trim();
       if (!rule) { input.focus(); return; }
-      F.send({ type: 'cr_add', id: task.id, behavior, rule });
+      changeRules(task, { type: 'cr_add', id: task.id, behavior, rule }, { behavior, rule, have: state.rules || {}, removing: false });
     };
     add.addEventListener('click', go);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
@@ -238,7 +278,7 @@
     return box;
   }
 
-  function exportButton(task, target, file) {
+  function exportButton(task, target, file, allows = 0) {
     const b = el('button', 'jc-btn small cr-export', target === 'local' ? 'Export to settings.local.json' : 'Export to settings.json');
     b.type = 'button';
     b.dataset.target = target;
@@ -252,7 +292,8 @@
       }
       clearTimeout(armed.timer);
       armed = null;
-      F.send({ type: 'cr_export', id: task.id, target });
+      // (an allow written there is Claude Code's own: no card at all, so Touch ID first)
+      changeRules(task, { type: 'cr_export', id: task.id, target }, { exporting: true, allows });
     });
     b.title = t(`Adds these rules to .claude/${file}, keeping what’s there`);
     return b;
@@ -287,6 +328,10 @@
     }
     parts.push(addForm(task, state));
     if (state.note) parts.push(el('p', 'cr-note', state.note));
+    // Other features' sections for the project (code-guardrails.js: the rules it enforces).
+    for (const section of root.jarvisRulesSections || []) {
+      try { parts.push(...section(task)); } catch (err) { console.warn('a Permissions section failed', err); }
+    }
     // The commands "Yes, and don't ask again" let by.
     const legacy = state.legacy || [];
     parts.push(el('p', 'jc-label cr-head', 'Commands it runs here without asking'));
@@ -322,12 +367,13 @@
     imp.type = 'button';
     imp.disabled = !rows.length;
     imp.addEventListener('click', () => F.send({ type: 'cr_import', id: task.id }));
-    actions.append(imp, exportButton(task, 'local', 'settings.local.json'), exportButton(task, 'project', 'settings.json'));
+    const allows = ((state.rules && state.rules.allow) || []).length + (state.legacy || []).length;
+    actions.append(imp, exportButton(task, 'local', 'settings.local.json', allows), exportButton(task, 'project', 'settings.json', allows));
     if (armed) {
       const b = actions.querySelector(`.cr-export[data-target="${armed.target}"]`);
       if (b) { b.classList.add('armed'); b.textContent = t(armed.target === 'local' ? 'Press again to write settings.local.json' : 'Press again to write settings.json (shared with the project)'); }
     }
-    parts.push(actions, el('p', 'jc-dim cr-intro', 'Export adds Eden Secretary’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.'));
+    parts.push(actions, el('p', 'jc-dim cr-intro', own('Export adds Eden Secretary’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.', 'Export adds Eden Code’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.')));
     body.replaceChildren(...parts);
   }
 
@@ -345,6 +391,8 @@
     render(paneBody, task);
     if (which) { const input = paneBody.querySelector(which); if (input) input.focus(); }
   }
+
+  root.jarvisRulesRedraw = redraw;  // (for the sections other features add)
 
   F.on('cr_state', (ev) => {
     states.set(ev.id, ev);

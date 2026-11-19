@@ -4,22 +4,22 @@ The cost policy, one line per kind of call: the model, when it runs, and its cap
 count is kept in memory_ai_usage.json beside the settings, an hour's in memory; past a cap
 nothing is called and the feature carries on without it):
 
-  memory_notice  Haiku 4.5  after a conversation has been quiet for four minutes, and only
+  memory_notice  Haiku 5.5  after a conversation has been quiet for four minutes, and only
                             when the owner's own requests since the last look say something
                             about themselves; one tool-less turn on at most 6,000
                             characters of their words, at least ten minutes apart
                                                               24 a day, 6 an hour
-  journal        Haiku 4.5  the daily note's summary: once a day at the note's time (or
+  journal        Haiku 5.5  the daily note's summary: once a day at the note's time (or
                             at first use the next day), on at most 8,000 characters of the
                             day's requests, actions, meetings and routines; without it the
                             note is written without its summary       3 a day, 2 an hour
-  dream          Haiku 4.5  the nightly consolidation: once a night (after 2 AM, or at
+  dream          Haiku 5.5  the nightly consolidation: once a night (after 2 AM, or at
                             first use in the morning), on the last three daily notes, at
                             most 12,000 characters                     2 a day, 1 an hour
-  intent_match   Haiku 4.5  a standing intent set to match by meaning: only for arrivals
+  intent_match   Haiku 5.5  a standing intent set to match by meaning: only for arrivals
                             its words-and-people check already let through, at most 12
                             in one call                               40 a day, 10 an hour
-  commitments    Haiku 4.5  "Track my promises" on: sent mail and texts with promise-like
+  commitments    Haiku 5.5  "Track my promises" on: sent mail and texts with promise-like
                             words, at most 20 items (8,000 characters) in one call, every
                             half hour at most                         12 a day, 3 an hour
 

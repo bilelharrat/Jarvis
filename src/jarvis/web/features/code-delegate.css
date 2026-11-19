@@ -1,0 +1,8 @@
+/* Attention-aware delegation's settings (code-delegate.js): the auto-start caps sit indented
+   under their switch; the held line is plain status text. Colours are the window's own
+   (jcs-* rows), so light, dark and the glass look all hold. */
+.dlg-caps { margin-left: 14px; border-left: 2px solid rgb(var(--c-ink) / 0.10); padding-left: 8px; }
+.dlg-caps[hidden], .dlg-held[hidden] { display: none; }
+.dlg-end { max-width: 8em; flex: 0 0 auto; }
+.dlg-held-text { font-size: 12.5px; opacity: .85; }
+.ct-from.ct-meeting { opacity: .85; }

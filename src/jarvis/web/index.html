@@ -217,7 +217,7 @@
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>
   </section>
 
-  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey eden jarvis listening gestures">
+  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey jarvis listening gestures">
     <h3>Voice</h3>
     <div class="row"><span><strong>Spoken replies</strong></span><button type="button" class="switch" role="switch" id="sw-voice" aria-checked="true" aria-label="Spoken replies"></button></div>
     <div class="row"><span><strong>AI voice effect</strong><small>A faint doubled, in-the-room sheen</small></span><button type="button" class="switch" role="switch" id="sw-effect" aria-checked="true" aria-label="AI voice effect"></button></div>
@@ -513,9 +513,6 @@
       </div>
       <span id="br-jarvis" class="br-jarvis" hidden>Eden Secretary is browsing</span>
       <span id="br-zoom" class="bd-zoom" hidden></span>
-      <button type="button" class="bd-icon" id="br-pick" aria-pressed="false" aria-label="Select element" title="Select element on page"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4.5M2.5 2.5v4.5M13.5 2.5H9M13.5 2.5v4.5M2.5 13.5h4.5M2.5 13.5V9"/><path d="M7.5 7.5l6 2.2-2.6 1.2-1.2 2.6z"/></svg></button>
-      <button type="button" class="bd-icon" id="br-shot" aria-label="Take screenshot and attach to chat" title="Screenshot to chat"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.2A1.5 1.5 0 013.5 3.7h1.4l1-1.4h4.2l1 1.4h1.4A1.5 1.5 0 0114 5.2v6.8a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12V5.2z"/><circle cx="8" cy="8.5" r="2.3"/></svg></button>
-      <button type="button" class="bd-icon" id="br-console" aria-pressed="false" aria-label="Developer console" title="Console & network logs"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.2 5L2 8l3.2 3M10.8 5L14 8l-3.2 3M9 3.5l-2 9"/></svg></button>
       <button type="button" class="bd-icon" id="br-library" aria-pressed="false" aria-label="Bookmarks" title="Bookmarks"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2.5h7.5a2 2 0 012 2v9H5a2 2 0 01-2-2z"/><path d="M3 11.5a2 2 0 012-2h7.5"/></svg></button>
       <button type="button" class="bd-icon" id="br-history" aria-pressed="false" aria-label="History" title="History (⌘Y)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.7 8.6A5.4 5.4 0 104.2 4.2"/><path d="M2.3 2.4v2.8h2.8"/><path d="M8 5.2V8l2 1.3"/></svg></button>
       <button type="button" class="bd-icon" id="br-research" aria-label="Open the BSH Research Center" title="BSH Research Center"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 15.5l4.2-6.4 2.4 3.3 3.3-6.9L18 15.5z"/></svg></button>
@@ -560,19 +557,6 @@
         <li><i aria-hidden="true">🙌</i><b>Zoom</b></li>
         <li><i aria-hidden="true">✊</i><b>Close</b></li>
       </ol>
-    </div>
-    <div id="br-devbar" class="br-devbar" hidden>
-      <span class="br-devbar-dot" aria-hidden="true"></span>
-      <span id="br-devbar-text" class="br-devbar-text">Dev server isn't running.</span>
-      <button type="button" id="br-devbar-btn" class="br-devbar-btn">Start</button>
-    </div>
-    <div id="br-console-drawer" class="br-console-drawer" hidden>
-      <div class="br-console-head">
-        <strong>Console &amp; Network</strong>
-        <button type="button" class="bd-find-done" id="br-console-send" title="Send console errors to Eden Code">Send errors to chat</button>
-        <button type="button" class="bd-icon" id="br-console-close" aria-label="Close console"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
-      </div>
-      <pre id="br-console-log" class="br-console-log">No console errors or failed requests.</pre>
     </div>
   </div>
 </section>
@@ -622,10 +606,11 @@
       </div>
       <div class="jc-capsule" role="toolbar" aria-label="Workbench">
         <button type="button" class="jc-tool" data-pane="terminal" title="Terminal" aria-label="Terminal"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6l4 4-4 4M10 15h6"/></svg></button>
+        <button type="button" class="jc-tool" data-pane="files" title="Files (⇧⌘F)" aria-label="Files"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.75h6.5L15.5 6.75V17.25H5z"/><path d="M11.5 2.75v4h4"/></svg></button>
         <button type="button" class="jc-tool" data-pane="diff" title="Changes" aria-label="Changes"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="M10 6.5v5M7.5 9h5M7.5 14h5"/></svg></button>
-        <button type="button" class="jc-tool" id="jc-browser" title="Browser" aria-label="Browser"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2 2 2.8 4.4 2.8 7S12 15 10 17c-2-2-2.8-4.4-2.8-7S8 5 10 3z"/></svg></button>
+        <button type="button" class="jc-tool" id="jc-browser" data-pane="browser" title="Browser (⌥⌘B)" aria-label="Browser"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2 2 2.8 4.4 2.8 7S12 15 10 17c-2-2-2.8-4.4-2.8-7S8 5 10 3z"/></svg></button>
         <button type="button" class="jc-tool" data-pane="sim" title="iOS Simulator" aria-label="iOS Simulator"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="2.5" width="9" height="15" rx="2.2"/><path d="M8.8 15h2.4"/></svg></button>
-        <button type="button" class="jc-tool" id="jc-split" title="Split view" aria-label="Split view"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M10 3.5v13"/></svg></button>
+        <button type="button" class="jc-tool" id="jc-split" title="Split view (⌘⇧\)" aria-label="Split view"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M10 3.5v13"/></svg></button>
         <button type="button" class="jc-tool jc-bypass" id="jc-bypass" title="Bypass permissions: run anything without asking" aria-label="Bypass permissions" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M11 2L4 11h5l-1 7 7-9h-5z"/></svg></button>
         <button type="button" class="jc-tool" id="jc-more" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4.5" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="15.5" r="1.5"/></svg></button>
       </div>
@@ -655,9 +640,10 @@
             </div>
             <div class="jc-starters" id="jc-starters">
               <button type="button" class="jc-starter" data-say="Explain how this project is laid out and where the main entry points are.">Explain this project</button>
-              <button type="button" class="jc-starter" data-say="Run the tests and fix whatever fails.">Run the tests and fix failures</button>
+              <button type="button" class="jc-starter" id="jc-starter-exterminate" title="Opens Exterminator Mode for this project: 3 rounds of sweep, break and fix in an isolated copy. Asks first, with the spending ceiling.">Exterminate bugs</button>
               <button type="button" class="jc-starter" data-say="Review the uncommitted changes for bugs.">Review my changes</button>
               <button type="button" class="jc-starter" data-say="/plan">Plan a feature first</button>
+              <button type="button" class="jc-starter" data-say="/spec" title="Spec mode: requirements, design and tasks in the repo, each OK’d, then every task checked against them.">Write a spec first</button>
             </div>
             <div class="jc-card jc-past" id="cc-past-wrap" hidden>
               <p class="jc-label">Resume a session</p>
@@ -665,7 +651,7 @@
             </div>
             <p class="jc-hint">Say <em>“Eden, let’s code in <span class="cc-project-name">this project</span>”</em> · <kbd>/</kbd> commands · <kbd>@</kbd> files · <kbd>⇧</kbd><kbd>Tab</kbd> modes · <kbd>Esc</kbd> interrupt</p>
           </div>
-          <ol id="deck-timeline" class="jc-log" aria-live="polite"></ol>
+          <ol id="deck-timeline" class="jc-log" role="log" aria-live="off" aria-label="Transcript"></ol>
           <div id="cc-working" class="jc-working" hidden><span class="jc-spark" aria-hidden="true"></span><span id="cc-working-text" class="jc-sheen">Working…</span><span class="jc-dim"><span id="cc-working-time">0s</span> · esc to interrupt</span></div>
         </div>
       </div>
@@ -686,7 +672,7 @@
           <label for="deck-input" class="sr-only">Message Eden Code</label>
           <div class="jc-composer-top">
             <button type="button" class="jc-orb" id="jc-orb" aria-expanded="false" aria-label="Composer options" title="Options: add, mode, model, effort, context"><svg class="jc-reactor" width="17" height="17" viewBox="0 0 40 40" aria-hidden="true"><circle class="halo" cx="20" cy="20" r="18.2"/><circle class="ring" cx="20" cy="20" r="14.6"/><circle class="inner" cx="20" cy="20" r="11.4"/><circle class="core" cx="20" cy="20" r="8.6"/><circle class="shine" cx="17.2" cy="16.8" r="3"/></svg></button>
-            <textarea id="deck-input" rows="1" placeholder="Ask Eden Code to plan, build or fix something…"></textarea>
+            <textarea id="deck-input" rows="1" aria-label="Message Eden Code" placeholder="Ask Eden Code to plan, build or fix something…"></textarea>
             <button type="button" class="jc-steer" id="jc-steer" hidden title="Steer: send into the running step without stopping it (⌘↩)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13c0-5 3-8 8-8"/><path d="M8 2l3 3-3 3"/></svg><span>Steer</span></button>
             <button type="button" class="jc-round" id="jc-dictate" aria-pressed="false" aria-label="Dictate" title="Dictate: say it, then read it and send"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4"/><path d="M3.3 7.6a4.7 4.7 0 0 0 9.4 0M8 12.4v2"/></svg></button>
             <button type="submit" class="jc-send" aria-label="Send"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg></button>
@@ -751,6 +737,7 @@
           <div class="jcs-row"><span>Keep the Mac awake<small>While a session is working.</small></span><button type="button" class="jcs-switch" role="switch" id="jcs-awake" aria-checked="true" aria-label="Keep the Mac awake"></button></div>
         </div>
         <p class="jcs-foot">Shortcuts: <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> mode · <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> model · <kbd>⌘</kbd><kbd>⇧</kbd><kbd>E</kbd> effort · <kbd>⌘</kbd><kbd>U</kbd> add files</p>
+        <div class="jcs-actions" id="jcs-more-row" hidden><button type="button" class="jc-btn small" id="jcs-more">More settings: accounts, Tools &amp; Accounts, Health &amp; safety…</button></div>
       </div>
       <div class="jcs-body" id="jcs-models" role="tabpanel" hidden>
         <p class="jcs-intro">Use models from other providers with your own API keys. Keys are kept in your Mac's Keychain and never shown again, only their last four characters.</p>

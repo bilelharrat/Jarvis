@@ -24,6 +24,7 @@ READ_ONLY = [
     f"mcp__{BROWSER}__browser_read",
     f"mcp__{BROWSER}__browser_screenshot",
     f"mcp__{BROWSER}__browser_snapshot",
+    f"mcp__{BROWSER}__browser_find",
     f"mcp__{BROWSER}__browser_wait",
     f"mcp__{BROWSER}__browser_console",
     f"mcp__{BROWSER}__browser_network",
@@ -285,12 +286,17 @@ def build_servers(
     session: browser_agent.CodeSession | None = None,
 ) -> dict[str, Any]:
     """The MCP servers for one session (project: that session's folder; session: which
-    session, for its own browser tab and its approvals)."""
-    return {
+    session, for its own browser tab and its approvals). No simulator on Windows (item 49):
+    the iOS Simulator is the Mac's alone, so its tools aren't offered to fail there."""
+    from . import osplat
+
+    servers = {
         BROWSER: create_sdk_mcp_server(
             name=BROWSER, version="0.1.0", tools=browser_tools(browser_call, session)
         ),
-        SIMULATOR: create_sdk_mcp_server(
-            name=SIMULATOR, version="0.1.0", tools=simulator_tools(workbench, project)
-        ),
     }
+    if not osplat.IS_WIN:
+        servers[SIMULATOR] = create_sdk_mcp_server(
+            name=SIMULATOR, version="0.1.0", tools=simulator_tools(workbench, project)
+        )
+    return servers

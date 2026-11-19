@@ -740,13 +740,15 @@
   }
 
   F.registerEntryDecorator((e, li) => {
-    if (!(Number(e.images) > 0)) return;
+    if (!(Number(e.images) > 0) || e.pending) return;
     if (e.role === 'user') {
+      if (li.querySelector(':scope > .cw-thumbs')) return;
       const row = placeholders(Number(e.images));
       if (e.uuid) row.dataset.key = e.uuid;
       li.append(row);
       watch(row);
     } else if (e.role === 'tool' && e.tool_id) {
+      if (li.querySelector(':scope > .cw-thumbs')) return;
       const row = placeholders(Number(e.images));
       row.dataset.key = e.tool_id;
       row.classList.add('cw-tool-thumbs');

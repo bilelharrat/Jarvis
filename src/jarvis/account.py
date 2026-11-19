@@ -34,7 +34,6 @@ import asyncio
 import base64
 import contextlib
 import json
-import os
 import logging
 import re
 import time
@@ -505,8 +504,6 @@ class Account:
                 "kind": "mac",
                 "public_key": b64encode(public),
                 "app_version": self.version(),
-                # Daredevil's AI is free (askeden.com gives its accounts a monthly allowance, account.js)
-                "edition": "daredevil" if os.environ.get("JARVIS_EDITION") == "daredevil" else "",
             },
             auth=False,
         )

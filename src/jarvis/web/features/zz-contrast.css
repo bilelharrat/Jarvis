@@ -157,7 +157,6 @@ html[data-contrast] .meter span, html[data-contrast] .meter b { color: var(--hc-
 
 /* The orb. */
 html[data-contrast] .orb, html[data-contrast] .orb-core { border: 3px solid var(--hc-fg); box-shadow: none !important; }
-html[data-contrast] .orb-ring, html[data-contrast] .orb-glow { display: none !important; }
 
 /* Focus: a ring nobody can miss, in both colours so it shows on either. */
 html[data-contrast] :focus-visible {

@@ -1,0 +1,31 @@
+{
+  "strings": {
+    "In Linear’s Settings › API › OAuth applications, create an application for the agent (named as it is here) and turn on webhooks for Agent session events, pointed at the hook’s address in Linear and Slack above.": "在 Linear 的“设置 › API › OAuth 应用”里为这个代理创建一个应用（名字和这里一样），开启“代理会话事件”的 webhook，指向上面 Linear 和 Slack 里的钩子地址。",
+    "Install it in your workspace with actor=app and the scopes app:assignable and app:mentionable, then paste its access token and its webhook signing secret below.": "用 actor=app 和 app:assignable、app:mentionable 权限把它安装到你的工作区，然后把它的访问令牌和 webhook 签名密钥粘贴到下面。",
+    "Assign a ticket to the agent, or mention it, and it starts; it speaks in the ticket’s agent session.": "把工单分配给这个代理或提到它，它就会开始；它会在工单的代理会话里说话。",
+    "No app? Make a label in Linear with the agent’s label (below), and give it to a ticket: the agent starts, speaking in comments that begin with its name, as the Linear user whose key is above.": "没有应用？在 Linear 里建一个和代理标签（见下）同名的标签，贴到工单上：代理就会开始，以上面那个密钥的 Linear 用户身份，用以它名字开头的评论说话。",
+    "Works on the ticket": "处理工单",
+    "Exterminator: a failing test first, then the fix": "灭虫模式：先写失败的测试，再修复",
+    "Agent": "代理",
+    "Name": "名字",
+    "Label": "标签",
+    "Its name": "它的名称",
+    "How it works": "工作方式",
+    "Model": "模型",
+    "The project’s model": "项目的模型",
+    "Remove": "移除",
+    "Save": "保存",
+    "Eden’s agents in Linear": "Eden 在 Linear 里的代理",
+    "Named agents people in Linear can give tickets to, each on its own model. They run exactly as Linear tickets do above: locked down, capped, only for the people listed there.": "Linear 里的人可以把工单交给这些有名字的代理，每个用自己的模型。它们和上面的 Linear 工单完全一样地运行：受限、有上限、只为那里列出的人工作。",
+    "Turn Linear on above first.": "请先在上面开启 Linear。",
+    "Add Eden · Opus": "添加 Eden · Opus",
+    "Add Eden · Exterminator": "添加 Eden · Exterminator",
+    "They may ask questions in Linear": "允许它们在 Linear 里提问",
+    "One short question at a time, links and markup taken out; answers from your list come back as data. You’re asked first.": "每次一个简短的问题，去掉链接和标记；你名单上的人的回答会作为数据回来。会先问你。",
+    "Save agents": "保存代理",
+    "App access token": "应用访问令牌",
+    "App webhook signing secret": "应用 webhook 签名密钥",
+    "Set: kept in the Keychain.": "已设置：保存在钥匙串里。",
+    "Not set.": "未设置。"
+  }
+}

@@ -3,11 +3,16 @@
 // the owner edits the title and description and picks the base, and Open pushes behind the
 // Git panel's card. With one, its state, checks (a failing job's log on request), reviews
 // and comments, what it's waiting for, and two switches: fix failing checks, merge when
-// green (which asks first). Below, the other pull requests being watched.
+// green (which asks first); then Keep it green (code_pr_green.py: its switch and Stop, its
+// caps, pushing without asking, the dev server's tunnel, the preview link and a log of what
+// it did; turning either switch on asks on a card). Below, the other pull requests watched.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (window.jarvisFocus ? window.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = {
     data: new Map(), // key -> the latest code_pr event
     forms: new Map(), // key -> the form being edited: { title, body, base, draft }
@@ -35,6 +40,14 @@
     node.dataset.noI18n = '';
     return node;
   }
+
+  // The pull request's host (the code_pr event's host): GitHub unless its remote says otherwise.
+  const VIEW_ON = { GitHub: 'View on GitHub', GitLab: 'View on GitLab', Bitbucket: 'View on Bitbucket', 'Azure DevOps': 'View on Azure DevOps' };
+  const CONNECT_HOST = {
+    GitLab: 'Add a GitLab token in Eden Code settings › Git hosts and Jira to open and watch merge requests.',
+    Bitbucket: 'Add a Bitbucket token in Eden Code settings › Git hosts and Jira to open and watch pull requests.',
+    'Azure DevOps': 'Add an Azure DevOps token in Eden Code settings › Git hosts and Jira to open and watch pull requests.',
+  };
 
   function link(href, label) {
     const a = el('a', 'jcx-pr-link', label);
@@ -118,7 +131,7 @@
     head.append(title, stateChip(pr));
     wrap.append(head);
     const where = el('p', 'jc-dim jcx-pr-where');
-    where.append(mine(`${pr.repo} · ${pr.branch} → ${pr.base}`), document.createTextNode(' · '), link(pr.url, 'View on GitHub'));
+    where.append(mine(`${pr.repo} · ${pr.branch} → ${pr.base}`), document.createTextNode(' · '), link(pr.url, VIEW_ON[data.host] || 'View on GitHub'));
     wrap.append(where);
     if (data.error) wrap.append(mine(data.error, 'p', 'jcx-pr-error'));
     if (pr.state === 'open') {
@@ -156,6 +169,7 @@
       row.append(el('span', '', 'How it merges'), pick);
       group.append(row);
       wrap.append(group);
+      wrap.append(greenView(task, data));
     }
     const checks = data.checks || [];
     wrap.append(el('p', 'jcs-label', `Checks (${checks.length})`));
@@ -202,6 +216,94 @@
     return wrap;
   }
 
+  // ── Keep it green (features/code_pr_green.py) ──
+
+  const STOPPED = {
+    owner: 'Stopped: you pressed Stop.',
+    rounds: 'Stopped: its rounds were used.',
+    spend: 'Stopped: it reached its spending ceiling.',
+  };
+  const forms = new Map(); // key -> { rounds, spend, tunnel } being typed
+
+  function numberBox(value, label, run, step) {
+    const box = el('input', 'jcs-input jcx-pr-num');
+    box.type = 'number';
+    box.min = step === 1 ? '1' : '0.5';
+    box.step = String(step);
+    box.value = String(value);
+    box.setAttribute('aria-label', label);
+    box.addEventListener('input', () => run(box.value));
+    return box;
+  }
+
+  function greenView(task, data) {
+    const g = data.green || { on: false, push_unasked: false, stopped: '', rounds: 0, rounds_cap: 8, spent: 0, spend_cap: 5, log: [], preview: '', tunnel: '' };
+    const key = keyOf(task);
+    if (!forms.has(key)) forms.set(key, { rounds: String(g.rounds_cap), spend: String(g.spend_cap), tunnel: g.tunnel || '' });
+    const f = forms.get(key);
+    const box = el('section', 'jcs-group jcx-pr-green');
+    box.setAttribute('aria-label', 'Keep it green');
+    box.append(sw('Keep it green', 'Keeps fixing failing checks, acts on review comments from people who can write to the repository, resolves conflicts and posts the preview link, within the caps below. Asks once, now.', g.on,
+      (on) => send({ type: 'code_pr_green', id: task.id, on, rounds: Number(f.rounds) || 8, spend_cap: Number(f.spend) || 5 })));
+    const status = el('div', 'jcs-row jcx-pr-green-status');
+    status.setAttribute('role', 'status');
+    const said = el('span');
+    if (g.stopped) said.append(chip(STOPPED[g.stopped] || 'Stopped.', g.stopped === 'owner' ? '' : 'warn'));
+    else if (g.on) said.append(chip(g.busy ? 'A round is under way' : 'On', g.busy ? 'busy' : 'good'));
+    else said.append(chip('Off'));
+    said.append(mine(` ${g.rounds}/${g.rounds_cap} · $${Number(g.spent || 0).toFixed(2)}/$${Number(g.spend_cap || 0).toFixed(2)}`, 'small', 'jc-dim'));
+    status.append(said);
+    if (g.on) status.append(button('Stop', 'danger', () => send({ type: 'code_pr_green_stop', id: task.id }), 'Turns it off at once and ends a round under way'));
+    box.append(status);
+    const caps = el('div', 'jcs-row');
+    const capsText = el('span');
+    capsText.append(el('strong', '', 'Its caps'), el('small', '', 'Rounds and dollars for this pull request; it stops by itself at either.'));
+    const tools = el('span', 'jcx-pr-green-tools');
+    tools.append(
+      numberBox(f.rounds, t('Rounds'), (v) => { f.rounds = v; }, 1),
+      numberBox(f.spend, t('Spending ceiling ($)'), (v) => { f.spend = v; }, 0.5),
+      button('Save', '', () => send({ type: 'code_pr_green', id: task.id, rounds: Number(f.rounds) || 8, spend_cap: Number(f.spend) || 5 })),
+    );
+    caps.append(capsText, tools);
+    box.append(caps);
+    box.append(sw('Push fixes without asking', 'After each round its work goes to GitHub without the push card; anything that looks like a secret still asks. Asks once, now.', g.push_unasked,
+      (on) => send({ type: 'code_pr_green', id: task.id, push_unasked: on })));
+    const tunnel = el('div', 'jcs-row');
+    const tunnelText = el('span');
+    tunnelText.append(el('strong', '', 'Dev server tunnel'), el('small', '', 'Optional: your tunnel’s https address to the project’s dev server, posted as the preview when there’s no other.'));
+    const tunnelBox = el('input', 'jcs-input');
+    tunnelBox.type = 'url';
+    tunnelBox.placeholder = 'https://…';
+    tunnelBox.value = f.tunnel;
+    tunnelBox.dataset.noI18n = '';
+    tunnelBox.setAttribute('aria-label', t('Dev server tunnel'));
+    tunnelBox.addEventListener('input', () => { f.tunnel = tunnelBox.value; });
+    const tunnelTools = el('span', 'jcx-pr-green-tools');
+    tunnelTools.append(tunnelBox, button('Save', '', () => send({ type: 'code_pr_green', id: task.id, tunnel: f.tunnel.trim() })));
+    tunnel.append(tunnelText, tunnelTools);
+    box.append(tunnel);
+    if (g.preview) {
+      const p = el('p', 'jc-dim jcx-pr-green-preview');
+      p.append(el('span', '', 'Preview'), document.createTextNode(': '), link(g.preview, g.preview));
+      p.lastChild.dataset.noI18n = '';
+      box.append(p);
+    }
+    const entries = g.log || [];
+    if (entries.length) {
+      box.append(el('p', 'jcs-label', 'What it did'));
+      const list = el('ul', 'jcx-pr-green-log');
+      list.setAttribute('aria-label', t('What it did'));
+      list.append(...entries.slice(0, 20).map((e) => {
+        const li = el('li');
+        const when = new Date(e.at * 1000);
+        li.append(mine(when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 'time', 'jc-dim'), mine(e.text));
+        return li;
+      }));
+      box.append(list);
+    }
+    return box;
+  }
+
   // ── opening one ──
 
   function formFor(key, data) {
@@ -241,6 +343,7 @@
     const box = el('form', 'jcx-pr-form');
     const title = el('input', 'jc-field');
     title.placeholder = t('Title');
+    title.setAttribute('aria-label', t('Pull request title'));
     title.value = form.title;
     title.maxLength = 256;
     title.dataset.noI18n = '';
@@ -248,6 +351,7 @@
     const text = el('textarea', 'jc-field');
     text.rows = 8;
     text.placeholder = t('Description (Markdown)');
+    text.setAttribute('aria-label', text.placeholder);
     text.value = form.body;
     text.dataset.noI18n = '';
     text.addEventListener('input', () => { form.body = text.value; });
@@ -324,7 +428,13 @@
     if (!task) wrap.append(el('p', 'jc-empty', 'Open a session to work with its pull request.'));
     else if (!data) wrap.append(el('p', 'jc-empty', 'Loading…'));
     else if (!data.where || !data.where.git) wrap.append(el('p', 'jc-empty', 'This folder isn’t a git repository.'));
-    else if (!data.github) {
+    else if (!data.github && CONNECT_HOST[data.host]) {
+      // GitLab, Bitbucket, Azure DevOps (features/code_hosts.py): their tokens are in Eden
+      // Code settings › Git hosts and Jira, not Tools & Accounts.
+      const card = el('div', 'jcx-pr-connect');
+      card.append(el('p', '', CONNECT_HOST[data.host]));
+      wrap.append(card);
+    } else if (!data.github) {
       const card = el('div', 'jcx-pr-connect');
       card.append(el('p', '', 'Connect GitHub in Tools & Accounts to open and watch pull requests.'),
         button('Open Tools & Accounts', 'filled', () => { if (typeof toggleAccounts === 'function') toggleAccounts(true); }));
@@ -333,7 +443,7 @@
     else wrap.append(openView(task, data));
     const rest = others(task);
     if (rest) wrap.append(rest);
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   F.registerPane('pr', {
@@ -394,5 +504,5 @@
     if (task && ev.id === task.id && showing()) send({ type: 'code_pr', id: task.id });
   });
 
-  window.JarvisPullRequests = { state };
+  window.JarvisPullRequests = { state, STOPPED };
 })();

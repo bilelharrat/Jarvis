@@ -266,10 +266,13 @@ body:not([data-skin]) .jc-hint { color: var(--eden-text3); }
 /* ── the conversation: Liquid Glass user bubbles, tool rows & code blocks ── */
 body:not([data-skin]) .jc-log { gap: 12px; }
 body:not([data-skin]) .jc-user {
-  align-self: flex-end; max-width: 78%; padding: 10px 14px; font-size: 14.5px; line-height: 1.45; color: var(--eden-text);
-  background: var(--eden-elevated);
+  align-self: flex-end; max-width: 78%; padding: 10px 14px; font-size: 14.5px; line-height: 1.45; color: var(--accent-contrast, var(--eden-text));
+  background: var(--ecg-accent, var(--eden-elevated));
   border-radius: 16px 16px 4px 16px;
   box-shadow: inset 0 1px 0 var(--eden-rim), inset 0 0 0 1px var(--eden-hairline), 0 6px 18px -6px rgba(0, 0, 0, 0.22);
+}
+body:not([data-skin]) .jc-user .jc-user-text {
+  color: inherit;
 }
 body:not([data-skin]) .jc-user .jc-pics { color: var(--eden-text2); }
 body:not([data-skin]) .jc-user a { color: var(--eden-accent); }

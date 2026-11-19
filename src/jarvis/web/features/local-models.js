@@ -75,7 +75,7 @@
     bgWords.append(el('strong', '', 'Background tasks’ model'), el('small', '', 'What does the work when you ask for something in the background. Each task stops at $1.00.'));
     const bgSelect = el('select');
     bgSelect.id = 'background-model';
-    bgSelect.append(option('sonnet', 'Sonnet 5.5'), option('haiku', 'Haiku 4.5'), option('opus', 'Opus 5.5'));
+    bgSelect.append(option('sonnet', 'Sonnet 5.5'), option('haiku', 'Haiku 5.5'), option('opus', 'Opus 5.5'));
     bgSelect.addEventListener('change', () => send({ type: 'feature_prefs', changes: { background_model: bgSelect.value } }));
     background.append(bgWords, bgSelect);
 
@@ -97,7 +97,7 @@
     const chosen = (prefs.features && prefs.features.utility_model) || 'haiku';
     const builtin = providers.models.filter((m) => m.builtin);
     const added = providers.models.filter((m) => !m.builtin);
-    const opts = builtin.length ? builtin.map((m) => option(m.ref, m.label || m.name)) : [option('haiku', 'Haiku 4.5')];
+    const opts = builtin.length ? builtin.map((m) => option(m.ref, m.label || m.name)) : [option('haiku', 'Haiku 5.5')];
     opts.push(...added.map((m) => option(m.ref, m.name || m.label || m.model, true)));
     if (!opts.some((o) => o.value === chosen)) opts.push(option(chosen, 'A model since removed (Haiku is used)'));
     select.replaceChildren(...opts);

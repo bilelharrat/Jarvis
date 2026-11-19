@@ -46,7 +46,7 @@ from ..session_store import (
 )
 from ..tasks import MAX_ENDED, ClaudeTask, auto_capable, session_history
 
-log = logging.getLogger("eden_code")
+log = logging.getLogger("jarvis")
 
 prefs.register_feature_pref(
     "code_project_roots", [], code_projects.clean_folders(code_projects.ROOTS_MAX)
@@ -404,11 +404,7 @@ class CodeSessions:
             else "Resting",
             result=record["result"],
             plan=record["plan"],
-            todos=(
-                []
-                if record["todos"] and all(t.get("status") == "completed" for t in record["todos"])
-                else list(record["todos"])
-            ),
+            todos=list(record["todos"]),
             cost_usd=record["cost_usd"],
             cost_inherited=record["cost_inherited"],
             files_changed=set(record["files_changed"]),
@@ -935,14 +931,9 @@ class CodeSessions:
         task.plan = next(
             (e["text"] for e in reversed(task.transcript) if e.get("role") == "plan"), ""
         )
-        raw_todos = next(
+        task.todos = next(
             (e.get("todos", []) for e in reversed(task.transcript) if e.get("role") == "todos"),
             [],
-        )
-        task.todos = (
-            []
-            if raw_todos and all(t.get("status") == "completed" for t in raw_todos)
-            else raw_todos
         )
         if not point:  # before the very first message: this session starts afresh
             task.session_id, task.resume_at, task.fork = "", "", False
@@ -1067,7 +1058,7 @@ class CodeSessions:
 
     async def native_goal_for(self, task: ClaudeTask) -> bool:
         """Whether this Claude Code has a /goal of its own (from its init answer, which lists
-        its commands). Unknown until a session is connected: then Eden Code keeps the goal."""
+        its commands). Unknown until a session is connected: then Jarvis keeps the goal."""
         if self.native_goal is not None:
             return self.native_goal
         client = task.client
@@ -1171,7 +1162,7 @@ class CodeSessions:
             return
         elif goal["native"]:
             if str(data.get("result") or "").lstrip().startswith("/goal"):
-                # Claude Code wouldn't keep it (a workspace it doesn't trust, hooks off): Eden Code does.
+                # Claude Code wouldn't keep it (a workspace it doesn't trust, hooks off): Jarvis does.
                 goal.update(
                     native=False,
                     note="Eden Code couldn't keep this goal itself here, so Eden checks it.",

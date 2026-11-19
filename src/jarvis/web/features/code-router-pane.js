@@ -50,14 +50,6 @@
     ['off', 'Rules only'],
   ];
   const EFFORT_WORDS = { none: 'no extra thinking', minimal: 'minimal effort', low: 'low effort', medium: 'medium effort', high: 'high effort', xhigh: 'extra-high effort', max: 'max effort' };
-  const SAMPLE_PROMPTS = [
-    ['Quick lookup', 'What does git push --force-with-lease do?'],
-    ['Code refactor', 'Refactor our async scheduler to use a bounded binary heap with cancellation and unit tests.'],
-    ['Formal proof', 'Prove that there are infinitely many primes of the form 4k+3 and analyze the complexity of Miller-Rabin.'],
-    ['High-stakes fact', 'Check pediatric amoxicillin dosing safety and contraindications for a child with penicillin allergy.'],
-    ['System design', 'Design a multi-region CRDT sync engine for an offline-first collaborative code editor with conflict resolution.'],
-  ];
-  const DIM_LABELS = { coding: 'Coding', agentic: 'Agentic', reasoning: 'Reasoning', math: 'Math', knowledge: 'Knowledge', instructionFollowing: 'Instruction', creative: 'Writing', longContext: 'Long context' };
   const MAX_POINTS = 8;
   const PREVIEW_MS = 250;  // the rules are instant: this only spares redrawing on every key
 
@@ -163,41 +155,17 @@
     const level = result.optimization && result.optimization.level;
     const notes = [...(pick.warnings || []), ...(Array.isArray(result.notes) ? result.notes : [])].filter((n) => typeof n === 'string' && n);
     const risk = result.risk && result.risk.level ? result.risk : null;
-    const t = result.task || {};
-    const weights = t.weights && typeof t.weights === 'object'
-      ? Object.entries(t.weights)
-        .filter(([, w]) => typeof w === 'number' && w >= 0.08)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-        .map(([k, w]) => ({ key: k, label: DIM_LABELS[k] || k, pct: Math.round(w * 100) }))
-      : [];
-    const cascade = result.cascade && typeof result.cascade === 'object' ? result.cascade : null;
-    const failover = Array.isArray(result.failover) && result.failover.length > 1
-      ? result.failover
-      : [pick, ...((result.fallbacks || []).slice(0, 2))];
     return {
       model: pick.model,
       name: pick.name || nameOf(pick.model),
       effort: pick.effort || '',
       provider: pick.provider || '',
       costUSD: pick.costUSD,
-      latencyS: Number.isFinite(pick.latencyS) ? pick.latencyS : null,
-      confidence: Number.isFinite(pick.confidence) ? Math.round(pick.confidence) : null,
       quality: Number.isFinite(pick.quality) ? Math.round(pick.quality) : null,
       reliability: Number.isFinite(pick.reliability) ? Math.round(pick.reliability) : null,
       riskLevel: risk ? risk.level : '',
       riskReasons: risk && Array.isArray(risk.reasons) ? risk.reasons : [],
-      complexity: (c.used ? c.finalComplexity : '') || t.complexity || '',
-      inputTokens: Number.isFinite(t.inputTokens) ? t.inputTokens : null,
-      outputTokens: Number.isFinite(t.outputTokens) ? t.outputTokens : null,
-      weights,
-      cascade,
-      failover: failover.filter((f) => f && f.model).map((f) => ({
-        model: f.model,
-        name: f.name || nameOf(f.model),
-        provider: f.provider || '',
-        effort: f.effort || '',
-      })),
+      complexity: (c.used ? c.finalComplexity : '') || (result.task && result.task.complexity) || '',
       rated: c.used === true,
       ratedBy: c.used === true ? (c.name || c.model || 'Gemini') : '',
       level: level && level.level ? `Level ${level.level} · ${level.label}` : '',
@@ -278,7 +246,7 @@
 
   // ── the window ──
 
-  const F = root.edenCodeFeatures;
+  const F = root.jarvisFeatures;
   if (!F || typeof F.registerPane !== 'function') return;
   const el = (tag, cls, text) => F.el(tag, cls, text);
   const view = () => (F.codeRouter && F.codeRouter.view) || null;
@@ -343,17 +311,6 @@
     prompt.setAttribute('aria-label', F.t('A prompt to route'));
     prompt.addEventListener('input', () => { rating = null; schedule(); });
     parts.prompt = prompt;
-    const samples = el('div', 'crp-samples');
-    samples.setAttribute('role', 'group');
-    samples.setAttribute('aria-label', F.t('Sample prompts'));
-    for (const [label, sampleText] of SAMPLE_PROMPTS) {
-      const chipBtn = el('button', 'crp-sample', label);
-      chipBtn.type = 'button';
-      chipBtn.title = sampleText;
-      chipBtn.addEventListener('click', () => { prompt.value = sampleText; rating = null; preview(); });
-      samples.append(chipBtn);
-    }
-    parts.samples = samples;
     parts.pick = el('div', 'jc-card crp-pick');
     parts.pick.setAttribute('aria-live', 'polite');
     const rate = el('button', 'jc-btn small crp-rate', 'Rate with Gemini');
@@ -474,14 +431,9 @@
     subText.append(document.createTextNode(F.t('Claude on your plan')), el('small', '', 'Claude through your Claude sign-in is weighed as plan quota, not API dollars, and as your plan’s limits fill up it counts for more.'));
     parts.sub = switchButton('Claude on your plan', (on) => { const v = view(); if (v) v.save({ subscriptionClaude: on }); setTimeout(() => { draw(); preview(); }); });
     subRow.append(subText, parts.sub);
-    const riskRow = el('div', 'crp-row');
-    const riskText = el('span', 'crp-text');
-    riskText.append(document.createTextNode(F.t('Risk-aware routing')), el('small', '', 'Hallucination-sensitive prompts (medical, legal, financial, safety, fact-checks) prefer factually reliable models and deeper thinking.'));
-    parts.risk = switchButton('Risk-aware routing', (on) => { const v = view(); if (v) v.save({ riskAware: on }); rating = null; setTimeout(() => { draw(); preview(); }); });
-    riskRow.append(riskText, parts.risk);
     parts.budget = el('p', 'jc-dim crp-note');
     const priceCard = el('div', 'jc-card crp-card');
-    priceCard.append(subRow, riskRow, parts.budget);
+    priceCard.append(subRow, parts.budget);
 
     // Rating
     const cls = el('select', 'jcs-select crp-select');
@@ -514,7 +466,7 @@
     parts.problem.hidden = true;
     rootEl.append(
       parts.problem,
-      section('Try a prompt', prompt, samples, parts.pick, row, parts.status),
+      section('Try a prompt', prompt, parts.pick, row, parts.status),
       section('Candidates · quality vs cost', parts.scatter, parts.legend),
       section('Optimize for', levelCard),
       section('Providers', parts.providers),
@@ -702,9 +654,7 @@
   function drawPricing() {
     const v = view();
     if (!v) return;
-    const s = settingsNow();
-    setSwitch(parts.sub, s.subscriptionClaude !== false);
-    if (parts.risk) setSwitch(parts.risk, s.riskAware !== false);
+    setSwitch(parts.sub, settingsNow().subscriptionClaude !== false);
     const note = v.budgetNote();
     parts.budget.hidden = !note;
     parts.budget.textContent = note;
@@ -751,41 +701,9 @@
     const nums = el('div', 'crp-nums');
     const num = (label, value) => { const n = el('div', 'crp-num'); n.append(el('small', '', label), el('b', '', value)); return n; };
     const relVal = r.reliability === null ? '—' : `${r.reliability}/100${r.riskLevel && r.riskLevel !== 'low' ? ` · ${r.riskLevel} risk` : ''}`;
-    const latStr = r.latencyS !== null ? ` · ~${r.latencyS}s` : '';
-    const confStr = r.confidence !== null ? ` · ${r.confidence}% conf` : '';
-    const tokStr = r.inputTokens !== null && r.outputTokens !== null ? ` · ~${r.inputTokens}/${r.outputTokens} tok` : '';
-    nums.append(
-      num('Est. cost & speed', `${fmtCost(r.costUSD)}${latStr}`),
-      num('Expected quality', r.quality === null ? '—' : `${r.quality}/100${confStr}`),
-      num('Factual reliability', relVal),
-      num('Task profile', `${r.complexity || '—'}${tokStr}`),
-    );
+    nums.append(num('Est. cost a turn', fmtCost(r.costUSD)), num('Expected quality', r.quality === null ? '—' : String(r.quality)), num('Factual reliability', relVal), num('Task', r.complexity || '—'));
     const kids = [head, nums];
-    if (r.weights && r.weights.length) {
-      const wBox = el('div', 'crp-weights');
-      for (const w of r.weights) {
-        const pill = el('span', 'crp-weight-pill');
-        pill.append(el('span', '', w.label), el('b', '', `${w.pct}%`));
-        wBox.append(pill);
-      }
-      kids.push(wBox);
-    }
     if (r.why) kids.push(el('p', 'crp-why', r.why));
-    if (r.cascade || (r.failover && r.failover.length > 1)) {
-      const metaBox = el('div', 'crp-orch');
-      if (r.cascade) {
-        const cRow = el('div', 'crp-orch-row');
-        cRow.append(el('span', 'crp-orch-k', r.cascade.useCascade ? 'Cascade plan' : 'Execution'), el('span', 'crp-orch-v', r.cascade.rationale));
-        metaBox.append(cRow);
-      }
-      if (r.failover && r.failover.length > 1) {
-        const fRow = el('div', 'crp-orch-row');
-        const chainStr = r.failover.map((f) => `${shortName(f.name)}${f.effort && f.effort !== 'none' ? ` (${f.effort})` : ''}`).join(' → ');
-        fRow.append(el('span', 'crp-orch-k', 'Failover chain'), el('span', 'crp-orch-v', chainStr));
-        metaBox.append(fRow);
-      }
-      kids.push(metaBox);
-    }
     if (r.notes.length) { const ul = el('ul', 'crp-notes'); ul.append(...r.notes.slice(0, 4).map((n) => el('li', '', n))); kids.push(ul); }
     box.replaceChildren(...kids);
     parts.status.textContent = '';

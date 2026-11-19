@@ -1,0 +1,22 @@
+/* The provenance overlay (code-provenance.js): bars in the editor's margin beside the lines
+   a session wrote, the caret line's "who wrote this" under the text, and a chip on each
+   change in the Changes pane. Colours are the window's own tokens (accent, text, lines), so
+   light, dark and the glass look all hold. */
+.cpv-layer { position: absolute; top: 0; bottom: 0; left: 0; width: 4px; overflow: hidden; pointer-events: none; }
+.cpv-layer[hidden] { display: none; }
+.cpv-inner { position: absolute; top: 0; left: 0; right: 0; }
+.cpv-bar { position: absolute; left: 0; width: 3px; border-radius: 2px; background: rgb(var(--c-accent) / 0.75); }
+.cpv-bar.cpv-c1 { background: rgb(var(--c-accent) / 0.45); }
+.cpv-bar.cpv-c2 { background: rgb(var(--c-success) / 0.7); }
+.cpv-bar.cpv-c3 { background: rgb(224 160 48 / 0.75); }
+.cpv-bar.cpv-c4 { background: rgb(var(--c-purple) / 0.7); }
+.cpv-bar.cpv-c5 { background: rgb(var(--c-subtle) / 0.8); }
+.cpv-caret { display: inline-flex; gap: 6px; align-items: center; min-width: 0; flex: 1; overflow: hidden; }
+.cpv-caret[hidden] { display: none; }
+.cpv-who, .cpv-none { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpv-none { opacity: .7; }
+.cpv-proof { flex: none; }
+.cpv-toggle.on { box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.6); color: rgb(var(--c-accent)); }
+.cpv-row { display: flex; justify-content: flex-end; margin: 4px 0; }
+.cpv-chip { font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 7px; border-radius: 999px; background: rgb(var(--c-accent) / 0.1); color: rgb(var(--c-accent-ink, var(--c-accent))); }
+li.cpv-flash { box-shadow: 0 0 0 2px rgb(var(--c-accent) / 0.6); border-radius: 10px; transition: box-shadow .3s; }

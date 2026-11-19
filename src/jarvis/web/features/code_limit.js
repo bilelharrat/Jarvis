@@ -14,12 +14,20 @@
   const pick = el('select', 'jcs-select');
   pick.id = 'jcx-limit-wait';
   pick.setAttribute('aria-label', 'When Claude’s usage limit is reached');
-  for (const [value, label] of [['fallback', 'Switch to the fallback model'], ['wait', 'Wait for it to reset']]) {
+  // (code_limit.PREF: true waits, false the fallback, 'ask' — the default — waits and asks the first time)
+  for (const [value, label] of [['ask', 'Ask me the first time'], ['fallback', 'Switch to the fallback model'], ['wait', 'Wait for it to reset']]) {
     const o = el('option', '', label);
     o.value = value;
     pick.append(o);
   }
-  pick.addEventListener('change', () => send({ type: 'feature_prefs', changes: { code_limit_wait: pick.value === 'wait' } }));
+  pick.addEventListener('change', () => send({ type: 'feature_prefs', changes: { code_limit_wait: pick.value === 'ask' ? 'ask' : pick.value === 'wait' } }));
+  // Unattended and queued runs wait for the limit (code_limit.PREF_UNWATCHED: on unless turned off).
+  const unwatched = el('button', 'jcs-switch');
+  unwatched.type = 'button';
+  unwatched.id = 'jcx-limit-unwatched';
+  unwatched.setAttribute('role', 'switch');
+  unwatched.setAttribute('aria-label', 'Unattended and queued runs wait for the limit');
+  unwatched.addEventListener('click', () => send({ type: 'feature_prefs', changes: { code_limit_wait_unwatched: state.features.code_limit_wait_unwatched === false } }));
   (function addSetting() {
     const queue = document.getElementById('jcs-queue');
     const group = queue && queue.closest('.jcs-group');
@@ -29,9 +37,18 @@
     text.append(document.createTextNode(t('When Claude’s usage limit is reached')),
       el('small', '', 'Waiting holds the session and anything you send it, then carries on on Claude when the limit resets.'));
     row.append(text, pick);
-    group.append(row);
+    const row2 = el('div', 'jcs-row');
+    const text2 = el('span');
+    text2.append(document.createTextNode(t('Unattended and queued runs wait for the limit')),
+      el('small', '', 'A run nobody is watching keeps its work on Claude and carries on when the limit resets, instead of moving to another model unasked.'));
+    row2.append(text2, unwatched);
+    group.append(row, row2);
   })();
-  const drawSetting = () => { pick.value = state.features.code_limit_wait ? 'wait' : 'fallback'; };
+  const drawSetting = () => {
+    const v = state.features.code_limit_wait;
+    pick.value = v === true ? 'wait' : v === false ? 'fallback' : 'ask';
+    unwatched.setAttribute('aria-checked', String(state.features.code_limit_wait_unwatched !== false));
+  };
 
   // ── the header's countdown ──
 

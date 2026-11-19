@@ -48,7 +48,7 @@ class Ref:
 
 @dataclass
 class Ask:
-    kind: str  # overview waiting catch_up status focus message stop pending model ultracode lines open
+    kind: str  # overview waiting catch_up status focus message stop pending model ultracode lines open changes changes_all
     ref: Ref = field(default_factory=Ref)
     text: str = ""  # a message's words, a model's or a file's name
     start: int = 0  # lines: the first and last line asked for
@@ -162,6 +162,28 @@ _STATUS = (
     _re(rf"(?:status|progress) (?:of|on|for) {_DET}{_REF}"),
     _re(rf"(?:is|has) {_DET}{_REF} (?:done|finished)(?: yet)?"),
 )
+# A session's changes, said for the ear (a spoken diff: file by file, by function or
+# section), or everyone's in a line each.
+_CHANGES = (
+    _re(
+        rf"what (?:did|has|have) {_DET}{_REF} (?:change|changed|edit|edited|touch|touched"
+        r"|do to the code|done to the code)(?: so far| today)?"
+    ),
+    _re(rf"what(?:'s| has| have)? changed (?:in|with|on) {_DET}{_REF}(?: so far| today)?"),
+    _re(rf"(?:read|tell|give|show) me {_DET}{_REF}(?:'s)? (?:diff|changes|edits)"),
+    _re(
+        rf"(?:read|tell|give|show) me (?:the )?(?:diff|changes|edits) (?:of|for|from|in|on) {_DET}{_REF}"
+    ),
+    _re(rf"(?:what(?:'s| is) )?{_DET}{_REF}(?:'s)? diff"),
+)
+_CHANGES_ALL = _re(
+    r"what (?:did|has|have) (?:every(?:one|body)|you all|all (?:of )?(?:the |my )?sessions"
+    r"|(?:the |my )?sessions) (?:change|changed|edit|edited|touch|touched)(?: so far| today)?"
+    r"|(?:read|tell|give|show) me every(?:one|body)'s (?:diffs?|changes)"
+    r"|(?:read|tell|give|show) me (?:the |all the )?(?:diffs?|changes) (?:of|for|from|in|across) "
+    r"(?:all (?:of )?)?(?:the |my )?(?:sessions|agents)"
+)
+
 _MODEL = _re(
     r"(?:use|switch to|change to|switch the model to|change the model to|move to|try)(?: the)?"
     r" (?P<m>[\w .'/+-]{1,60}?)(?: model)?(?: for this session| now| instead| please)?"
@@ -241,6 +263,12 @@ _ZH_PENDING = _zh(rf"{_ZH_REF}(?:现在)?(?:想要|要|需要|在等|在问|问)
 _ZH_STATUS = (
     _zh(rf"{_ZH_REF}(?:现在)?(?:在)?(?:做|干)(?:什么|啥){_ZH_END}"),
     _zh(rf"{_ZH_REF}(?:现在)?(?:怎么样|进展如何|做完了吗|好了吗|完成了吗){_ZH_END}"),
+)
+_ZH_CHANGES = _zh(
+    rf"{_ZH_REF}(?:都)?(?:改了|修改了|动了|变了)(?:些)?(?:什么|啥|哪些(?:文件|地方)?){_ZH_END}"
+)
+_ZH_CHANGES_ALL = _zh(
+    rf"(?:大家|各位|所有(?:的)?会话|每个会话|各个会话)(?:都)?(?:改了|修改了|动了)(?:些)?(?:什么|啥|哪些(?:文件|地方)?){_ZH_END}"
 )
 _ZH_MODEL = _zh(
     rf"(?:用|使用|换成|换到|切换到|改用)(?P<m>[^，,。？?！!]{{1,40}}?)(?:模型)?{_ZH_END}"
@@ -379,6 +407,10 @@ def parse(text: str, language: str = "en") -> Ask | None:
         return Ask("catch_up")
     if _CATCH_UP_WEAK.fullmatch(said):
         return Ask("catch_up", weak=True)
+    if _CHANGES_ALL.fullmatch(said):
+        return Ask("changes_all")
+    if m := _first(_CHANGES, said):
+        return Ask("changes", _ref(m))
     if m := _first(_STOP, said):
         return Ask("stop", _ref(m))
     if m := _first(_PENDING, said):
@@ -423,6 +455,8 @@ def _parse_zh(text: str) -> Ask | None:
         return Ask("catch_up")
     if _ZH_CATCH_UP_WEAK.fullmatch(said):
         return Ask("catch_up", weak=True)
+    if _ZH_CHANGES_ALL.fullmatch(said):
+        return Ask("changes_all")
     if m := _first(_ZH_STOP, said):
         return Ask("stop", _ref(m))
     if m := _ZH_PENDING.fullmatch(said):
@@ -433,6 +467,9 @@ def _parse_zh(text: str) -> Ask | None:
         return Ask("focus", _ref(m))
     if m := _ZH_ASK.fullmatch(said):
         return Ask("message", _ref(m), m.group("msg").strip())
+    # (After "ask…": "问一下文档会话改了什么" is a question for that session.)
+    if m := _ZH_CHANGES.fullmatch(said):
+        return Ask("changes", _ref(m))
     if m := _ZH_TELL.fullmatch(said):
         msg = re.sub(r"^(?:说|讲)", "", m.group("msg").strip()).strip("，,：: ")
         if re.fullmatch(r"(?:先)?(?:停下来?|停一下|停止|别做了|暂停)" + _ZH_END, msg):
@@ -630,7 +667,35 @@ TEST_COMMAND = re.compile(
     r"|node --test|vitest|jest|mocha|playwright test|go test|cargo test|swift test|deno test"
     r"|xcodebuild\b[^\n]*\btest\b|rspec|phpunit|mvn test|gradlew? test|make test|tox\b|ctest)"
 )
-_COUNTS = re.compile(r"\b(\d+) (passed|failed|pass|fail|failing|passing)\b", re.IGNORECASE)
+# "N errors" counts as failing too: pytest says "1 failed, 2 errors" when a fixture or an
+# import breaks, and a run that only errored ("3 errors in 0.4s") passed nothing.
+_COUNTS = re.compile(
+    r"\b(\d+) (passed|failed|pass|fail|failing|passing|errors?)\b", re.IGNORECASE
+)
+# node --test's summary puts the word first: "ℹ pass 5" / "ℹ fail 1" (its spec reporter) or
+# "# pass 5" (TAP). Read too, or every run of a node project was "ran, no result" (the
+# films' "npm test"). Its "cancelled" tests (a timeout, a test that never ended) failed.
+_COUNTS_AFTER = re.compile(
+    r"^[ \t]*(?:ℹ|#)[ \t]*(pass|fail|cancelled)[ \t]+(\d+)[ \t]*$", re.IGNORECASE | re.MULTILINE
+)
+# A test step that never ran, though it came back as an error: the owner (or a permission
+# rule, or nobody answering) said no, or it was interrupted. Not "tests failed": no test ran.
+_REFUSED = re.compile(
+    r"^\s*(?:The user (?:said no|didn't answer|doesn't want to proceed|wants to keep planning)"
+    r"|The user's permission rule|Permission to use \w+ (?:has been|was) denied"
+    r"|.{0,200}\bis a folder the user keeps private)",
+    re.IGNORECASE,
+)
+_INTERRUPTED = re.compile(r"^\s*\[?(?:Request )?interrupted by user", re.IGNORECASE)
+# What an edit after a test run must touch to make that run's pass out of date: code or the
+# configuration a test run reads, not the README.
+_STALE_EXT = (
+    ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".mts", ".cts", ".vue", ".svelte",
+    ".go", ".rs", ".swift", ".kt", ".java", ".rb", ".c", ".cc", ".cpp", ".h", ".hpp", ".m",
+    ".cs", ".php", ".scala", ".ex", ".exs", ".sh", ".json", ".toml", ".yaml", ".yml", ".ini",
+    ".cfg", ".html", ".css",
+)  # fmt: skip
+_EDITS = ("Edit", "MultiEdit", "Write", "NotebookEdit")
 TURNS_KEPT = 30  # per session
 TESTS_KEPT = 50  # test commands awaiting their result, per session
 # What outlasts a restart (Journal.snapshot): by Claude Code session id, since a session
@@ -649,6 +714,12 @@ class TestRun:
     passed: bool
     failed_count: int = 0
     passed_count: int = 0
+    # "" it ran to its end; "cancelled" it was stopped before it ended (an interrupt, or the
+    # turn ended first); "refused" it never ran (the owner or a rule said no). Neither of
+    # the last two passed or failed: passed is False, and the proof says what happened.
+    outcome: str = ""
+    # A code edit finished after this run: its result is about code that has since changed.
+    edited_after: bool = False
 
 
 @dataclass
@@ -662,14 +733,78 @@ class Turn:
 
 
 def test_counts(output: str) -> tuple[int, int]:
-    """(passed, failed) as a test run's last lines say them, 0 when they don't."""
-    passed = failed = 0
-    for number, word in _COUNTS.findall((output or "")[-2000:]):
-        if word.lower().startswith("pass"):
+    """(passed, failed) as a test run's last lines say them, 0 when they don't. Errors
+    are failures ("1 failed, 2 errors" is 3 failed). Only the last 2000 characters are
+    read, where every runner prints its summary: the step's kept output keeps its head
+    and its tail (tasks.kept_output), so a long run's summary is still there. (0, 0)
+    means the output didn't say, which the proof shows as "ran", never "passed (0)"."""
+    passed = failed = errors = 0
+    tail = (output or "")[-2000:]
+    found = [(m.start(), m.group(1), m.group(2)) for m in _COUNTS.finditer(tail)]
+    found += [(m.start(), m.group(2), m.group(1)) for m in _COUNTS_AFTER.finditer(tail)]
+    for _at, number, word in sorted(found):  # (in the order printed: the last one says)
+        word = word.lower()
+        if word.startswith("pass"):
             passed = int(number)
+        elif word.startswith("error"):
+            errors = int(number)
+        elif word == "cancelled":
+            errors = int(number)  # (node's: they failed, as its exit code says)
         else:
             failed = int(number)
-    return passed, failed
+    return passed, failed + errors
+
+
+def tests_verdict(runs: list[TestRun]) -> dict[str, Any] | None:
+    """What a turn's test runs prove, all told, for its proof (code_receipts) and what Eden
+    says of it: state, the run that decides it, how many runs, and a note. Never "passed"
+    unless a run that went to its end passed with a count, no code changed after it, and no
+    failure is left that a later run didn't cover:
+
+    - passed: the last run passed, with its count; a failure before it was run again (the
+      same command) or covered (a later pass with at least as many tests).
+    - failed: a run failed and nothing later covered it, so a narrower rerun that passed
+      (one test of fifty) doesn't hide the suite's failure.
+    - unknown: the last run ended well, but its output said no count (cut off, or a runner
+      whose summary isn't read): "ran", never "passed (0)".
+    - stale: it passed, but code was edited after it.
+    - cancelled / refused: no run went to its end (stopped; or never allowed to run).
+    None: no test ran."""
+    if not runs:
+        return None
+    out: dict[str, Any] = {"runs": len(runs), "note": ""}
+    ran = [r for r in runs if not getattr(r, "outcome", "")]
+    if not ran:
+        stopped = any(getattr(r, "outcome", "") == "cancelled" for r in runs)
+        return {**out, "state": "cancelled" if stopped else "refused", "run": runs[-1]}
+    failing = None
+    for i, r in enumerate(ran):
+        if r.passed and not r.failed_count:
+            continue
+        total = r.passed_count + r.failed_count
+        if not any(_covers(later, r, total) for later in ran[i + 1 :]):
+            failing = r
+    last = ran[-1]
+    if failing is not None:
+        note = ""
+        if last is not failing and last.passed:
+            note = "a later, narrower run passed"
+        elif getattr(failing, "edited_after", False):
+            note = "code changed after it"
+        return {**out, "state": "failed", "run": failing, "note": note}
+    if getattr(last, "edited_after", False):
+        return {**out, "state": "stale", "run": last, "note": "code changed after it"}
+    if not last.passed_count:
+        return {**out, "state": "unknown", "run": last}
+    return {**out, "state": "passed", "run": last}
+
+
+def _covers(later: TestRun, failed: TestRun, total: int) -> bool:
+    """A later run that passed covers an earlier failure: the same command run again, or a
+    run of at least as many tests (the whole suite after one file)."""
+    if not later.passed or later.failed_count:
+        return False
+    return later.command == failed.command or (total > 0 and later.passed_count >= total)
 
 
 class Journal:
@@ -683,7 +818,11 @@ class Journal:
         self.turns: dict[int, deque[Turn]] = {}
         self.seen: dict[int, float] = {}
         self._pending_tests: dict[int, dict[str, str]] = {}
+        self._pending_edits: dict[int, dict[str, str]] = {}  # edits awaiting their end: path
         self._ran: dict[int, list[TestRun]] = {}
+        # A stopped turn isn't kept (the user stopped it themselves: nothing to catch up on),
+        # but its proof still says which tests it ran: its latest stopped turn, by session.
+        self.stopped: dict[int, Turn] = {}
         # Kept across a restart: session_of(task id) gives its Claude Code session id ("" if
         # none yet); kept holds what a saved session did until it's open again here, and
         # on_change hears each change worth saving.
@@ -716,7 +855,16 @@ class Journal:
             return
         if kind == "task_log":
             entry = data.get("entry") or {}
-            if entry.get("role") != "tool" or entry.get("tool") != "Bash":
+            if entry.get("role") != "tool":
+                return
+            if entry.get("tool") in _EDITS and entry.get("tool_id"):
+                path = str(entry.get("detail") or "").split("\n", 1)[0]
+                waiting = self._pending_edits.setdefault(task_id, {})
+                waiting[str(entry["tool_id"])] = path.removesuffix(" (new contents)").strip()
+                while len(waiting) > TESTS_KEPT:
+                    del waiting[next(iter(waiting))]
+                return
+            if entry.get("tool") != "Bash":
                 return
             command = str(entry.get("detail") or "").removeprefix("$ ").strip()
             if entry.get("tool_id") and TEST_COMMAND.search(command):
@@ -725,18 +873,38 @@ class Journal:
                 while len(waiting) > TESTS_KEPT:
                     del waiting[next(iter(waiting))]
         elif kind == "task_log_update":
+            edited = self._pending_edits.get(task_id, {}).pop(str(data.get("tool_id")), None)
+            if edited is not None:
+                if data.get("status") == "done" and edited.lower().endswith(_STALE_EXT):
+                    for run in self._ran.get(task_id, []):
+                        run.edited_after = True
+                return
             command = self._pending_tests.get(task_id, {}).pop(str(data.get("tool_id")), None)
             if command is not None:
-                passed, failed = test_counts(str(data.get("output") or ""))
+                output = str(data.get("output") or "")
+                passed, failed = test_counts(output)
                 ok = data.get("status") == "done" and not failed
+                outcome = ""
+                if data.get("status") != "done" and not (passed or failed):
+                    if _INTERRUPTED.search(output[:300]):
+                        outcome = "cancelled"
+                    elif _REFUSED.search(output[:300]):
+                        outcome = "refused"
                 runs = self._ran.setdefault(task_id, [])
-                runs.append(TestRun(command, ok, failed, passed))
+                runs.append(TestRun(command, ok, failed, passed, outcome))
                 del runs[:-TESTS_KEPT]
         elif kind == "task_finished" and data.get("task_kind") == "code":
             status = str(data.get("status") or "done")
             tests = self._ran.pop(task_id, [])
+            # A test step still waiting for its result when the turn ended never ended.
+            for command in self._pending_tests.pop(task_id, {}).values():
+                tests.append(TestRun(command, False, outcome="cancelled"))
+            self._pending_edits.pop(task_id, None)
             if status not in ("done", "failed"):
-                return  # stopped: the user did that themselves (or closed it)
+                # stopped: the user did that themselves (or closed it)
+                self.stopped[task_id] = Turn(self.clock(), "stopped", [], tests, "")
+                return
+            self.stopped.pop(task_id, None)
             turn = Turn(
                 at=self.clock(),
                 status=status,
@@ -762,7 +930,14 @@ class Journal:
     def forget_others(self, keep: set[int]) -> None:
         """Sessions the list has let go of: nothing more to say about them."""
         gone = False
-        for store in (self.turns, self.seen, self._pending_tests, self._ran):
+        for store in (
+            self.turns,
+            self.seen,
+            self._pending_tests,
+            self._pending_edits,
+            self._ran,
+            self.stopped,
+        ):
             for task_id in [k for k in store if k not in keep]:
                 del store[task_id]
                 gone = True
@@ -833,6 +1008,8 @@ def _turn_out(turn: Turn) -> dict[str, Any]:
                 "passed": r.passed,
                 "failed_count": r.failed_count,
                 "passed_count": r.passed_count,
+                **({"outcome": r.outcome} if r.outcome else {}),
+                **({"edited_after": True} if r.edited_after else {}),
             }
             for r in turn.tests[-SAVED_TESTS:]
         ],  # fmt: skip
@@ -854,7 +1031,17 @@ def _turn_in(raw: Any) -> Turn | None:
         if isinstance(r, dict) and isinstance(r.get("command"), str):
             counts = [r.get(k) for k in ("failed_count", "passed_count")]
             failed, passed = (c if isinstance(c, int) and c >= 0 else 0 for c in counts)
-            tests.append(TestRun(r["command"][:200], r.get("passed") is True, failed, passed))
+            outcome = r.get("outcome") if r.get("outcome") in ("cancelled", "refused") else ""
+            tests.append(
+                TestRun(
+                    r["command"][:200],
+                    r.get("passed") is True and not outcome,
+                    failed,
+                    passed,
+                    outcome,
+                    r.get("edited_after") is True,
+                )
+            )
     origin = raw.get("origin") if isinstance(raw.get("origin"), str) else "user"
     return Turn(
         at=float(at),
@@ -956,6 +1143,10 @@ ZH = {
     "Sent to session {n} ({about}): {message}": "已发给会话{n}（{about}）：{message}",
     "Session {n} ({about}) stopped with an error.": "会话{n}（{about}）出错停下了。",
     "Session {n} ({about}) answered: {result}": "会话{n}（{about}）回复：{result}",
+    "{session} hasn't changed any files yet.": "{session}还没有改任何文件。",
+    "No session has changed any files yet.": "还没有会话改过文件。",
+    "{session} changed {n} files: {names}.": "{session}改了 {n} 个文件：{names}。",
+    "{session} changed one file: {names}.": "{session}改了一个文件：{names}。",
 }
 
 lang.add_texts(ZH)
@@ -1117,6 +1308,30 @@ def _names(files: list[str], limit: int = 3) -> str:
     return shown + (f", +{len(names) - limit}" if len(names) > limit else "")
 
 
+def changes_lines(tasks: list[Any], language: str) -> list[str]:
+    """Everyone's changes, a sentence each: the sessions that changed files, the newest
+    first, at most SAID_IN_FULL of them (the rest are on screen)."""
+    code = [
+        t for t in tasks if getattr(t, "kind", "") == "code" and getattr(t, "files_changed", None)
+    ]
+    if not code:
+        return [say("No session has changed any files yet.", language)]
+    folders = len({t.cwd.name for t in code}) > 1
+    lines = []
+    for task in sorted(code, key=lambda t: -t.id)[:SAID_IN_FULL]:
+        files = sorted(task.files_changed)
+        template = (
+            "{session} changed one file: {names}."
+            if len(files) == 1
+            else "{session} changed {n} files: {names}."
+        )
+        name = cap(name_of(task, language, folders))
+        lines.append(say(template, language, session=name, n=len(files), names=_names(files)))
+    if len(code) > SAID_IN_FULL:
+        lines.append(say("{n} more are on screen.", language, n=len(code) - SAID_IN_FULL))
+    return lines
+
+
 def digest_lines(
     task: Any, turns: list[Turn], language: str, folders: bool, summary: str = ""
 ) -> list[str]:
@@ -1144,13 +1359,13 @@ def digest_lines(
         lines.append(
             say("It changed {n} files: {names}.", language, n=len(files), names=_names(files))
         )
-    runs = [r for t in turns for r in t.tests]
-    if runs:
-        last = runs[-1]
-        if last.passed and last.passed_count:
+    # As the proof has it (tests_verdict): a pass only when one happened; a run that ended
+    # without a result, was stopped or ran before the last edits isn't said to have passed.
+    verdict = tests_verdict([r for t in turns for r in t.tests])
+    if verdict is not None and verdict["state"] in ("passed", "failed"):
+        last = verdict["run"]
+        if verdict["state"] == "passed":
             lines.append(say("{n} tests passed.", language, n=last.passed_count))
-        elif last.passed:
-            lines.append(say("The tests passed.", language))
         elif last.failed_count:
             lines.append(say("{n} tests failed.", language, n=last.failed_count))
         else:

@@ -55,6 +55,7 @@ BROWSER_LOOKING = frozenset(
         "browser_read",
         "browser_screenshot",
         "browser_snapshot",
+        "browser_find",
         "browser_wait",
         "browser_console",
         "browser_network",

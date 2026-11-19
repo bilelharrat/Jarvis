@@ -40,7 +40,6 @@ from . import jsonstore, lang
 from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .jobs import _fence, one_shot
-from .prefs import MODELS as MODEL_IDS
 from .proactive import Alert, in_quiet_hours, quiet_hours_now
 from .textclean import clean_text
 

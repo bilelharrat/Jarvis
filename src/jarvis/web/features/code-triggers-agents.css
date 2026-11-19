@@ -1,0 +1,6 @@
+/* Eden Code settings › Eden's agents in Linear (features/code-triggers-agents.js): one row
+   per agent (name, label, how it works, model), beside Linear and Slack's own rows. */
+.jcx-agents { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.jcx-agent .jcx-trg-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.jcx-agent .jcs-input { flex: 1 1 140px; min-width: 120px; }
+.jcx-agent .jcs-select { flex: 1 1 150px; min-width: 130px; max-width: 260px; }

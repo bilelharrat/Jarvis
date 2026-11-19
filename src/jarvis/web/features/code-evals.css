@@ -1,0 +1,61 @@
+/* Eden Code's evals pane (features/code-evals.js): the suite's configurations, the
+   side-by-side results, the cases. Light and dark from the app's colours; in Eden Code's
+   glass look its cards are frosted fills on the pane, as the rest of the workbench's. */
+
+.jcv-evals { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.jcv-evals > .jc-dim { margin: 0; }
+.deck.jc .jcv-evals .jc-btn { font-size: 12px; }
+.deck.jc .jcv-evals .jc-btn.filled { color: #fff; }
+.deck.jc .jcv-evals .jc-btn:not(.filled) { color: rgb(var(--c-ink)); }
+.jcv-evals .jc-btn:disabled { opacity: 0.45; cursor: default; }
+.jcv-card { display: flex; flex-direction: column; gap: 7px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); min-width: 0; }
+.jcv-head { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: rgb(var(--c-muted)); }
+.jcv-row { display: flex; align-items: center; gap: 8px; }
+.jcv-row .jcv-head { flex: 1; }
+.jcv-row .jcs-select { max-width: 55%; }
+.jcv-configs { display: flex; flex-direction: column; gap: 6px; }
+.jcv-config { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.jcv-config .jcs-select { flex: 1 1 110px; min-width: 0; }
+.jcv-add { align-self: flex-start; }
+.jcv-which { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.jcv-which .jc-dim { flex: 1; }
+.jcv-forecast { margin: 0; font: 12px var(--mono); color: rgb(var(--c-ink)); }
+.jcv-warn { margin: 0; font-size: 12px; color: rgb(var(--c-warning-ink)); }
+.jcv-problem { margin: 0; font-size: 12px; }
+.jcv-problem:empty { display: none; }
+.jcv-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.jcv-note { margin: 0; font-size: 11.5px; }
+
+.jcv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.jcv-table th { text-align: left; font-weight: 600; font-size: 11px; color: rgb(var(--c-ink-2)); padding: 4px 6px; border-bottom: 1px solid rgb(var(--c-ink) / 0.08); }
+.jcv-table td { padding: 5px 6px; border-bottom: 1px solid rgb(var(--c-ink) / 0.05); }
+.jcv-table tr:last-child td { border-bottom: 0; }
+.jcv-label { max-width: 0; width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcv-num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jcv-mark { text-align: center; font-weight: 700; }
+.jcv-mark.ok { color: rgb(var(--c-success-ink)); }
+.jcv-mark.bad { color: rgb(var(--c-danger-ink)); }
+.jcv-mark.dim, .jcv-mark.busy { color: rgb(var(--c-muted)); }
+.jcv-grid summary, .jcv-more summary { cursor: pointer; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.jcv-more { display: flex; flex-direction: column; gap: 6px; }
+.jcv-more[open] > :not(summary) { margin-top: 6px; }
+.jcv-more > .jc-field { display: block; width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.jcv-prompt { resize: vertical; min-height: 56px; font: 12.5px/1.45 var(--sans); }
+
+.jcv-cases { display: flex; flex-direction: column; gap: 4px; }
+.jcv-case { display: flex; align-items: flex-start; gap: 8px; }
+.jcv-case > input[type="checkbox"] { margin-top: 3px; flex: none; }
+.jcv-case-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.jcv-case-main strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcv-cmd { font: 11.5px var(--mono); padding: 4px 8px; }
+.jcv-verdict.passes_at_start, .jcv-verdict.fails_landed { color: rgb(var(--c-warning-ink)); }
+.jcv-verdict.ok { color: rgb(var(--c-success-ink)); }
+.jcv-case-acts { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.jcv-ceiling { width: 90px; }
+
+/* Eden Code's glass look (eden-code-glass.css): frosted fills on the pane, its hairlines. */
+body.eden-code:not([data-skin]) .deck.jc .jcv-card { background: var(--ecg-fill-soft); box-shadow: none; color: var(--ecg-text); }
+body.eden-code:not([data-skin]) .deck.jc .jcv-head, body.eden-code:not([data-skin]) .deck.jc .jcv-table th { color: var(--ecg-text2); }
+body.eden-code:not([data-skin]) .deck.jc .jcv-table th, body.eden-code:not([data-skin]) .deck.jc .jcv-table td { border-bottom-color: var(--ecg-line); }
+.jcv-why summary { cursor: pointer; font-size: 11.5px; color: rgb(var(--c-ink-2)); }
+.jcv-why .jc-code { max-height: 140px; margin: 4px 0 0; border-radius: 8px; background: rgb(var(--c-surface-muted)); font-size: 11px; white-space: pre-wrap; }

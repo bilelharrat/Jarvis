@@ -1,0 +1,28 @@
+/* Eden Code's productivity ledger (features/code-ledger.js): a card per week with its
+   verdict, the owner's two numbers, and the exports, in the workbench's own cards and
+   tokens (light, dark and the glass look alike). */
+
+.lg-intro { margin: 2px 4px 10px; line-height: 1.45; }
+.lg-off { margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); }
+.lg-numbers { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; background: rgb(var(--c-surface) / 0.55); box-shadow: var(--shadow-card); }
+.lg-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.lg-num { max-width: 120px; font-variant-numeric: tabular-nums; }
+.jcs-row .lg-setting { flex: none; width: 96px; text-align: right; }
+
+.lg-week { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
+.lg-week.bad { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-danger)); }
+.lg-week.good { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-success-ink)); }
+.lg-week-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; font-size: 13px; }
+.lg-week-head strong { flex: 1; min-width: 0; font-weight: 600; }
+.lg-pill { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgb(var(--c-ink) / 0.07); color: rgb(var(--c-ink-2)); }
+.lg-pill.bad { background: rgb(var(--c-danger-soft)); color: rgb(var(--c-danger-ink)); }
+.lg-pill.good { background: rgb(var(--c-success-ink) / 0.12); color: rgb(var(--c-success-ink)); }
+
+.lg-line { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 3px; font-size: 12.5px; }
+.lg-key { color: rgb(var(--c-muted)); }
+.lg-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.lg-fact.warn .lg-val { color: rgb(var(--c-warning-ink)); }
+.lg-fact.bad .lg-val, .lg-bad { color: rgb(var(--c-danger-ink)); }
+.lg-fact.good .lg-val { color: rgb(var(--c-success-ink)); }
+.lg-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.lg-from-usage { margin: 8px 4px 0; }

@@ -1,0 +1,61 @@
+/* Eden's voice in Eden Code (code-voice-live.js): the title bar's Voice switch as a live
+   indicator. Its dot (the glass look's ::before) or its reactor (the other looks) glows while
+   Eden's ears are on: steady when ready for push-to-talk, breathing while listening, a slow
+   amber pulse while thinking, quick ripples while speaking. Light and dark both use the
+   look's own accent; reduced motion keeps the colours and drops the movement. The composer
+   is never touched. */
+
+/* The glass look (eden-code-glass.css draws the switch as a pill with a dot). */
+body.eden-code:not([data-skin]) .deck.jc .jc-voice[data-voice-state]:not([data-voice-state="off"]) {
+  color: var(--ecg-text);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--ecg-accent) 45%, transparent),
+    0 0 14px color-mix(in srgb, var(--ecg-accent) 22%, transparent);
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-voice[data-voice-state]:not([data-voice-state="off"])::before {
+  background: var(--ecg-accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ecg-accent) 60%, transparent);
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-voice[data-voice-state="listening"]::before {
+  animation: ecv-breathe 1.6s ease-in-out infinite;
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-voice[data-voice-state="thinking"][data-voice-state]::before {
+  background: #f5a623;
+  animation: ecv-pulse 1.4s ease-in-out infinite;
+}
+body.eden-code:not([data-skin]) .deck.jc .jc-voice[data-voice-state="speaking"]::before {
+  animation: ecv-ripple 0.9s ease-out infinite;
+}
+
+/* Other looks: the reactor icon glows instead. */
+.jc-voice[data-voice-state="listening"] .jc-reactor,
+.jc-voice[data-voice-state="speaking"] .jc-reactor { animation: ecv-glow 1.4s ease-in-out infinite; }
+.jc-voice[data-voice-state="thinking"] .jc-reactor { animation: ecv-glow 2.4s ease-in-out infinite; opacity: 0.85; }
+
+@keyframes ecv-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ecg-accent, #0a84ff) 55%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--ecg-accent, #0a84ff) 0%, transparent); }
+}
+@keyframes ecv-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@keyframes ecv-ripple {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ecg-accent, #0a84ff) 70%, transparent); transform: scale(1); }
+  50% { transform: scale(1.25); }
+  100% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--ecg-accent, #0a84ff) 0%, transparent); transform: scale(1); }
+}
+@keyframes ecv-glow {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+  50% { filter: drop-shadow(0 0 4px rgb(var(--c-glow, 90 200 250) / 0.8)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jc-voice[data-voice-state]::before,
+  .jc-voice[data-voice-state] .jc-reactor { animation: none !important; }
+}
+
+/* Settings › Voice: the voice picker's two selects side by side. */
+.ecv-picks { display: inline-flex; flex: none; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.jcs-card.ecs .jcs-group .ecv-picks .jcs-select, .ecv-picks .jcs-select { max-width: none; }
+.ecv-picks select[hidden] { display: none; }
+/* The spoken commands, under the rows, in the rows' own note style. */
+.ecv-help { margin: 0; padding: 9px 14px 11px; font-size: 11px; line-height: 1.4; opacity: 0.72; }

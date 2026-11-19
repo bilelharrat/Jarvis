@@ -1,0 +1,3 @@
+/* Click an element to send it (code-pick.js): its button beside the dev server's address in
+   the Preview pane. The chip it adds is the composer's own. */
+.cv-pick { margin-left: 6px; vertical-align: middle; }

@@ -5,8 +5,11 @@ from __future__ import annotations
 import contextlib
 import itertools
 import logging
+import os
+import platform
 import queue
 import re
+import sys
 import threading
 import time
 from collections import deque
@@ -204,9 +207,12 @@ def record_utterance(
     on_level: Callable[[float], None] | None = None,
     device: int | None = None,
     cancel: threading.Event | None = None,
+    finish: threading.Event | None = None,
 ) -> np.ndarray | None:
     """Blocks until the speaker finishes. Returns 16 kHz mono float32 audio, or None (no
-    speech, or cancel was set: Stop, or the composer's mic pressed off)."""
+    speech, or cancel was set: Stop, or the composer's mic pressed off). finish ends the
+    recording now and keeps what was said (a push-to-talk key let go: Eden Code's hold to
+    talk, features/code_voice_live.py)."""
     import sounddevice as sd
 
     blocks: queue.Queue[np.ndarray] = queue.Queue()
@@ -236,6 +242,8 @@ def record_utterance(
                 break
             if cancel is not None and cancel.is_set():
                 return None  # the microphone closes as the with-block ends
+            if finish is not None and finish.is_set():
+                break  # the key was let go: what was said so far is the utterance
             captured.append(block)
             rms = float(np.sqrt(np.mean(block**2)))
             if on_level is not None:
@@ -294,6 +302,9 @@ class Segmenter:
         self.on_early = on_early
         self.number = 0  # counts utterances
         self._early = 0  # the number of this utterance's newest early copy; 0 once stale
+        # The last utterance that ended whole: the number of its early copy when nothing was
+        # said after it (its transcript is the whole utterance's), else 0.
+        self.ended_early = 0
         self.max_blocks = round(max_seconds / block_seconds)
         self.min_blocks = round(min_seconds / block_seconds)
         self.calibration_blocks = calibration_blocks
@@ -386,6 +397,7 @@ class Segmenter:
         if self._quiet_run >= self.silence_blocks or len(self._current) >= self.max_blocks:
             voiced = len(self._current) - self._quiet_run
             audio = np.concatenate(self._current)
+            self.ended_early = self._early
             self._end()
             return (audio if voiced >= self.min_blocks else None), early
         return None, early
@@ -523,15 +535,18 @@ _TRAILING = {
 }  # fmt: skip
 
 
-def sounds_finished(text: str) -> bool:
+def sounds_finished(text: str, loose: bool = False) -> bool:
     """Whether a transcript reads like a finished request: it ends like a sentence and
-    not on a word that promises more. Used to answer before the full silence passes."""
+    not on a word that promises more. Used to answer before the full silence passes.
+    loose (a request already addressed to JARVIS): no full stop needed when it has three
+    words or more, since Whisper leaves it off some finished requests; a request cut off
+    by a pause is still asked again whole when its rest follows (hub.CONTINUE_GAP)."""
     text = text.strip()
-    if not text or text.endswith(("...", "…", ",", "-", "—")):
-        return False
-    if not text.endswith((".", "?", "!")):
+    if not text or text.endswith(("...", "…", ",", "-", "—", ":", ";")):
         return False
     words = re.findall(r"[a-z']+", text.lower())
+    if not text.endswith((".", "?", "!")) and not (loose and len(words) >= 3):
+        return False
     if len(words) < 2:
         return False
     # "What's the weather like?": asked as a question, "like" is where it ends. (Not "to"
@@ -561,6 +576,7 @@ class ContinuousListener:
         self.silence_seconds = silence_seconds
         # Smart endpointing (set by the hub): an early copy after this much quiet.
         self.early_seconds: float | None = None
+        self.ended_early = 0  # the early copy the last whole utterance can use (Segmenter)
         self.on_early: Callable[[int, np.ndarray], None] | None = None
         self.on_double_clap: Callable[[], None] | None = None  # two claps (set by the hub)
         # A neural voice detector for each stream opened (features/voice.py sets it; None
@@ -745,6 +761,8 @@ class ContinuousListener:
                                 self.on_block = None
                         utterance = segmenter.feed(block, rms)
                         if utterance is not None:
+                            # (read on this thread, before the next block can change it)
+                            self.ended_early = segmenter.ended_early
                             self.on_utterance(utterance)
             except Exception as exc:  # device vanished, permission revoked
                 failures += 1
@@ -817,6 +835,30 @@ def near_wake(text: str) -> bool:
     )
 
 
+# Whisper on the Mac's GPU: whisper.cpp (pywhispercpp, Metal) runs the same English model
+# about 4.5 times as fast as faster-whisper on the CPU (an M5: 0.10 s against 0.47 s for a
+# five-second request, 0.08 s against 0.39 s for "Open my mail."), with the same words, and
+# off the CPU, so a busy room's transcriptions don't hold a request up. Apple silicon and
+# the English models only; JARVIS_STT_ENGINE=cpu, a missing package or any failure: the
+# CPU, as before. Its model (~140 MB for base.en) downloads in the background the first
+# time; until it's there, the CPU hears.
+GPU_MODELS = frozenset({"tiny.en", "base.en", "small.en", "medium.en"})
+# What whisper.cpp writes for audio without words ("[BLANK_AUDIO]", "[Music]"): never speech.
+_TAGS = re.compile(r"\[[^\]]*\]")
+
+
+def gpu_wanted(model_name: str, language: str = "en") -> bool:
+    from . import lang
+
+    return (
+        sys.platform == "darwin"
+        and platform.machine() == "arm64"
+        and model_name in GPU_MODELS
+        and not lang.is_zh(language)
+        and os.environ.get("JARVIS_STT_ENGINE", "").strip().lower() != "cpu"
+    )
+
+
 class Transcriber:
     """Offline speech-to-text. The model downloads once (~150 MB for base.en) on first use."""
 
@@ -826,6 +868,11 @@ class Transcriber:
         self._model = None
         self._lock = threading.Lock()
         self.error = ""  # why the model could not be loaded, when a warm-up could not
+        # The GPU engine (gpu_wanted): set once loaded; _gpu_off once it can't be had.
+        self._gpu: Any = None
+        self._gpu_off = not gpu_wanted(model_name, language)
+        self._gpu_lock = threading.Lock()  # one whisper.cpp context: one hearing at a time
+        self._gpu_loading = False
 
     def cached(self) -> bool:
         """Whether the model is on this computer already (otherwise the first load downloads it)."""
@@ -847,6 +894,39 @@ class Transcriber:
         except Exception as exc:  # noqa: BLE001 - offline, or no room for it: said by whoever waits
             self.error = f"{type(exc).__name__}: {str(exc)[:160]}"
             log.warning("the speech model could not be loaded: %s", self.error)
+        self._load_gpu()  # after the CPU's: hearing works meanwhile, the GPU's may download
+
+    def _load_gpu(self) -> None:
+        """Load the GPU engine (downloading its model the first time). Never raises: one that
+        can't load is left off for this run, and the CPU hears."""
+        with self._gpu_lock:
+            if self._gpu is not None or self._gpu_off or self._gpu_loading:
+                return
+            self._gpu_loading = True
+        try:
+            from pywhispercpp.model import Model
+
+            # Its "Transcribing…" and "Inference time" for every utterance: not in our log.
+            logging.getLogger("pywhispercpp").setLevel(logging.WARNING)
+            started = time.monotonic()
+            model = Model(
+                self.model_name,
+                print_realtime=False,
+                print_progress=False,
+                redirect_whispercpp_logs_to=None,  # (its own log lines: not in ours)
+            )
+            with self._gpu_lock:
+                self._gpu = model
+            log.info(
+                "speech on the GPU: %s (ready in %.1fs)",
+                self.model_name,
+                time.monotonic() - started,
+            )
+        except Exception as exc:  # noqa: BLE001 - no package, no download, no Metal: the CPU
+            self._gpu_off = True
+            log.warning("speech stays on the CPU: the GPU engine didn't load (%s)", exc)
+        finally:
+            self._gpu_loading = False
 
     def _load(self):
         with self._lock:
@@ -859,7 +939,11 @@ class Transcriber:
             return self._model
 
     def loaded(self) -> bool:
-        return self._model is not None
+        return self._model is not None or self._gpu is not None
+
+    def engine(self) -> str:
+        """ "gpu" or "cpu": what hears now."""
+        return "gpu" if self._gpu is not None else "cpu"
 
     def transcribe(self, audio: np.ndarray, hotwords: str = "Jarvis") -> str:
         """The words of an utterance. In English the wake word isn't among the hotwords
@@ -888,6 +972,14 @@ class Transcriber:
         if name_hint:  # the second hearing of a near miss: the name as a hint after all
             options["hotwords"] = f"Jarvis {options.get('hotwords', '')}".strip()
         padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
+        if self._gpu is not None:
+            try:
+                return lang.clean_transcript(self._hear_gpu(padded, options), self.language)
+            except Exception as exc:  # noqa: BLE001 - never lose an utterance to it: the CPU hears
+                self._gpu, self._gpu_off = None, True
+                log.warning("speech back on the CPU: the GPU engine failed (%s)", exc)
+        elif not self._gpu_off and not self._gpu_loading:
+            threading.Thread(target=self._load_gpu, daemon=True).start()  # (not warmed up)
         segments, _info = self._load().transcribe(
             padded,
             beam_size=1,
@@ -899,6 +991,25 @@ class Transcriber:
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         return lang.clean_transcript(text, self.language)
+
+    def _hear_gpu(self, padded: np.ndarray, options: dict[str, Any]) -> str:
+        """whisper.cpp with faster-whisper's settings here: greedy, one segment, nothing
+        from the previous utterance, non-speech tokens suppressed. Its prompt is what
+        faster-whisper's would hold: the initial prompt, then the hotwords."""
+        prompt = " ".join(
+            str(options[k]).strip() for k in ("initial_prompt", "hotwords") if options.get(k)
+        )
+        with self._gpu_lock:
+            segments = self._gpu.transcribe(
+                padded,
+                language=options.get("language", "en"),
+                initial_prompt=prompt,  # (set every time: the model keeps its last params)
+                no_context=True,
+                single_segment=True,
+                suppress_non_speech_tokens=True,
+            )
+        text = " ".join(seg.text.strip() for seg in segments)
+        return re.sub(r"\s+", " ", _TAGS.sub(" ", text)).strip()
 
 
 # What Whisper tends to invent from silence or room noise.

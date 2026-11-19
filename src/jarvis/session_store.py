@@ -28,6 +28,11 @@ from . import jsonstore
 
 log = logging.getLogger("jarvis")
 
+# Each session's file carries its version as "v" (jsonstore.register_store): an older one is
+# copied whole and brought up to it before it's read (none older than 1 yet).
+STORE = "code_session"
+jsonstore.register_store(STORE, 1, key="v")
+
 STORE_LIMIT = 60  # sessions kept: the open ones and the ended ones the list shows
 # Every session ever listed is kept (a chat is never lost): past STORE_LIMIT the ended ones
 # are "let go" from the list but kept on disk, in the history, to reopen as they were.
@@ -72,7 +77,7 @@ class SessionStore:
             if not KEY.fullmatch(key):
                 continue
             try:
-                data = jsonstore.load_json(path, dict)
+                data = jsonstore.load_store(path, STORE, indent=None)
             except jsonstore.Unreadable as exc:
                 log.warning("Eden Code: session %s can't be read (%s)", key, exc.strerror)
                 self.unreadable.add(key)
@@ -96,14 +101,13 @@ class SessionStore:
                 digest = _digest(record)
                 if self.written.get(key) == digest:
                     continue
-                jsonstore.save_json(self.folder / f"{key}.json", record, indent=None)
+                jsonstore.save_store(self.folder / f"{key}.json", STORE, record, indent=None)
                 self.written[key] = digest
             for key in [k for k in self.written if k not in keep]:
-                for path in (self.folder / f"{key}.json", self.folder / f"{key}.json.bak"):
-                    try:
-                        path.unlink(missing_ok=True)
-                    except OSError as exc:
-                        log.warning("Eden Code: couldn't let go of session %s (%s)", key, exc)
+                try:  # (its .bak and its copies from before migrations go with it)
+                    jsonstore.forget(self.folder / f"{key}.json")
+                except OSError as exc:
+                    log.warning("Eden Code: couldn't let go of session %s (%s)", key, exc)
                 del self.written[key]
 
     def read(self, key: str) -> dict[str, Any] | None:
@@ -112,7 +116,7 @@ class SessionStore:
         if not KEY.fullmatch(key) or key in self.unreadable:
             return None
         try:
-            data = jsonstore.load_json(self.folder / f"{key}.json", dict)
+            data = jsonstore.load_store(self.folder / f"{key}.json", STORE, indent=None)
         except jsonstore.Unreadable as exc:
             log.warning("Eden Code: session %s can't be read (%s)", key, exc.strerror)
             return None
@@ -215,6 +219,7 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
     if not isinstance(cwd, str) or not cwd.startswith("/") or "\x00" in cwd or len(cwd) > 1000:
         return None
     cost = _amount(data.get("cost_usd"))
+    inherited = _amount(data.get("cost_inherited"))
     commands = data.get("commands")
     queue = []
     for item in data.get("queue") if isinstance(data.get("queue"), list) else []:
@@ -269,11 +274,18 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
         "plan": _str(data.get("plan"), 4000),
         "todos": todos[:30],
         "cost_usd": round(max(0.0, float(cost)), 6) if cost is not None else None,
+        # A fork's share of that carried over from its original (never more than the total):
+        # kept, so after a restart the fork's own spend (its cap) still leaves it out.
+        "cost_inherited": min(
+            round(max(0.0, float(inherited)), 6) if inherited is not None else 0.0,
+            round(max(0.0, float(cost)), 6) if cost is not None else 0.0,
+        ),
         "files_changed": _strings(data.get("files_changed"), FILES_KEEP),
         "commands": commands
         if isinstance(commands, int) and not isinstance(commands, bool) and commands >= 0
         else 0,
         "fork": _bool(data.get("fork")),
+        "untrusted": _bool(data.get("untrusted")),  # (locked down when it comes back: S3-5)
         "resume_at": _str(data.get("resume_at"), 100),
         # Waiting out Claude's usage limit (features.code_limit): until when, since when.
         "hold_until": _moment(data.get("hold_until")),

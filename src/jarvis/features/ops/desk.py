@@ -763,6 +763,8 @@ class Ops:
                     "model": self.hub.prefs.model,
                 }
             )
+            crashes = getattr(self.hub, "crash_reports", None)  # (features/crash_reports)
+            extra = await asyncio.to_thread(crashes.for_diagnostics) if crashes else []
             path = await asyncio.to_thread(
                 diagnostics.build,
                 self.diagnostics_folder(),
@@ -773,6 +775,7 @@ class Ops:
                 review=self.last_review,
                 megabytes=megabytes,
                 clock=self.clock,
+                extra=extra,
             )
             self.emit("ops_diagnostics", ok=True, path=str(path), name=path.name, text="")
         except OSError as exc:

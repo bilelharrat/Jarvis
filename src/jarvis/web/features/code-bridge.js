@@ -1,7 +1,7 @@
 // Pane frames fed from the window's one connection (the store: web/code-store.js).
 //
 // A pane frame (split view's second pane: app.js in ?bridge=1) is attached with
-// edenCodeCodeStore.attachFrame(frame): when it says it's ready it gets the latest state (the
+// jarvisCodeStore.attachFrame(frame): when it says it's ready it gets the latest state (the
 // snapshot first), then every event in the order the window heard it; what it sends goes
 // up the window's own socket. So both panes always agree, and a reconnect resumes both at
 // once (the hub replays what was missed after its snapshot).
@@ -43,7 +43,7 @@
   const api = { marked, routeOf, ASKS, ANSWERS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
-  const F = root.edenCodeFeatures;
+  const F = root.jarvisFeatures;
   if (!F || !F.store) return;
   const store = F.store;  // app.js's own, fed every event the window hears
 
@@ -52,23 +52,15 @@
   let online = false;
   function post(win, data) { try { win.postMessage(data, location.origin); } catch (_) { /* the frame went */ } }
 
-  // Events scoped to a single session (`ev.id`) that only the pane showing that session cares about.
-  // Filtering these avoids structuredClone-ing multi-MB transcripts and tool outputs into all 9 other frames.
-  const SESSION_ONLY = new Set([
-    'task_transcript', 'task_log', 'task_log_update', 'task_entry_meta', 'task_context',
-    'task_memory', 'task_todos', 'task_changes', 'task_plan', 'task_diff',
-  ]);
+  // Only what the hub says: jc_select is this window's own (which session its pane shows),
+  // and a frame that heard it would take it for its own pick.
   const LOCAL = new Set(['jc_select']);
   F.on('*', (ev) => {
     if (!ev || LOCAL.has(ev.type)) return;
     const to = routeOf(ev);
     if (!to) return;
-    const scopedId = !to.pane && SESSION_ONLY.has(to.event.type) && to.event.id != null ? to.event.id : null;
     for (const [win, f] of frames) {
-      if (!f.ready) continue;
-      if (to.pane && to.pane !== f.pane) continue;
-      if (scopedId != null && f.session != null && f.session !== scopedId) continue;
-      post(win, { edenCodeBridge: 'event', event: to.event });
+      if (f.ready && (!to.pane || to.pane === f.pane)) post(win, { jarvisBridge: 'event', event: to.event });
     }
   });
 
@@ -76,7 +68,7 @@
   function setOnline(value) {
     if (value === online) return;
     online = value;
-    for (const [win, f] of frames) if (f.ready) post(win, { edenCodeBridge: 'online', value });
+    for (const [win, f] of frames) if (f.ready) post(win, { jarvisBridge: 'online', value });
   }
   const offline = F.$('offline');
   if (offline && typeof MutationObserver !== 'undefined') {
@@ -87,24 +79,19 @@
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || !e.data || !frames.has(e.source)) return;
     const f = frames.get(e.source);
-    if (e.data.edenCodeBridge === 'ready') {
+    if (e.data.jarvisBridge === 'ready') {
       f.ready = true;
-      post(e.source, { edenCodeBridge: 'online', value: online });
-      for (const ev of store.catchUp()) post(e.source, { edenCodeBridge: 'event', event: ev });
-    } else if (e.data.edenCodeBridge === 'send' && e.data.msg && typeof e.data.msg.type === 'string') {
-      if ((e.data.msg.type === 'task_transcript' || e.data.msg.type === 'task_context') && e.data.msg.id != null) {
-        f.session = e.data.msg.id;
-      }
+      post(e.source, { jarvisBridge: 'online', value: online });
+      for (const ev of store.catchUp()) post(e.source, { jarvisBridge: 'event', event: ev });
+    } else if (e.data.jarvisBridge === 'send' && e.data.msg && typeof e.data.msg.type === 'string') {
       F.send(marked(e.data.msg, f.pane));
-    } else if (e.data.sv === 1 && e.data.selected !== undefined) {
-      f.session = e.data.selected;
     }
   });
 
-  root.edenCodeCodeStore = {
+  root.jarvisCodeStore = {
     store,
     // A pane frame fed from this window's connection (its src: app's page with ?bridge=1).
-    attachFrame(frame) { if (frame && frame.contentWindow) frames.set(frame.contentWindow, { ready: false, pane: ++panes, session: null }); },
+    attachFrame(frame) { if (frame && frame.contentWindow) frames.set(frame.contentWindow, { ready: false, pane: ++panes }); },
     detachFrame(frame) { if (frame && frame.contentWindow) frames.delete(frame.contentWindow); },
   };
 })(typeof window === 'object' ? window : globalThis);

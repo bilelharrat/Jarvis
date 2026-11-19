@@ -14,15 +14,18 @@ in the macOS Keychain (connectors.Vault, under "provider:<id>"), sealed together
 provider's kind, address and way of sending it, so an edited file can't send the key
 anywhere else. It goes only to that address, over https unless the address is this Mac.
 
-A session never gets the key in its environment or on its command line, where its own
-shell commands (and so the model, or text planted in a repo) could read it. Claude Code
-asks an apiKeyHelper for it instead: a short command that reads the Keychain entry and
-prints the key. The session's settings carry that helper and pin every variable that
-decides where requests go and with what credential; settings passed that way outrank the
-project's own .claude/settings.json, so a cloned repo can't reroute the key or the
-session. What no setting can stop: a program running as the owner can run the same
-helper, as it could read any of JARVIS's Keychain entries. Hence the advice to use keys
-with a spending limit.
+A session never gets the key, nor anything that reads it: not in its environment, not on
+its command line, where its own shell commands (and so the model, or text planted in a
+repo) could find it. It gets a pass made for that run (key_proxy.Grants), which its
+apiKeyHelper prints, and its ANTHROPIC_BASE_URL is JARVIS's key proxy on this Mac (or the
+Gemini or OpenAI-compatible relay), which puts the key in the pass's place as each request
+goes through, to the address sealed with the key and nowhere else. The session's settings
+carry that helper and pin every variable that decides where requests go and with what
+credential; settings passed that way outrank the project's own .claude/settings.json, so a
+cloned repo can't reroute the session. What a pass can't stop: a command can send requests
+through the proxy while JARVIS runs, as the session does, and a program running as the
+owner could still ask the Keychain itself for an entry that trusts JARVIS's Python. Hence
+the advice to use keys with a spending limit.
 """
 
 from __future__ import annotations
@@ -48,7 +51,7 @@ import httpx
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import jsonstore
-from .connectors import SERVICE, Vault
+from .connectors import Vault
 from .prefs import APP_SUPPORT, MODEL_NAMES, MODELS
 
 SERVER_NAME = "providers"
@@ -128,6 +131,7 @@ KINDS: dict[str, Kind] = {
             "gemini-3.8-flash",
             "gemini-3.1-pro-preview",
             "gemini-4-argon",
+            "gemini-3.5-flash-lite",
         ),
     ),
     "custom": Kind(
@@ -146,17 +150,215 @@ KINDS: dict[str, Kind] = {
         "",
         "bearer",
         "Any server that speaks OpenAI's API: Ollama or LM Studio on this Mac (Ollama is "
-        "http://localhost:11434, LM Studio http://localhost:1234), OpenRouter, OpenAI and "
-        "more, with every tool, through Jarvis's own relay on this Mac. Ollama and LM Studio "
-        "don't check keys: type any word, like local. Give a local model a long context "
-        "(32K or more).",
+        "http://localhost:11434, LM Studio http://localhost:1234), OpenAI itself "
+        "(https://api.openai.com: GPT-6), Moonshot Kimi (https://api.moonshot.ai), "
+        "OpenRouter and more, with every tool, through Jarvis's own relay on this Mac. Ollama "
+        "and LM Studio don't check keys: type any word, like local. Give a local model a long "
+        "context (32K or more).",
         "",
         "https://ollama.com/search?c=tools",
         ("qwen3", "llama3.2", "gpt-oss:20b", "mistral-small3.2"),
     ),
 }
+
+# Eden chat's models: the list askeden.com's Eden chat offers (the Worker's EDEN_MODELS in
+# site/wrangler.toml, else DEFAULT_MODELS in site/src/eden/chat.js, as of 2026-10-14), in its
+# order, by its names (the Model Router's, as Eden chat shows them), under its headings (its
+# provider names, web/chat/router.js). Eden Code's model pickers show exactly this list (the
+# composer's model button, Settings' default model, the Route popover, a to-do card's model,
+# Best-of-N's variants; Exterminator's fixes take the session's or project's model, so the
+# same list), then any other model the owner added themselves. Left out because askeden.com
+# retired them: GPT-6 Luna (2026-10-13, its mistakes), and on 2026-10-14 Haiku 4.5, Kimi K2.7
+# Code, Gemini 3.1 Pro (preview) and GPT-6 Sol (each beaten on every score by a model here at
+# the same price or less). Fable 5.1 isn't on Eden chat's list either, so it isn't offered;
+# Haiku and Fable still run where Eden Code itself picks them (read-only helpers, the voice
+# command "switch to fable", a session started on one before), since prefs.MODELS keeps
+# them. tests/test_model_catalog.py holds this to tests/fixtures/eden_chat_models.json.
+EDEN_CHAT_MODELS: tuple[tuple[str, str, str], ...] = (  # (model id, name, Eden chat's provider)
+    ("claude-opus-5-5", "Claude Opus 5.5", "anthropic"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"),
+    ("gpt-6.1-sol", "GPT-6.1 Sol", "openai"),
+    ("gemini-4-argon", "Gemini 4 Argon", "gemini"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"),
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "gemini"),
+    ("kimi-k3", "Kimi K3", "kimi"),
+)
+# Gemini 4 Argon follows Eden chat: off askeden.com while the iPhone app was in App Review,
+# on again since 2026-10-14 (the owner: Opus-level at half the price). Set this to False the
+# day Eden chat turns it off, and Eden Code's pickers leave it out with it.
+ARGON = "gemini-4-argon"
+ARGON_ON = True
+EDEN_CHAT_GROUPS = {  # Eden chat's heading for each provider, in the menu's order
+    "anthropic": "Anthropic Claude",
+    "openai": "OpenAI GPT",
+    "gemini": "Google Gemini",
+    "kimi": "Moonshot Kimi",
+}
+# How Eden Code runs each of Eden chat's other providers, on the owner's own key: (provider
+# kind, the provider's host; "" for the kind's own address), and what a model there needs
+# when no such key is added yet: (the key, said; the address the Add form starts with; the
+# variable Eden chat on this Mac reads that key from, eval/with-keys.sh's Keychain entry).
+# GPT and Kimi speak Chat Completions (through openai_relay, as Eden chat calls them), Gemini
+# its own API (gemini_proxy). A Moonshot key added as a Custom endpoint at api.moonshot.ai
+# (Moonshot's Anthropic-compatible door) runs Kimi too. askeden.com's own included AI (Eden
+# Plus) can't stand in: its door (/api/anthropic/v1/messages) speaks Anthropic's API for
+# Claude only, and without an Anthropic key it answers on a model of its own choosing.
+EDEN_CHAT_HOW: dict[str, tuple[str, str]] = {
+    "openai": ("openai", "api.openai.com"),
+    "kimi": ("openai", "api.moonshot.ai"),
+    "gemini": ("gemini", ""),
+}
+EDEN_CHAT_KEYS: dict[str, tuple[str, str, str]] = {
+    "openai": ("an OpenAI API key", "https://api.openai.com", "OPENAI_API_KEY"),
+    "kimi": ("a Moonshot (Kimi) API key", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
+    "gemini": ("a Google Gemini API key", "", "GEMINI_API_KEY"),
+}
+EDEN = "eden:"  # the ref of one of Eden chat's models with no key for it yet: "eden:<model id>"
+# Eden chat's models beyond Claude, as Eden Code runs them: {model id: (name, kind, host)}.
+# A model added without a label of the owner's gets this name, and an OpenAI-compatible
+# provider at that host suggests these ids in its "Add model" box. Prices aren't kept here:
+# the window's router has them (web/features/vendor/model-router.js, the same registry Eden
+# chat's Worker bundles) and sends them to code_router_events.
+CATALOG: dict[str, tuple[str, str, str]] = {
+    model: (name, *EDEN_CHAT_HOW[group])
+    for model, name, group in EDEN_CHAT_MODELS
+    if group != "anthropic"
+}
+
+
+def eden_chat_models() -> list[tuple[str, str, str]]:
+    """Eden chat's list as it stands: Gemini 4 Argon only while ARGON_ON."""
+    return [m for m in EDEN_CHAT_MODELS if m[0] != ARGON or ARGON_ON]
+
+
+def eden_chat_stamp() -> str:
+    """Which list a model file was last brought in step with (ProviderStore.sync_eden_chat)."""
+    return ",".join(m[0] for m in eden_chat_models())
+
+
+def _host(base_url: str) -> str:
+    return (urlsplit(str(base_url or "")).hostname or "").lower()
+
+
+def serves(provider: Provider, model_id: str) -> bool:
+    """Whether this provider runs this one of Eden chat's models the way Eden chat means it:
+    a Google Gemini key its Gemini models, an OpenAI-compatible provider at OpenAI's or
+    Moonshot's address their models (or a Custom endpoint at Moonshot's: its Anthropic door).
+    Another provider's same id (OpenRouter's "gpt-6.1-sol") is whatever that provider means
+    by it, so it doesn't count."""
+    entry = CATALOG.get(str(model_id or ""))
+    if entry is None:
+        return False
+    _, kind, host = entry
+    if not host:
+        return provider.kind == kind
+    return provider.kind in (kind, "custom") and _host(provider.base_url) == host
+
+
+def catalog_label(model_id: str, kind: str, base_url: str = "") -> str:
+    """The catalog's name for a model on a provider of this kind and address ("" when it has
+    none): a Gemini key's gemini-3.8-flash is "Gemini 3.8 Flash"; an OpenRouter or custom
+    endpoint's id is whatever that provider means by it, so it gets none (unless it's at the
+    model's own address: a Custom endpoint at api.moonshot.ai is Moonshot)."""
+    entry = CATALOG.get(str(model_id or ""))
+    if entry is None:
+        return ""
+    name, own_kind, host = entry
+    if host and base_url and _host(base_url) != host:
+        return ""
+    if kind == own_kind:
+        return name
+    return name if kind == "custom" and host and base_url else ""
+
+
+def needs_key_reason(name: str, group: str) -> str:
+    """What one of Eden chat's models needs before Eden Code can run it, in words to show."""
+    what = EDEN_CHAT_KEYS[group][0]
+    return (
+        f"{name} needs {what}. Add it in Settings › Models & API keys; it stays in this "
+        "Mac's Keychain and never reaches a session."
+    )
+
+
+# How a model id's words are written when it has no name of its own (friendly_name): the
+# brands as their makers write them; everything else gets a capital first letter.
+_BRAND_WORDS = {
+    "gpt": "GPT", "claude": "Claude", "gemini": "Gemini", "kimi": "Kimi", "llama": "Llama",
+    "qwen": "Qwen", "mistral": "Mistral", "deepseek": "DeepSeek", "glm": "GLM", "grok": "Grok",
+    "oss": "OSS", "phi": "Phi", "gemma": "Gemma", "o1": "o1", "o3": "o3", "o4": "o4",
+}  # fmt: skip
+_SIZE_WORD = re.compile(r"\d+(\.\d+)?[bkm]")  # 20b, 1.5b, 128k: sizes, written 20B, 128K
+
+
+def friendly_name(model_id: str, label: str = "") -> str:
+    """A model's name for a person to read, where a picker only has its id: the owner's own
+    label when they gave one; the catalog's name (Eden chat's, Claude's); else the id worded
+    ("kimi-k2.7-code-highspeed" is "Kimi K2.7 Code Highspeed", "gpt-oss:20b" "GPT OSS 20B",
+    an OpenRouter "moonshotai/kimi-k2" "Kimi K2"). The phones show these (features/code_phone:
+    their model sheets had raw ids beside the names); the Mac's own menu is unchanged."""
+    model_id = str(model_id or "").strip()
+    label = str(label or "").strip()
+    if label and label != model_id:
+        return label
+    for ref, model in MODELS.items():
+        if model_id in (ref, model) and ref in MODEL_NAMES:
+            return f"Claude {MODEL_NAMES[ref]}"
+    named = next((name for model, name, _ in EDEN_CHAT_MODELS if model == model_id), "")
+    if named:
+        return named
+    words = []
+    for word in re.split(r"[-_:\s]+", model_id.rsplit("/", 1)[-1]):
+        if not word:
+            continue
+        low = word.lower()
+        if low in _BRAND_WORDS:
+            words.append(_BRAND_WORDS[low])
+        elif _SIZE_WORD.fullmatch(low):
+            words.append(low.upper())
+        else:
+            words.append(word[:1].upper() + word[1:])
+    # "GPT 6.1" reads as its makers write it: GPT-6.1.
+    text = " ".join(words)
+    return re.sub(r"\bGPT (\d)", r"GPT-\1", text) or model_id
+
+
+def catalog_suggested(kind: str, base_url: str) -> tuple[str, ...]:
+    """The ids a provider's "Add model" box suggests before a check has listed its own: an
+    OpenAI-compatible provider at OpenAI's or Moonshot's address gets the catalog's models
+    there, everything else its kind's suggestions."""
+    host = _host(base_url)
+    own = tuple(m for m, (_, k, h) in CATALOG.items() if k == kind and h and h == host)
+    return own or KINDS[kind].suggested
+
+
 # Names for a local server on its usual port (an OpenAI-compatible provider added without one).
 LOCAL_SERVERS = {11434: "Ollama", 1234: "LM Studio", 8080: "llama.cpp", 8000: "vLLM"}
+LOCAL_GROUP = "On this Mac"  # the pickers' heading for models on a server here
+LOCAL = "local:"  # a found model not added yet: "local:<port>/<model id>" (runs nothing)
+
+
+def _local_details(found: dict[str, Any], model: str) -> dict[str, Any]:
+    """What the pickers show of a model on this Mac: its size on disk (bytes), its context
+    window (tokens: the server's own word, else the catalog's, else unknown), its
+    parameters ("7.6B") and quantization ("Q4_K_M"), and whether it takes tools (None:
+    the server didn't say). Only plain values, whatever the server sent."""
+
+    def num(value: Any) -> int | None:
+        if isinstance(value, bool) or not isinstance(value, int | float) or value != value:
+            return None
+        return int(value) if 0 < value < 10**13 else None
+
+    def word(value: Any) -> str:
+        return " ".join(str(value).split())[:24] if isinstance(value, str | int | float) else ""
+
+    tools = found.get("tools")
+    return {
+        "size": num(found.get("size")),
+        "context": num(found.get("context")) or context_window(model),
+        "params": word(found.get("params") or ""),
+        "quant": word(found.get("quant") or ""),
+        "tools": tools if isinstance(tools, bool) else None,
+    }
 AUTHS = ("bearer", "x-api-key")
 _AUTH_WORDS = {
     "bearer": "bearer",
@@ -280,31 +482,11 @@ _PROXY_URLS = frozenset(  # the ones that hold a proxy's address, perhaps with a
 )
 ROUTING_ENV = (*DESTINATION_ENV, *CREDENTIAL_ENV, *MODEL_ENV, *NETWORK_ENV)
 
-# The apiKeyHelper Claude Code runs (through /bin/sh, in the project's folder) for a
-# provider session's key. Python in isolated mode keeps the project's folder and PYTHON*
-# variables off its import path, and keyring's macOS backend is used directly so no
-# keyring config can swap it. It prints only the key; anything else goes to stderr.
-HELPER_CODE = """\
-import json, sys
-from keyring.backends import macOS
-try:
-    saved = macOS.Keyring().get_password(sys.argv[1], sys.argv[2])
-except Exception:
-    sys.exit("Jarvis could not read the key from the Keychain.")
-try:
-    key = json.loads(saved or "")["key"]
-except Exception:
-    key = None
-if not isinstance(key, str) or not key:
-    sys.exit("Jarvis has no key saved for this provider.")
-sys.stdout.write(key)
-"""
-# On a PC the key is in Credential Manager (keyring's Windows backend), and Claude Code runs the helper
-# through cmd or Git Bash: a script file, named by its contents, with the command quoted the Windows way
-# (a program on the command line with Python code in it, quoted for /bin/sh, worked on neither).
-HELPER_CODE_WINDOWS = HELPER_CODE.replace(
-    "from keyring.backends import macOS", "from keyring.backends import Windows"
-).replace("macOS.Keyring()", "Windows.WinVaultKeyring()").replace("from the Keychain", "from Credential Manager")
+# The apiKeyHelper Claude Code runs (through /bin/sh, in the project's folder) prints the
+# run's pass (key_proxy.token_helper), never a key: no helper reads the Keychain any more,
+# so none a session can see would print a key run again by one of its commands. On a PC
+# Claude Code runs it through cmd or Git Bash: a script file, named by its contents, with the
+# command quoted the Windows way (helper_command below).
 
 
 def helper_command(python: str, code: str, *args: str, platform: str | None = None, folder: Path | None = None) -> str:
@@ -358,8 +540,7 @@ _DATED = r"(?:[-@](?:\d{8}|\d{4}-\d{2}-\d{2})|-latest)"
 # published by each provider; a model not listed shows what Claude Code reports.
 CONTEXT_WINDOWS: list[tuple[str, int]] = [
     (r"gemini-1\.5-pro", 2_000_000),
-    (r"gemini-(1\.5-flash|2|3|4|flash|pro)", 1_048_576),
-    (r"gpt-(6|5\.6)", 1_050_000),
+    (r"gemini-(1\.5-flash|2|3|flash|pro)", 1_048_576),
     (r"gpt-5", 400_000),
     (r"gpt-4\.1", 1_047_576),
     (r"gpt-4o|gpt-4-turbo", 128_000),
@@ -529,14 +710,14 @@ def base_url_for(kind: str, value: Any) -> str:
 
 
 # Servers whose Anthropic-compatible API sits under a path of their own: given their bare
-# address (as people paste it), Claude Code's requests go there. Moonshot (Kimi) answers
-# /v1/messages only under /anthropic; at its bare address every request was a 404.
+# address (as people paste it), Claude Code's requests go there (key_proxy). Moonshot (Kimi)
+# answers /v1/messages only under /anthropic; at its bare address every request was a 404.
 ANTHROPIC_PATHS = {"api.moonshot.ai": "/anthropic", "api.moonshot.cn": "/anthropic"}
 
 
 def anthropic_endpoint(base_url: str) -> str:
     """A custom endpoint's address with its Anthropic API path, when it's a server known to
-    keep it under one and the address has no path of its own."""
+    keep it under one and the address has no path of its own. The host never changes."""
     parts = urlsplit(base_url)
     extra = ANTHROPIC_PATHS.get((parts.hostname or "").lower())
     if extra and parts.path in ("", "/"):
@@ -668,13 +849,15 @@ def _mismatch(provider: Provider) -> str:
     )
 
 
-def keychain_helper(provider_id: str, python: str | None = None) -> str:
-    """The apiKeyHelper command for a provider's key: JARVIS's own Python (the program the
-    Keychain entry trusts, so no prompt) running HELPER_CODE on the entry. It names the
-    entry, never the key."""
-    account = f"{VAULT_PREFIX}{provider_id}:{KEY_NAME}"
-    code = HELPER_CODE_WINDOWS if sys.platform == "win32" else HELPER_CODE
-    return helper_command(python or sys.executable, code, SERVICE, account)
+def route_of(provider: Provider) -> str:
+    """Which way out a provider's pass is for (key_proxy): the proxy itself, or a relay."""
+    from . import key_proxy
+
+    if provider.kind == "gemini":
+        return key_proxy.GEMINI
+    if provider.kind == "openai":
+        return key_proxy.OPENAI + provider.id
+    return key_proxy.DIRECT
 
 
 # ── reading the file back ──
@@ -742,7 +925,7 @@ def _entry_from(raw: dict[str, Any]) -> ModelEntry | None:
 # ── the store ──
 
 
-Helper = Callable[[str], str]  # a provider id -> the apiKeyHelper command for its key
+Helper = Callable[[str], str]  # a run's pass -> the apiKeyHelper command that prints it
 
 
 class ProviderStore:
@@ -753,15 +936,33 @@ class ProviderStore:
     ) -> None:
         self.path = path or APP_SUPPORT / "providers.json"
         self.vault = vault if vault is not None else Vault()
-        self.helper = helper or keychain_helper
+        if helper is None:
+            from .key_proxy import token_helper as helper
+        self.helper = helper
         self.providers: dict[str, Provider] = {}
         self.entries: dict[str, ModelEntry] = {}
         self.status: dict[str, dict[str, Any]] = {}  # each provider's last check, this run
         self._versions: dict[str, int] = {}  # bumped when a provider's key changes or goes
         # (provider, key version, address) -> (the sealed key's digest, the sealed address)
         self._relay_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
+        self._grant_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
+        # Eden chat's other providers whose key Eden chat on this Mac has (code_models sets
+        # it: {"openai": True, …}), so a model with no key here offers to use that one.
+        self.chat_keys: dict[str, bool] = {}
+        self.eden_chat_synced = ""  # eden_chat_stamp() of the list the file was last synced to
+        # The model servers found running on this Mac (features.local_models sets it at each
+        # look: {port: {model id: its details}}), so the pickers can show models on this Mac
+        # with their size and context, the ones not added yet among them.
+        self.local_found: dict[int, dict[str, dict[str, Any]]] = {}
         self._load()
+        if not self.unreadable and self.eden_chat_synced != eden_chat_stamp():
+            before = self._snapshot()
+            if self.sync_eden_chat():
+                try:
+                    self._save()
+                except OSError:  # tried again at the next start
+                    self._restore(before)
 
     # persistence
 
@@ -775,6 +976,7 @@ class ProviderStore:
             return
         if not isinstance(data, dict):
             return
+        self.eden_chat_synced = str(data.get("eden_chat") or "")[:2000]
         for raw in _dicts(data.get("providers"))[: MAX_PROVIDERS * 5]:
             provider = _read_row(_provider_from, raw)
             if provider is None or provider.id in self.providers:
@@ -817,6 +1019,7 @@ class ProviderStore:
             "version": 1,
             "providers": [asdict(p) for p in self.providers.values()],
             "models": [asdict(m) for m in self.entries.values()],
+            "eden_chat": self.eden_chat_synced,
         }
         jsonstore.save_json(self.path, data)
 
@@ -946,6 +1149,34 @@ class ProviderStore:
         memo[stamp] = (key_digest(record["key"]), record["base_url"])
         return record["base_url"] if secrets_equal(key_digest(record["key"]), digest) else None
 
+    def grant_target(self, provider_id: str) -> tuple[str, str] | None:
+        """For the key proxy and the relays, as a run's pass is spent: the address sealed
+        with this provider's key and the key, or None (no such provider any more, the file
+        edited since, no key). Read from the Keychain once per provider and key version,
+        then kept in this process only (it never leaves it but to that address)."""
+        provider = self.providers.get(str(provider_id or ""))
+        if provider is None:
+            return None
+        stamp = (provider.id, self._versions.get(provider.id, 0), provider.base_url)
+        known = self._grant_memo.get(stamp)
+        if known is not None:
+            return known
+        try:
+            record = self._saved(provider)
+        except ValueError:
+            return None
+        if len(self._grant_memo) > 4 * MAX_PROVIDERS:
+            self._grant_memo.clear()
+        self._grant_memo[stamp] = (record["base_url"], record["key"])
+        return self._grant_memo[stamp]
+
+    def grant_for(self, provider: Provider) -> str:
+        """A new pass for one run on this provider's key (key_proxy.GRANTS)."""
+        from . import key_proxy
+
+        pid = provider.id
+        return key_proxy.GRANTS.mint(route_of(provider), lambda: self.grant_target(pid))
+
     # providers
 
     def add_provider(
@@ -983,6 +1214,7 @@ class ProviderStore:
         if spec.id == "anthropic":
             for ref, model in MODELS.items():
                 self._add_entry(provider.id, model, MODEL_NAMES[ref])
+        self.sync_eden_chat(provider.id)  # Eden chat's models on an OpenAI, Gemini or Moonshot key
         try:
             self._persist()
         except ValueError:
@@ -1112,6 +1344,10 @@ class ProviderStore:
         label = clean_name(label, LABEL_LIMIT)
         if self._offers(provider.id, model_id):
             raise ValueError(f"{model_id} is already on {provider.name}'s list.")
+        if not label:  # the catalog's name, as Eden chat shows it, unless another model has it
+            named = catalog_label(model_id, provider.kind, provider.base_url)
+            if named and not self._passes_off(provider.id, model_id, named):
+                label = named
         shown = label or model_id
         if self._passes_off(provider.id, model_id, shown):
             raise ValueError(
@@ -1319,9 +1555,138 @@ class ProviderStore:
     def _title(self, entry: ModelEntry) -> str:
         return f"{entry.label} · {self.providers[entry.provider].name}"
 
+    # Eden chat's models
+
+    def _eden_entry(self, model: str) -> ModelEntry | None:
+        """The added model that runs this one of Eden chat's models (serves), the first
+        added; None when no key for it is added."""
+        for entry in self.entries.values():
+            provider = self.providers.get(entry.provider)
+            if provider is not None and entry.model == model and serves(provider, model):
+                return entry
+        return None
+
+    def sync_eden_chat(self, only: str = "") -> bool:
+        """Put each of Eden chat's models (beyond Claude) on a provider of the owner's that
+        runs it (serves) when none has it yet: a Gemini key gets Gemini 4 Argon, 3.8 Flash and
+        3.5 Flash-Lite, an OpenAI key GPT-6.1 Sol, a Moonshot key Kimi K3, by Eden chat's
+        names. only: that provider alone (one just added). Done for each list once (the
+        file remembers eden_chat_stamp), so a model the owner removed stays removed until
+        Eden chat's list changes; nothing is saved here. Whether any was added."""
+        added = False
+        for model, _name, group in eden_chat_models():
+            if group == "anthropic" or self._eden_entry(model) is not None:
+                continue
+            for provider in self.providers.values():
+                if (only and provider.id != only) or not serves(provider, model):
+                    continue
+                try:
+                    _, model_id, label = self.can_add(provider.id, model)
+                except ValueError:  # full, or its name is another model's there
+                    continue
+                self._add_entry(provider.id, model_id, label or model_id)
+                added = True
+                break
+        if not only:
+            self.eden_chat_synced = eden_chat_stamp()
+        return added
+
+    def picker(self) -> list[dict[str, Any]]:
+        """What Eden Code's model pickers offer: Eden chat's models, in its order, by its
+        names, each with its heading ("group"), then any other model the owner added
+        ("eden" False). Claude's run on the owner's sign-in (the built-in refs); another
+        provider's on the owner's key added for it ("custom:<id>"); one with no key for it
+        yet is still listed, with needs_key and the reason (its ref "eden:<model id>" runs
+        nothing: session_config says what's needed), what to add (key_kind, key_url) and
+        whether Eden chat on this Mac has that key to use (from_eden_chat)."""
+        out: list[dict[str, Any]] = []
+        used: set[str] = set()
+        builtin = {model: ref for ref, model in MODELS.items()}
+        for model, name, group in eden_chat_models():
+            shown = {"label": name, "eden": True, "group": EDEN_CHAT_GROUPS[group]}
+            if group == "anthropic":
+                ref = builtin[model]
+                out.append({
+                    "ref": ref, "model": model, "name": name, "provider": "",
+                    "provider_name": BUILTIN_NAME, "kind": "builtin", "builtin": True, **shown,
+                })  # fmt: skip
+                continue
+            entry = self._eden_entry(model)
+            if entry is not None:
+                used.add(entry.id)
+                out.append({**self._public_model(entry), **shown})
+                continue
+            kind = EDEN_CHAT_HOW[group][0]
+            what, url, _ = EDEN_CHAT_KEYS[group]
+            out.append({
+                "ref": EDEN + model, "model": model, "name": name, "provider": "",
+                "provider_name": "", "kind": kind, "builtin": False, **shown,
+                "needs_key": True, "reason": needs_key_reason(name, group),
+                "key_kind": kind, "key_url": url, "key_group": group, "key_what": what,
+                "from_eden_chat": bool(self.chat_keys.get(group)),
+            })  # fmt: skip
+        for provider in self.providers.values():
+            out += [
+                {**self._public_model(e), "eden": False, **self._on_this_mac(provider, e.model)}
+                for e in self.models_of(provider.id)
+                if e.id not in used
+            ]
+        return out
+
+    # models on this Mac (Ollama, LM Studio…)
+
+    @staticmethod
+    def local_port(provider: Provider) -> int | None:
+        """The port of a provider that is a model server on this Mac, else None."""
+        if provider.kind != "openai":
+            return None
+        parts = urlsplit(provider.base_url)
+        return parts.port if is_local(parts.hostname or "") and parts.port else None
+
+    def _on_this_mac(self, provider: Provider, model: str) -> dict[str, Any]:
+        """A picker row's extras for a model on a server on this Mac: its heading ("On this
+        Mac"), the server, and what the last look found about it (size in bytes, context in
+        tokens, parameters, quantization, whether it takes tools); nothing for any other."""
+        port = self.local_port(provider)
+        if port is None:
+            return {}
+        found = self.local_found.get(port, {}).get(model, {})
+        return {
+            "local": True, "group": LOCAL_GROUP, "port": port,
+            "server": LOCAL_SERVERS.get(port, provider.name), **_local_details(found, model),
+        }  # fmt: skip
+
+    def local_unadded(self) -> list[dict[str, Any]]:
+        """The models found running on this Mac that no provider here offers yet: listed in
+        the pickers under "On this Mac" all the same; picking one adds its server first
+        (local_models_use). Their refs aren't model refs: nothing runs them as they are."""
+        added: dict[int, set[str]] = {}
+        for provider in self.providers.values():
+            port = self.local_port(provider)
+            if port is not None:
+                added.setdefault(port, set()).update(e.model for e in self.models_of(provider.id))
+        out = []
+        for port, models in sorted(self.local_found.items()):
+            for model, found in models.items():
+                if model in added.get(port, ()):
+                    continue
+                server = LOCAL_SERVERS.get(port, f"Port {port}")
+                out.append({
+                    "ref": f"{LOCAL}{port}/{model}", "model": model, "label": model,
+                    "name": f"{model} · {server}", "provider": "", "provider_name": server,
+                    "kind": "openai", "builtin": False, "eden": False, "local": True,
+                    "group": LOCAL_GROUP, "port": port, "server": server, "needs_add": True,
+                    **_local_details(found, model),
+                })  # fmt: skip
+        return out
+
     def describe(self, ref: str | None) -> str:
         """A model's name for people ("Opus 5.5", "openai/gpt-5 · OpenRouter")."""
         ref = str(ref or "").strip()
+        if ref.startswith(EDEN):
+            ref = self._eden_ref(ref)
+            if ref.startswith(EDEN):
+                return CATALOG.get(ref.removeprefix(EDEN), (ref,))[0]
         if ref in MODELS:
             return MODEL_NAMES[ref]
         for key, model in MODELS.items():
@@ -1331,9 +1696,22 @@ class ProviderStore:
         return self._title(entry) if entry is not None else ref
 
     def known(self, ref: str | None) -> bool:
-        """Whether a ref names a model on the list: a built-in key or an added model."""
-        ref = str(ref or "").strip()
+        """Whether a ref names a model on the list: a built-in key or an added model (one
+        of Eden chat's with no key for it yet isn't: nothing could run it)."""
+        ref = self.resolve(ref)
         return ref in MODELS or (ref.startswith(CUSTOM) and self._entry(ref) is not None)
+
+    def resolve(self, ref: str | None) -> str:
+        """A ref as sessions keep it: one of Eden chat's picked as "eden:<model id>" is the
+        added model that runs it now ("custom:<id>"); any other ref is itself."""
+        ref = str(ref or "").strip()
+        return self._eden_ref(ref) if ref.startswith(EDEN) else ref
+
+    def _eden_ref(self, ref: str) -> str:
+        """An "eden:<model id>" ref as the added model that runs it now ("custom:<id>"), or
+        as it was when there's still none."""
+        entry = self._eden_entry(ref.removeprefix(EDEN))
+        return CUSTOM + entry.id if entry is not None else ref
 
     def pick_fallback(self) -> str:
         """The added model to turn to when Claude can't answer and none was picked (the
@@ -1359,7 +1737,7 @@ class ProviderStore:
     # sessions
 
     def session_config(
-        self, ref: str | None, environ: Mapping[str, str] | None = None
+        self, ref: str | None, environ: Mapping[str, str] | None = None, *, grant: bool = True
     ) -> dict[str, Any]:
         """What a Claude Code session needs for a model: "model" (for the model option),
         "env" (to merge into ClaudeAgentOptions.env) and "settings" (a JSON string for
@@ -1368,15 +1746,28 @@ class ProviderStore:
 
         A built-in model (or none: the default) runs exactly as before: no settings, no
         extra environment. Another provider's model gets settings with an apiKeyHelper
-        that reads its key from the Keychain and env pins that send every request to the
-        provider's address with that key and nothing else. The key itself is in none of
-        it. env only blanks inherited credentials: applied without the settings, the
+        that prints a pass made for this run (grant_for) and env pins that send every
+        request to the key proxy or the provider's relay, which put the key in the pass's
+        place on the way to the provider's sealed address. Neither the key nor anything
+        that reads it is in any of it. env only blanks inherited credentials: applied without the settings, the
         session goes nowhere near the provider. environ is this Mac's environment (for
         the network pins); tests pass their own. Raises ValueError, in words to show,
-        for a model that's gone or whose key is missing or doesn't match."""
+        for a model that's gone or whose key is missing or doesn't match. grant=False: no
+        pass is made (settings None), for a caller that only wants the model's name or
+        label (every pass made is kept until it's revoked or idle a week: made for nothing,
+        they'd push a session's own out of the MAX_GRANTS kept)."""
         ref = str(ref or "").strip()
         if not ref:
             return _config(None, "", "", True)
+        if ref.startswith(EDEN):  # one of Eden chat's, picked before its key was added
+            ref = self._eden_ref(ref)
+            model = ref.removeprefix(EDEN)
+            if ref.startswith(EDEN):
+                entry = CATALOG.get(model)
+                group = next((g for m, _, g in EDEN_CHAT_MODELS if m == model), "")
+                if entry is None or not group:
+                    raise ValueError("That model isn't on the list any more; pick another one.")
+                raise ValueError(needs_key_reason(entry[0], group))
         if ref in MODELS:
             return _config(MODELS[ref], MODEL_NAMES[ref], "", True)
         if not ref.startswith(CUSTOM):  # a model id as Claude Code knows it, as before
@@ -1388,7 +1779,9 @@ class ProviderStore:
             raise ValueError("That model isn't on the list any more; pick another one.")
         self._saved(provider)  # a key is there, and it belongs to this very address
         pins = session_pins(provider, entry.model, os.environ if environ is None else environ)
-        settings = {"apiKeyHelper": self.helper(provider.id), "env": pins}
+        settings = (
+            {"apiKeyHelper": self.helper(self.grant_for(provider)), "env": pins} if grant else None
+        )
         claude = provider.kind == "anthropic" or "claude" in entry.model.lower()
         return _config(
             entry.model,
@@ -1396,7 +1789,7 @@ class ProviderStore:
             provider.id,
             claude,
             env=dict.fromkeys(CREDENTIAL_ENV, ""),
-            settings=json.dumps(settings),
+            settings=json.dumps(settings) if settings is not None else None,
         )
 
     # checking a key
@@ -1462,9 +1855,11 @@ class ProviderStore:
             "kinds": [_public_kind(k) for k in KINDS.values()],
             "providers": [self._public_provider(p) for p in self.providers.values()],
             "models": self.models(),
+            "picker": self.picker(),
             "limits": {"providers": MAX_PROVIDERS, "models": MAX_MODELS},
             "advice": KEY_ADVICE,
             "fallback_auto": self.pick_fallback(),  # what the fallback's Automatic would use
+            "on_this_mac": self.local_unadded(),  # found running here, not added yet
         }
 
     def _public_provider(self, provider: Provider) -> dict[str, Any]:
@@ -1479,6 +1874,7 @@ class ProviderStore:
             "added": provider.added,
             "status": self.status.get(provider.id),
             "models": [self._public_model(e) for e in self.models_of(provider.id)],
+            "suggested": list(catalog_suggested(provider.kind, provider.base_url)),
         }
 
     def _public_model(self, entry: ModelEntry) -> dict[str, Any]:
@@ -1530,11 +1926,12 @@ def _config(
 
 
 def session_pins(provider: Provider, model: str, environ: Mapping[str, str]) -> dict[str, str]:
-    """The environment a provider session's settings pin: the provider's address (Claude
-    Code's own for Anthropic) and the chosen model; every other address, backend,
-    credential and model variable blank; and the network settings this Mac already has.
-    Anthropic keeps Claude's own tiers (they're all real Claude models there); any other
-    provider gets the chosen model for every tier. No key: that comes from the helper."""
+    """The environment a provider session's settings pin: where its requests go (the key
+    proxy, or the provider's relay, on this Mac) and the chosen model; every other address,
+    backend, credential and model variable blank; and the network settings this Mac already
+    has. Anthropic keeps Claude's own tiers (they're all real Claude models there); any other
+    provider gets the chosen model for every tier. No key: the helper gives a pass, which
+    the proxy or relay swaps for the key."""
     pins = dict.fromkeys((*DESTINATION_ENV, *CREDENTIAL_ENV, *MODEL_ENV), "")
     pins["ANTHROPIC_MODEL"] = model
     if provider.kind == "gemini":
@@ -1559,10 +1956,14 @@ def session_pins(provider: Provider, model: str, environ: Mapping[str, str]) -> 
             # A model on this Mac: Claude Code's own telemetry, error reports and update
             # checks stay off too, so nothing needs the network.
             pins["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
-    elif provider.kind != "anthropic":
-        # (a Moonshot provider saved with its bare address still reaches its Anthropic API)
-        pins["ANTHROPIC_BASE_URL"] = anthropic_endpoint(provider.base_url)
-        pins.update(dict.fromkeys(TIER_ENV, model))
+    else:
+        # Anthropic, OpenRouter or a custom endpoint: the key proxy, which sends each request
+        # on to the address sealed with the key (Anthropic's own for an Anthropic key).
+        from .key_proxy import PROXY as KEY_PROXY
+
+        pins["ANTHROPIC_BASE_URL"] = KEY_PROXY.ensure()
+        if provider.kind != "anthropic":
+            pins.update(dict.fromkeys(TIER_ENV, model))
     for name in NETWORK_ENV:
         value = str(environ.get(name) or "")
         if name in _PROXY_URLS and "@" in value:
@@ -1640,7 +2041,10 @@ async def _ask(provider: Provider, key: str, client: httpx.AsyncClient) -> dict[
             return _checked(
                 True, models=listed, note=f"Gemini works, through {where}: {count} on this key."
             )
-        models = [{"id": m, "name": m, "tools": True} for m in KINDS["gemini"].suggested]
+        models = [
+            {"id": m, "name": catalog_label(m, "gemini") or m, "tools": True}
+            for m in KINDS["gemini"].suggested
+        ]
         return _checked(True, models=models, note=f"Gemini works, through {where}.")
     headers = _headers(provider, key)
     note = ""

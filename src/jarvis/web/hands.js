@@ -14,6 +14,7 @@ import { FilesetResolver, HandLandmarker } from '/vision/vision_bundle.mjs';
 import {
   NO_HAND_MS, createDesktopGestures, createGestures, createPageGestures, desktopMessages, noHandSeen, wellFormed,
 } from './gestures.js';
+import { openCamera } from './cameras.js';
 
 // app.js is a classic script: the clap-started session's rule reaches it through here.
 export { desktopMessages, NO_HAND_MS, noHandSeen };
@@ -254,7 +255,7 @@ export async function startHands(target, { overlayCanvas, statusEl, cursorEl, cl
   }
   if (gen !== starting) return; // stopped while the tracker loaded: the camera stays shut
   lastHandAt = 0; // a hand from the last session doesn't count for this one
-  const camera = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, frameRate: 30 }, audio: false });
+  const camera = await openCamera(); // the owner's pick in the hand panel (cameras.js), else the default
   if (gen !== starting) { // stopped while the camera opened: shut it again at once
     camera.getTracks().forEach((t) => t.stop());
     return;

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Eden Code">
+<meta name="theme-color" content="#0d0f14">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/code/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/code/icon.png">
+<link rel="icon" href="/code/icon.png">
+<link rel="stylesheet" href="/code/phone.css">
+<title>Eden Code</title>
+</head>
+<body>
+<p id="conn" class="conn" role="status" aria-live="polite"></p>
+
+<main id="pair" class="view" hidden>
+  <h1 class="brand-big">Eden Code</h1>
+  <p class="lede" data-t="pair_lede">On your Mac, open Settings › iPhone &amp; Watch and press Pair a phone. Enter the six-digit code here.</p>
+  <form id="pair-form" class="stack" autocomplete="off">
+    <label for="pair-code" data-t="pair_code">Pairing code</label>
+    <input id="pair-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+    <label for="pair-name" data-t="pair_name">This device</label>
+    <input id="pair-name" maxlength="40" value="iPhone (Eden Code)">
+    <button type="submit" class="primary" data-t="pair">Pair</button>
+    <p id="pair-error" class="error" role="alert"></p>
+  </form>
+</main>
+
+<main id="off" class="view" hidden>
+  <h1 class="brand-big">Eden Code</h1>
+  <p id="off-text" class="lede" role="alert"></p>
+  <button type="button" id="off-retry" class="primary" data-t="retry">Try again</button>
+</main>
+
+<main id="home" class="view" hidden>
+  <header class="bar">
+    <h1 class="brand" tabindex="-1">Eden Code</h1>
+    <button type="button" id="new-btn" class="primary small" data-t="new_session">New session</button>
+  </header>
+  <section id="pinned" class="pinned" hidden aria-label="From your Mac"></section>
+  <section id="attention" class="block" aria-labelledby="attention-h" hidden>
+    <h2 id="attention-h" data-t="needs_you">Waiting on you</h2>
+    <div id="attention-list" class="cards"></div>
+  </section>
+  <section class="block" aria-labelledby="sessions-h">
+    <h2 id="sessions-h" data-t="sessions">Sessions</h2>
+    <ul id="session-list" class="sessions"></ul>
+    <p id="sessions-empty" class="dim" hidden data-t="no_sessions">No sessions yet. Start one here or on your Mac.</p>
+  </section>
+  <section id="exterminator" class="block" aria-labelledby="ext-h" hidden>
+    <h2 id="ext-h" data-t="exterminator">Exterminator Mode</h2>
+    <ul id="ext-list" class="runs"></ul>
+  </section>
+  <footer class="foot">
+    <button type="button" id="unpair" class="link" data-t="unpair">Unpair this browser</button>
+  </footer>
+</main>
+
+<main id="session" class="view" hidden>
+  <header class="bar">
+    <button type="button" id="back" class="link back" data-t="back">‹ Sessions</button>
+    <span id="s-status" class="chip"></span>
+  </header>
+  <h1 id="s-title" class="title" tabindex="-1"></h1>
+  <p id="s-meta" class="dim"></p>
+  <div class="controls">
+    <label class="field"><span data-t="model">Model</span><select id="s-model"></select></label>
+    <label class="field"><span data-t="mode">Mode</span><select id="s-mode"></select></label>
+    <button type="button" id="s-stop" class="danger small" data-t="stop">Stop</button>
+  </div>
+  <p id="s-said" class="said" role="status" aria-live="polite"></p>
+  <section id="s-cards" class="cards" aria-label="Waiting on you"></section>
+  <section id="s-copy" class="copybar" hidden aria-label="Isolated copy">
+    <span id="s-copy-text"></span>
+    <span class="row">
+      <button type="button" id="s-land" class="small" data-t="land">Land</button>
+      <button type="button" id="s-discard" class="small" data-t="discard">Discard</button>
+    </span>
+  </section>
+  <details id="s-todos" class="todos" hidden><summary data-t="todos">To-do list</summary><ul id="s-todo-list"></ul></details>
+  <ol id="s-log" class="log" role="log" aria-label="Transcript"></ol>
+  <p id="s-doing" class="doing" role="status" aria-live="polite"></p>
+  <form id="s-form" class="composer" autocomplete="off">
+    <label for="s-text" class="sr-only" data-t="message">Message</label>
+    <textarea id="s-text" rows="2" maxlength="20000" placeholder="Message Eden Code…" enterkeyhint="send"></textarea>
+    <button type="submit" class="primary" data-t="send">Send</button>
+  </form>
+</main>
+
+<main id="new" class="view" hidden>
+  <header class="bar">
+    <button type="button" id="new-back" class="link back" data-t="back">‹ Sessions</button>
+  </header>
+  <h1 class="title" tabindex="-1" data-t="new_session">New session</h1>
+  <form id="new-form" class="stack" autocomplete="off">
+    <label for="new-project" data-t="project">Project</label>
+    <select id="new-project" required></select>
+    <label for="new-prompt" data-t="what">What should it do?</label>
+    <textarea id="new-prompt" rows="5" maxlength="20000" required></textarea>
+    <label for="new-mode" data-t="mode">Mode</label>
+    <select id="new-mode"></select>
+    <label for="new-model" data-t="model">Model</label>
+    <select id="new-model"></select>
+    <label class="check"><input type="checkbox" id="new-isolated"> <span data-t="isolated">In an isolated copy</span></label>
+    <p class="dim" data-t="bypass_note">Bypass permissions can only be turned on at the Mac.</p>
+    <button type="submit" class="primary" data-t="start">Start</button>
+    <p id="new-error" class="error" role="alert"></p>
+  </form>
+</main>
+<script src="/code/phone.js"></script>
+</body>
+</html>

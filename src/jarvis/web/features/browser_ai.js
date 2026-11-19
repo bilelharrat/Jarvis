@@ -66,6 +66,9 @@
   const { el } = F;
   const app = window.jarvisApp || null;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
+  const inCode = () => document.body.dataset.app === 'eden-code' || document.body.classList.contains('eden-code');
+  const paneEl = () => F.$('jc-pane');
+  const paneOpen = () => { const p = paneEl(); return Boolean(inCode() && p && !p.hidden && p.dataset.kind === 'browser'); };
 
   const FLAG_KEEP_MS = 30 * 60 * 1000;
   const flags = new Map(); // page key -> { lines, hidden, at, closed }
@@ -83,14 +86,16 @@
 
   // The strip of notices over the page, between the find bar and the page itself.
   function strip() {
+    const paneStage = inCode() && paneEl() ? paneEl().querySelector('.cb-stage') : null;
+    const slot = paneStage || F.$('browser-slot');
+    if (!slot || !slot.parentElement) return F.$('bai-strip');
     let box = F.$('bai-strip');
-    if (box) return box;
-    const slot = F.$('browser-slot');
-    if (!slot || !slot.parentElement) return null;
-    box = el('div', 'bai-strip');
-    box.id = 'bai-strip';
-    box.setAttribute('aria-live', 'polite');
-    slot.parentElement.insertBefore(box, slot);
+    if (!box) {
+      box = el('div', 'bai-strip');
+      box.id = 'bai-strip';
+      box.setAttribute('aria-live', 'polite');
+    }
+    if (box.nextElementSibling !== slot) slot.parentElement.insertBefore(box, slot);
     return box;
   }
 
@@ -162,7 +167,8 @@
     turn = { tab: ev.tab, url: String(ev.url || ''), host: String(ev.host || ''), kind: String(ev.need || '') };
     const b = app && app.browser;
     if (b && b.tab && ev.tab !== page.tab) b.tab('select', ev.tab); // the owner's turn is in that tab
-    if (!document.body.classList.contains('browser-open')) { const btn = F.$('browser-btn'); if (btn && !btn.hidden) btn.click(); }
+    if (inCode()) { if (!paneOpen() && F.openPane) F.openPane('browser'); }
+    else if (!document.body.classList.contains('browser-open')) { const btn = F.$('browser-btn'); if (btn && !btn.hidden) btn.click(); }
     renderTurn();
   });
 
@@ -434,16 +440,20 @@
   let recErrorTimer = 0;
   let recorded = []; // the saved tasks: { name, steps, site }
   const isRecording = () => rec.state === 'recording';
+  const starAnchor = () => (inCode() && paneEl() && paneEl().querySelector('.cb-star')) || F.$('br-star');
   function recordButton() {
-    const star = F.$('br-star');
-    if (!star || F.$('bai-record-btn')) return;
-    const b = button('', 'bd-star bai-record-btn', () => F.send({ type: 'browser_ai_record', action: isRecording() ? 'stop' : 'start' }), 'Record a task');
-    b.id = 'bai-record-btn';
-    b.title = F.t('Record a task');
-    b.setAttribute('aria-pressed', 'false');
-    b.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.8" fill="currentColor"/></svg>';
-    b.hidden = true;
-    star.before(b);
+    const star = starAnchor();
+    if (!star) return;
+    let b = F.$('bai-record-btn');
+    if (!b) {
+      b = button('', 'bd-star bai-record-btn', () => F.send({ type: 'browser_ai_record', action: isRecording() ? 'stop' : 'start' }), 'Record a task');
+      b.id = 'bai-record-btn';
+      b.title = F.t('Record a task');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.8" fill="currentColor"/></svg>';
+      b.hidden = true;
+    }
+    if (b.parentElement !== star.parentElement) star.before(b);
   }
   recordButton();
   const stepsWord = (n) => `${n} ${n === 1 ? 'step' : 'steps'}`;
@@ -610,13 +620,17 @@
   let reader = null; // { tab, url, title, byline, site, blocks, readable: [block index...] }
   let reading = { state: 'idle', at: 0, count: 0 };
   function slotRect() {
-    const r = F.$('browser-slot').getBoundingClientRect();
+    const elSlot = (inCode() && paneEl() && paneEl().querySelector('.cb-slot')) || F.$('browser-slot');
+    const r = elSlot.getBoundingClientRect();
     return { x: r.left, y: r.top, width: r.width, height: r.height };
   }
   function readerPanel() {
+    const slot = (inCode() && paneEl() && paneEl().querySelector('.cb-stage')) || F.$('browser-slot');
     let panel = F.$('bai-reader');
-    if (panel) return panel;
-    const slot = F.$('browser-slot');
+    if (panel) {
+      if (slot && panel.parentElement !== slot) slot.append(panel);
+      return panel;
+    }
     if (!slot) return null;
     panel = el('div', 'bai-reader');
     panel.id = 'bai-reader';
@@ -721,22 +735,25 @@
     if (btn) btn.setAttribute('aria-pressed', 'false');
     if (showPage && dockOpenNow() && app && app.browser && app.browser.show) app.browser.show(slotRect());
   }
-  const dockOpenNow = () => document.body.classList.contains('browser-open');
+  const dockOpenNow = () => (inCode() ? paneOpen() : document.body.classList.contains('browser-open'));
   F.on('browser_ai_reading', (ev) => {
     reading = { state: String(ev.state || 'idle'), at: Math.max(0, Number(ev.at) || 0), count: Math.max(0, Number(ev.count) || 0), url: String(ev.url || ''), muted: !!ev.muted };
     renderReading();
   });
   // The address bar's Reader button (a web page on show, not the Research Center).
   function readerButton() {
-    const star = F.$('br-star');
-    if (!star || F.$('bai-reader-btn')) return;
-    const b = button('', 'bd-star bai-reader-btn', () => { if (reader) closeReader(); else openReader(false); }, 'Reader');
-    b.id = 'bai-reader-btn';
-    b.title = F.t('Reader');
-    b.setAttribute('aria-pressed', 'false');
-    b.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 3.5h10M3 6.5h10M3 9.5h10M3 12.5h6"/></svg>';
-    b.hidden = true;
-    star.before(b);
+    const star = starAnchor();
+    if (!star) return;
+    let b = F.$('bai-reader-btn');
+    if (!b) {
+      b = button('', 'bd-star bai-reader-btn', () => { if (reader) closeReader(); else openReader(false); }, 'Reader');
+      b.id = 'bai-reader-btn';
+      b.title = F.t('Reader');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 3.5h10M3 6.5h10M3 9.5h10M3 12.5h6"/></svg>';
+      b.hidden = true;
+    }
+    if (b.parentElement !== star.parentElement) star.before(b);
   }
   readerButton();
   // The reader follows the page: another page, another tab, the dock closed or the
@@ -744,6 +761,7 @@
   const lib = F.$('bd-lib');
   if (lib) new MutationObserver(() => { if (!lib.hidden) closeReader(false); }).observe(lib, { attributes: true, attributeFilter: ['hidden'] });
   new MutationObserver(() => { if (!dockOpenNow()) closeReader(false); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  if (paneEl()) new MutationObserver(() => { if (!dockOpenNow()) closeReader(false); report(); }).observe(paneEl(), { attributes: true, attributeFilter: ['hidden', 'data-kind'] });
   B.openReader = openReader;
 
   // ── the page on show, as the hub needs it ──
@@ -751,7 +769,7 @@
   // hub on this Mac, which keeps the latest.
   let sentKey = '';
   let sendTimer = 0;
-  const dockOpen = () => document.body.classList.contains('browser-open');
+  const dockOpen = () => dockOpenNow();
   function report(now = false) {
     clearTimeout(sendTimer);
     const go = () => {
@@ -773,7 +791,7 @@
   const DWELL_MS = 60 * 1000;
   const dwell = { key: '', ms: 0, told: new Set() };
   B.dwellTick = (ms = 1000) => {
-    if (!memories.on || !dockOpen() || document.visibilityState !== 'visible' || page.research || page.private || !/^https?:/.test(page.url)) return; // (a private tab's pages are kept nowhere)
+    if (inCode() || !memories.on || !dockOpen() || document.visibilityState !== 'visible' || page.research || page.private || !/^https?:/.test(page.url)) return; // (browsing memories stay off in Eden Code; private tabs kept nowhere)
     const key = B.pageKey(page.url);
     if (key !== dwell.key) { dwell.key = key; dwell.ms = 0; }
     dwell.ms += ms;
@@ -785,6 +803,8 @@
   setInterval(() => B.dwellTick(), 1000);
 
   function onState(st) {
+    recordButton();
+    readerButton();
     const tabs = Array.isArray(st && st.tabs) ? st.tabs : [];
     const shown = tabs.find((x) => x.active) || {};
     const next = { url: String((st && st.url) || ''), title: String((st && st.title) || ''), tab: shown.id ?? null, research: !!(st && st.research), private: !!shown.private };
@@ -882,10 +902,10 @@
       }
       case 'new_tab':
         await b.tab('new');
-        setTimeout(() => { const url = F.$('br-url'); if (url) url.focus(); }, 120); // as the + button does
+        setTimeout(() => { const url = (inCode() && paneEl() && paneEl().querySelector('.cb-url')) || F.$('br-url'); if (url) url.focus(); }, 120); // as the + button does
         return { ok: true };
       case 'close_tab': {
-        const url = F.$('br-url');
+        const url = (inCode() && paneEl() && paneEl().querySelector('.cb-url')) || F.$('br-url');
         if (url && document.activeElement === url) url.blur(); // so the next page's address shows in it
         if (nav.tabs > 1) { await b.tab('close'); return { ok: true }; }
         return call('shortcut', { name: 'close' }); // the last tab: the dock closes, as ⌘W does
@@ -894,8 +914,8 @@
         const r = await call('shortcut', { name: 'find' });
         if (!r || r.ok === false) return r || { ok: false };
         const text = String(args.text || '').slice(0, 100);
-        const bar = F.$('bd-find');
-        const input = F.$('bd-find-input');
+        const bar = (inCode() && paneEl() && paneEl().querySelector('.cb-find')) || F.$('bd-find');
+        const input = (inCode() && paneEl() && paneEl().querySelector('.cb-find-input')) || F.$('bd-find-input');
         for (let i = 0; i < 25 && bar && bar.hidden; i += 1) await sleep(20); // the dock opens its bar
         if (text && input && bar && !bar.hidden) {
           input.value = text;
@@ -926,145 +946,4 @@
     }
     F.send({ type: 'browser_ai_result', id: ev.id, result: result || {} });
   });
-
-  // ── Claude Browser toolbar controls: Element Picker (↖), Screenshot (📷), Console (<>), Dev Server bar ──
-  const pickBtn = F.$('br-pick');
-  const shotBtn = F.$('br-shot');
-  const consoleBtn = F.$('br-console');
-  const consoleDrawer = F.$('br-console-drawer');
-  const consoleLog = F.$('br-console-log');
-  const consoleSend = F.$('br-console-send');
-  const consoleClose = F.$('br-console-close');
-  const devBar = F.$('br-devbar');
-  const devBarText = F.$('br-devbar-text');
-  const devBarBtn = F.$('br-devbar-btn');
-
-  if (pickBtn) {
-    pickBtn.addEventListener('click', async () => {
-      if (!app || !app.feature) return;
-      const active = pickBtn.getAttribute('aria-pressed') === 'true';
-      pickBtn.setAttribute('aria-pressed', String(!active));
-      try {
-        const res = await call('snapshot', { interactive: true, tab: page.tab });
-        if (res && res.text && F.$('deck-input')) {
-          const input = F.$('deck-input');
-          const summary = String(res.text).split('\n').slice(0, 12).join('\n');
-          input.value = `${input.value ? `${input.value}\n\n` : ''}[Page elements on ${page.url || 'current tab'}]:\n\`\`\`\n${summary}\n\`\`\`\n`;
-          input.dispatchEvent(new Event('input'));
-          input.focus();
-        }
-      } catch (_) {}
-      setTimeout(() => pickBtn.setAttribute('aria-pressed', 'false'), 400);
-    });
-  }
-
-  if (shotBtn) {
-    shotBtn.addEventListener('click', async () => {
-      if (!app || !app.feature) return;
-      try {
-        const res = await call('screenshot', { tab: page.tab });
-        const b64 = (res && (res.jpeg || res.png || res.data)) || '';
-        if (b64) {
-          const mime = res.png ? 'image/png' : 'image/jpeg';
-          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-          const file = new File([bytes], `browser-${Date.now()}.${res.png ? 'png' : 'jpg'}`, { type: mime });
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          const fileInput = F.$('jc-file');
-          if (fileInput) {
-            fileInput.files = dt.files;
-            fileInput.dispatchEvent(new Event('change'));
-          }
-        }
-      } catch (_) {}
-    });
-  }
-
-  async function refreshConsoleDrawer() {
-    if (!consoleDrawer || consoleDrawer.hidden || !app || !app.feature) return;
-    try {
-      const [cons, net] = await Promise.all([
-        call('console', { level: 'all', limit: 30, tab: page.tab }).catch(() => null),
-        call('network', { failed: true, limit: 20, tab: page.tab }).catch(() => null),
-      ]);
-      const lines = [];
-      if (cons && cons.text) lines.push(cons.text.trim());
-      if (net && net.text && !/No (failed )?requests/i.test(net.text)) lines.push(net.text.trim());
-      consoleLog.textContent = lines.filter(Boolean).join('\n\n') || 'No console messages or failed requests.';
-    } catch (_) {
-      consoleLog.textContent = 'Console ready.';
-    }
-  }
-
-  if (consoleBtn && consoleDrawer) {
-    consoleBtn.addEventListener('click', () => {
-      const open = consoleDrawer.hidden;
-      consoleDrawer.hidden = !open;
-      consoleBtn.setAttribute('aria-pressed', String(open));
-      if (open) refreshConsoleDrawer();
-    });
-  }
-  if (consoleClose && consoleDrawer) {
-    consoleClose.addEventListener('click', () => {
-      consoleDrawer.hidden = true;
-      if (consoleBtn) consoleBtn.setAttribute('aria-pressed', 'false');
-    });
-  }
-  if (consoleSend && consoleLog) {
-    consoleSend.addEventListener('click', () => {
-      const input = F.$('deck-input');
-      if (!input) return;
-      const text = consoleLog.textContent.trim();
-      input.value = `${input.value ? `${input.value}\n\n` : ''}Browser console on ${page.url || 'current page'}:\n\`\`\`\n${text}\n\`\`\`\n`;
-      input.dispatchEvent(new Event('input'));
-      input.focus();
-    });
-  }
-
-  let currentDevServer = null;
-  F.on('cv_state', (ev) => {
-    if (!devBar || !devBarText || !devBarBtn) return;
-    const configs = Array.isArray(ev && ev.configs) ? ev.configs : [];
-    const running = Array.isArray(ev && ev.servers) ? ev.servers : [];
-    if (!configs.length && !running.length) {
-      devBar.hidden = true;
-      currentDevServer = null;
-      return;
-    }
-    const live = running[0];
-    const cfg = configs[0];
-    devBar.hidden = false;
-    if (live) {
-      currentDevServer = { action: 'stop', key: live.key, name: live.name, url: live.url };
-      devBar.classList.add('running');
-      devBarText.textContent = `Dev server "${live.name}" running${live.url ? ` at ${live.url}` : ''}.`;
-      devBarBtn.textContent = 'Open';
-    } else if (cfg) {
-      currentDevServer = { action: 'start', name: cfg.name };
-      devBar.classList.remove('running');
-      devBarText.textContent = `Dev server "${cfg.name}" isn't running.`;
-      devBarBtn.textContent = 'Start';
-    }
-  });
-  if (devBarBtn) {
-    devBarBtn.addEventListener('click', () => {
-      if (!currentDevServer) return;
-      if (currentDevServer.action === 'stop' && currentDevServer.url) {
-        const urlInput = F.$('br-url');
-        const form = F.$('browser-bar');
-        if (urlInput && form) {
-          urlInput.value = currentDevServer.url;
-          form.dispatchEvent(new Event('submit', { cancelable: true }));
-        }
-        return;
-      }
-      const t = F.currentTask && F.currentTask();
-      F.send({
-        type: 'cv_server',
-        action: 'start',
-        name: currentDevServer.name,
-        ...(t ? { id: t.id } : {}),
-      });
-    });
-  }
 })();

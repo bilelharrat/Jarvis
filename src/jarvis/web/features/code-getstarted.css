@@ -1,0 +1,11 @@
+/* Eden Code's first-run cards in the welcome (code-getstarted.js): the phone page's offer and
+   "Good to know". They take .jc-card's own look (app.css, eden-code.css, the glass in
+   eden-code-glass.css), so light, dark and glass come with it; this only lays them out. */
+.gs-cards { max-width: 560px; margin: 18px auto 0; display: grid; gap: 10px; text-align: left; }
+.gs-cards[hidden] { display: none; }
+.gs-card { padding: 12px 14px; }
+.gs-card .jc-label { margin: 0 0 4px; }
+.gs-count { opacity: .6; font-weight: 400; }
+.gs-text { margin: 0; font-size: 13px; line-height: 1.45; }
+.gs-where { margin: 4px 0 0; font-size: 12px; opacity: .7; }
+.gs-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }

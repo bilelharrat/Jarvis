@@ -71,27 +71,6 @@
   }
   const mailGroup = () => { const g = $('mail-group'); return g && !g.hidden ? g : null; };
 
-  // Signing in to an Eden account (the browser approves a code): its AI then answers, from the plan's monthly allowance.
-  let acct = null;
-  let announcedCode = '';
-  function aiText() {
-    if (acct && acct.linked) return 'Signed in. Eden Secretary’s AI now comes from your Eden account.';
-    const link = acct && acct.link;
-    if (link && link.state === 'waiting' && link.code) return `Approve the code ${link.code} on askeden.com. The page is opening.`;
-    return 'Not signed in yet.';
-  }
-  F.on('account', (ev) => {
-    const was = Boolean(acct && acct.linked);
-    acct = ev;
-    const node = $('a11y-setup-ai');
-    if (node) node.textContent = t(aiText());
-    if (!was && ev.linked && node) lib.announce('Signed in. Eden Secretary’s AI now comes from your Eden account.');
-    else if (ev.link && ev.link.state === 'waiting' && ev.link.code && ev.link.code !== announcedCode && node) {
-      announcedCode = ev.link.code;
-      lib.announce(`Approve the code ${ev.link.code} on askeden.com. The page is opening.`);
-    }
-  });
-
   const STEPS = [
     {
       id: 'welcome',
@@ -133,21 +112,6 @@
       title: 'The keys',
       words: () => `Press ${lib.askKeys()} from any program to talk to Eden Secretary, and ${stopLabel()} to make it stop talking at once. In this window, ${KEYS} H lists the other keys, and ${KEYS} W brings back this setup. You can change the keys in Settings, General, Shortcuts.`,
       build: () => [],
-    },
-    {
-      id: 'ai',
-      title: 'AI for Eden Secretary',
-      words: () => 'Eden Secretary needs an AI to answer. The easiest way is your Eden account at askeden.com: its included AI each month pays for it, with no keys to copy. Press Sign in, or say sign in. Or skip this and add your own Claude key later, in Settings.',
-      build: () => {
-        send({ type: 'account' });
-        const status = el('p', 'small-status', t(aiText()));
-        status.id = 'a11y-setup-ai';
-        status.setAttribute('role', 'status');
-        return [status, row([
-          button('Sign in with my Eden account', () => send({ type: 'account_link', browser: true }), 'btn primary'),
-          button('Open the sign-in page again', () => send({ type: 'account_link_open' })),
-        ])];
-      },
     },
     {
       id: 'email',
