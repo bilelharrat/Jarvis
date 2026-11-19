@@ -82,6 +82,8 @@ const DESKTOP_CSS = `
   html.eden-desktop #titlebar { -webkit-app-region: drag; }
   html.eden-desktop #titlebar button, html.eden-desktop #titlebar a, html.eden-desktop #titlebar input,
   html.eden-desktop #titlebar [contenteditable], html.eden-desktop #titlebar .tb-title { -webkit-app-region: no-drag; }
+  /* The browser panel expanded covers the title bar: its tabs and + take clicks, not window drags (owner 2026-11-18). */
+  html.eden-desktop #browserPane, html.eden-desktop .bd-spot, html.eden-desktop .jc-menu { -webkit-app-region: no-drag; }
   html.eden-desktop:not(.eden-fullscreen) body { padding-top: 28px; box-sizing: border-box; }
   html.eden-desktop:not(.eden-fullscreen) #app { height: calc(100dvh - 28px); }
   html.eden-desktop:not(.eden-fullscreen) body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 28px; -webkit-app-region: drag; z-index: 2147483647; }
